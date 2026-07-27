@@ -1,43 +1,43 @@
-# 🚀 Mirrly TG Proxy v1.0.0 - Initial Official Release
+# 🚀 Mirrly TG Proxy v1.0.0 — Первый официальный релиз
 
-**Tag**: `v1.0.0`  
-**Target Architecture**: `arm64-v8a`, `armeabi-v7a`  
-**Minimum Android Version**: Android 8.0 (API Level 26+)
-
----
-
-## 🌟 What is Mirrly TG Proxy?
-
-**Mirrly TG Proxy** is a high-performance local MTProto and Cloudflare WebSocket proxy application engineered specifically for Android devices. It bypasses Internet Service Provider (ISP) censorship, DPI (Deep Packet Inspection) blocks, and network throttling imposed on Telegram, without needing full system-wide VPNs.
+**Тег релиза**: `v1.0.0`  
+**Поддерживаемые архитектуры**: `arm64-v8a`, `armeabi-v7a`  
+**Минимальная версия Android**: Android 8.0 (API Level 26+)  
+**Лицензия**: MIT License
 
 ---
 
-## 🚀 Key Features & Highlights in v1.0.0
+## 🌟 Что такое Mirrly TG Proxy?
 
-### 1. ⚡ Native High-Speed Proxy Engine (`libtgwsproxy`)
-- Powered by a standalone compiled Rust native library integrated directly via **Java Native Access (JNA)**.
-- Delivers maximum throughput and minimal battery drain compared to traditional Java/Kotlin proxy implementations.
+**Mirrly TG Proxy** — это нативный высокопроизводительный локальный прокси-сервер MTProto и Cloudflare WebSocket для Android. Приложение предназначено для полного обхода DPI-фильтрации (ТСПУ), замедлений и блокировок Telegram со стороны провайдеров без использования тяжеловесных системных VPN.
 
-### 2. 🌐 Cloudflare WebSocket Tunneling & 0ms Pre-Warmed Socket Pool
-- **WebSocket Tunneling**: Obfuscates MTProto TCP packets inside HTTPS/WebSocket traffic directed at Cloudflare CDN edge nodes.
-- **Pre-warmed Pool (`WsPool`)**: Maintains up to 16 pre-established WebSocket connections per Telegram Data Center (DC1 through DC5), eliminating socket opening handshake latency.
-- **Custom Worker Domain Support**: Allows users to specify their own Cloudflare Worker endpoint for private proxy routing.
+---
 
-### 3. 🎨 Modern Pure Black AMOLED Interface
-- Built 100% with **Jetpack Compose** and **Material 3**.
-- Features an ultra-dark True Black theme (`#000000`) optimized for OLED/AMOLED screens.
-- Includes a standalone glowing power button with real-time breathing radial pulse animation.
-- Live telemetry dashboard displaying real-time download/upload speeds, total data counters, and active socket connections.
+## ✨ Ключевые возможности и нововведения в v1.0.0
 
-### 4. ⚡ Quick Settings Tile & Background Resilience
-- **Quick Settings Tile (`ProxyTileService`)**: Toggle proxy status directly from your Android notification shade / status bar.
-- **`WakeLock` Management**: Smart CPU keep-alive with automatic 25-minute refresh cycles for uninterrupted operation in background sleep modes.
-- **`NetworkChangeObserver`**: Seamlessly reconnects the proxy when switching between Wi-Fi and Cellular networks.
-- **Boot Autostart**: Optional receiver (`BootReceiver`) to start the proxy on device power on.
+### ⚡ 1. Нативное ядро `libtgwsproxy` (C/Rust + JNA)
+- Обработка пакетов происходит на максимальной гигабитной скорости через скомпилированную C/Rust библиотеку.
+- Прямой вызов функций ядра через Java Native Access (JNA) обеспечивает нулевую нагрузку на процессор и минимизирует расход батареи.
 
-### 5. 📱 One-Tap Integration with 17+ Telegram Clients
-Includes one-click proxy configuration (`tg://proxy?...`) with automatic app launcher for:
-- Official Telegram / Telegram X
+### 🌐 2. Туннелирование Cloudflare WebSocket и 0 мс задержка (`WsPool`)
+- **WebSocket-туннелирование**: Оборачивает трафик MTProto в защищенные HTTPS/WSS сессии к узлам Cloudflare CDN.
+- **Пул прогретых сокетов (`WsPool`)**: Поддерживает до 16 предварительно открытых WebSocket-соединений к каждому дата-центру Telegram (DC1–DC5), убирая задержку рукопожатия при отправке сообщений.
+- **Кастомные домены**: Поддержка подключения собственного домена Cloudflare Worker.
+
+### 🎨 3. Премиальный AMOLED True Black интерфейс
+- Написан 100% на **Jetpack Compose** в стиле глубокого черного цвета (`#000000`).
+- Неоновая кнопка питания с живой динамической пульсацией.
+- Живая телеметрия скорости входящего и исходящего трафика (`Б/с`, `КБ/с`, `МБ/с`), объема данных и количества активных сокетов.
+
+### ⚡ 4. Плитка быстрого запуска и высокая фоновая устойчивость
+- **Quick Settings Tile (`ProxyTileService`)**: Переключение прокси в один клик прямо из шторки уведомлений Android.
+- **Управление `WakeLock`**: Удерживание процессора от глубокого сна с автоматическим обновлением блокировки каждые 25 минут.
+- **`NetworkChangeObserver`**: Бесшовное автопереподключение при смене Wi-Fi ↔ Мобильная сеть.
+- **Автозапуск**: Опциональный запуск при включении смартфона.
+
+### 📱 5. Быстрое подключение для 17+ клиентов Telegram
+Автоматическое определение установленных мессенджеров и добавление прокси (`tg://proxy?...`) в один клик:
+- Telegram Official / Telegram X
 - AyuGram Mobile
 - ExteraGram
 - Plus Messenger
@@ -45,28 +45,17 @@ Includes one-click proxy configuration (`tg://proxy?...`) with automatic app lau
 - Cherrygram
 - Nicegram
 - iMe Messenger
-- Telegraph, Nullgram, MDGram, ForkClient, Dahl, Litegram, and more.
+- Telegraph, Nullgram, MDGram, ForkClient, Dahl, Litegram, BifToGram и другие.
 
-### 6. 📜 Real-Time Log Viewer & Human Log Translator
-- Built-in live log screen (`LogsScreen`) featuring automatic translation of complex native MTProto error codes into plain human-readable explanations.
-
----
-
-## 📦 Release Assets
-
-- `MirrlyTGProxy-v1.0.0-release.apk` (Official Release APK)
-- `Source code (zip / tar.gz)`
+### 📜 6. Встроенный просмотрщик и переводчик логов
+- Модуль `HumanLogTranslator` для автоматической расшифровки сырых технических ошибок MTProto и нативного движка на понятный русский язык.
 
 ---
 
-## 🔧 Installation Instructions
-
-1. Download `MirrlyTGProxy-v1.0.0-release.apk` on your Android device.
-2. Allow installation from unknown sources if prompted.
-3. Open **Mirrly TG Proxy**, tap the center power button to activate.
-4. Tap **"В Telegram"** to automatically connect your Telegram client to the local proxy (`127.0.0.1:1443`).
+## 🤝 Благодарности
+Выражаем благодарность **[Flowseal](https://github.com/Flowseal)** за разработку концепции и оригинального нативного движка **tg-ws-proxy**.
 
 ---
 
-## 📄 License
-Released under the **MIT License**.
+## 📦 Файлы релиза
+- `MirrlyTGProxy-v1.0.0-release.apk` — Официальный готовый APK-файл для установки на Android.
