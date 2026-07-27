@@ -216,13 +216,19 @@ Mirrly TG Proxy сканирует систему и предоставляет 
 
 ## 12. Демонстрация интерфейса и Скриншоты
 
-Раздел содержит зарезервированные места под скриншоты интерфейса Mirrly TG Proxy:
+Скриншоты реальной работы интерфейса Mirrly TG Proxy и интеграции с Telegram:
 
 <div align="center">
 
-| Главный экран (HomeScreen) | Экран логов (LogsScreen) | Экран настроек (SettingsScreen) |
+| Главный экран (HomeScreen) | Настройки (SettingsScreen) | Логи (LogsScreen) |
 | :-: | :-: | :-: |
-| <img src="docs/screenshots/home_screen.png" alt="Главный экран" width="260" /> | <img src="docs/screenshots/logs_screen.png" alt="Экран логов" width="260" /> | <img src="docs/screenshots/settings_screen.png" alt="Экран настроек" width="260" /> |
+| <img src="screenshot/home.jpg" alt="Главный экран Mirrly TG Proxy" width="250" /> | <img src="screenshot/settings.jpg" alt="Экран настроек" width="250" /> | <img src="screenshot/loggs.jpg" alt="Экран логов и переводчика" width="250" /> |
+
+<br />
+
+| Подключение к Telegram | Проверка пинга и скорости в Telegram |
+| :-: | :-: |
+| <img src="screenshot/telegram.png" alt="Подключение прокси в Telegram" width="360" /> | <img src="screenshot/ping.jpg" alt="Проверка пинга прокси в Telegram" width="360" /> |
 
 </div>
 

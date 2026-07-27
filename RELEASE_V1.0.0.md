@@ -69,6 +69,24 @@ Mirrly TG Proxy — это нативный высокопроизводител
 
 ---
 
+## Скриншоты работы приложения
+
+<div align="center">
+
+| Главный экран | Настройки | Логи |
+| :-: | :-: | :-: |
+| <img src="https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/main/screenshot/home.jpg" alt="Главный экран Mirrly TG Proxy" width="220" /> | <img src="https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/main/screenshot/settings.jpg" alt="Экран настроек" width="220" /> | <img src="https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/main/screenshot/loggs.jpg" alt="Экран логов" width="220" /> |
+
+<br />
+
+| Подключение в Telegram | Проверка пинга в Telegram |
+| :-: | :-: |
+| <img src="https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/main/screenshot/telegram.png" alt="Подключение в Telegram" width="300" /> | <img src="https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/main/screenshot/ping.jpg" alt="Проверка пинга в Telegram" width="300" /> |
+
+</div>
+
+---
+
 ## Благодарности
 Выражаем благодарность Flowseal за разработку концепции и оригинального нативного движка tg-ws-proxy.
 
