@@ -8,14 +8,16 @@ class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("mirrly_tg_proxy_prefs", Context.MODE_PRIVATE)
 
     fun loadConfig(): ProxyConfig {
-        val bindHost = prefs.getString("bind_host", "127.0.0.1") ?: "127.0.0.1"
-        val bindPort = prefs.getInt("bind_port", 1443)
+        // Use ProxyConfig() as single source of truth for all defaults
+        val defaults = ProxyConfig()
+        val bindHost = prefs.getString("bind_host", defaults.bindHost) ?: defaults.bindHost
+        val bindPort = prefs.getInt("bind_port", defaults.bindPort)
         val secretHex = prefs.getString("secret_hex", "")?.ifEmpty { ProxyConfig.generateRandomSecret() } ?: ProxyConfig.generateRandomSecret()
-        val cfEnabled = prefs.getBoolean("cf_proxy_enabled", true)
-        val customDomain = prefs.getString("custom_cf_domain", "") ?: ""
-        val poolSize = prefs.getInt("pool_size", 4)
-        val autostart = prefs.getBoolean("autostart_on_boot", false)
-        val fallbackTcp = prefs.getBoolean("fallback_direct_tcp", true)
+        val cfEnabled = prefs.getBoolean("cf_proxy_enabled", defaults.cfProxyEnabled)
+        val customDomain = prefs.getString("custom_cf_domain", defaults.customCfDomain) ?: defaults.customCfDomain
+        val poolSize = prefs.getInt("pool_size", defaults.poolSize)
+        val autostart = prefs.getBoolean("autostart_on_boot", defaults.autostartOnBoot)
+        val fallbackTcp = prefs.getBoolean("fallback_direct_tcp", defaults.fallbackDirectTcp)
 
         return ProxyConfig(
             bindHost = bindHost,

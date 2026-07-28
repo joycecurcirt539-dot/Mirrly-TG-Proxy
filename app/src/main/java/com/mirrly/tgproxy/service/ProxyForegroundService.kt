@@ -15,6 +15,7 @@ import com.mirrly.tgproxy.MirrlyApplication
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -115,7 +116,7 @@ class ProxyForegroundService : Service() {
                     "MirrlyProxy::ServiceWakeLock"
                 ).apply {
                     setReferenceCounted(false)
-                    acquire(30 * 60 * 1000L)
+                    acquire(WAKELOCK_TIMEOUT_MS)
                 }
                 Log.d(TAG, "WakeLock acquired for 30 minutes")
             }
@@ -128,11 +129,9 @@ class ProxyForegroundService : Service() {
         wakeLockJob?.cancel()
         wakeLockJob = serviceScope.launch {
             while (isActive) {
-                delay(25 * 60 * 1000L)
+                delay(WAKELOCK_REFRESH_MS)
                 try {
-                    wakeLock?.let {
-                        if (it.isHeld) it.release()
-                    }
+                    releaseWakeLock()
                     acquireWakeLock()
                     Log.d(TAG, "WakeLock refreshed")
                 } catch (e: Exception) {
@@ -163,17 +162,10 @@ class ProxyForegroundService : Service() {
         updateJob = serviceScope.launch {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val server = MirrlyApplication.instance.proxyServer
-            val uid = Process.myUid()
 
             while (isActive && server.isRunning) {
                 delay(1000)
                 val stats = server.stats
-
-                val rx = TrafficStats.getUidRxBytes(uid)
-                val tx = TrafficStats.getUidTxBytes(uid)
-                if (rx != TrafficStats.UNSUPPORTED.toLong() && rx >= 0) {
-                    stats.updateRawBytes(rx, tx)
-                }
                 stats.updateSpeed()
 
                 val dlSpeed = humanBytes(stats.downloadSpeedBps)
@@ -210,6 +202,7 @@ class ProxyForegroundService : Service() {
 
     override fun onDestroy() {
         stopProxyService()
+        serviceScope.cancel()
         super.onDestroy()
     }
 

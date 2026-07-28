@@ -19,9 +19,16 @@ data class ProxyConfig(
 
     val rawSecret32: String
         get() {
-            val clean = secretHex.trim().lowercase().removePrefix("dd")
+            var clean = secretHex.trim().lowercase()
+            if (clean.startsWith("0x")) {
+                clean = clean.substring(2)
+            }
+            if (clean.length >= 34 && (clean.startsWith("dd") || clean.startsWith("ee"))) {
+                clean = clean.substring(2)
+            }
+            clean = clean.filter { it in '0'..'9' || it in 'a'..'f' }
             return if (clean.length >= 32) {
-                clean.takeLast(32)
+                clean.take(32)
             } else {
                 clean.padStart(32, '0')
             }
@@ -32,12 +39,13 @@ data class ProxyConfig(
 
     companion object {
         fun hexToBytes(hex: String): ByteArray {
-            val cleanHex = hex.trim().lowercase()
-            val len = cleanHex.length
-            val data = ByteArray(len / 2)
-            for (i in 0 until len step 2) {
-                data[i / 2] = ((Character.digit(cleanHex[i], 16) shl 4) +
-                        Character.digit(cleanHex[i + 1], 16)).toByte()
+            val cleanHex = hex.filter { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }.lowercase()
+            val padded = if (cleanHex.length % 2 != 0) "0$cleanHex" else cleanHex
+            val data = ByteArray(padded.length / 2)
+            for (i in padded.indices step 2) {
+                val high = Character.digit(padded[i], 16)
+                val low = Character.digit(padded[i + 1], 16)
+                data[i / 2] = ((high shl 4) or low).toByte()
             }
             return data
         }

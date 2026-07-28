@@ -19,7 +19,7 @@ class RawWebSocketClient(
     private val hostHeader: String? = null
 ) {
     private var webSocket: WebSocket? = null
-    val messageChannel = Channel<ByteArray>(Channel.UNLIMITED)
+    val messageChannel = Channel<ByteArray>(128)
     val closeChannel = Channel<Unit>(Channel.CONFLATED)
 
     private val listener = object : WebSocketListener() {
@@ -70,26 +70,16 @@ class RawWebSocketClient(
             webSocket?.close(1000, "Normal closure")
         } catch (_: Exception) {}
         closeChannel.trySend(Unit)
+        messageChannel.close()
     }
 
     companion object {
         val okHttpClient: OkHttpClient by lazy {
-            val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-            })
-
-            val sslContext = SSLContext.getInstance("SSL").apply {
-                init(null, trustAllCerts, SecureRandom())
-            }
-
             OkHttpClient.Builder()
-                .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-                .hostnameVerifier { _, _ -> true }
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(0, TimeUnit.MILLISECONDS) // Keep-alive for WS
                 .writeTimeout(10, TimeUnit.SECONDS)
+                .pingInterval(20, TimeUnit.SECONDS)
                 .build()
         }
     }

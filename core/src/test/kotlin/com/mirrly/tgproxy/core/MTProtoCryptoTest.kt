@@ -19,12 +19,24 @@ class MTProtoCryptoTest {
 
     @Test
     fun testProxyConfigSecretToBytes() {
-        val hex = "ee00112233445566778899aabbccddeeff"
-        val bytes = ProxyConfig.hexToBytes(hex)
-        assertEquals(16, bytes.size)
-        assertEquals(0xee.toByte(), bytes[0])
-        assertEquals(0xff.toByte(), bytes[15])
-        assertEquals(hex, ProxyConfig.bytesToHex(bytes))
+        val hex32 = "00112233445566778899aabbccddeeff"
+        val bytes32 = ProxyConfig.hexToBytes(hex32)
+        assertEquals(16, bytes32.size)
+        assertEquals(0x00.toByte(), bytes32[0])
+        assertEquals(0xff.toByte(), bytes32[15])
+        assertEquals(hex32, ProxyConfig.bytesToHex(bytes32))
+
+        val hex34 = "ee00112233445566778899aabbccddeeff"
+        val bytes34 = ProxyConfig.hexToBytes(hex34)
+        assertEquals(17, bytes34.size)
+        assertEquals(0xee.toByte(), bytes34[0])
+        assertEquals(0xff.toByte(), bytes34[16])
+        assertEquals(hex34, ProxyConfig.bytesToHex(bytes34))
+
+        // Test odd length input does not crash
+        val oddHex = "123"
+        val oddBytes = ProxyConfig.hexToBytes(oddHex)
+        assertEquals(2, oddBytes.size) // "0123" -> 2 bytes
     }
 
     @Test

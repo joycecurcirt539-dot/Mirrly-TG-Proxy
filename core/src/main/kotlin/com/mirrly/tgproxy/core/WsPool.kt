@@ -29,6 +29,11 @@ class WsPool(private val poolSize: Int = 4) {
                 item.client.close()
                 continue
             }
+            // Check if the server already closed this socket (closeChannel has a signal)
+            if (!item.client.closeChannel.isEmpty) {
+                item.client.close()
+                continue
+            }
             triggerRefill(key, isTestEnv)
             return item.client
         }

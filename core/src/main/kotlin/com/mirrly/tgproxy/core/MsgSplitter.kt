@@ -23,14 +23,24 @@ class MsgSplitter(relayInit: ByteArray, private val protoInt: Int) {
         if (chunk.isEmpty()) return emptyList()
         if (disabled) return listOf(chunk)
 
-        cipherBuf.write(chunk)
         val decrypted = decCipher.update(chunk)
-        plainBuf.write(decrypted)
+
+        val cipherBytes: ByteArray
+        val plainBytes: ByteArray
+        val hasResidue = cipherBuf.size() > 0
+
+        if (hasResidue) {
+            cipherBuf.write(chunk)
+            plainBuf.write(decrypted)
+            cipherBytes = cipherBuf.toByteArray()
+            plainBytes = plainBuf.toByteArray()
+        } else {
+            cipherBytes = chunk
+            plainBytes = decrypted
+        }
 
         val parts = mutableListOf<ByteArray>()
         var offset = 0
-        val cipherBytes = cipherBuf.toByteArray()
-        val plainBytes = plainBuf.toByteArray()
         val bufLen = cipherBytes.size
 
         while (offset < bufLen) {
@@ -46,14 +56,21 @@ class MsgSplitter(relayInit: ByteArray, private val protoInt: Int) {
             offset += packetLen
         }
 
-        if (offset > 0) {
-            val remainingCipher = if (offset < bufLen) cipherBytes.copyOfRange(offset, bufLen) else ByteArray(0)
-            val remainingPlain = if (offset < bufLen) plainBytes.copyOfRange(offset, bufLen) else ByteArray(0)
-            cipherBuf.reset()
-            plainBuf.reset()
-            if (remainingCipher.isNotEmpty()) {
-                cipherBuf.write(remainingCipher)
-                plainBuf.write(remainingPlain)
+        if (hasResidue) {
+            if (offset > 0) {
+                val remainingCipher = if (offset < bufLen) cipherBytes.copyOfRange(offset, bufLen) else ByteArray(0)
+                val remainingPlain = if (offset < bufLen) plainBytes.copyOfRange(offset, bufLen) else ByteArray(0)
+                cipherBuf.reset()
+                plainBuf.reset()
+                if (remainingCipher.isNotEmpty()) {
+                    cipherBuf.write(remainingCipher)
+                    plainBuf.write(remainingPlain)
+                }
+            }
+        } else {
+            if (offset < bufLen) {
+                cipherBuf.write(cipherBytes, offset, bufLen - offset)
+                plainBuf.write(plainBytes, offset, bufLen - offset)
             }
         }
 

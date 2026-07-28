@@ -9,6 +9,26 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <queries>
+        <package android:name="org.telegram.messenger" />
+        <package android:name="com.radolyn.ayugram" />
+        <package android:name="com.exteragram.messenger" />
+        <package android:name="org.telegram.plus" />
+        <package android:name="ir.ilmili.telegraph" />
+        <package android:name="org.telegram.BifToGram" />
+        <package android:name="tw.nekomimi.nekogram" />
+        <package android:name="xyz.nextalone.nagram" />
+        <package android:name="uz.unnarsx.cherrygram" />
+        <package android:name="org.telegram.mdgram" />
+        <package android:name="org.forkclient.messenger.beta" />
+        <package android:name="app.nicegram" />
+        <package android:name="top.qwq2333.nullgram" />
+        <package android:name="com.iMe.android" />
+        <package android:name="ru.dahl.messenger" />
+        <package android:name="com.scriptsaz.litegram" />
+        <package android:name="org.thunderdog.challegram" />
+    </queries>
+
     <application
         android:name=".MirrlyApplication"
         android:allowBackup="true"

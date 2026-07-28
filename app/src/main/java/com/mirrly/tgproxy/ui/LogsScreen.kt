@@ -33,6 +33,13 @@ import com.mirrly.tgproxy.core.LogEntry
 import com.mirrly.tgproxy.core.LogLevel
 import com.mirrly.tgproxy.ui.theme.*
 
+private data class LogCalcResult(
+    val filteredLogs: List<LogEntry>,
+    val infoCount: Int,
+    val warnCount: Int,
+    val errorCount: Int
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogsScreen(
@@ -46,17 +53,39 @@ fun LogsScreen(
     var searchQuery by remember { mutableStateOf("") }
     var selectedLevel by remember { mutableStateOf<LogLevel?>(null) }
 
-    val filteredLogs by remember {
-        derivedStateOf {
-            logs.filter { entry ->
-                (selectedLevel == null || entry.level == selectedLevel) &&
-                        (searchQuery.isEmpty() ||
-                         entry.humanMessage.contains(searchQuery, ignoreCase = true) ||
-                         entry.rawMessage.contains(searchQuery, ignoreCase = true) ||
-                         entry.tag.contains(searchQuery, ignoreCase = true))
-            }.reversed()
+    val calcResult = remember(logs, selectedLevel, searchQuery) {
+        var infoC = 0
+        var warnC = 0
+        var errorC = 0
+        val query = searchQuery.trim()
+        val hasQuery = query.isNotEmpty()
+        val filtered = ArrayList<LogEntry>(logs.size)
+
+        for (i in logs.indices) {
+            val entry = logs[i]
+            when (entry.level) {
+                LogLevel.INFO -> infoC++
+                LogLevel.WARN -> warnC++
+                LogLevel.ERROR -> errorC++
+            }
+
+            if (selectedLevel != null && entry.level != selectedLevel) continue
+            if (hasQuery) {
+                val matches = entry.humanMessage.contains(query, ignoreCase = true) ||
+                        entry.rawMessage.contains(query, ignoreCase = true) ||
+                        entry.tag.contains(query, ignoreCase = true)
+                if (!matches) continue
+            }
+            filtered.add(entry)
         }
+        filtered.reverse()
+        LogCalcResult(filtered, infoC, warnC, errorC)
     }
+
+    val filteredLogs = calcResult.filteredLogs
+    val infoCount = calcResult.infoCount
+    val warnCount = calcResult.warnCount
+    val errorCount = calcResult.errorCount
 
     val pureBlack = Color(0xFF000000)
 
@@ -72,7 +101,10 @@ fun LogsScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onBack()
+                    }) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_arrow_left),
                             contentDescription = "Назад",
@@ -108,7 +140,10 @@ fun LogsScreen(
                         )
                     }
                     if (onOpenSettings != null) {
-                        IconButton(onClick = onOpenSettings) {
+                        IconButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenSettings()
+                        }) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_settings),
                                 contentDescription = "Настройки",
@@ -148,7 +183,10 @@ fun LogsScreen(
                 },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
+                        IconButton(onClick = {
+                            searchQuery = ""
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }) {
                             Text("✕", color = TextMuted, fontSize = 14.sp)
                         }
                     }
@@ -170,10 +208,6 @@ fun LogsScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                val infoCount = logs.count { it.level == LogLevel.INFO }
-                val warnCount = logs.count { it.level == LogLevel.WARN }
-                val errorCount = logs.count { it.level == LogLevel.ERROR }
-
                 LogFilterBadge(
                     text = "Все (${logs.size})",
                     isSelected = selectedLevel == null,
@@ -296,6 +330,8 @@ fun LogFilterBadge(
 
 @Composable
 fun HumanLogCard(entry: LogEntry) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val levelColor = when (entry.level) {
         LogLevel.INFO -> ActiveGreenLed
         LogLevel.WARN -> Color(0xFFF59E0B)
@@ -305,7 +341,15 @@ fun HumanLogCard(entry: LogEntry) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .clip(RoundedCornerShape(12.dp))
+            .clickable {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val text = "[${entry.formattedTime}] ${entry.humanMessage}"
+                clipboard.setPrimaryClip(ClipData.newPlainText("Log Entry", text))
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                Toast.makeText(context, "Запись скопирована", Toast.LENGTH_SHORT).show()
+            }
+            .padding(vertical = 4.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
         // Subtle vertical indicator bar

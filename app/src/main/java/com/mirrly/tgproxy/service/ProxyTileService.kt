@@ -22,6 +22,7 @@ class ProxyTileService : TileService() {
         val server = MirrlyApplication.instance.proxyServer
         val serviceIntent = Intent(this, ProxyForegroundService::class.java)
 
+        val willBeRunning = !server.isRunning
         if (server.isRunning) {
             serviceIntent.action = ProxyForegroundService.ACTION_STOP
             startService(serviceIntent)
@@ -33,12 +34,12 @@ class ProxyTileService : TileService() {
                 startService(serviceIntent)
             }
         }
-        updateTileState()
+        updateTileState(willBeRunning)
     }
 
-    private fun updateTileState() {
+    private fun updateTileState(forcedState: Boolean? = null) {
         val tile = qsTile ?: return
-        val isRunning = MirrlyApplication.instance.proxyServer.isRunning
+        val isRunning = forcedState ?: MirrlyApplication.instance.proxyServer.isRunning
         tile.state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = if (isRunning) "Mirrly Proxy ON" else "Mirrly Proxy OFF"
         tile.updateTile()

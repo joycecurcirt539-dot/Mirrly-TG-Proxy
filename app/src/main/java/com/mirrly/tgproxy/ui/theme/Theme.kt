@@ -48,7 +48,7 @@ fun MirrlyTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
+            val window = (view.context as? Activity)?.window ?: return@SideEffect
             window.statusBarColor = android.graphics.Color.BLACK
             window.navigationBarColor = android.graphics.Color.BLACK
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false

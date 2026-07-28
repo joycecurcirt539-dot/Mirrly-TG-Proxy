@@ -12,10 +12,16 @@ data class LogEntry(
     val level: LogLevel,
     val tag: String,
     val rawMessage: String,
-    val humanMessage: String = HumanLogTranslator.translateToHumanRussian(tag, rawMessage)
+    val humanMessage: String = HumanLogTranslator.translateToHumanRussian(tag, rawMessage),
+    val formattedTime: String = timeFormatter.get()?.format(Date(timestamp)) ?: ""
 ) {
-    val formattedTime: String
-        get() = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
+    companion object {
+        private val timeFormatter = object : ThreadLocal<SimpleDateFormat>() {
+            override fun initialValue(): SimpleDateFormat {
+                return SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+            }
+        }
+    }
 }
 
 enum class LogLevel {
@@ -23,23 +29,32 @@ enum class LogLevel {
 }
 
 object AppLogger {
-    private const val MAX_LOGS = 1000
-    private val logList = mutableListOf<LogEntry>()
+    private const val MAX_LOGS = 250
+    private val logQueue = ArrayDeque<LogEntry>(MAX_LOGS)
     private val _logsFlow = MutableStateFlow<List<LogEntry>>(emptyList())
     val logsFlow: StateFlow<List<LogEntry>> = _logsFlow.asStateFlow()
+
     @Volatile
     private var isLogcatReaderStarted = false
+    private var logcatProcess: Process? = null
+    private var lastFlowUpdateMs = 0L
 
     @Synchronized
     fun log(level: LogLevel, tag: String, message: String) {
         if (HumanLogTranslator.shouldIgnoreLogcatLine(tag, message)) return
 
         val entry = LogEntry(level = level, tag = tag, rawMessage = message)
-        logList.add(entry)
-        if (logList.size > MAX_LOGS) {
-            logList.removeAt(0)
+        logQueue.addLast(entry)
+        if (logQueue.size > MAX_LOGS) {
+            logQueue.removeFirst()
         }
-        _logsFlow.value = logList.toList()
+
+        // Throttle: update the flow at most once per 400ms to prevent CPU & recomposition overload
+        val now = System.currentTimeMillis()
+        if (now - lastFlowUpdateMs >= 400L) {
+            lastFlowUpdateMs = now
+            _logsFlow.value = logQueue.toList()
+        }
     }
 
     fun i(tag: String, message: String) = log(LogLevel.INFO, tag, message)
@@ -52,8 +67,11 @@ object AppLogger {
 
         Thread({
             try {
-                val cmd = if (pid > 0) "logcat -v time --pid=$pid *:V" else "logcat -v time *:V"
+                // Filter logcat strictly to relevant app/proxy tags to stop framework log flooding
+                val tagsFilter = "LocalProxyServer:V ProxyForegroundService:V TgProxy:V BootReceiver:V AppLogger:V *:S"
+                val cmd = if (pid > 0) "logcat -v time --pid=$pid $tagsFilter" else "logcat -v time $tagsFilter"
                 val process = Runtime.getRuntime().exec(cmd)
+                logcatProcess = process
                 val reader = process.inputStream.bufferedReader()
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
@@ -65,6 +83,15 @@ object AppLogger {
             isDaemon = true
             start()
         }
+    }
+
+    @Synchronized
+    fun stopLogcatReader() {
+        try {
+            logcatProcess?.destroy()
+        } catch (_: Exception) {}
+        logcatProcess = null
+        isLogcatReaderStarted = false
     }
 
     private fun parseAndAddLogcatLine(line: String) {
@@ -97,7 +124,8 @@ object AppLogger {
 
     @Synchronized
     fun clear() {
-        logList.clear()
+        logQueue.clear()
+        lastFlowUpdateMs = 0L
         _logsFlow.value = emptyList()
     }
 }

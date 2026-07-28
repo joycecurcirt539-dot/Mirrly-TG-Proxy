@@ -91,24 +91,34 @@ class TgWsBridge(
                             Socket(dcIp, 443).use { directSocket ->
                                 directSocket.getOutputStream().write(relayInit)
                                 directSocket.getOutputStream().flush()
-                                bridgeScope.launch {
+                                val fallbackJob = bridgeScope.launch {
                                     val buf = ByteArray(16384)
                                     val directIn = directSocket.getInputStream()
-                                    while (isActive) {
-                                        val len = directIn.read(buf)
-                                        if (len < 0) break
-                                        outputStream.write(buf, 0, len)
-                                        outputStream.flush()
-                                        stats.addSent(len.toLong())
+                                    try {
+                                        while (isActive) {
+                                            val len = directIn.read(buf)
+                                            if (len < 0) break
+                                            outputStream.write(buf, 0, len)
+                                            outputStream.flush()
+                                            stats.addSent(len.toLong())
+                                        }
+                                    } catch (_: Exception) {}
+                                    finally {
+                                        try { directSocket.close() } catch (_: Exception) {}
                                     }
                                 }
-                                val buf = ByteArray(16384)
-                                while (isActive) {
-                                    val len = inputStream.read(buf)
-                                    if (len < 0) break
-                                    directSocket.getOutputStream().write(buf, 0, len)
-                                    directSocket.getOutputStream().flush()
-                                    stats.addReceived(len.toLong())
+                                try {
+                                    val buf = ByteArray(16384)
+                                    while (isActive && !clientSocket.isClosed) {
+                                        val len = inputStream.read(buf)
+                                        if (len < 0) break
+                                        directSocket.getOutputStream().write(buf, 0, len)
+                                        directSocket.getOutputStream().flush()
+                                        stats.addReceived(len.toLong())
+                                    }
+                                } finally {
+                                    fallbackJob.cancel()
+                                    try { directSocket.close() } catch (_: Exception) {}
                                 }
                             }
                         } catch (_: Exception) {}

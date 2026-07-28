@@ -34,8 +34,8 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             if (cacheDir != null) {
                 try {
                     NativeProxy.setCfProxyCacheDir(cacheDir.absolutePath)
-                } catch (e: Exception) {
-                    AppLogger.e("LocalProxyServer", "Не удалось установить кэш-директорию Cloudflare: ${e.message}")
+                } catch (t: Throwable) {
+                    AppLogger.e("LocalProxyServer", "Не удалось установить кэш-директорию Cloudflare: ${t.message}")
                 }
             }
 
@@ -83,8 +83,8 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 AppLogger.e("LocalProxyServer", "Ошибка запуска нативного прокси, код ошибки: $code")
                 return false
             }
-        } catch (e: Exception) {
-            AppLogger.e("LocalProxyServer", "Ошибка вызова нативной библиотеки NativeProxy: ${e.message}")
+        } catch (t: Throwable) {
+            AppLogger.e("LocalProxyServer", "Ошибка вызова нативной библиотеки NativeProxy: ${t.message}")
             return false
         }
     }
@@ -94,13 +94,14 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         if (!isRunning) return
         isRunning = false
         startTimeMs = 0L
+        speedJob?.cancel()
+        speedJob = null
         try {
             NativeProxy.stopProxy()
             AppLogger.i("LocalProxyServer", "Нативный движок прокси успешно остановлен")
-        } catch (e: Exception) {
-            AppLogger.e("LocalProxyServer", "Ошибка остановки нативного движка прокси: ${e.message}")
+        } catch (t: Throwable) {
+            AppLogger.e("LocalProxyServer", "Ошибка остановки нативного движка прокси: ${t.message}")
         }
-        speedJob?.cancel()
     }
 
     @Synchronized
@@ -117,8 +118,26 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         return ok
     }
 
+    /**
+     * Applies a new pool size immediately via NativeProxy without requiring a full restart.
+     * Also updates config.poolSize so the value is consistent everywhere.
+     * Falls back to a restart if the native call throws (e.g. library not loaded yet).
+     */
+    fun applyPoolSize(newSize: Int, cacheDir: File? = null) {
+        val clamped = newSize.coerceIn(2, 16)
+        config.poolSize = clamped
+        AppLogger.i("LocalProxyServer", "Изменение пула сокетов → $clamped")
+        try {
+            NativeProxy.setPoolSize(clamped)
+            AppLogger.i("LocalProxyServer", "Пул сокетов обновлён динамически: $clamped")
+        } catch (t: Throwable) {
+            AppLogger.w("LocalProxyServer", "setPoolSize() не удался (${t.message}), перезапуск прокси...")
+            if (isRunning) restart(cacheDir)
+        }
+    }
+
     fun getTelegramProxyUrl(): String {
-        val nativeSecret = try { NativeProxy.getSecretWithPrefix() } catch (_: Exception) { null }
+        val nativeSecret = try { NativeProxy.getSecretWithPrefix() } catch (_: Throwable) { null }
         val secretWithPrefix = if (!nativeSecret.isNullOrEmpty()) {
             nativeSecret
         } else {

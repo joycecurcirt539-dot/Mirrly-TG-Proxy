@@ -25,6 +25,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import com.mirrly.tgproxy.ui.theme.MirrlyTheme
 
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.graphics.graphicsLayer
+
 class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -74,37 +77,127 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-                    AnimatedContent(
-                        targetState = currentScreen,
-                        transitionSpec = {
-                            (fadeIn(animationSpec = tween(220, easing = LinearOutSlowInEasing)) + scaleIn(initialScale = 0.97f, animationSpec = tween(220, easing = LinearOutSlowInEasing)))
-                                .togetherWith(fadeOut(animationSpec = tween(180, easing = FastOutLinearInEasing)) + scaleOut(targetScale = 1.02f, animationSpec = tween(180)))
+                BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                    val widthPx = constraints.maxWidth.toFloat()
+                    val pushMs = 380
+                    val navEasing = FastOutSlowInEasing
+
+                    val isHome = currentScreen == "home"
+                    val isSettings = currentScreen == "settings"
+                    val isLogs = currentScreen == "logs"
+
+                    // Animated offsets & scales for Home screen
+                    val homeOffsetFraction by animateFloatAsState(
+                        targetValue = when {
+                            isHome -> 0f
+                            isSettings -> -0.15f
+                            isLogs -> 0.15f
+                            else -> 0f
                         },
-                        label = "ScreenTransition",
-                        modifier = Modifier.fillMaxSize().background(Color.Black)
-                    ) { screen ->
-                        when (screen) {
-                            "home" -> HomeScreen(
-                                onOpenSettings = {
-                                    previousScreen = "home"
-                                    currentScreen = "settings"
-                                },
-                                onOpenLogs = {
-                                    currentScreen = "logs"
-                                }
-                            )
-                            "settings" -> SettingsScreen(
-                                onBack = { currentScreen = previousScreen }
-                            )
-                            "logs" -> LogsScreen(
-                                onBack = { currentScreen = "home" },
-                                onOpenSettings = {
-                                    previousScreen = "logs"
-                                    currentScreen = "settings"
-                                }
-                            )
-                        }
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "homeOffset"
+                    )
+                    val homeScale by animateFloatAsState(
+                        targetValue = if (isHome) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "homeScale"
+                    )
+                    val homeAlpha by animateFloatAsState(
+                        targetValue = if (isHome) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "homeAlpha"
+                    )
+
+                    // Animated offsets & scales for Settings screen
+                    val settingsOffsetFraction by animateFloatAsState(
+                        targetValue = if (isSettings) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "settingsOffset"
+                    )
+                    val settingsScale by animateFloatAsState(
+                        targetValue = if (isSettings) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "settingsScale"
+                    )
+                    val settingsAlpha by animateFloatAsState(
+                        targetValue = if (isSettings) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "settingsAlpha"
+                    )
+
+                    // Animated offsets & scales for Logs screen
+                    val logsOffsetFraction by animateFloatAsState(
+                        targetValue = if (isLogs) 0f else -1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "logsOffset"
+                    )
+                    val logsScale by animateFloatAsState(
+                        targetValue = if (isLogs) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "logsScale"
+                    )
+                    val logsAlpha by animateFloatAsState(
+                        targetValue = if (isLogs) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "logsAlpha"
+                    )
+
+                    // 1. HOME SCREEN (Pre-warmed & persistent)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                translationX = widthPx * homeOffsetFraction
+                                scaleX = homeScale
+                                scaleY = homeScale
+                                alpha = homeAlpha
+                            }
+                    ) {
+                        HomeScreen(
+                            onOpenSettings = {
+                                previousScreen = "home"
+                                currentScreen = "settings"
+                            },
+                            onOpenLogs = {
+                                currentScreen = "logs"
+                            }
+                        )
+                    }
+
+                    // 2. LOGS SCREEN (Pre-warmed & persistent)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                translationX = widthPx * logsOffsetFraction
+                                scaleX = logsScale
+                                scaleY = logsScale
+                                alpha = logsAlpha
+                            }
+                    ) {
+                        LogsScreen(
+                            onBack = { currentScreen = "home" },
+                            onOpenSettings = {
+                                previousScreen = "logs"
+                                currentScreen = "settings"
+                            }
+                        )
+                    }
+
+                    // 3. SETTINGS SCREEN (Pre-warmed & persistent)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                translationX = widthPx * settingsOffsetFraction
+                                scaleX = settingsScale
+                                scaleY = settingsScale
+                                alpha = settingsAlpha
+                            }
+                    ) {
+                        SettingsScreen(
+                            onBack = { currentScreen = previousScreen }
+                        )
                     }
                 }
             }

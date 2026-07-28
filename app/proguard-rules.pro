@@ -3,3 +3,10 @@
     @okhttp3.internal.annotations.EverythingIsNonNull *;
 }
 -dontwarn okhttp3.internal.platform.**
+
+# Keep JNA interfaces and NativeProxy library calls
+-keep interface com.sun.jna.** { *; }
+-keep class com.sun.jna.** { *; }
+-keep interface com.mirrly.tgproxy.core.ProxyLibrary { *; }
+-keep class com.mirrly.tgproxy.core.NativeProxy { *; }
+
