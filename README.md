@@ -97,9 +97,9 @@ flowchart TD
 
 <br />
 
-| Авто-подключение к Telegram | Проверка пинга и скорости |
-| :-: | :-: |
-| <img src="screenshot/telegram.png" alt="Подключение к Telegram" width="340" /> | <img src="screenshot/ping.jpg" alt="Проверка пинга" width="340" /> |
+| Проверка пинга и скорости в Telegram |
+| :-: |
+| <img src="screenshot/ping.jpg" alt="Проверка пинга" width="360" /> |
 
 </div>
 
