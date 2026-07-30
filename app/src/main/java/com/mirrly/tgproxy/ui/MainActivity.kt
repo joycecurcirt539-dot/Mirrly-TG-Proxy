@@ -77,6 +77,12 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     withContext(Dispatchers.IO) {
+                        com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(applicationContext, notifyIfFound = true)
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    withContext(Dispatchers.IO) {
                         while (isActive) {
                             val running = server.isRunning
                             withContext(Dispatchers.Main) {
@@ -95,6 +101,9 @@ class MainActivity : ComponentActivity() {
 
                 BackHandler {
                     when (currentScreen) {
+                        "license" -> {
+                            currentScreen = "about"
+                        }
                         "about" -> {
                             currentScreen = "settings"
                         }
@@ -175,12 +184,13 @@ class MainActivity : ComponentActivity() {
                     val isSettings = currentScreen == "settings"
                     val isLogs = currentScreen == "logs"
                     val isAbout = currentScreen == "about"
+                    val isLicense = currentScreen == "license"
 
                     // Animated offsets & scales for Home screen
                     val homeOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings || isAbout -> -0.15f
+                            isSettings || isAbout || isLicense -> -0.15f
                             isLogs -> 0.15f
                             else -> 0f
                         },
@@ -202,7 +212,7 @@ class MainActivity : ComponentActivity() {
                     val settingsOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isSettings -> 0f
-                            isAbout -> -0.15f
+                            isAbout || isLicense -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -238,7 +248,11 @@ class MainActivity : ComponentActivity() {
 
                     // Animated offsets & scales for About screen
                     val aboutOffsetFraction by animateFloatAsState(
-                        targetValue = if (isAbout) 0f else 1.0f,
+                        targetValue = when {
+                            isAbout -> 0f
+                            isLicense -> -0.15f
+                            else -> 1.0f
+                        },
                         animationSpec = tween(pushMs, easing = navEasing),
                         label = "aboutOffset"
                     )
@@ -251,6 +265,23 @@ class MainActivity : ComponentActivity() {
                         targetValue = if (isAbout) 1.0f else 0.0f,
                         animationSpec = tween(220),
                         label = "aboutAlpha"
+                    )
+
+                    // Animated offsets & scales for License screen
+                    val licenseOffsetFraction by animateFloatAsState(
+                        targetValue = if (isLicense) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "licenseOffset"
+                    )
+                    val licenseScale by animateFloatAsState(
+                        targetValue = if (isLicense) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "licenseScale"
+                    )
+                    val licenseAlpha by animateFloatAsState(
+                        targetValue = if (isLicense) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "licenseAlpha"
                     )
 
                     // 1. HOME SCREEN (Pre-warmed & persistent)
@@ -324,7 +355,24 @@ class MainActivity : ComponentActivity() {
                             }
                     ) {
                         AboutScreen(
-                            onBack = { currentScreen = "settings" }
+                            onBack = { currentScreen = "settings" },
+                            onOpenLicense = { currentScreen = "license" }
+                        )
+                    }
+
+                    // 5. LICENSE SCREEN (Pre-warmed & persistent)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                translationX = widthPx * licenseOffsetFraction
+                                scaleX = licenseScale
+                                scaleY = licenseScale
+                                alpha = licenseAlpha
+                            }
+                    ) {
+                        LicenseScreen(
+                            onBack = { currentScreen = "about" }
                         )
                     }
                 }

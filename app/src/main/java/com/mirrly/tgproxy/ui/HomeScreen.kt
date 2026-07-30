@@ -89,16 +89,7 @@ fun HomeScreen(
     var totalSent by remember { mutableStateOf("0 Б") }
     var uptimeSeconds by remember { mutableLongStateOf(0L) }
 
-    var updateInfo by remember { mutableStateOf<ReleaseInfo?>(null) }
-
-    LaunchedEffect(Unit) {
-        val result = UpdateChecker.checkForUpdates()
-        result.getOrNull()?.let { info ->
-            if (info.isUpdateAvailable) {
-                updateInfo = info
-            }
-        }
-    }
+    val updateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
 
     // Execute stats calculation on IO thread off the main looper to eliminate main thread frame delay
     LaunchedEffect(Unit) {
@@ -247,6 +238,7 @@ fun HomeScreen(
                 }
 
                 if (info.isUpdateAvailable) {
+                    val updateYellow = Color(0xFFFFB703)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -255,12 +247,12 @@ fun HomeScreen(
                             .background(
                                 Brush.horizontalGradient(
                                     colors = listOf(
-                                        Color(0xFF101C14),
-                                        Color(0xFF0A140D)
+                                        Color(0xFF241E08),
+                                        Color(0xFF141005)
                                     )
                                 )
                             )
-                            .border(1.dp, ActiveGreenLed, RoundedCornerShape(16.dp))
+                            .border(1.dp, updateYellow, RoundedCornerShape(16.dp))
                             .clickable {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 showUpdateDialog = true
@@ -282,25 +274,25 @@ fun HomeScreen(
                                     modifier = Modifier
                                         .size(36.dp)
                                         .clip(CircleShape)
-                                        .background(ActiveGreenLed.copy(alpha = 0.2f))
+                                        .background(updateYellow.copy(alpha = 0.2f))
                                 ) {
                                     Icon(
                                         painter = painterResource(id = R.drawable.ic_refresh),
                                         contentDescription = null,
-                                        tint = ActiveGreenLed,
+                                        tint = updateYellow,
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
 
                                 Column {
                                     Text(
-                                        text = "Вышло обновление v${info.versionName}!",
+                                        text = "Найдено обновление v${info.versionName}!",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp,
-                                        color = ActiveGreenLed
+                                        color = updateYellow
                                     )
                                     Text(
-                                        text = "Обновите приложение с GitHub Releases",
+                                        text = "Нажмите для просмотра и установки",
                                         fontSize = 12.sp,
                                         color = TextWhite.copy(alpha = 0.85f)
                                     )
@@ -310,7 +302,7 @@ fun HomeScreen(
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_chevron_right),
                                 contentDescription = null,
-                                tint = ActiveGreenLed,
+                                tint = updateYellow,
                                 modifier = Modifier.size(18.dp)
                             )
                         }

@@ -42,7 +42,8 @@ import com.mirrly.tgproxy.ui.theme.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenLicense: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -355,7 +356,7 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "СВЯЗЬ И СОЦИАЛЬНЫЕ СЕТИ",
+                    text = "СВЯЗЬ И ИНФОРМАЦИЯ",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -387,6 +388,15 @@ fun AboutScreen(
                     title = "Репозиторий проекта",
                     subtitle = "Исходный код Mirrly TG Proxy на GitHub",
                     onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy" }
+                )
+
+                // Link 4: MIT License Screen
+                LinkCardItem(
+                    iconRes = R.drawable.ic_license,
+                    iconTint = ActiveGreenLed,
+                    title = "Лицензия проекта (MIT)",
+                    subtitle = "Условия использования и открытый исходный код",
+                    onClick = { onOpenLicense() }
                 )
             }
 
@@ -540,7 +550,7 @@ fun AboutScreen(
                 }
             }
 
-            // 6. FOOTER COPYRIGHT
+            // 7. FOOTER COPYRIGHT
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -571,10 +581,10 @@ fun AboutScreen(
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.98f), // Pure AMOLED black behind status bar
-                            Color.Black.copy(alpha = 0.94f), // Pure AMOLED black behind title
-                            Color.Black.copy(alpha = 0.72f), // Pure AMOLED black blur transition
-                            Color.Black.copy(alpha = 0.00f)  // Soft fade edge to reveal blurred scrolling cards
+                            Color.Black.copy(alpha = 0.98f),
+                            Color.Black.copy(alpha = 0.94f),
+                            Color.Black.copy(alpha = 0.72f),
+                            Color.Black.copy(alpha = 0.00f)
                         )
                     )
                 )

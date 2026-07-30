@@ -685,23 +685,35 @@ fun SettingsScreen(
 
                 // Check for Updates Row Item
                 var isCheckingUpdate by remember { mutableStateOf(false) }
+                val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
                 val coroutineScope = rememberCoroutineScope()
+
+                val isUpdateAvailable = currentUpdateInfo?.isUpdateAvailable == true
+                val yellowAccent = Color(0xFFFFB703)
+
+                val itemBorderColor = if (isUpdateAvailable) yellowAccent else Color(0xFF181E2E)
+                val itemBgColor = if (isUpdateAvailable) Color(0xFF1F1A0A) else Color.Transparent
+                val iconBoxBgColor = if (isUpdateAvailable) yellowAccent.copy(alpha = 0.2f) else Color.Transparent
+                val iconTint = if (isUpdateAvailable) yellowAccent else ActiveGreenLed
+                val titleColor = if (isUpdateAvailable) yellowAccent else TextWhite
 
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color.Transparent)
-                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(16.dp))
+                        .background(itemBgColor)
+                        .border(if (isUpdateAvailable) 1.5.dp else 1.dp, itemBorderColor, RoundedCornerShape(16.dp))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
-                            if (!isCheckingUpdate) {
+                            if (isUpdateAvailable) {
+                                pendingUpdateRelease = currentUpdateInfo
+                            } else if (!isCheckingUpdate) {
                                 isCheckingUpdate = true
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 coroutineScope.launch {
-                                    val result = com.mirrly.tgproxy.core.UpdateChecker.checkForUpdates()
+                                    val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false)
                                     isCheckingUpdate = false
                                     result.fold(
                                         onSuccess = { info ->
@@ -740,28 +752,32 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color.Transparent)
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                .background(iconBoxBgColor)
+                                .border(1.dp, iconTint.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_refresh),
                                 contentDescription = null,
-                                tint = ActiveGreenLed,
+                                tint = iconTint,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
 
                         Column {
                             Text(
-                                text = "Проверить обновления",
+                                text = if (isUpdateAvailable) "Найдено обновление v${currentUpdateInfo?.versionName}!" else "Проверить обновления",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = TextWhite
+                                color = titleColor
                             )
                             Text(
-                                text = if (isCheckingUpdate) "Проверка GitHub Releases..." else "Текущая версия v1.0.3",
+                                text = when {
+                                    isCheckingUpdate -> "Проверка GitHub Releases..."
+                                    isUpdateAvailable -> "Доступна новая версия • Нажмите для установки"
+                                    else -> "Текущая версия v${com.mirrly.tgproxy.core.UpdateChecker.CURRENT_VERSION_NAME}"
+                                },
                                 fontSize = 12.sp,
-                                color = TextMuted
+                                color = if (isUpdateAvailable) TextWhite.copy(alpha = 0.9f) else TextMuted
                             )
                         }
                     }
@@ -776,7 +792,7 @@ fun SettingsScreen(
                         Icon(
                             painter = painterResource(id = R.drawable.ic_chevron_right),
                             contentDescription = null,
-                            tint = TextMuted,
+                            tint = if (isUpdateAvailable) yellowAccent else TextMuted,
                             modifier = Modifier.size(18.dp)
                         )
                     }

@@ -4,6 +4,7 @@ import android.app.Application
 import com.mirrly.tgproxy.core.LocalProxyServer
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.service.PreferencesManager
+import com.mirrly.tgproxy.service.UpdateManager
 
 class MirrlyApplication : Application() {
 
@@ -23,6 +24,7 @@ class MirrlyApplication : Application() {
         prefsManager = PreferencesManager(this)
         config = prefsManager.loadConfig()
         proxyServer = LocalProxyServer(config)
+        UpdateManager.scheduleDaytimeCheck(this)
     }
 
     fun saveConfig() {
