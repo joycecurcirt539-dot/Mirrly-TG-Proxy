@@ -110,6 +110,61 @@ fun AboutScreen(
         label = "avatarEntranceAlpha"
     )
 
+    // ── CONFIRMATION DIALOG STATE FOR EXTERNAL REDIRECTS ──
+    var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
+
+    if (pendingRedirectUrl != null) {
+        AlertDialog(
+            onDismissRequest = { pendingRedirectUrl = null },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val url = pendingRedirectUrl
+                        pendingRedirectUrl = null
+                        if (url != null) openUrl(url)
+                    }
+                ) {
+                    Text(
+                        text = "Подтвердить",
+                        fontWeight = FontWeight.Bold,
+                        color = ActiveGreenLed
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingRedirectUrl = null }
+                ) {
+                    Text(
+                        text = "Отклонить",
+                        fontWeight = FontWeight.Normal,
+                        color = TextMuted
+                    )
+                }
+            },
+            title = {
+                Text(
+                    text = "Внешний переход",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    color = TextWhite
+                )
+            },
+            text = {
+                Text(
+                    text = "Вы будете перенаправлены по ссылке:\n\n${pendingRedirectUrl}",
+                    fontSize = 13.5.sp,
+                    color = TextWhite.copy(alpha = 0.85f),
+                    lineHeight = 19.sp
+                )
+            },
+            containerColor = Color(0xFF121212),
+            titleContentColor = TextWhite,
+            textContentColor = TextWhite,
+            shape = RoundedCornerShape(22.dp)
+        )
+    }
+
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -196,7 +251,7 @@ fun AboutScreen(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null
                                 ) {
-                                    openUrl("https://github.com/joycecurcirt539-dot")
+                                    pendingRedirectUrl = "https://github.com/joycecurcirt539-dot"
                                 }
                                 .padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
@@ -235,7 +290,7 @@ fun AboutScreen(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                openUrl("https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases")
+                                pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
                             }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
@@ -313,7 +368,7 @@ fun AboutScreen(
                     iconTint = Color(0xFF29B6F6),
                     title = "Telegram Канал",
                     subtitle = "Анонсы, обновления и новости: t.me/WhyOKyHb",
-                    onClick = { openUrl("https://t.me/WhyOKyHb") }
+                    onClick = { pendingRedirectUrl = "https://t.me/WhyOKyHb" }
                 )
 
                 // Link 2: GitHub Profile
@@ -322,7 +377,7 @@ fun AboutScreen(
                     iconTint = TextWhite,
                     title = "Профиль GitHub",
                     subtitle = "github.com/joycecurcirt539-dot",
-                    onClick = { openUrl("https://github.com/joycecurcirt539-dot") }
+                    onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot" }
                 )
 
                 // Link 3: GitHub Repository
@@ -331,7 +386,7 @@ fun AboutScreen(
                     iconTint = ActiveGreenLed,
                     title = "Репозиторий проекта",
                     subtitle = "Исходный код Mirrly TG Proxy на GitHub",
-                    onClick = { openUrl("https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy") }
+                    onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy" }
                 )
             }
 
@@ -357,44 +412,23 @@ fun AboutScreen(
                         .padding(18.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Transparent)
-                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), CircleShape)
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_heart),
-                                    contentDescription = null,
-                                    tint = ActiveGreenLed,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            Column {
-                                Text(
-                                    text = "Поддержать развитие Mirrly",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextWhite
-                                )
-                                Text(
-                                    text = "Ваша помощь стимулирует развитие новых фич!",
-                                    fontSize = 12.sp,
-                                    color = TextMuted
-                                )
-                            }
+                        Column {
+                            Text(
+                                text = "Поддержать развитие Mirrly",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = "Ваша помощь стимулирует развитие новых фич!",
+                                fontSize = 12.sp,
+                                color = TextMuted
+                            )
                         }
 
                         // Outlined DaLink Support Button
                         Button(
-                            onClick = { openUrl("https://dalink.to/cartneyzix") },
+                            onClick = { pendingRedirectUrl = "https://dalink.to/cartneyzix" },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color.Transparent,
                                 contentColor = ActiveGreenLed
