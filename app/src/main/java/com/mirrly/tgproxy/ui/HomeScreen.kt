@@ -12,6 +12,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -41,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.core.ReleaseInfo
+import com.mirrly.tgproxy.core.UpdateChecker
 import com.mirrly.tgproxy.service.ProxyForegroundService
 import com.mirrly.tgproxy.service.humanBytes
 import com.mirrly.tgproxy.ui.theme.*
@@ -78,6 +81,17 @@ fun HomeScreen(
     var totalRecv by remember { mutableStateOf("0 Б") }
     var totalSent by remember { mutableStateOf("0 Б") }
     var uptimeSeconds by remember { mutableLongStateOf(0L) }
+
+    var updateInfo by remember { mutableStateOf<ReleaseInfo?>(null) }
+
+    LaunchedEffect(Unit) {
+        val result = UpdateChecker.checkForUpdates()
+        result.getOrNull()?.let { info ->
+            if (info.isUpdateAvailable) {
+                updateInfo = info
+            }
+        }
+    }
 
     // Execute stats calculation on IO thread off the main looper to eliminate main thread frame delay
     LaunchedEffect(Unit) {
@@ -212,6 +226,88 @@ fun HomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
+            var showUpdateDialog by remember { mutableStateOf(false) }
+
+            // Update Available Banner (if newer version available on GitHub)
+            updateInfo?.let { info ->
+                if (info.isUpdateAvailable && showUpdateDialog) {
+                    UpdateDialog(
+                        releaseInfo = info,
+                        onDismiss = { showUpdateDialog = false }
+                    )
+                }
+
+                if (info.isUpdateAvailable) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color(0xFF1B2618),
+                                        Color(0xFF0F1B12)
+                                    )
+                                )
+                            )
+                            .border(1.dp, ActiveGreenLed, RoundedCornerShape(16.dp))
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showUpdateDialog = true
+                            }
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(ActiveGreenLed.copy(alpha = 0.2f))
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_refresh),
+                                        contentDescription = null,
+                                        tint = ActiveGreenLed,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                Column {
+                                    Text(
+                                        text = "Вышло обновление v${info.versionName}!",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = ActiveGreenLed
+                                    )
+                                    Text(
+                                        text = "Обновите приложение с GitHub Releases",
+                                        fontSize = 12.sp,
+                                        color = TextWhite.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
+
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_chevron_right),
+                                contentDescription = null,
+                                tint = ActiveGreenLed,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
 
             // Center Power Icon with Smooth Rotating Circle Animation
             Box(

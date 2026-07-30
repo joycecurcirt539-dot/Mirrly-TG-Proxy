@@ -36,7 +36,10 @@ import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.service.ProxyForegroundService
 import com.mirrly.tgproxy.ui.theme.*
+import android.net.Uri
+import android.widget.Toast
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 @Composable
@@ -157,7 +160,10 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onOpenAbout: () -> Unit = {}
+) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = MirrlyApplication.instance
@@ -179,6 +185,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var autostart by remember { mutableStateOf(config.autostartOnBoot) }
     // Key of the setting whose info dialog is currently open (null = closed)
     var infoKey by remember { mutableStateOf<String?>(null) }
+    var pendingUpdateRelease by remember { mutableStateOf<com.mirrly.tgproxy.core.ReleaseInfo?>(null) }
 
     fun snapToNearestPool(valIn: Float): Float {
         return poolOptions.minByOrNull { abs(it - valIn) } ?: valIn
@@ -246,6 +253,14 @@ fun SettingsScreen(onBack: () -> Unit) {
             else -> return@let
         }
         InfoDialog(title = dlgTitle, body = dlgBody, onDismiss = { infoKey = null })
+    }
+
+    // Update Dialog display when release update is found
+    pendingUpdateRelease?.let { release ->
+        UpdateDialog(
+            releaseInfo = release,
+            onDismiss = { pendingUpdateRelease = null }
+        )
     }
 
     Scaffold(
@@ -601,6 +616,179 @@ fun SettingsScreen(onBack: () -> Unit) {
                             app.prefsManager.setAutoReconnectEnabled(newValue)
                         }
                     )
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
+
+            // SECTION 4: О Приложении & Разработчике
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    text = "О ПРИЛОЖЕНИИ",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(16.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenAbout()
+                        }
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_user),
+                                contentDescription = null,
+                                tint = ActiveGreenLed,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "О разработчике & Проекте",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = "R1Xern • Информация, соцсети и поддержка",
+                                fontSize = 12.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                // Check for Updates Row Item
+                var isCheckingUpdate by remember { mutableStateOf(false) }
+                val coroutineScope = rememberCoroutineScope()
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(16.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            if (!isCheckingUpdate) {
+                                isCheckingUpdate = true
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                coroutineScope.launch {
+                                    val result = com.mirrly.tgproxy.core.UpdateChecker.checkForUpdates()
+                                    isCheckingUpdate = false
+                                    result.fold(
+                                        onSuccess = { info ->
+                                            if (info.isUpdateAvailable) {
+                                                pendingUpdateRelease = info
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "У вас установлена актуальная версия v${com.mirrly.tgproxy.core.UpdateChecker.CURRENT_VERSION_NAME}",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        },
+                                        onFailure = { err ->
+                                            Toast.makeText(
+                                                context,
+                                                "Ошибка проверки обновлений: ${err.localizedMessage}",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_refresh),
+                                contentDescription = null,
+                                tint = ActiveGreenLed,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Проверить обновления",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = if (isCheckingUpdate) "Проверка GitHub Releases..." else "Текущая версия v1.0.2",
+                                fontSize = 12.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+
+                    if (isCheckingUpdate) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = ActiveGreenLed,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
 

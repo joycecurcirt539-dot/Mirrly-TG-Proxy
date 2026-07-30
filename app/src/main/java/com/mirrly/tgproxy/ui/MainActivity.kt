@@ -59,6 +59,9 @@ class MainActivity : ComponentActivity() {
 
                 BackHandler {
                     when (currentScreen) {
+                        "about" -> {
+                            currentScreen = "settings"
+                        }
                         "settings" -> {
                             currentScreen = previousScreen
                         }
@@ -85,12 +88,13 @@ class MainActivity : ComponentActivity() {
                     val isHome = currentScreen == "home"
                     val isSettings = currentScreen == "settings"
                     val isLogs = currentScreen == "logs"
+                    val isAbout = currentScreen == "about"
 
                     // Animated offsets & scales for Home screen
                     val homeOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings -> -0.15f
+                            isSettings || isAbout -> -0.15f
                             isLogs -> 0.15f
                             else -> 0f
                         },
@@ -110,7 +114,11 @@ class MainActivity : ComponentActivity() {
 
                     // Animated offsets & scales for Settings screen
                     val settingsOffsetFraction by animateFloatAsState(
-                        targetValue = if (isSettings) 0f else 1.0f,
+                        targetValue = when {
+                            isSettings -> 0f
+                            isAbout -> -0.15f
+                            else -> 1.0f
+                        },
                         animationSpec = tween(pushMs, easing = navEasing),
                         label = "settingsOffset"
                     )
@@ -140,6 +148,23 @@ class MainActivity : ComponentActivity() {
                         targetValue = if (isLogs) 1.0f else 0.0f,
                         animationSpec = tween(220),
                         label = "logsAlpha"
+                    )
+
+                    // Animated offsets & scales for About screen
+                    val aboutOffsetFraction by animateFloatAsState(
+                        targetValue = if (isAbout) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "aboutOffset"
+                    )
+                    val aboutScale by animateFloatAsState(
+                        targetValue = if (isAbout) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "aboutScale"
+                    )
+                    val aboutAlpha by animateFloatAsState(
+                        targetValue = if (isAbout) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "aboutAlpha"
                     )
 
                     // 1. HOME SCREEN (Pre-warmed & persistent)
@@ -196,7 +221,24 @@ class MainActivity : ComponentActivity() {
                             }
                     ) {
                         SettingsScreen(
-                            onBack = { currentScreen = previousScreen }
+                            onBack = { currentScreen = previousScreen },
+                            onOpenAbout = { currentScreen = "about" }
+                        )
+                    }
+
+                    // 4. ABOUT SCREEN (Pre-warmed & persistent)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                translationX = widthPx * aboutOffsetFraction
+                                scaleX = aboutScale
+                                scaleY = aboutScale
+                                alpha = aboutAlpha
+                            }
+                    ) {
+                        AboutScreen(
+                            onBack = { currentScreen = "settings" }
                         )
                     }
                 }
