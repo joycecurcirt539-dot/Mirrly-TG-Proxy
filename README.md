@@ -10,7 +10,7 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-1.9%2B-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/UI-Jetpack_Compose-4285F4?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![Rust Engine](https://img.shields.io/badge/Core-Native_Rust_%2B_JNA-DE4128?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/%D0%A0%D0%B5%D0%BB%D0%B8%D0%B7-v1.0.1-00E676?style=for-the-badge)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Version](https://img.shields.io/badge/%D0%A0%D0%B5%D0%BB%D0%B8%D0%B7-v1.0.3-00E676?style=for-the-badge)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![License](https://img.shields.io/badge/%D0%9B%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-blue?style=for-the-badge)](LICENSE)
 
 *Защита от ТСПУ, DPI-фильтрации, замедлений и блокировок IP-адресов дата-центров Telegram со стороны провайдеров. Работает на нативном движке с предварительно прогретым пулом сокетов и поддержкой Cloudflare CDN.*
@@ -222,7 +222,7 @@ Mirrly TG Proxy сканирует систему и предоставляет 
 
 | Главный экран (HomeScreen) | Настройки (SettingsScreen) | Логи (LogsScreen) |
 | :-: | :-: | :-: |
-| <img src="screenshot/home.jpg" alt="Главный экран Mirrly TG Proxy" width="250" /> | <img src="screenshot/settings.jpg" alt="Экран настроек" width="250" /> | <img src="screenshot/loggs.jpg" alt="Экран логов и переводчика" width="250" /> |
+| <img src="screenshot/home.jpg" alt="Главный экран Mirrly TG Proxy" width="250" /> | <img src="screenshot/settings.jpg" alt="Экран настроек" width="250" /> | <img src="screenshot/logs.jpg" alt="Экран логов и переводчика" width="250" /> |
 
 <br />
 
@@ -245,7 +245,7 @@ Mirrly TG Proxy сканирует систему и предоставляет 
 
 ## 14. Руководство по установке и первому запуску
 
-1. Скачайте актуальный файл `MirrlyTGProxy-v1.0.0-release.apk` со страницы [Релизы](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases).
+1. Скачайте актуальный файл `app-release.apk` (v1.0.3) со страницы [Релизы](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases).
 2. Выполните установку APK-файла.
 3. Запустите Mirrly TG Proxy.
 4. Нажмите центральную кнопку включения.
