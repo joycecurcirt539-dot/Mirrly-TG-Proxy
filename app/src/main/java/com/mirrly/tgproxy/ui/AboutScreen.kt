@@ -25,9 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -76,61 +78,70 @@ fun AboutScreen(
         Toast.makeText(context, "$label скопирован в буфер обмена", Toast.LENGTH_SHORT).show()
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "О разработчике",
-                        color = TextWhite,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onBack()
-                    }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_arrow_left),
-                            contentDescription = "Назад",
-                            tint = TextWhite,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = pureBlack)
-            )
-        },
-        containerColor = pureBlack
-    ) { padding ->
+    val scrollState = rememberScrollState()
+
+    // ── PARALLAX SCROLL MATH: HEADER RECEDES & SCALES ON DOWNWARD SCROLL ──
+    val rawScroll = scrollState.value.toFloat()
+    val maxScrollRange = with(LocalDensity.current) { 180.dp.toPx() }
+    val scrollFraction = (rawScroll / maxScrollRange).coerceIn(0f, 1f)
+
+    val headerScale = 1.0f - (scrollFraction * 0.12f)
+    val headerParallaxY = rawScroll * 0.32f
+    val headerAlpha = (1.0f - (scrollFraction * 0.40f)).coerceIn(0.2f, 1.0f)
+
+    // ── SHARED ELEMENT ENTRANCE SPRING SCALE (AVATAR FLIES IN FROM BUTTON) ──
+    var isEntered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        isEntered = true
+    }
+
+    val avatarEntranceScale by animateFloatAsState(
+        targetValue = if (isEntered) 1.00f else 0.40f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "avatarEntranceScale"
+    )
+
+    val avatarEntranceAlpha by animateFloatAsState(
+        targetValue = if (isEntered) 1.00f else 0.00f,
+        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+        label = "avatarEntranceAlpha"
+    )
+
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // 1. SCROLLABLE CONTENT LAYER (Scrolls ALL THE WAY to the top under the Frosted Header!)
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(pureBlack)
-                .padding(padding)
-                .padding(horizontal = 20.dp, vertical = 12.dp)
-                .verticalScroll(rememberScrollState()),
+                .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
+                .verticalScroll(scrollState)
+                .padding(
+                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp
+                )
+                .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
 
-            // 1. HERO DEVELOPER CARD
+            // 1. HERO DEVELOPER CARD WITH PARALLAX & SHARED ELEMENT HERO AVATAR
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .staggeredEntrance(index = 0)
+                    .graphicsLayer {
+                        scaleX = headerScale * avatarEntranceScale
+                        scaleY = headerScale * avatarEntranceScale
+                        translationY = headerParallaxY
+                        alpha = headerAlpha * avatarEntranceAlpha
+                    }
                     .clip(RoundedCornerShape(24.dp))
                     .background(Color.Transparent)
-                    .border(
-                        width = 1.5.dp,
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                ActiveGreenLed.copy(alpha = glowAlpha),
-                                Color(0xFF181E2E)
-                            )
-                        ),
-                        shape = RoundedCornerShape(24.dp)
-                    )
+                    .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(24.dp))
+                    .lightSweep(isEnabled = true, shape = RoundedCornerShape(24.dp))
                     .padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -138,11 +149,15 @@ fun AboutScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Glowing Avatar Icon Box
+                    // Glowing Avatar Icon Box (Shared Element Bounce Expansion)
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .size(88.dp)
+                            .graphicsLayer {
+                                scaleX = avatarEntranceScale
+                                scaleY = avatarEntranceScale
+                            }
                             .clip(CircleShape)
                             .background(Color.Transparent)
                             .border(2.5.dp, ActiveGreenLed.copy(alpha = glowAlpha), CircleShape)
@@ -231,7 +246,7 @@ fun AboutScreen(
                                 .background(ActiveGreenLed)
                         )
                         Text(
-                            text = "Mirrly TG Proxy v1.0.2 (Release)",
+                            text = "Mirrly TG Proxy v1.0.3 (Release)",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
@@ -241,7 +256,10 @@ fun AboutScreen(
             }
 
             // 2. BIO & MISSION CARD
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 1),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
                     text = "О РАЗРАБОТЧИКЕ И ПРОЕКТЕ",
                     fontSize = 11.sp,
@@ -277,7 +295,10 @@ fun AboutScreen(
             }
 
             // 3. OFFICIAL LINKS
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 2),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
                     text = "СВЯЗЬ И СОЦИАЛЬНЫЕ СЕТИ",
                     fontSize = 11.sp,
@@ -315,7 +336,10 @@ fun AboutScreen(
             }
 
             // 4. SUPPORT AUTHOR & DONATION CARD
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 3),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
                     text = "ПОДДЕРЖАТЬ АВТОРА (DONATION)",
                     fontSize = 11.sp,
@@ -504,6 +528,47 @@ fun AboutScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // 2. FROSTED GLASS HEADER PANEL (Pinned at Top over scrolling cards!)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.98f), // Pure AMOLED black behind status bar
+                            Color.Black.copy(alpha = 0.94f), // Pure AMOLED black behind title
+                            Color.Black.copy(alpha = 0.72f), // Pure AMOLED black blur transition
+                            Color.Black.copy(alpha = 0.00f)  // Soft fade edge to reveal blurred scrolling cards
+                        )
+                    )
+                )
+        ) {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "О разработчике",
+                        color = TextWhite,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onBack()
+                    }) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_arrow_left),
+                            contentDescription = "Назад",
+                            tint = TextWhite,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+            )
         }
     }
 }

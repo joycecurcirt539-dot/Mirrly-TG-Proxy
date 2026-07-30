@@ -7,6 +7,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -15,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,7 +30,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -36,8 +41,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mirrly.tgproxy.MirrlyApplication
@@ -212,20 +219,22 @@ fun HomeScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = pureBlack)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         },
-        containerColor = pureBlack
+        containerColor = Color.Transparent
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(pureBlack)
-                .padding(padding)
-                .padding(horizontal = 20.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+        Box(
+            modifier = Modifier.fillMaxSize()
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
             var showUpdateDialog by remember { mutableStateOf(false) }
 
             // Update Available Banner (if newer version available on GitHub)
@@ -246,8 +255,8 @@ fun HomeScreen(
                             .background(
                                 Brush.horizontalGradient(
                                     colors = listOf(
-                                        Color(0xFF1B2618),
-                                        Color(0xFF0F1B12)
+                                        Color(0xFF101C14),
+                                        Color(0xFF0A140D)
                                     )
                                 )
                             )
@@ -309,7 +318,20 @@ fun HomeScreen(
                 }
             }
 
-            // Center Power Icon with Smooth Rotating Circle Animation
+            // Center Power Icon with Smooth Rotating Circle Animation & Spring Scale Bounce
+            val powerInteractionSource = remember { MutableInteractionSource() }
+            val isPowerPressed by powerInteractionSource.collectIsPressedAsState()
+
+            // 🟢 PHYSICAL SPRING SCALE BOUNCE RESPONSE UPON PRESS
+            val springScale by animateFloatAsState(
+                targetValue = if (isPowerPressed) 0.86f else 1.00f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                ),
+                label = "powerSpringScale"
+            )
+
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -319,8 +341,12 @@ fun HomeScreen(
                 Box(
                     modifier = Modifier
                         .size(240.dp)
+                        .graphicsLayer {
+                            scaleX = springScale
+                            scaleY = springScale
+                        }
                         .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
+                            interactionSource = powerInteractionSource,
                             indication = null
                         ) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -341,40 +367,6 @@ fun HomeScreen(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    // Neon Aura Glow behind power icon when active/connecting/disconnecting
-                    val auraColor = when (currentState) {
-                        ProxyUiState.CONNECTED -> ActiveGreenLed
-                        ProxyUiState.CONNECTING -> Color(0xFF00F5D4)
-                        ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
-                        ProxyUiState.DISCONNECTED -> Color.Transparent
-                    }
-                    val animatedAuraColor by animateColorAsState(
-                        targetValue = auraColor,
-                        animationSpec = tween(500),
-                        label = "auraColor"
-                    )
-
-                    if (currentState != ProxyUiState.DISCONNECTED) {
-                        Box(
-                            modifier = Modifier
-                                .size(220.dp)
-                                .graphicsLayer {
-                                    scaleX = pulseScaleState.value
-                                    scaleY = pulseScaleState.value
-                                    alpha = pulseAlphaState.value
-                                }
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.radialGradient(
-                                        colors = listOf(
-                                            animatedAuraColor.copy(alpha = 0.38f),
-                                            animatedAuraColor.copy(alpha = 0.10f),
-                                            Color.Transparent
-                                        )
-                                    )
-                                )
-                        )
-                    }
 
                     // Rotating Smooth Ring Animation (Rotating Circle for Connecting/Disconnecting/Active)
                     RotatingProxyRing(
@@ -440,7 +432,7 @@ fun HomeScreen(
                         ProxyUiState.DISCONNECTING -> "ОТКЛЮЧЕНИЕ..."
                         ProxyUiState.DISCONNECTED -> "00:00:00"
                     }
-                    Text(
+                    RollingNumberText(
                         text = statusText,
                         color = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else if (currentState == ProxyUiState.DISCONNECTING) Color(0xFFFF9E00) else TextMuted,
                         fontSize = 15.sp,
@@ -501,13 +493,18 @@ fun HomeScreen(
                             Text("Входящий", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         }
                         Spacer(modifier = Modifier.height(2.dp))
-                        Text(
+                        RollingNumberText(
                             text = dlSpeed,
                             color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
                             fontWeight = FontWeight.Bold,
                             fontSize = 17.sp
                         )
-                        Text("Всего: $totalRecv", color = TextMuted, fontSize = 11.sp)
+                        RollingNumberText(
+                            text = "Всего: $totalRecv",
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal
+                        )
                     }
 
                     // Divider line (50.0% centered)
@@ -534,17 +531,35 @@ fun HomeScreen(
                             Text("Исходящий", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         }
                         Spacer(modifier = Modifier.height(2.dp))
-                        Text(
+                        RollingNumberText(
                             text = ulSpeed,
                             color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
                             fontWeight = FontWeight.Bold,
                             fontSize = 17.sp
                         )
-                        Text("Всего: $totalSent", color = TextMuted, fontSize = 11.sp)
+                        RollingNumberText(
+                            text = "Всего: $totalSent",
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // WsPool Real-Time Smooth Bezier Socket Stability Graph
+                WsPoolStabilityGraph(
+                    isProxyActive = currentState == ProxyUiState.CONNECTED,
+                    activeConns = activeConns,
+                    maxPoolSize = app.config.poolSize,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp)
+                        .padding(horizontal = 12.dp)
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Action Buttons Dock (Always visible, requiring Proxy ON)
                 Row(
@@ -568,7 +583,8 @@ fun HomeScreen(
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(52.dp),
+                            .height(52.dp)
+                            .springPress(),
                         shape = RoundedCornerShape(16.dp),
                         color = Color.Transparent,
                         border = BorderStroke(
@@ -610,7 +626,8 @@ fun HomeScreen(
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(52.dp),
+                            .height(52.dp)
+                            .springPress(),
                         shape = RoundedCornerShape(16.dp),
                         color = Color.Transparent,
                         border = BorderStroke(
@@ -642,6 +659,7 @@ fun HomeScreen(
             }
         }
     }
+}
 }
 
 @Composable
@@ -910,5 +928,247 @@ private fun applyToTelegramPackages(context: Context, url: String) {
         } catch (_: Exception) {
             Toast.makeText(context, "Ошибка выбора клиента", Toast.LENGTH_SHORT).show()
         }
+    }
+}
+
+/**
+ * Smooth Rolling Numbers composable with Spring Elasticity & Inertia.
+ * Animates timer digits, speeds, and data metrics with bouncy spring physics.
+ */
+@Composable
+fun RollingNumberText(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = TextWhite,
+    fontSize: TextUnit = 14.sp,
+    fontWeight: FontWeight = FontWeight.Bold,
+    fontStyle: FontStyle = FontStyle.Normal,
+    letterSpacing: TextUnit = TextUnit.Unspecified
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        text.forEachIndexed { index, char ->
+            AnimatedContent(
+                targetState = char,
+                transitionSpec = {
+                    val slideDirection = if (targetState > initialState) 1 else -1
+                    (slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    ) { height -> height * slideDirection } + fadeIn()).togetherWith(
+                        slideOutVertically(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow
+                            )
+                        ) { height -> -height * slideDirection } + fadeOut()
+                    ).using(SizeTransform(clip = false))
+                },
+                label = "rollingChar_${index}_$char"
+            ) { targetChar ->
+                Text(
+                    text = targetChar.toString(),
+                    color = color,
+                    fontSize = fontSize,
+                    fontWeight = fontWeight,
+                    fontStyle = fontStyle,
+                    letterSpacing = letterSpacing
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Liquid Wave Engine (Continuous Harmonic Superposition Graph).
+ * Evaluates a continuous 120 FPS fluid wave equation on GPU canvas per-frame,
+ * eliminating discrete array steps and delivering 100% butter-smooth liquid motion.
+ */
+@Composable
+fun WsPoolStabilityGraph(
+    isProxyActive: Boolean,
+    activeConns: Int,
+    maxPoolSize: Int,
+    modifier: Modifier = Modifier
+) {
+    // Continuous nanosecond frame clock for 60Hz/120Hz smooth rendering
+    var timeSeconds by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        val startTime = System.nanoTime()
+        while (true) {
+            withFrameNanos { frameTimeNanos ->
+                timeSeconds = (frameTimeNanos - startTime) / 1_000_000_000f
+            }
+        }
+    }
+
+    // Target amplitude smoothly interpolated with spring physics: drops flat to 0.0 when OFF
+    val targetAmplitude = if (isProxyActive && maxPoolSize > 0) {
+        (activeConns.toFloat() / maxPoolSize.toFloat()).coerceIn(0.18f, 0.95f)
+    } else {
+        0.00f
+    }
+
+    val animatedAmplitude by animateFloatAsState(
+        targetValue = targetAmplitude,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "animatedAmplitude"
+    )
+
+    val infiniteTransition = rememberInfiniteTransition(label = "headPulseTransition")
+    val headPulseScale by infiniteTransition.animateFloat(
+        initialValue = 4.dp.value,
+        targetValue = 7.dp.value,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "headPulseScale"
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            val width = size.width
+            val height = size.height
+            if (width <= 0f || height <= 0f) return@Canvas
+
+            val steps = 80 // High sub-pixel sampling density for max smoothing
+            val stepX = width / steps
+            val t = timeSeconds
+
+            val points = List(steps + 1) { i ->
+                val u = i.toFloat() / steps // normalized 0..1
+                
+                // Silky Soft Low-Frequency Harmonic Superposition
+                val w1 = sin(u * 4.2f + t * 1.4f)          // Long rolling primary wave
+                val w2 = cos(u * 6.8f - t * 1.1f) * 0.35f  // Soft secondary harmonic
+                val w3 = sin(u * 2.5f + t * 1.8f) * 0.15f  // Gentle breathing ripple
+                
+                val combinedWave = (w1 + w2 + w3) / 1.5f
+                val waveHeightSpan = animatedAmplitude * height * 0.40f
+                val centerY = height - (animatedAmplitude * height * 0.38f) - (height * 0.14f)
+                
+                val y = (centerY + combinedWave * waveHeightSpan).coerceIn(4f, height - 4f)
+                Offset(i * stepX, y)
+            }
+
+            // Construct Ultra-Smooth Catmull-Rom C1 Spline Path with Derivative Tangents
+            val strokePath = Path().apply {
+                moveTo(points.first().x, points.first().y)
+                for (i in 0 until points.size - 1) {
+                    val p0 = points[if (i > 0) i - 1 else i]
+                    val p1 = points[i]
+                    val p2 = points[i + 1]
+                    val p3 = points[if (i + 2 < points.size) i + 2 else i + 1]
+
+                    // Exact Catmull-Rom tangent derivative control points (Zero-Kink C1 Continuity)
+                    val control1 = Offset(
+                        p1.x + (p2.x - p0.x) / 6f,
+                        p1.y + (p2.y - p0.y) / 6f
+                    )
+                    val control2 = Offset(
+                        p2.x - (p3.x - p1.x) / 6f,
+                        p2.y - (p3.y - p1.y) / 6f
+                    )
+                    cubicTo(control1.x, control1.y, control2.x, control2.y, p2.x, p2.y)
+                }
+            }
+
+            // Area Fill Path under the Bezier Curve
+            val fillPath = Path().apply {
+                addPath(strokePath)
+                lineTo(width, height)
+                lineTo(0f, height)
+                close()
+            }
+
+            val neonColor = if (isProxyActive) ActiveGreenLed else InactiveGrayLed
+
+            // 1. Draw Gradient Area Fill under Liquid Wave
+            drawPath(
+                path = fillPath,
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        neonColor.copy(alpha = if (isProxyActive) 0.32f else 0.08f),
+                        Color.Transparent
+                    )
+                )
+            )
+
+            // 2. Draw Soft Ambient Glow Line Layer
+            drawPath(
+                path = strokePath,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        neonColor.copy(alpha = 0.15f),
+                        neonColor.copy(alpha = 0.40f),
+                        neonColor.copy(alpha = 0.40f)
+                    )
+                ),
+                style = Stroke(
+                    width = 5.dp.toPx(),
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+            )
+
+            // 3. Draw Main Crisp Silky Bezier Line
+            drawPath(
+                path = strokePath,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        neonColor.copy(alpha = 0.4f),
+                        neonColor,
+                        neonColor
+                    )
+                ),
+                style = Stroke(
+                    width = 2.dp.toPx(),
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round
+                )
+            )
+
+            // 3. Draw Head Pulsating Glowing LED Dot at the leading edge
+            if (isProxyActive && points.isNotEmpty()) {
+                val headPoint = points.last()
+                drawCircle(
+                    color = ActiveGreenLed.copy(alpha = 0.35f),
+                    radius = headPulseScale.dp.toPx(),
+                    center = headPoint
+                )
+                drawCircle(
+                    color = ActiveGreenLed,
+                    radius = 3.dp.toPx(),
+                    center = headPoint
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(3.dp))
+
+        // Subtle dark muted caption under graph
+        Text(
+            text = "АКТИВНОСТЬ СОКЕТОВ WSPOOL",
+            color = TextMuted.copy(alpha = 0.50f),
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.2.sp
+        )
     }
 }

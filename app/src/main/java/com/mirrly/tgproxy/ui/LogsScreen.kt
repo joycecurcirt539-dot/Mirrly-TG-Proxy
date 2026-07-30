@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -89,202 +90,223 @@ fun LogsScreen(
 
     val pureBlack = Color(0xFF000000)
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Журнал событий",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = TextWhite
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // 1. FULL-SCREEN SCROLLABLE LOGS LAYER (Scrolls ALL THE WAY to the top under search & header!)
+        if (filteredLogs.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_logs),
+                        contentDescription = null,
+                        tint = TextMuted.copy(alpha = 0.5f),
+                        modifier = Modifier.size(54.dp)
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onBack()
-                    }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_arrow_left),
-                            contentDescription = "Назад",
-                            tint = TextWhite,
-                            modifier = Modifier.size(22.dp)
+                    Text(
+                        text = if (searchQuery.isNotEmpty()) "События не найдены" else "Журнал событий пуст",
+                        color = TextMuted,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .fadingEdges(topFadeHeight = 28.dp, bottomFadeHeight = 44.dp),
+                contentPadding = PaddingValues(
+                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp + 115.dp,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp,
+                    start = 20.dp,
+                    end = 20.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(
+                    items = filteredLogs,
+                    key = { "${it.timestamp}_${it.tag}_${it.humanMessage.hashCode()}" }
+                ) { entry ->
+                    HumanLogCard(entry)
+                }
+            }
+        }
+
+        // 2. PINNED FROSTED GLASS HEADER PANEL (Title + Search + Category Badges)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.99f), // Behind status bar
+                            Color.Black.copy(alpha = 0.98f), // Behind title bar
+                            Color.Black.copy(alpha = 0.98f), // Behind search bar
+                            Color.Black.copy(alpha = 0.98f), // Behind category filter badges
+                            Color.Black.copy(alpha = 0.90f), // Soft blur transition below badges
+                            Color.Black.copy(alpha = 0.00f)  // Transparent edge fade below badges
                         )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        val text = filteredLogs.joinToString("\n") { "[${it.formattedTime}] ${it.humanMessage}" }
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Mirrly Proxy Logs", text))
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        Toast.makeText(context, "Логи скопированы!", Toast.LENGTH_SHORT).show()
-                    }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_copy),
-                            contentDescription = "Скопировать",
-                            tint = TextWhite,
-                            modifier = Modifier.size(20.dp)
+                    )
+                )
+                .padding(bottom = 26.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "Журнал событий",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = TextWhite
                         )
-                    }
-                    IconButton(onClick = {
-                        AppLogger.clear()
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_trash),
-                            contentDescription = "Очистить",
-                            tint = TextWhite,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    if (onOpenSettings != null) {
+                    },
+                    navigationIcon = {
                         IconButton(onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onOpenSettings()
+                            onBack()
                         }) {
                             Icon(
-                                painter = painterResource(id = R.drawable.ic_settings),
-                                contentDescription = "Настройки",
+                                painter = painterResource(id = R.drawable.ic_arrow_left),
+                                contentDescription = "Назад",
+                                tint = TextWhite,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = {
+                            val text = filteredLogs.joinToString("\n") { "[${it.formattedTime}] ${it.humanMessage}" }
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Mirrly Proxy Logs", text))
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            Toast.makeText(context, "Логи скопированы!", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_copy),
+                                contentDescription = "Скопировать",
                                 tint = TextWhite,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = pureBlack)
-            )
-        },
-        containerColor = pureBlack
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(pureBlack)
-                .padding(padding)
-                .padding(horizontal = 20.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-
-            // Minimalist Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Поиск событий...", color = TextMuted, fontSize = 14.sp) },
-                leadingIcon = {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_search),
-                        contentDescription = null,
-                        tint = TextMuted,
-                        modifier = Modifier.size(18.dp)
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = {
-                            searchQuery = ""
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            AppLogger.clear()
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         }) {
-                            Text("✕", color = TextMuted, fontSize = 14.sp)
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_trash),
+                                contentDescription = "Очистить",
+                                tint = TextWhite,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = pureBlack,
-                    unfocusedContainerColor = pureBlack,
-                    focusedBorderColor = ActiveGreenLed,
-                    unfocusedBorderColor = Color(0xFF1E2333),
-                    focusedTextColor = TextWhite,
-                    unfocusedTextColor = TextWhite
+                        if (onOpenSettings != null) {
+                            IconButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onOpenSettings()
+                            }) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_settings),
+                                    contentDescription = "Настройки",
+                                    tint = TextWhite,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
-            )
 
-            // Category Filter Badges
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                LogFilterBadge(
-                    text = "Все (${logs.size})",
-                    isSelected = selectedLevel == null,
-                    activeColor = TextWhite,
-                    onClick = {
-                        selectedLevel = null
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-                )
-                LogFilterBadge(
-                    text = "Инфо ($infoCount)",
-                    isSelected = selectedLevel == LogLevel.INFO,
-                    activeColor = ActiveGreenLed,
-                    onClick = {
-                        selectedLevel = if (selectedLevel == LogLevel.INFO) null else LogLevel.INFO
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-                )
-                LogFilterBadge(
-                    text = "Варн ($warnCount)",
-                    isSelected = selectedLevel == LogLevel.WARN,
-                    activeColor = Color(0xFFF59E0B),
-                    onClick = {
-                        selectedLevel = if (selectedLevel == LogLevel.WARN) null else LogLevel.WARN
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-                )
-                LogFilterBadge(
-                    text = "Ошибки ($errorCount)",
-                    isSelected = selectedLevel == LogLevel.ERROR,
-                    activeColor = Color(0xFFEF4444),
-                    onClick = {
-                        selectedLevel = if (selectedLevel == LogLevel.ERROR) null else LogLevel.ERROR
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-                )
-            }
-
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
-
-            // Log List / Friendly Empty State
-            if (filteredLogs.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 40.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                // Minimalist Search Bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Поиск событий...", color = TextMuted, fontSize = 14.sp) },
+                    leadingIcon = {
                         Icon(
-                            painter = painterResource(id = R.drawable.ic_logs),
+                            painter = painterResource(id = R.drawable.ic_search),
                             contentDescription = null,
-                            tint = Color(0xFF282E3E),
-                            modifier = Modifier.size(54.dp)
+                            tint = TextMuted,
+                            modifier = Modifier.size(18.dp)
                         )
-                        Text(
-                            text = if (searchQuery.isNotEmpty()) "События не найдены" else "Журнал событий пуст",
-                            color = TextMuted,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize()
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = {
+                                searchQuery = ""
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }) {
+                                Text("✕", color = TextMuted, fontSize = 14.sp)
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedBorderColor = ActiveGreenLed,
+                        unfocusedBorderColor = Color(0xFF222226),
+                        focusedTextColor = TextWhite,
+                        unfocusedTextColor = TextWhite
+                    )
+                )
+
+                // Category Filter Badges
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(
-                        items = filteredLogs,
-                        key = { "${it.timestamp}_${it.tag}_${it.humanMessage.hashCode()}" }
-                    ) { entry ->
-                        HumanLogCard(entry)
-                    }
+                    LogFilterBadge(
+                        text = "Все (${logs.size})",
+                        isSelected = selectedLevel == null,
+                        activeColor = TextWhite,
+                        onClick = {
+                            selectedLevel = null
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    )
+                    LogFilterBadge(
+                        text = "Инфо ($infoCount)",
+                        isSelected = selectedLevel == LogLevel.INFO,
+                        activeColor = ActiveGreenLed,
+                        onClick = {
+                            selectedLevel = if (selectedLevel == LogLevel.INFO) null else LogLevel.INFO
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    )
+                    LogFilterBadge(
+                        text = "Варн ($warnCount)",
+                        isSelected = selectedLevel == LogLevel.WARN,
+                        activeColor = Color(0xFFF59E0B),
+                        onClick = {
+                            selectedLevel = if (selectedLevel == LogLevel.WARN) null else LogLevel.WARN
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    )
+                    LogFilterBadge(
+                        text = "Ошибки ($errorCount)",
+                        isSelected = selectedLevel == LogLevel.ERROR,
+                        activeColor = Color(0xFFEF4444),
+                        onClick = {
+                            selectedLevel = if (selectedLevel == LogLevel.ERROR) null else LogLevel.ERROR
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    )
                 }
             }
         }
@@ -299,7 +321,7 @@ fun LogFilterBadge(
     onClick: () -> Unit
 ) {
     val bgColor by animateColorAsState(
-        targetValue = if (isSelected) activeColor.copy(alpha = 0.18f) else Color(0xFF141722),
+        targetValue = if (isSelected) activeColor.copy(alpha = 0.18f) else Color(0xFF141418),
         animationSpec = tween(200),
         label = "badgeBg"
     )

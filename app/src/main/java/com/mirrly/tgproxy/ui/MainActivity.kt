@@ -23,10 +23,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import com.mirrly.tgproxy.ui.theme.MirrlyTheme
 
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
+import android.graphics.RenderEffect
+import android.graphics.Shader
+
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.LaunchedEffect
+import com.mirrly.tgproxy.MirrlyApplication
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -36,6 +51,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Enable Edge-to-Edge edge transparent status bar drawing
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         // Force hardware acceleration at window level to eliminate OpenGLRenderer swap errors
         window.setFlags(
@@ -53,6 +71,24 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MirrlyTheme {
+                val app = MirrlyApplication.instance
+                val server = app.proxyServer
+                var isProxyRunning by remember { mutableStateOf(server.isRunning) }
+
+                LaunchedEffect(Unit) {
+                    withContext(Dispatchers.IO) {
+                        while (isActive) {
+                            val running = server.isRunning
+                            withContext(Dispatchers.Main) {
+                                isProxyRunning = running
+                            }
+                            delay(500)
+                        }
+                    }
+                }
+
+                val globalProxyState = if (isProxyRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
+
                 var currentScreen by remember { mutableStateOf("home") }
                 var previousScreen by remember { mutableStateOf("home") }
                 var lastBackTime by remember { mutableLongStateOf(0L) }
@@ -80,7 +116,57 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                val blurRadius by animateDpAsState(
+                    targetValue = if (currentScreen == "home") 0.dp else 12.dp,
+                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+                    label = "canvasBlur"
+                )
+
+                val backdropAlpha by animateFloatAsState(
+                    targetValue = if (currentScreen == "home") 0f else 0.45f,
+                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+                    label = "backdropAlpha"
+                )
+
                 BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                    // Global Seamless Cyber Energy Canvas with Zero-Lag GPU Hardware Blur Optimization
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                compositingStrategy = CompositingStrategy.Offscreen
+                                if (blurRadius > 0.5.dp && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    val radiusPx = blurRadius.toPx()
+                                    renderEffect = RenderEffect.createBlurEffect(
+                                        radiusPx,
+                                        radiusPx,
+                                        Shader.TileMode.CLAMP
+                                    ).asComposeRenderEffect()
+                                }
+                            }
+                            .then(
+                                if (blurRadius > 0.5.dp && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                                    Modifier.blur(blurRadius)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                    ) {
+                        CyberEnergyCanvas(
+                            state = globalProxyState,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    // Gaussian Frosted Dark Backdrop Overlay for Non-Home Tabs
+                    if (backdropAlpha > 0.01f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = backdropAlpha))
+                        )
+                    }
+
                     val widthPx = constraints.maxWidth.toFloat()
                     val pushMs = 380
                     val navEasing = FastOutSlowInEasing

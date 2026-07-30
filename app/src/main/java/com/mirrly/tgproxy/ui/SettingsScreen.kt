@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -263,47 +264,28 @@ fun SettingsScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Настройки",
-                        color = TextWhite,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onBack()
-                    }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_arrow_left),
-                            contentDescription = "Назад",
-                            tint = TextWhite,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = pureBlack)
-            )
-        },
-        containerColor = pureBlack
-    ) { padding ->
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // 1. SCROLLABLE CONTENT LAYER (Scrolls ALL THE WAY to the top under the Frosted Header!)
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(pureBlack)
-                .padding(padding)
-                .padding(horizontal = 22.dp, vertical = 12.dp)
-                .verticalScroll(rememberScrollState()),
+                .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp
+                )
+                .padding(horizontal = 22.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
 
             // SECTION 1: Сеть
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 0),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
                 Text(
                     text = "СЕТЬ",
                     fontSize = 12.sp,
@@ -332,8 +314,8 @@ fun SettingsScreen(
                             { Text("Введите число от 1 до 65535", color = Color(0xFFEF4444), fontSize = 12.sp) }
                         } else null,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = pureBlack,
-                            unfocusedContainerColor = pureBlack,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
                             focusedBorderColor = if (isPortError) Color(0xFFEF4444) else ActiveGreenLed,
                             unfocusedBorderColor = if (isPortError) Color(0xFFEF4444) else Color(0xFF1E2333),
                             focusedTextColor = TextWhite,
@@ -402,8 +384,8 @@ fun SettingsScreen(
                             }
                         },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = pureBlack,
-                            unfocusedContainerColor = pureBlack,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
                             focusedBorderColor = ActiveGreenLed,
                             unfocusedBorderColor = Color(0xFF1E2333),
                             focusedTextColor = TextWhite,
@@ -416,7 +398,10 @@ fun SettingsScreen(
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
             // SECTION 2: Cloudflare (Always Enabled)
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 1),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
                 Text(
                     text = "CLOUDFLARE TUNNEL",
                     fontSize = 12.sp,
@@ -441,8 +426,8 @@ fun SettingsScreen(
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = pureBlack,
-                            unfocusedContainerColor = pureBlack,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
                             focusedBorderColor = ActiveGreenLed,
                             unfocusedBorderColor = Color(0xFF1E2333),
                             focusedTextColor = TextWhite,
@@ -455,7 +440,10 @@ fun SettingsScreen(
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
             // SECTION 3: Система & Оптимизация
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 2),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
                 Text(
                     text = "СИСТЕМА",
                     fontSize = 12.sp,
@@ -622,7 +610,10 @@ fun SettingsScreen(
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
             // SECTION 4: О Приложении & Разработчике
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 3),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
                 Text(
                     text = "О ПРИЛОЖЕНИИ",
                     fontSize = 12.sp,
@@ -768,7 +759,7 @@ fun SettingsScreen(
                                 color = TextWhite
                             )
                             Text(
-                                text = if (isCheckingUpdate) "Проверка GitHub Releases..." else "Текущая версия v1.0.2",
+                                text = if (isCheckingUpdate) "Проверка GitHub Releases..." else "Текущая версия v1.0.3",
                                 fontSize = 12.sp,
                                 color = TextMuted
                             )
@@ -793,6 +784,47 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // 2. FROSTED GLASS HEADER PANEL (Pinned at Top over scrolling items!)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.98f), // Pure AMOLED black behind status bar
+                            Color.Black.copy(alpha = 0.94f), // Pure AMOLED black behind title
+                            Color.Black.copy(alpha = 0.72f), // Pure AMOLED black blur transition
+                            Color.Black.copy(alpha = 0.00f)  // Soft fade edge to reveal blurred scrolling items
+                        )
+                    )
+                )
+        ) {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Настройки",
+                        color = TextWhite,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onBack()
+                    }) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_arrow_left),
+                            contentDescription = "Назад",
+                            tint = TextWhite,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+            )
         }
     }
 }
