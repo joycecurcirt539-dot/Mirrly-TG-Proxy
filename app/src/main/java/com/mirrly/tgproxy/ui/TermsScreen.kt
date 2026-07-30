@@ -77,24 +77,28 @@ fun TermsScreen(
         2. BAN ON MALWARE AND FRAUD
         It is strictly prohibited to use this source code or its binaries to build, embed, or distribute malware, viruses, trojans, hidden cryptocurrency miners, spyware, or phishing tools, or to secretly intercept user traffic.
 
-        3. TRADEMARK & BRAND PROTECTION
-        The names "Mirrly", "Mirrly Dev", "Mirrly TG Proxy", the author's handle "R1Xern", and all official icons and branding assets are intellectual property of the author. This license grants NO permission to use these trademarks in forks or third-party builds without written consent.
+        3. APP STORES & THIRD-PARTY MIRRORS POLICY
+        Distributing, mirroring, or publishing this application or its forks on third-party app stores, tech portals, software catalogs, and Telegram channels IS ALLOWED AND ENCOURAGED for promotion, provided that:
+        (a) The original author (R1Xern / Mirrly Dev) and direct link to the GitHub repository are specified.
+        (b) The presence of GNU GPLv3 license is mentioned.
+        (c) Downloads remain 100% free with NO commercial paywalls.
+        (d) APK files contain zero malware or modifications.
 
-        4. FORK TRANSPARENCY & LABELLING
-        Any third-party fork or modified build MUST be released under a distinct name not containing "Mirrly" and MUST display a clear notice stating:
-        "This product is an unofficial fork based on Mirrly TG Proxy code and is not affiliated with or endorsed by Mirrly Dev."
+        4. TRADEMARK & BRAND PROTECTION
+        The names "Mirrly", "Mirrly Dev", "Mirrly TG Proxy", the author's handle "R1Xern", and official logo assets are intellectual property of the author.
 
-        5. DISCLAIMER FOR THIRD-PARTY BUILDS
-        The author bears zero liability for the security, integrity, or performance of any third-party APK builds or modifications downloaded outside the official GitHub repository (joycecurcirt539-dot/Mirrly-TG-Proxy).
+        5. FORK TRANSPARENCY & LABELLING
+        Any third-party fork or modified build MUST display a clear notice stating:
+        "This product is an unofficial fork based on Mirrly TG Proxy code. Original project: R1Xern (Mirrly Dev)."
 
-        6. TERMINATION
-        Any breach of these terms automatically terminates all permissions granted under this license.
+        6. DISCLAIMER & TERMINATION
+        The author bears zero liability for third-party modified APKs. Any breach of terms automatically terminates all permissions granted under this license.
         """.trimIndent()
     }
 
     val fullTermsTextRu = remember {
         """
-        ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ И ДОПОЛНИТЕЛЬНЫЕ УСЛОВИЯ ИСПОЛЬЗОВАНИЯ
+        ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ И ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ ИСПОЛЬЗОВАНИЯ
 
         Проект: Mirrly TG Proxy
         Автор и правообладатель: R1Xern (Mirrly Dev)
@@ -106,18 +110,22 @@ fun TermsScreen(
         2. ЗАПРЕТ НА ВРЕДОНОСНОЕ ПО И МОШЕННИЧЕСТВО
         Категорически запрещено использовать исходный код или сборки для создания, внедрения или распространения вредоносного ПО (малвари), вирусов, скрытых майнеров, фишинга или тайного перехвата трафика пользователей.
 
-        3. ЗАЩИТА ТОВАРНОГО ЗНАКА И БРЕНДА
-        Наименования «Mirrly», «Mirrly Dev», «Mirrly TG Proxy», имя автора «R1Xern» и официальная символика являются интеллектуальной собственностью. Запрещено использовать их в форках без письменного согласия правообладателя.
+        3. РАСПРОСТРАНЕНИЕ В СТОРОННИХ МАГАЗИНАХ ПРИЛОЖЕНИЙ И КАТАЛОГАХ (APP STORES POLICY)
+        Размещение, перезаливка и публикация оригинального приложения Mirrly TG Proxy или его форков в любых сторонних магазинах приложений (App Stores), каталогах ПО, на софт-порталах, файлообменниках и в Telegram-каналах РАЗРЕШЕНЫ И ПРИВЕТСТВУЮТСЯ для продвижения проекта при соблюдении условий:
+        (a) Указание имени оригинального автора (R1Xern / Mirrly Dev) и ссылки на репозиторий GitHub.
+        (b) Упоминание свободной лицензии GNU GPLv3.
+        (c) Бесплатность скачивания (запрещено требовать плату за скачивание APK).
+        (d) Чистота сборки (без малвари и сторонней рекламы).
 
-        4. ПРОЗРАЧНОСТЬ И МАРКИРОВКА ФОРКОВ
-        Любые третьи форки или сборки ДОЛЖНЫ быть выпущены под собственным именем без слова «Mirrly» и содержать явное уведомление:
-        «Данный продукт является неофициальным форком на основе кода Mirrly TG Proxy и не поддерживается оригинальным автором Mirrly Dev.»
+        4. ЗАЩИТА ТОВАРНОГО ЗНАКА И БРЕНДА
+        Наименования «Mirrly», «Mirrly Dev», «Mirrly TG Proxy», имя автора «R1Xern» и официальная символика являются интеллектуальной собственностью.
 
-        5. ОТКАЗ ОТ ОТВЕТСТВЕННОСТИ ЗА СТОРОННИЕ СБОРКИ
-        Правообладатель не несет ответственности за безопасность и работоспособность сторонних APK-сборок, распространенных вне официального репозитория GitHub (joycecurcirt539-dot/Mirrly-TG-Proxy).
+        5. ПРОЗРАЧНОСТЬ И МАРКИРОВКА ФОРКОВ
+        Любые третьи форки или сборки с изменениями кода ДОЛЖНЫ содержать явное уведомление:
+        «Данный продукт является сторонним форком на основе исходного кода Mirrly TG Proxy. Оригинальный проект: R1Xern (Mirrly Dev).»
 
-        6. АННУЛИРОВАНИЕ ПРАВ
-        Нарушение любых условий автоматически аннулирует все права на использование исходного кода проекта.
+        6. ОТКАЗ ОТ ОТВЕТСТВЕННОСТИ И АННУЛИРОВАНИЕ ПРАВ
+        Правообладатель не несет ответственности за сторонние модификации. Нарушение условий ведет к автоматической аннулиции лицензионных прав.
         """.trimIndent()
     }
 
@@ -207,7 +215,7 @@ fun TermsScreen(
                     }
 
                     Text(
-                        text = "Дополнительные правила и правила добросовестного использования, действующие в дополнение к базовой лицензии GNU GPLv3 для максимальной защиты авторских прав и пользователей.",
+                        text = "Дополнительные правила и правила добросовестного использования, действующие в дополнение к базовой лицензии GNU GPLv3 для максимальной защиты авторских прав и продвижения проекта.",
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
                         color = TextWhite.copy(alpha = 0.85f)
@@ -283,9 +291,9 @@ fun TermsScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         ProtectionRow(title = "Запрет малвари", desc = "Запрещено встраивание вирусов, троянов и скрытых майнеров")
+                        ProtectionRow(title = "Каталоги и магазины", desc = "Публикация в сторонних App Stores разрешена с указанием автора и бесплатностью")
                         ProtectionRow(title = "Защита бренда", desc = "Запрещено использовать имя Mirrly и логотипы в форках")
-                        ProtectionRow(title = "Маркировка форков", desc = "Форки обязаны содержать дисклеймер о неофициальном статусе")
-                        ProtectionRow(title = "Безопасность", desc = "Официальные релизы распространяются строго на GitHub")
+                        ProtectionRow(title = "Маркировка форков", desc = "Форки обязаны содержать дисклеймер об авторе R1Xern")
                         HorizontalDivider(color = Color(0xFF161A26), thickness = 1.dp, modifier = Modifier.padding(vertical = 4.dp))
                         Text(
                             text = "Нарушение условий ведет к автоматической аннулиции лицензионных прав на использование кода.",

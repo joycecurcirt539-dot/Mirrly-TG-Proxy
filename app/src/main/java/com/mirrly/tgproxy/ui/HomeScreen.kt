@@ -95,6 +95,11 @@ fun HomeScreen(
     onOpenLogs: () -> Unit,
     onUiHiddenChange: (Boolean) -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val app = MirrlyApplication.instance
+    val server = app.proxyServer
+
     // ── Stealth Mode State ────────────────────────────────────────────────
     var isUiHidden by remember { mutableStateOf(false) }
     var eyeButtonVisible by remember { mutableStateOf(false) }
@@ -109,8 +114,13 @@ fun HomeScreen(
         label = "uiHideProgress"
     )
 
-    // Callback propagation
-    LaunchedEffect(isUiHidden) { onUiHiddenChange(isUiHidden) }
+    // Callback propagation & notification toast
+    LaunchedEffect(isUiHidden) {
+        onUiHiddenChange(isUiHidden)
+        if (isUiHidden) {
+            Toast.makeText(context, "Удерживайте пальцем экран, чтобы всё вернулось", Toast.LENGTH_LONG).show()
+        }
+    }
 
     // Auto-hide the floating eye button after 5 seconds
     LaunchedEffect(isUiHidden, eyeButtonVisible) {
@@ -119,10 +129,6 @@ fun HomeScreen(
             eyeButtonVisible = false
         }
     }
-    val context = LocalContext.current
-    val haptic = LocalHapticFeedback.current
-    val app = MirrlyApplication.instance
-    val server = app.proxyServer
 
     var isRunning by remember { mutableStateOf(server.isRunning) }
     var pendingState by remember { mutableStateOf<ProxyUiState?>(null) }
@@ -298,107 +304,108 @@ fun HomeScreen(
                     } else Modifier
                 )
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 20.dp, vertical = 10.dp)
-                    .graphicsLayer {
-                        translationY = 160.dp.toPx() * uiAnimProgress
-                        alpha = (1f - uiAnimProgress * 1.5f).coerceIn(0f, 1f)
-                    },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
             var showUpdateDialog by remember { mutableStateOf(false) }
 
-            // Update Available Banner (if newer version available on GitHub)
-            updateInfo?.let { info ->
-                if (info.isUpdateAvailable && showUpdateDialog) {
-                    UpdateDialog(
-                        releaseInfo = info,
-                        onDismiss = { showUpdateDialog = false }
-                    )
-                }
+            // ─── 1. TOP SECTION (Update banner) ───
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(top = padding.calculateTopPadding() + 10.dp)
+                    .padding(horizontal = 20.dp)
+                    .graphicsLayer {
+                        // slides up
+                        translationY = -120.dp.toPx() * uiAnimProgress
+                        alpha = (1f - uiAnimProgress * 2f).coerceIn(0f, 1f)
+                    }
+            ) {
+                // Update Available Banner (if newer version available on GitHub)
+                updateInfo?.let { info ->
+                    if (info.isUpdateAvailable && showUpdateDialog) {
+                        UpdateDialog(
+                            releaseInfo = info,
+                            onDismiss = { showUpdateDialog = false }
+                        )
+                    }
 
-                if (info.isUpdateAvailable) {
-                    val updateYellow = Color(0xFFFFB703)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    colors = listOf(
-                                        Color(0xFF241E08),
-                                        Color(0xFF141005)
+                    if (info.isUpdateAvailable) {
+                        val updateYellow = Color(0xFFFFB703)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color(0xFF241E08),
+                                            Color(0xFF141005)
+                                        )
                                     )
                                 )
-                            )
-                            .border(1.dp, updateYellow, RoundedCornerShape(16.dp))
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                showUpdateDialog = true
-                            }
-                            .padding(14.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
+                                .border(1.dp, updateYellow, RoundedCornerShape(16.dp))
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    showUpdateDialog = true
+                                }
+                                .padding(14.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.weight(1f)
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(updateYellow.copy(alpha = 0.2f))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_refresh),
-                                        contentDescription = null,
-                                        tint = updateYellow,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(updateYellow.copy(alpha = 0.2f))
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_refresh),
+                                            contentDescription = null,
+                                            tint = updateYellow,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    Column {
+                                        Text(
+                                            text = "Найдено обновление v${info.versionName}!",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = updateYellow
+                                        )
+                                        Text(
+                                            text = "Нажмите для просмотра и установки",
+                                            fontSize = 12.sp,
+                                            color = TextWhite.copy(alpha = 0.85f)
+                                        )
+                                    }
                                 }
 
-                                Column {
-                                    Text(
-                                        text = "Найдено обновление v${info.versionName}!",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
-                                        color = updateYellow
-                                    )
-                                    Text(
-                                        text = "Нажмите для просмотра и установки",
-                                        fontSize = 12.sp,
-                                        color = TextWhite.copy(alpha = 0.85f)
-                                    )
-                                }
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_chevron_right),
+                                    contentDescription = null,
+                                    tint = updateYellow,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
-
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_chevron_right),
-                                contentDescription = null,
-                                tint = updateYellow,
-                                modifier = Modifier.size(18.dp)
-                            )
                         }
                     }
                 }
             }
 
-            // Center Power Icon with Smooth Rotating Circle Animation & Spring Scale Bounce
+            // ─── 2. CENTER SECTION (Power button) ───
             val powerInteractionSource = remember { MutableInteractionSource() }
             val isPowerPressed by powerInteractionSource.collectIsPressedAsState()
 
-            // 🟢 PHYSICAL SPRING SCALE BOUNCE RESPONSE UPON PRESS
             val springScale by animateFloatAsState(
                 targetValue = if (isPowerPressed) 0.86f else 1.00f,
                 animationSpec = spring(
@@ -410,8 +417,12 @@ fun HomeScreen(
 
             Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .align(Alignment.Center)
+                    .graphicsLayer {
+                        // Only fades out/in
+                        alpha = (1f - uiAnimProgress).coerceIn(0f, 1f)
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -443,14 +454,11 @@ fun HomeScreen(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-
-                    // Rotating Smooth Ring Animation (Rotating Circle for Connecting/Disconnecting/Active)
                     RotatingProxyRing(
                         state = currentState,
                         modifier = Modifier.size(240.dp)
                     )
 
-                    // Power Icon Tint
                     val iconTint = when (currentState) {
                         ProxyUiState.CONNECTED -> ActiveGreenLed
                         ProxyUiState.CONNECTING -> ActiveGreenLed
@@ -463,7 +471,6 @@ fun HomeScreen(
                         label = "iconTint"
                     )
 
-                    // Standalone Iconsax Power Icon
                     Icon(
                         painter = painterResource(id = R.drawable.ic_power),
                         contentDescription = "Включение прокси",
@@ -473,10 +480,18 @@ fun HomeScreen(
                 }
             }
 
-            // Lower Section (Always visible, rich layout)
+            // ─── 3. BOTTOM SECTION (Lower controls) ───
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = padding.calculateBottomPadding() + 10.dp)
+                    .padding(horizontal = 20.dp)
+                    .graphicsLayer {
+                        translationY = 160.dp.toPx() * uiAnimProgress
+                        alpha = (1f - uiAnimProgress * 1.5f).coerceIn(0f, 1f)
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Status / Timer
                 Row(
@@ -766,7 +781,6 @@ fun HomeScreen(
                         tint = Color(0xFF00FF87),
                         modifier = Modifier.size(22.dp)
                     )
-                }
             }
         }
     }
