@@ -1,3 +1,21 @@
+/*
+ * Mirrly TG Proxy - Native MTProto & Cloudflare WebSocket Proxy for Android
+ * Copyright (C) 2026 R1Xern (Mirrly Dev)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 package com.mirrly.tgproxy.ui
 
 import android.content.ClipData
@@ -36,6 +54,8 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -54,6 +74,8 @@ import com.mirrly.tgproxy.core.UpdateChecker
 import com.mirrly.tgproxy.service.ProxyForegroundService
 import com.mirrly.tgproxy.service.humanBytes
 import com.mirrly.tgproxy.ui.theme.*
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -70,8 +92,33 @@ enum class ProxyUiState {
 @Composable
 fun HomeScreen(
     onOpenSettings: () -> Unit,
-    onOpenLogs: () -> Unit
+    onOpenLogs: () -> Unit,
+    onUiHiddenChange: (Boolean) -> Unit = {}
 ) {
+    // ── Stealth Mode State ────────────────────────────────────────────────
+    var isUiHidden by remember { mutableStateOf(false) }
+    var eyeButtonVisible by remember { mutableStateOf(false) }
+
+    // Animate progress: 0f = shown, 1f = hidden (spring physics)
+    val uiAnimProgress by animateFloatAsState(
+        targetValue = if (isUiHidden) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "uiHideProgress"
+    )
+
+    // Callback propagation
+    LaunchedEffect(isUiHidden) { onUiHiddenChange(isUiHidden) }
+
+    // Auto-hide the floating eye button after 5 seconds
+    LaunchedEffect(isUiHidden, eyeButtonVisible) {
+        if (isUiHidden && eyeButtonVisible) {
+            delay(5000)
+            eyeButtonVisible = false
+        }
+    }
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = MirrlyApplication.instance
@@ -173,6 +220,10 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                modifier = Modifier.graphicsLayer {
+                    translationY = -120.dp.toPx() * uiAnimProgress
+                    alpha = (1f - uiAnimProgress * 2f).coerceIn(0f, 1f)
+                },
                 title = {
                     Text(
                         text = "Mirrly - TG Proxy",
@@ -198,6 +249,18 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    // Eye toggle button — hides UI into stealth mode
+                    IconButton(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        isUiHidden = true
+                    }) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_eye),
+                            contentDescription = "Скрыть интерфейс",
+                            tint = TextWhite,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                     IconButton(onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onOpenSettings()
@@ -216,13 +279,34 @@ fun HomeScreen(
         containerColor = Color.Transparent
     ) { padding ->
         Box(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (isUiHidden) {
+                        Modifier.pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = {
+                                    eyeButtonVisible = true
+                                },
+                                onLongPress = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    isUiHidden = false
+                                    eyeButtonVisible = false
+                                }
+                            )
+                        }
+                    } else Modifier
+                )
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
+                    .graphicsLayer {
+                        translationY = 160.dp.toPx() * uiAnimProgress
+                        alpha = (1f - uiAnimProgress * 1.5f).coerceIn(0f, 1f)
+                    },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
@@ -649,10 +733,46 @@ fun HomeScreen(
                     }
                 }
             }
+            // ─── Column closed above ───
+
+            // ── FLOATING EYE BUTTON (inside Box, outside Column) ──────────
+            // Uses fillMaxSize+wrapContentSize trick to reach TopEnd without BoxScope.align
+            val eyeAlpha by animateFloatAsState(
+                targetValue = if (isUiHidden && eyeButtonVisible) 1f else 0f,
+                animationSpec = tween(durationMillis = 350),
+                label = "eyeButtonAlpha"
+            )
+            if (isUiHidden) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .wrapContentSize(Alignment.TopEnd)
+                        .padding(top = padding.calculateTopPadding() + 8.dp, end = 16.dp)
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .graphicsLayer { alpha = eyeAlpha }
+                        .background(Color(0xFF141C28).copy(alpha = 0.85f))
+                        .border(1.dp, Color(0xFF00FF87).copy(alpha = 0.7f), CircleShape)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            isUiHidden = false
+                            eyeButtonVisible = false
+                        }
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_eye_slash),
+                        contentDescription = "Показать интерфейс",
+                        tint = Color(0xFF00FF87),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
         }
     }
 }
 }
+// end of HomeScreen
 
 @Composable
 fun RotatingProxyRing(

@@ -3,7 +3,7 @@
 **Тег релиза**: `v1.0.0`  
 **Поддерживаемые архитектуры**: `arm64-v8a`, `armeabi-v7a`  
 **Минимальная версия Android**: Android 8.0 (API Level 26+)  
-**Лицензия**: Apache License 2.0
+**Лицензия**: GNU General Public License v3 (GPLv3)
 
 ---
 

@@ -55,7 +55,7 @@ import com.mirrly.tgproxy.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LicenseScreen(
+fun TermsScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -63,59 +63,70 @@ fun LicenseScreen(
 
     var selectedLanguage by remember { mutableStateOf("ru") }
 
-    val fullLicenseTextEn = remember {
+    val fullTermsTextEn = remember {
         """
-        GNU GENERAL PUBLIC LICENSE
-        Version 3, 29 June 2007
+        TERMS OF USE & ADDITIONAL CONDITIONS
 
-        Copyright (C) 2026 R1Xern (Mirrly Dev)
+        Project: Mirrly TG Proxy
+        Author & Copyright: R1Xern (Mirrly Dev)
+        Base License: GNU GPLv3
 
-        This program is free software: you can redistribute it and/or modify
-        it under the terms of the GNU General Public License as published by
-        the Free Software Foundation, either version 3 of the License, or
-        (at your option) any later version.
+        1. PREAMBLE
+        These Terms of Use establish additional conditions under Section 7 of GNU GPLv3. Any use, modification, or distribution of this software constitutes full acceptance of these terms.
 
-        This program is distributed in the hope that it will be useful,
-        but WITHOUT ANY WARRANTY; without even the implied warranty of
-        MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-        GNU General Public License for more details.
+        2. BAN ON MALWARE AND FRAUD
+        It is strictly prohibited to use this source code or its binaries to build, embed, or distribute malware, viruses, trojans, hidden cryptocurrency miners, spyware, or phishing tools, or to secretly intercept user traffic.
 
-        You should have received a copy of the GNU General Public License
-        along with this program. If not, see <https://www.gnu.org/licenses/>.
+        3. TRADEMARK & BRAND PROTECTION
+        The names "Mirrly", "Mirrly Dev", "Mirrly TG Proxy", the author's handle "R1Xern", and all official icons and branding assets are intellectual property of the author. This license grants NO permission to use these trademarks in forks or third-party builds without written consent.
 
-        SUMMARY OF TERMS:
-        - Copyleft protection: Any derivative work or fork MUST be open-sourced under GNU GPLv3.
-        - Commercial use allowed provided source code is disclosed.
-        - Patent retaliation clause & protection against Tivoization.
+        4. FORK TRANSPARENCY & LABELLING
+        Any third-party fork or modified build MUST be released under a distinct name not containing "Mirrly" and MUST display a clear notice stating:
+        "This product is an unofficial fork based on Mirrly TG Proxy code and is not affiliated with or endorsed by Mirrly Dev."
+
+        5. DISCLAIMER FOR THIRD-PARTY BUILDS
+        The author bears zero liability for the security, integrity, or performance of any third-party APK builds or modifications downloaded outside the official GitHub repository (joycecurcirt539-dot/Mirrly-TG-Proxy).
+
+        6. TERMINATION
+        Any breach of these terms automatically terminates all permissions granted under this license.
         """.trimIndent()
     }
 
-    val fullLicenseTextRu = remember {
+    val fullTermsTextRu = remember {
         """
-        СВОБОДНАЯ ОБЩЕСТВЕННАЯ ЛИЦЕНЗИЯ GNU (GPLv3)
-        Версия 3, 29 июня 2007 г.
+        ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ И ДОПОЛНИТЕЛЬНЫЕ УСЛОВИЯ ИСПОЛЬЗОВАНИЯ
 
-        Авторские права (C) 2026 R1Xern (Mirrly Dev)
+        Проект: Mirrly TG Proxy
+        Автор и правообладатель: R1Xern (Mirrly Dev)
+        Базовая лицензия: GNU GPLv3
 
-        Данная программа является свободным программным обеспечением: вы можете перераспространять ее и/или изменять на условиях Стандартной общественной лицензии GNU, опубликованной Фондом свободного ПО, либо версии 3 лицензии, либо (по вашему выбору) любой более поздней версии.
+        1. ПРЕАМБУЛА
+        Настоящий документ устанавливает дополнительные условия в соответствии с Разделом 7 лицензии GNU GPLv3. Любое использование или форк кода означает согласие с данными правилами.
 
-        Данная программа распространяется в надежде, что она будет полезной, но БЕЗ КАКИХ-ЛИБО ГАРАНТИЙ; даже без неявной гарантии ТОВАРНОЙ ПРИГОДНОСТИ или СООТВЕТСТВИЯ ОПРЕДЕЛЕННОЙ ЦЕЛИ. См. Стандартную общественную лицензию GNU для получения подробных сведений.
+        2. ЗАПРЕТ НА ВРЕДОНОСНОЕ ПО И МОШЕННИЧЕСТВО
+        Категорически запрещено использовать исходный код или сборки для создания, внедрения или распространения вредоносного ПО (малвари), вирусов, скрытых майнеров, фишинга или тайного перехвата трафика пользователей.
 
-        Вы должны были получить копию Стандартной общественной лицензии GNU вместе с этой программой. Если нет, см. <https://www.gnu.org/licenses/>.
+        3. ЗАЩИТА ТОВАРНОГО ЗНАКА И БРЕНДА
+        Наименования «Mirrly», «Mirrly Dev», «Mirrly TG Proxy», имя автора «R1Xern» и официальная символика являются интеллектуальной собственностью. Запрещено использовать их в форках без письменного согласия правообладателя.
 
-        ОСНОВНЫЕ УСЛОВИЯ:
-        - Защита Copyleft: Любой форк или модифицированная версия ОБЯЗАНЫ публиковать свой исходный код под GPLv3.
-        - Разрешено коммерческое использование при условии полного открытия исходного кода.
-        - Патентный щит и защита от блокировки пользовательских устройств (Тивоизации).
+        4. ПРОЗРАЧНОСТЬ И МАРКИРОВКА ФОРКОВ
+        Любые третьи форки или сборки ДОЛЖНЫ быть выпущены под собственным именем без слова «Mirrly» и содержать явное уведомление:
+        «Данный продукт является неофициальным форком на основе кода Mirrly TG Proxy и не поддерживается оригинальным автором Mirrly Dev.»
+
+        5. ОТКАЗ ОТ ОТВЕТСТВЕННОСТИ ЗА СТОРОННИЕ СБОРКИ
+        Правообладатель не несет ответственности за безопасность и работоспособность сторонних APK-сборок, распространенных вне официального репозитория GitHub (joycecurcirt539-dot/Mirrly-TG-Proxy).
+
+        6. АННУЛИРОВАНИЕ ПРАВ
+        Нарушение любых условий автоматически аннулирует все права на использование исходного кода проекта.
         """.trimIndent()
     }
 
-    val activeLicenseText = if (selectedLanguage == "ru") fullLicenseTextRu else fullLicenseTextEn
+    val activeTermsText = if (selectedLanguage == "ru") fullTermsTextRu else fullTermsTextEn
 
-    fun openGitHubLicense() {
+    fun openGitHubTerms() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         try {
-            val url = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/blob/main/LICENSE"
+            val url = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/blob/main/TERMS_OF_USE.md"
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             context.startActivity(intent)
         } catch (e: Exception) {
@@ -123,13 +134,13 @@ fun LicenseScreen(
         }
     }
 
-    fun copyLicenseToClipboard() {
+    fun copyTermsToClipboard() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val label = if (selectedLanguage == "ru") "Лицензия GNU GPLv3 (Русский)" else "GNU GPLv3 License (English)"
-        val clip = ClipData.newPlainText(label, activeLicenseText)
+        val label = if (selectedLanguage == "ru") "Условия использования (Русская версия)" else "Terms of Use (English)"
+        val clip = ClipData.newPlainText(label, activeTermsText)
         clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, "Текст лицензии скопирован!", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Текст условий скопирован!", Toast.LENGTH_SHORT).show()
     }
 
     Box(
@@ -182,13 +193,13 @@ fun LicenseScreen(
 
                         Column {
                             Text(
-                                text = "GNU GPLv3 License",
+                                text = "Условия использования",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Black,
                                 color = TextWhite
                             )
                             Text(
-                                text = "Copyright (c) 2026 R1Xern (Mirrly Dev)",
+                                text = "Дополнительная защита • R1Xern (Mirrly Dev)",
                                 fontSize = 12.5.sp,
                                 color = TextMuted
                             )
@@ -196,7 +207,7 @@ fun LicenseScreen(
                     }
 
                     Text(
-                        text = "Данное приложение является свободным программным обеспечением под защитой лицензии GNU GPLv3. Все производные работы и форки обязаны сохранять исходный код открытым.",
+                        text = "Дополнительные правила и правила добросовестного использования, действующие в дополнение к базовой лицензии GNU GPLv3 для максимальной защиты авторских прав и пользователей.",
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
                         color = TextWhite.copy(alpha = 0.85f)
@@ -207,7 +218,7 @@ fun LicenseScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(
-                            onClick = { openGitHubLicense() },
+                            onClick = { openGitHubTerms() },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color.Transparent,
                                 contentColor = ActiveGreenLed
@@ -227,7 +238,7 @@ fun LicenseScreen(
                         }
 
                         Button(
-                            onClick = { copyLicenseToClipboard() },
+                            onClick = { copyTermsToClipboard() },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFF141A29),
                                 contentColor = TextWhite
@@ -249,13 +260,13 @@ fun LicenseScreen(
                 }
             }
 
-            // SECTION 2: PERMISSIONS SUMMARY
+            // SECTION 2: PROTECTION HIGHLIGHTS
             Column(
                 modifier = Modifier.staggeredEntrance(index = 1),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "ПРАВА И УСЛОВИЯ (GPLv3)",
+                    text = "КЛЮЧЕВЫЕ ПРАВИЛА И ЗАЩИТА",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -271,13 +282,13 @@ fun LicenseScreen(
                         .padding(18.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        PermissionRow(text = "Разрешено свободное использование и распространение")
-                        PermissionRow(text = "Разрешена модификация исходного кода")
-                        PermissionRow(text = "Защита Copyleft: Запрещено закрывать код в форках")
-                        PermissionRow(text = "Защита от патентных исков и блокировки устройств")
+                        ProtectionRow(title = "Запрет малвари", desc = "Запрещено встраивание вирусов, троянов и скрытых майнеров")
+                        ProtectionRow(title = "Защита бренда", desc = "Запрещено использовать имя Mirrly и логотипы в форках")
+                        ProtectionRow(title = "Маркировка форков", desc = "Форки обязаны содержать дисклеймер о неофициальном статусе")
+                        ProtectionRow(title = "Безопасность", desc = "Официальные релизы распространяются строго на GitHub")
                         HorizontalDivider(color = Color(0xFF161A26), thickness = 1.dp, modifier = Modifier.padding(vertical = 4.dp))
                         Text(
-                            text = "Обязательное условие: Сохранение указания авторства, копилефт-лизензии GPLv3 и открытого исходного кода во всех производных работах.",
+                            text = "Нарушение условий ведет к автоматической аннулиции лицензионных прав на использование кода.",
                             fontSize = 12.sp,
                             lineHeight = 17.sp,
                             color = TextMuted
@@ -286,7 +297,7 @@ fun LicenseScreen(
                 }
             }
 
-            // SECTION 3: FULL LICENSE TEXT CODE BLOCK WITH LANGUAGE TAB SELECTOR
+            // SECTION 3: FULL TERMS TEXT
             Column(
                 modifier = Modifier.staggeredEntrance(index = 2),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -297,7 +308,7 @@ fun LicenseScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "ПОЛНЫЙ ТЕКСТ ЛИЦЕНЗИИ",
+                        text = "ПОЛНЫЙ ТЕКСТ СОГЛАШЕНИЯ",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.3.sp,
@@ -312,7 +323,7 @@ fun LicenseScreen(
                     )
                 }
 
-                // Smooth Segmented Tab Switcher (Russian / English)
+                // Language Switcher
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -340,7 +351,7 @@ fun LicenseScreen(
                             }
                     ) {
                         Text(
-                            text = "🇷🇺 Русский перевод",
+                            text = "🇷🇺 Русский",
                             fontSize = 12.5.sp,
                             fontWeight = if (isRu) FontWeight.Bold else FontWeight.Medium,
                             color = if (isRu) ActiveGreenLed else TextMuted
@@ -365,7 +376,7 @@ fun LicenseScreen(
                             }
                     ) {
                         Text(
-                            text = "🇬🇧 English (Original)",
+                            text = "🇬🇧 English",
                             fontSize = 12.5.sp,
                             fontWeight = if (isEn) FontWeight.Bold else FontWeight.Medium,
                             color = if (isEn) ActiveGreenLed else TextMuted
@@ -373,7 +384,7 @@ fun LicenseScreen(
                     }
                 }
 
-                // License Text Display Box
+                // Terms Text Display Box
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -382,8 +393,8 @@ fun LicenseScreen(
                         .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(16.dp))
                         .padding(16.dp)
                 ) {
-                    Crossfade(targetState = selectedLanguage, animationSpec = tween(220), label = "licenseCrossfade") { lang ->
-                        val textToDisplay = if (lang == "ru") fullLicenseTextRu else fullLicenseTextEn
+                    Crossfade(targetState = selectedLanguage, animationSpec = tween(220), label = "termsCrossfade") { lang ->
+                        val textToDisplay = if (lang == "ru") fullTermsTextRu else fullTermsTextEn
                         Text(
                             text = textToDisplay,
                             fontSize = 11.5.sp,
@@ -416,7 +427,7 @@ fun LicenseScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Лицензия GNU GPLv3",
+                        text = "Условия использования",
                         color = TextWhite,
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp
@@ -442,14 +453,15 @@ fun LicenseScreen(
 }
 
 @Composable
-private fun PermissionRow(text: String) {
+private fun ProtectionRow(title: String, desc: String) {
     Row(
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
+                .padding(top = 2.dp)
                 .size(20.dp)
                 .clip(CircleShape)
                 .background(ActiveGreenLed.copy(alpha = 0.2f))
@@ -461,11 +473,18 @@ private fun PermissionRow(text: String) {
                 fontWeight = FontWeight.Bold
             )
         }
-        Text(
-            text = text,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            color = TextWhite
-        )
+        Column {
+            Text(
+                text = title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextWhite
+            )
+            Text(
+                text = desc,
+                fontSize = 12.sp,
+                color = TextMuted
+            )
+        }
     }
 }

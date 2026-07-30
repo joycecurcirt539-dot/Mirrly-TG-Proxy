@@ -38,6 +38,7 @@ private data class MicroParticle(
 @Composable
 fun CyberEnergyCanvas(
     state: ProxyUiState,
+    isUiHidden: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -138,6 +139,14 @@ fun CyberEnergyCanvas(
     val particleColor by animateColorAsState(
         targetValue = if (isConnected) ActiveGreenLed else Color(0xFF4A5568),
         animationSpec = tween(800), label = "particleColor"
+    )
+
+    // Dynamic focus boost when UI is hidden
+    val focusTarget = if (isUiHidden) 1.35f else 1.0f
+    val animatedFocusBoost by animateFloatAsState(
+        targetValue = focusTarget,
+        animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioNoBouncy),
+        label = "focusBoost"
     )
 
     // Generate 45 fixed micro-particles with deterministic seed
@@ -295,7 +304,7 @@ fun CyberEnergyCanvas(
 
             // Subtle twinkle alpha
             val flicker = 0.75f + 0.25f * sin(t * 2.8f + p.phase)
-            val finalAlpha = (p.baseAlpha * flicker * (0.5f + 0.5f * animatedEnergy)).coerceIn(0.05f, 0.95f)
+            val finalAlpha = (p.baseAlpha * flicker * (0.5f + 0.5f * animatedEnergy) * animatedFocusBoost).coerceIn(0.05f, 0.98f)
 
             // Core particle dot
             drawCircle(

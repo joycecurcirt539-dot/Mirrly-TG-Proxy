@@ -1,3 +1,21 @@
+/*
+ * Mirrly TG Proxy - Native MTProto & Cloudflare WebSocket Proxy for Android
+ * Copyright (C) 2026 R1Xern (Mirrly Dev)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 package com.mirrly.tgproxy.ui
 
 import android.Manifest
@@ -137,6 +155,8 @@ class MainActivity : ComponentActivity() {
                     label = "backdropAlpha"
                 )
 
+                var isUiHidden by remember { mutableStateOf(false) }
+
                 BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                     // Global Seamless Cyber Energy Canvas with Zero-Lag GPU Hardware Blur Optimization
                     Box(
@@ -163,6 +183,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         CyberEnergyCanvas(
                             state = globalProxyState,
+                            isUiHidden = isUiHidden,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -185,12 +206,13 @@ class MainActivity : ComponentActivity() {
                     val isLogs = currentScreen == "logs"
                     val isAbout = currentScreen == "about"
                     val isLicense = currentScreen == "license"
+                    val isTerms = currentScreen == "terms"
 
                     // Animated offsets & scales for Home screen
                     val homeOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings || isAbout || isLicense -> -0.15f
+                            isSettings || isAbout || isLicense || isTerms -> -0.15f
                             isLogs -> 0.15f
                             else -> 0f
                         },
@@ -212,7 +234,7 @@ class MainActivity : ComponentActivity() {
                     val settingsOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isSettings -> 0f
-                            isAbout || isLicense -> -0.15f
+                            isAbout || isLicense || isTerms -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -250,7 +272,7 @@ class MainActivity : ComponentActivity() {
                     val aboutOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isAbout -> 0f
-                            isLicense -> -0.15f
+                            isLicense || isTerms -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -269,7 +291,11 @@ class MainActivity : ComponentActivity() {
 
                     // Animated offsets & scales for License screen
                     val licenseOffsetFraction by animateFloatAsState(
-                        targetValue = if (isLicense) 0f else 1.0f,
+                        targetValue = when {
+                            isLicense -> 0f
+                            isTerms -> -0.15f
+                            else -> 1.0f
+                        },
                         animationSpec = tween(pushMs, easing = navEasing),
                         label = "licenseOffset"
                     )
@@ -282,6 +308,23 @@ class MainActivity : ComponentActivity() {
                         targetValue = if (isLicense) 1.0f else 0.0f,
                         animationSpec = tween(220),
                         label = "licenseAlpha"
+                    )
+
+                    // Animated offsets & scales for Terms screen
+                    val termsOffsetFraction by animateFloatAsState(
+                        targetValue = if (isTerms) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "termsOffset"
+                    )
+                    val termsScale by animateFloatAsState(
+                        targetValue = if (isTerms) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "termsScale"
+                    )
+                    val termsAlpha by animateFloatAsState(
+                        targetValue = if (isTerms) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "termsAlpha"
                     )
 
                     // 1. HOME SCREEN (Pre-warmed & persistent)
@@ -302,6 +345,9 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenLogs = {
                                 currentScreen = "logs"
+                            },
+                            onUiHiddenChange = { hidden ->
+                                isUiHidden = hidden
                             }
                         )
                     }
@@ -356,7 +402,8 @@ class MainActivity : ComponentActivity() {
                     ) {
                         AboutScreen(
                             onBack = { currentScreen = "settings" },
-                            onOpenLicense = { currentScreen = "license" }
+                            onOpenLicense = { currentScreen = "license" },
+                            onOpenTerms = { currentScreen = "terms" }
                         )
                     }
 
@@ -372,6 +419,22 @@ class MainActivity : ComponentActivity() {
                             }
                     ) {
                         LicenseScreen(
+                            onBack = { currentScreen = "about" }
+                        )
+                    }
+
+                    // 6. TERMS SCREEN (Pre-warmed & persistent)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                translationX = widthPx * termsOffsetFraction
+                                scaleX = termsScale
+                                scaleY = termsScale
+                                alpha = termsAlpha
+                            }
+                    ) {
+                        TermsScreen(
                             onBack = { currentScreen = "about" }
                         )
                     }

@@ -1,3 +1,21 @@
+/*
+ * Mirrly TG Proxy - Native MTProto & Cloudflare WebSocket Proxy for Android
+ * Copyright (C) 2026 R1Xern (Mirrly Dev)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 package com.mirrly.tgproxy.ui
 
 import android.content.ClipData
@@ -34,6 +52,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mirrly.tgproxy.R
@@ -43,7 +62,8 @@ import com.mirrly.tgproxy.ui.theme.*
 @Composable
 fun AboutScreen(
     onBack: () -> Unit,
-    onOpenLicense: () -> Unit = {}
+    onOpenLicense: () -> Unit = {},
+    onOpenTerms: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -390,11 +410,11 @@ fun AboutScreen(
                     onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy" }
                 )
 
-                // Link 4: MIT License Screen
+                // Link 4: GPLv3 License Screen
                 LinkCardItem(
                     iconRes = R.drawable.ic_license,
                     iconTint = ActiveGreenLed,
-                    title = "Лицензия проекта (MIT)",
+                    title = "Лицензия проекта (GNU GPLv3)",
                     subtitle = "Условия использования и открытый исходный код",
                     onClick = { onOpenLicense() }
                 )
@@ -565,9 +585,21 @@ fun AboutScreen(
                     color = TextMuted
                 )
                 Text(
-                    text = "© 2026 Mirrly TG Proxy • MIT License",
+                    text = "© 2026 Mirrly TG Proxy • GNU GPLv3",
                     fontSize = 11.sp,
                     color = TextMuted.copy(alpha = 0.6f)
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Условия использования",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextMuted.copy(alpha = 0.85f),
+                    textDecoration = TextDecoration.Underline,
+                    modifier = Modifier.clickable {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onOpenTerms()
+                    }
                 )
             }
 
