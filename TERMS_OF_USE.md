@@ -29,12 +29,12 @@
 4. **Чистота сборки**: Публикуемый APK-файл не должен содержать сторонних вредоносных модулей, майнеров или фишинга.
 
 Доверенные площадки (к ним эти требования не распространяются);
-Apple — AppStore
-Google — Play Market
-Xiaomi — GetApps
-Huawei — AppGallery
-VK — Rustore
-APK4Android
+Apple — AppStore;
+Google — Play Market;
+Xiaomi — GetApps;
+Huawei — AppGallery;
+VK — Rustore;
+APK4Android.
 
 ---
 
