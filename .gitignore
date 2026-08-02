@@ -45,7 +45,3 @@ Thumbs.db
 .cxx/
 app/.cxx/
 
-# Agent rules & instructions
-GEMINI.md
-.gemini/
-
