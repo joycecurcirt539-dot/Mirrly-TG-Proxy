@@ -44,3 +44,8 @@ Thumbs.db
 # Native C++ build files
 .cxx/
 app/.cxx/
+
+# Agent rules & instructions
+GEMINI.md
+.gemini/
+
