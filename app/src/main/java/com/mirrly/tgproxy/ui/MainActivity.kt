@@ -33,6 +33,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -132,6 +133,9 @@ class MainActivity : ComponentActivity() {
 
                 BackHandler {
                     when (currentScreen) {
+                        "update" -> {
+                            currentScreen = "home"
+                        }
                         "license" -> {
                             currentScreen = "about"
                         }
@@ -220,12 +224,30 @@ class MainActivity : ComponentActivity() {
                     val isAbout = currentScreen == "about"
                     val isLicense = currentScreen == "license"
                     val isTerms = currentScreen == "terms"
+                    val isUpdate = currentScreen == "update"
+
+                    // Animated offsets & scales for Update screen
+                    val updateOffsetFraction by animateFloatAsState(
+                        targetValue = if (isUpdate) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "updateOffset"
+                    )
+                    val updateScale by animateFloatAsState(
+                        targetValue = if (isUpdate) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "updateScale"
+                    )
+                    val updateAlpha by animateFloatAsState(
+                        targetValue = if (isUpdate) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "updateAlpha"
+                    )
 
                     // Animated offsets & scales for Home screen
                     val homeOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings || isAbout || isLicense || isTerms -> -0.15f
+                            isSettings || isAbout || isLicense || isTerms || isUpdate -> -0.15f
                             isLogs -> 0.15f
                             else -> 0f
                         },
@@ -359,6 +381,9 @@ class MainActivity : ComponentActivity() {
                             onOpenLogs = {
                                 currentScreen = "logs"
                             },
+                            onOpenUpdate = {
+                                currentScreen = "update"
+                            },
                             onUiHiddenChange = { hidden ->
                                 isUiHidden = hidden
                             }
@@ -449,6 +474,24 @@ class MainActivity : ComponentActivity() {
                     ) {
                         TermsScreen(
                             onBack = { currentScreen = "about" }
+                        )
+                    }
+
+                    // 7. UPDATE SCREEN (Pre-warmed & persistent)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                translationX = widthPx * updateOffsetFraction
+                                scaleX = updateScale
+                                scaleY = updateScale
+                                alpha = updateAlpha
+                            }
+                    ) {
+                        val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
+                        UpdateScreen(
+                            releaseInfo = currentUpdateInfo,
+                            onBack = { currentScreen = "home" }
                         )
                     }
 

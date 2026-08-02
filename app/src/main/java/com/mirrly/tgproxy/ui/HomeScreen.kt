@@ -93,6 +93,7 @@ enum class ProxyUiState {
 fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenLogs: () -> Unit,
+    onOpenUpdate: () -> Unit = {},
     onUiHiddenChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -258,6 +259,28 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    // Update Tab Button — appears only when update is available
+                    if (updateInfo?.isUpdateAvailable == true) {
+                        IconButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenUpdate()
+                        }) {
+                            Box(contentAlignment = Alignment.TopEnd) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                    contentDescription = "Обновления",
+                                    tint = ActiveGreenLed,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(ActiveGreenLed)
+                                )
+                            }
+                        }
+                    }
                     // Eye toggle button — hides UI into stealth mode
                     IconButton(onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -307,7 +330,6 @@ fun HomeScreen(
                     } else Modifier
                 )
         ) {
-            var showUpdateDialog by remember { mutableStateOf(false) }
             var showValueBanner by remember {
                 mutableStateOf(com.mirrly.tgproxy.service.ValueTriggerManager.shouldShowValueBanner(context))
             }
@@ -336,13 +358,6 @@ fun HomeScreen(
             ) {
                 // Update Available Banner (if newer version available on GitHub)
                 updateInfo?.let { info ->
-                    if (info.isUpdateAvailable && showUpdateDialog) {
-                        UpdateDialog(
-                            releaseInfo = info,
-                            onDismiss = { showUpdateDialog = false }
-                        )
-                    }
-
                     if (info.isUpdateAvailable) {
                         val updateYellow = Color(0xFFFFB703)
                         Box(
@@ -361,7 +376,7 @@ fun HomeScreen(
                                 .border(1.dp, updateYellow, RoundedCornerShape(16.dp))
                                 .clickable {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    showUpdateDialog = true
+                                    onOpenUpdate()
                                 }
                                 .padding(14.dp)
                         ) {
