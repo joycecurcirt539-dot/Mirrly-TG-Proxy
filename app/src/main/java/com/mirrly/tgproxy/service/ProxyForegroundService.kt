@@ -2,16 +2,20 @@ package com.mirrly.tgproxy.service
 
 import android.app.NotificationManager
 import android.app.Service
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.net.TrafficStats
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
-import android.os.Process
 import android.util.Log
+import android.widget.Toast
 import com.mirrly.tgproxy.MirrlyApplication
+import com.mirrly.tgproxy.core.SpeedPreset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,10 +32,16 @@ class ProxyForegroundService : Service() {
     private var networkObserver: NetworkChangeObserver? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
+    @Volatile
+    private var isReconnectingNetwork = false
+
     companion object {
         const val ACTION_START = "com.mirrly.tgproxy.START"
         const val ACTION_STOP = "com.mirrly.tgproxy.STOP"
         const val ACTION_RESTART = "com.mirrly.tgproxy.RESTART"
+        const val ACTION_CYCLE_PRESET = "com.mirrly.tgproxy.CYCLE_PRESET"
+        const val ACTION_COPY_LINK = "com.mirrly.tgproxy.COPY_LINK"
+
         private const val WAKELOCK_TIMEOUT_MS = 30L * 60 * 1000
         private const val WAKELOCK_REFRESH_MS = 25L * 60 * 1000
         private const val TAG = "ProxyForegroundService"
@@ -41,19 +51,37 @@ class ProxyForegroundService : Service() {
         super.onCreate()
         NotificationHelper.createNotificationChannel(this)
 
-        networkObserver = NetworkChangeObserver(this) { networkType ->
-            if (networkType == "DISCONNECTED") return@NetworkChangeObserver
+        networkObserver = NetworkChangeObserver(this) { newType, oldType ->
+            if (newType == "DISCONNECTED") return@NetworkChangeObserver
             val app = MirrlyApplication.instance
-            if (app.proxyServer.isRunning && app.prefsManager.isAutoReconnectEnabled()) {
-                serviceScope.launch {
-                    try {
-                        delay(1000)
-                        if (app.proxyServer.isRunning) {
-                            app.proxyServer.stop()
-                            delay(500)
-                            app.proxyServer.start(cacheDir)
+
+            if (app.proxyServer.isRunning) {
+                if (oldType == "Wi-Fi" && (newType.contains("Mobile") || newType.contains("Cellular"))) {
+                    val stats = app.proxyServer.stats
+                    val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
+                    if (totalBytes > 100_000L) {
+                        showToastOnMainThread("⚠️ Переключено на мобильную сеть. Прокси активен (${humanBytes(totalBytes)} за сессию)")
+                    } else {
+                        showToastOnMainThread("⚠️ Переключено на мобильную сеть. Прокси активен")
+                    }
+                }
+
+                if (app.prefsManager.isAutoReconnectEnabled()) {
+                    isReconnectingNetwork = true
+                    serviceScope.launch {
+                        try {
+                            delay(1000)
+                            if (app.proxyServer.isRunning) {
+                                app.proxyServer.stop()
+                                delay(500)
+                                app.proxyServer.start(cacheDir)
+                            }
+                        } catch (_: Exception) {
+                        } finally {
+                            delay(1500)
+                            isReconnectingNetwork = false
                         }
-                    } catch (_: Exception) {}
+                    }
                 }
             }
         }
@@ -61,27 +89,44 @@ class ProxyForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopProxyService()
-            return START_NOT_STICKY
-        }
+        val app = MirrlyApplication.instance
 
-        if (intent?.action == ACTION_RESTART) {
-            serviceScope.launch {
-                try {
-                    val server = MirrlyApplication.instance.proxyServer
-                    server.stop()
-                    delay(300)
-                    server.start(cacheDir)
-                } catch (_: Exception) {}
+        when (intent?.action) {
+            ACTION_STOP -> {
+                stopProxyService()
+                return START_NOT_STICKY
             }
-            return START_REDELIVER_INTENT
+            ACTION_RESTART -> {
+                isReconnectingNetwork = true
+                serviceScope.launch {
+                    try {
+                        val server = app.proxyServer
+                        server.stop()
+                        delay(300)
+                        server.start(cacheDir)
+                    } catch (_: Exception) {
+                    } finally {
+                        delay(1500)
+                        isReconnectingNetwork = false
+                    }
+                }
+                return START_REDELIVER_INTENT
+            }
+            ACTION_CYCLE_PRESET -> {
+                cycleSpeedPreset()
+                return START_REDELIVER_INTENT
+            }
+            ACTION_COPY_LINK -> {
+                copyProxyLinkToClipboard()
+                return START_REDELIVER_INTENT
+            }
         }
 
         val notification = NotificationHelper.buildNotification(
-            this,
-            "Mirrly TG Proxy работает",
-            "Порт: ${MirrlyApplication.instance.config.bindPort} | Скорость: 0 Б/с"
+            context = this,
+            statusText = "Mirrly TG Proxy работает",
+            speedText = "Порт: ${app.config.bindPort} | Скорость: 0 Б/с",
+            presetName = getPresetShortName(app.config.speedPreset)
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -96,7 +141,7 @@ class ProxyForegroundService : Service() {
 
         acquireWakeLock()
 
-        val server = MirrlyApplication.instance.proxyServer
+        val server = app.proxyServer
         if (!server.isRunning) {
             server.start(cacheDir)
         }
@@ -105,6 +150,52 @@ class ProxyForegroundService : Service() {
         startNotificationUpdates()
         startWakeLockRefresh()
         return START_REDELIVER_INTENT
+    }
+
+    private fun cycleSpeedPreset() {
+        val app = MirrlyApplication.instance
+        val currentPreset = app.config.speedPreset
+        val nextPreset = when (currentPreset) {
+            SpeedPreset.BALANCED -> SpeedPreset.TURBO
+            SpeedPreset.TURBO -> SpeedPreset.ECO
+            SpeedPreset.ECO -> SpeedPreset.BALANCED
+        }
+
+        app.config.applyPreset(nextPreset)
+        app.proxyServer.applyPoolSize(nextPreset.defaultPoolSize)
+        app.prefsManager.saveConfig(app.config)
+
+        showToastOnMainThread("Режим скорости: ${getPresetShortName(nextPreset)}")
+        updateNotificationImmediately()
+    }
+
+    private fun copyProxyLinkToClipboard() {
+        val app = MirrlyApplication.instance
+        val config = app.config
+        val tgUrl = "tg://proxy?server=${config.bindHost}&port=${config.bindPort}&secret=${config.secretHex}"
+
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("Telegram Proxy Link", tgUrl)
+            clipboard.setPrimaryClip(clip)
+            showToastOnMainThread("Ссылка tg://proxy скопирована!")
+        } catch (e: Exception) {
+            showToastOnMainThread("Ошибка копирования ссылки")
+        }
+    }
+
+    private fun showToastOnMainThread(message: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun getPresetShortName(preset: SpeedPreset): String {
+        return when (preset) {
+            SpeedPreset.TURBO -> "Турбо"
+            SpeedPreset.BALANCED -> "Баланс"
+            SpeedPreset.ECO -> "Эко"
+        }
     }
 
     private fun acquireWakeLock() {
@@ -160,9 +251,9 @@ class ProxyForegroundService : Service() {
     private fun startNotificationUpdates() {
         updateJob?.cancel()
         updateJob = serviceScope.launch {
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val server = MirrlyApplication.instance.proxyServer
             var secondsCounter = 0
+            var zeroSpeedStallSeconds = 0
 
             while (isActive && server.isRunning) {
                 delay(1000)
@@ -175,23 +266,72 @@ class ProxyForegroundService : Service() {
                 val stats = server.stats
                 stats.updateSpeed()
 
-                val dlSpeed = humanBytes(stats.downloadSpeedBps)
-                val ulSpeed = humanBytes(stats.uploadSpeedBps)
-                val netName = when (networkObserver?.getCurrentNetworkTypeName()) {
-                    "Wi-Fi" -> "Wi-Fi"
-                    "Cellular" -> "Мобильная сеть"
-                    else -> "Сеть активна"
-                }
-                val text = "↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName | Сокетов: ${stats.activeConnections.get()}"
+                val activeConns = stats.activeConnections.get()
+                val dlSpeedBps = stats.downloadSpeedBps
+                val ulSpeedBps = stats.uploadSpeedBps
 
-                val updatedNotification = NotificationHelper.buildNotification(
-                    this@ProxyForegroundService,
-                    "Обход Telegram активен",
-                    text
-                )
-                notificationManager.notify(NotificationHelper.NOTIFICATION_ID, updatedNotification)
+                if (activeConns > 0 && dlSpeedBps == 0L && ulSpeedBps == 0L) {
+                    zeroSpeedStallSeconds++
+                } else {
+                    zeroSpeedStallSeconds = 0
+                }
+
+                updateNotificationInternal(zeroSpeedStallSeconds >= 15)
             }
         }
+    }
+
+    private fun updateNotificationImmediately() {
+        serviceScope.launch {
+            updateNotificationInternal(false)
+        }
+    }
+
+    private fun updateNotificationInternal(isStalled: Boolean) {
+        val app = MirrlyApplication.instance
+        val server = app.proxyServer
+        val stats = server.stats
+
+        val activeConns = stats.activeConnections.get()
+        val dlSpeed = humanBytes(stats.downloadSpeedBps)
+        val ulSpeed = humanBytes(stats.uploadSpeedBps)
+        val pingMs = server.currentPingMs
+
+        val netName = when (networkObserver?.getCurrentNetworkTypeName()) {
+            "Wi-Fi" -> "Wi-Fi"
+            "Cellular" -> "Мобильная сеть"
+            else -> "Сеть активна"
+        }
+
+        val tgStatus = when {
+            pingMs > 0 -> "Telegram: Доступен (${pingMs}мс)"
+            pingMs == -1L -> "Telegram: Недоступен"
+            else -> "Telegram: Проверка..."
+        }
+
+        val title = when {
+            isReconnectingNetwork -> "Переподключение к сети..."
+            isStalled -> "Затор сети | Возможна задержка"
+            else -> "Обход Telegram активен"
+        }
+
+        val text = if (isStalled) {
+            "$tgStatus | ↓ 0.0 B/s | $netName | Сокетов: $activeConns (Нажмите 'Перезапустить')"
+        } else {
+            "$tgStatus | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName | Сокетов: $activeConns"
+        }
+
+        val updatedNotification = NotificationHelper.buildNotification(
+            context = this@ProxyForegroundService,
+            statusText = title,
+            speedText = text,
+            presetName = getPresetShortName(app.config.speedPreset),
+            isStalled = isStalled,
+            isReconnecting = isReconnectingNetwork
+        )
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NotificationHelper.NOTIFICATION_ID, updatedNotification)
     }
 
     private fun stopProxyService() {
@@ -200,11 +340,51 @@ class ProxyForegroundService : Service() {
         wakeLockJob?.cancel()
         wakeLockJob = null
         releaseWakeLock()
-        MirrlyApplication.instance.proxyServer.stop()
+
+        val server = MirrlyApplication.instance.proxyServer
+        val appContext = applicationContext
+
+        if (server.isRunning) {
+            val stats = server.stats
+            val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
+            val durationSec = server.uptimeSeconds
+            val peakSpeedBps = maxOf(stats.peakDownloadSpeedBps, stats.peakUploadSpeedBps)
+
+            val transferredStr = humanBytes(totalBytes)
+            val durationStr = formatDuration(durationSec)
+            val peakSpeedStr = "${humanBytes(peakSpeedBps)}/с"
+
+            NotificationHelper.showSessionSummaryNotification(
+                appContext,
+                transferredStr,
+                durationStr,
+                peakSpeedStr
+            )
+
+            // Auto-dismiss summary notification after 5 seconds
+            CoroutineScope(Dispatchers.IO).launch {
+                delay(5000)
+                NotificationHelper.cancelSummaryNotification(appContext)
+            }
+        }
+
+        server.stop()
         updateJob?.cancel()
         ProxyTileService.requestSync(this)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun formatDuration(seconds: Long): String {
+        if (seconds < 60) return "$seconds сек"
+        val minutes = seconds / 60
+        val remainingSec = seconds % 60
+        if (minutes < 60) {
+            return if (remainingSec > 0) "${minutes}мин ${remainingSec}сек" else "${minutes}мин"
+        }
+        val hours = minutes / 60
+        val remainingMin = minutes % 60
+        return if (remainingMin > 0) "${hours}ч ${remainingMin}мин" else "${hours}ч"
     }
 
     override fun onDestroy() {

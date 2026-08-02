@@ -1147,7 +1147,7 @@ fun SettingsScreen(
                                                 } else {
                                                     Toast.makeText(
                                                         context,
-                                                        "У вас установлена актуальная версия v${com.mirrly.tgproxy.core.UpdateChecker.CURRENT_VERSION_NAME}",
+                                                        "У вас установлена актуальная версия v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME}",
                                                         Toast.LENGTH_SHORT
                                                     ).show()
                                                 }
@@ -1199,7 +1199,7 @@ fun SettingsScreen(
                                     text = when {
                                         isCheckingUpdate -> "Проверка GitHub Releases..."
                                         isUpdateAvailable -> "Доступна новая версия • Нажмите для установки"
-                                        else -> "Текущая версия v${com.mirrly.tgproxy.core.UpdateChecker.CURRENT_VERSION_NAME}"
+                                        else -> "Текущая версия v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME}"
                                     },
                                     fontSize = 11.5.sp,
                                     color = if (isUpdateAvailable) TextWhite.copy(alpha = 0.9f) else TextMuted

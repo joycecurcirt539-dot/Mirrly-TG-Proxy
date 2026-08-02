@@ -26,6 +26,14 @@ class ProxyStats {
     var uploadSpeedBps: Long = 0
         private set
 
+    @Volatile
+    var peakDownloadSpeedBps: Long = 0
+        private set
+
+    @Volatile
+    var peakUploadSpeedBps: Long = 0
+        private set
+
     fun resetBaseline() {
         val ext = externalByteProvider?.invoke()
         if (ext != null && ext.first > 0) {
@@ -41,6 +49,8 @@ class ProxyStats {
         lastBytesSent = -1L
         downloadSpeedBps = 0L
         uploadSpeedBps = 0L
+        peakDownloadSpeedBps = 0L
+        peakUploadSpeedBps = 0L
         lastCheckTime = System.currentTimeMillis()
     }
 
@@ -124,9 +134,15 @@ class ProxyStats {
 
         if (currRecv >= lastBytesRecv) {
             downloadSpeedBps = ((currRecv - lastBytesRecv) / dt).toLong().coerceAtLeast(0)
+            if (downloadSpeedBps > peakDownloadSpeedBps) {
+                peakDownloadSpeedBps = downloadSpeedBps
+            }
         }
         if (currSent >= lastBytesSent) {
             uploadSpeedBps = ((currSent - lastBytesSent) / dt).toLong().coerceAtLeast(0)
+            if (uploadSpeedBps > peakUploadSpeedBps) {
+                peakUploadSpeedBps = uploadSpeedBps
+            }
         }
 
         lastBytesRecv = currRecv

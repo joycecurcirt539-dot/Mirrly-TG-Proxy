@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.mirrly.tgproxy.core.ReleaseInfo
@@ -17,6 +18,8 @@ object NotificationHelper {
 
     const val UPDATE_CHANNEL_ID = "mirrly_update_channel"
     const val UPDATE_NOTIFICATION_ID = 2002
+
+    const val SUMMARY_NOTIFICATION_ID = 3003
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -43,7 +46,14 @@ object NotificationHelper {
         }
     }
 
-    fun buildNotification(context: Context, statusText: String, speedText: String): Notification {
+    fun buildNotification(
+        context: Context,
+        statusText: String,
+        speedText: String,
+        presetName: String = "Турбо",
+        isStalled: Boolean = false,
+        isReconnecting: Boolean = false
+    ): Notification {
         val intent = Intent(context, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             context, 0, intent,
@@ -58,41 +68,146 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(context, CHANNEL_ID)
+        val restartIntent = Intent(context, ProxyForegroundService::class.java).apply {
+            action = ProxyForegroundService.ACTION_RESTART
+        }
+        val restartPendingIntent = PendingIntent.getService(
+            context, 2, restartIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val cyclePresetIntent = Intent(context, ProxyForegroundService::class.java).apply {
+            action = ProxyForegroundService.ACTION_CYCLE_PRESET
+        }
+        val cyclePresetPendingIntent = PendingIntent.getService(
+            context, 3, cyclePresetIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val copyLinkIntent = Intent(context, ProxyForegroundService::class.java).apply {
+            action = ProxyForegroundService.ACTION_COPY_LINK
+        }
+        val copyLinkPendingIntent = PendingIntent.getService(
+            context, 4, copyLinkIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(statusText)
             .setContentText(speedText)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(speedText))
+            .setSmallIcon(
+                if (isStalled) android.R.drawable.stat_sys_warning
+                else if (isReconnecting) android.R.drawable.stat_sys_upload
+                else android.R.drawable.stat_sys_download
+            )
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .addAction(android.R.drawable.ic_media_pause, "Остановить", stopPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+
+        builder.addAction(android.R.drawable.ic_menu_preferences, "$presetName", cyclePresetPendingIntent)
+        builder.addAction(android.R.drawable.ic_menu_share, "Ссылка", copyLinkPendingIntent)
+
+        if (isStalled || isReconnecting) {
+            builder.addAction(android.R.drawable.ic_menu_rotate, "Перезапустить", restartPendingIntent)
+        }
+
+        builder.addAction(android.R.drawable.ic_media_pause, "Остановить", stopPendingIntent)
+
+        return builder.build()
     }
 
     fun showUpdateNotification(context: Context, releaseInfo: ReleaseInfo) {
         createNotificationChannel(context)
 
-        val intent = Intent(context, MainActivity::class.java).apply {
+        val appIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
             UPDATE_NOTIFICATION_ID,
-            intent,
+            appIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val downloadUrl = releaseInfo.downloadUrl ?: releaseInfo.htmlUrl
+        val downloadIntent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        val downloadPendingIntent = PendingIntent.getActivity(
+            context,
+            2003,
+            downloadIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notesIntent = Intent(Intent.ACTION_VIEW, Uri.parse(releaseInfo.htmlUrl)).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        val notesPendingIntent = PendingIntent.getActivity(
+            context,
+            2004,
+            notesIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val previewText = releaseInfo.changelogPreview.ifBlank {
+            "Нажмите, чтобы открыть приложение и установить новую версию v${releaseInfo.versionName}."
+        }
+
         val notification = NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
-            .setContentTitle("Доступно новое обновление v${releaseInfo.versionName}!")
-            .setContentText("Нажмите, чтобы открыть приложение и установить новую версию.")
+            .setContentTitle("Доступно новое обновление v${releaseInfo.versionName}")
+            .setContentText(previewText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(previewText))
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(android.R.drawable.stat_sys_download, "Скачать APK", downloadPendingIntent)
+            .addAction(android.R.drawable.ic_menu_info_details, "Что нового", notesPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(UPDATE_NOTIFICATION_ID, notification)
+    }
+
+    fun showSessionSummaryNotification(
+        context: Context,
+        transferredStr: String,
+        durationStr: String,
+        peakSpeedStr: String
+    ) {
+        createNotificationChannel(context)
+
+        val appIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            SUMMARY_NOTIFICATION_ID,
+            appIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val summaryText = "Передано за сессию: $transferredStr | Время работы: $durationStr | Пиковая скорость: $peakSpeedStr"
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentTitle("Прокси остановлен")
+            .setContentText(summaryText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(summaryText))
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(SUMMARY_NOTIFICATION_ID, notification)
+    }
+
+    fun cancelSummaryNotification(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(SUMMARY_NOTIFICATION_ID)
     }
 }

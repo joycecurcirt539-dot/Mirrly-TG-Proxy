@@ -179,7 +179,7 @@ fun OfficialSourceCard(
                                     } else {
                                         Toast.makeText(
                                             context,
-                                            "У вас установлена актуальная версия v${com.mirrly.tgproxy.core.UpdateChecker.CURRENT_VERSION_NAME}",
+                                            "У вас установлена актуальная версия v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME}",
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     }

@@ -17,13 +17,14 @@ data class ReleaseInfo(
     val etag: String? = null,
     val isNotModified: Boolean = false,
     val expectedSha256: String? = null,
-    val expectedSha256List: List<String> = emptyList()
+    val expectedSha256List: List<String> = emptyList(),
+    val changelogPreview: String = ""
 )
 
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_API_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
-    const val CURRENT_VERSION_NAME = "1.0.5"
+    const val CURRENT_VERSION_NAME = "1.0.6"
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -88,9 +89,11 @@ object UpdateChecker {
                                         val asset = assetsArray.optJSONObject(i) ?: continue
                                         val assetName = asset.optString("name", "")
                                         val assetUrl = asset.optString("browser_download_url", "")
-                                        if (assetName.endsWith(".apk", ignoreCase = true)) {
+                                        if (assetName.endsWith("release.apk", ignoreCase = true)) {
                                             downloadUrl = assetUrl
                                             break
+                                        } else if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl == null) {
+                                            downloadUrl = assetUrl
                                         } else if (downloadUrl == null && assetUrl.isNotBlank()) {
                                             downloadUrl = assetUrl
                                         }
@@ -106,6 +109,7 @@ object UpdateChecker {
                             val latestVerClean = cleanVersionString(tagName)
                             val currentVerClean = cleanVersionString(currentVersion)
                             val isUpdateAvailable = isVersionNewer(latestVerClean, currentVerClean)
+                            val preview = extractChangelogPreview(bodyText, latestVerClean)
 
                             AppLogger.i(
                                 TAG,
@@ -123,7 +127,8 @@ object UpdateChecker {
                                     etag = responseEtag,
                                     isNotModified = false,
                                     expectedSha256 = expectedSha256,
-                                    expectedSha256List = expectedSha256List
+                                    expectedSha256List = expectedSha256List,
+                                    changelogPreview = preview
                                 )
                             )
                         }
@@ -141,6 +146,27 @@ object UpdateChecker {
     }
 
     private fun String?.isNullOrBlank(): Boolean = this == null || this.trim().isEmpty()
+
+    fun extractChangelogPreview(bodyText: String, versionName: String): String {
+        if (bodyText.isBlank()) return "Доступна новая версия v$versionName. Нажмите для обновления."
+        val lines = bodyText.lines()
+            .map { it.trim() }
+            .filter { line ->
+                line.isNotBlank() &&
+                        !line.startsWith("#") &&
+                        !line.startsWith("---") &&
+                        !line.contains("keytool", ignoreCase = true) &&
+                        !line.contains("apksigner", ignoreCase = true) &&
+                        !line.contains("SHA256", ignoreCase = true)
+            }
+
+        val summary = lines.take(2).joinToString(" ").take(160).trim()
+        return if (summary.isNotBlank()) {
+            "В v$versionName: $summary"
+        } else {
+            "Доступна новая версия v$versionName со свежими улучшениями безопасности и скорости."
+        }
+    }
 
     fun cleanVersionString(ver: String): String {
         var v = ver.trim()
@@ -172,4 +198,3 @@ object UpdateChecker {
         return false
     }
 }
-

@@ -233,9 +233,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             } catch (_: Exception) {
                 -1L
             }
-            if (ping >= 0) {
-                currentPingMs = ping
-            }
+            currentPingMs = ping
         }
     }
 

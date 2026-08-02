@@ -2,25 +2,27 @@ package com.mirrly.tgproxy.service
 
 import android.content.Context
 import androidx.work.Constraints
-import androidx.work.ExistingWorkPolicy
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.mirrly.tgproxy.core.ReleaseInfo
 import com.mirrly.tgproxy.core.UpdateChecker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.time.Duration
-import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
 
 object UpdateManager {
 
     private const val PREFS_NAME = "mirrly_update_prefs"
     private const val KEY_LAST_NOTIFIED_VERSION = "last_notified_version"
+    private const val KEY_LAST_NOTIFIED_TIME = "last_notified_time_ms"
     private const val KEY_CACHED_ETAG = "cached_etag"
-    private const val WORK_NAME = "mirrly_daytime_update_checker"
+    private const val WORK_NAME = "mirrly_periodic_update_checker"
+
+    // Re-notify reminder interval: 4 hours (14,400,000 ms)
+    private const val NOTIFICATION_REMINDER_INTERVAL_MS = 4 * 60 * 60 * 1000L
 
     private val _updateState = MutableStateFlow<ReleaseInfo?>(null)
     val updateState: StateFlow<ReleaseInfo?> = _updateState.asStateFlow()
@@ -29,7 +31,10 @@ object UpdateManager {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val cachedEtag = prefs.getString(KEY_CACHED_ETAG, null)
 
-        val result = UpdateChecker.checkForUpdates(cachedEtag = cachedEtag)
+        val result = UpdateChecker.checkForUpdates(
+            currentVersion = com.mirrly.tgproxy.BuildConfig.VERSION_NAME,
+            cachedEtag = cachedEtag
+        )
         result.onSuccess { info ->
             if (!info.etag.isNullOrBlank()) {
                 prefs.edit().putString(KEY_CACHED_ETAG, info.etag).apply()
@@ -37,56 +42,53 @@ object UpdateManager {
 
             if (info.isUpdateAvailable) {
                 _updateState.value = info
-                val lastNotified = prefs.getString(KEY_LAST_NOTIFIED_VERSION, "")
 
-                if (notifyIfFound && lastNotified != info.versionName) {
-                    prefs.edit().putString(KEY_LAST_NOTIFIED_VERSION, info.versionName).apply()
+                val lastNotifiedVersion = prefs.getString(KEY_LAST_NOTIFIED_VERSION, "")
+                val lastNotifiedTimeMs = prefs.getLong(KEY_LAST_NOTIFIED_TIME, 0L)
+                val now = System.currentTimeMillis()
+
+                val isNewVersion = lastNotifiedVersion != info.versionName
+                val isReminderDue = (now - lastNotifiedTimeMs) >= NOTIFICATION_REMINDER_INTERVAL_MS
+
+                if (notifyIfFound && (isNewVersion || isReminderDue)) {
+                    prefs.edit()
+                        .putString(KEY_LAST_NOTIFIED_VERSION, info.versionName)
+                        .putLong(KEY_LAST_NOTIFIED_TIME, now)
+                        .apply()
                     NotificationHelper.showUpdateNotification(context, info)
                 }
             } else if (!info.isNotModified) {
                 _updateState.value = null
+                // Clear notification state if user is now on latest version
+                prefs.edit()
+                    .remove(KEY_LAST_NOTIFIED_VERSION)
+                    .remove(KEY_LAST_NOTIFIED_TIME)
+                    .apply()
             }
         }
         return result
     }
 
     /**
-     * Calculates the millisecond delay until the next daytime update check slot:
-     * Slots: 08:00, 14:00, 20:00.
-     */
-    fun calculateDelayToNextCheckMillis(): Long {
-        val now = LocalDateTime.now()
-        val targetHours = listOf(8, 14, 20)
-
-        for (hour in targetHours) {
-            val target = now.withHour(hour).withMinute(0).withSecond(0).withNano(0)
-            if (target.isAfter(now)) {
-                return Duration.between(now, target).toMillis()
-            }
-        }
-
-        val targetTomorrow = now.plusDays(1).withHour(8).withMinute(0).withSecond(0).withNano(0)
-        return Duration.between(now, targetTomorrow).toMillis()
-    }
-
-    /**
-     * Schedules the next daytime background check at 8:00, 14:00, or 20:00.
+     * Schedules 24/7 periodic background update checks every 2 hours via WorkManager.
      */
     fun scheduleDaytimeCheck(context: Context) {
+        schedulePeriodicCheck(context)
+    }
+
+    fun schedulePeriodicCheck(context: Context) {
         try {
-            val delayMillis = calculateDelayToNextCheckMillis()
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
-            val workRequest = OneTimeWorkRequestBuilder<UpdateCheckWorker>()
-                .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
+            val workRequest = PeriodicWorkRequestBuilder<UpdateCheckWorker>(2, TimeUnit.HOURS)
                 .setConstraints(constraints)
                 .build()
 
-            WorkManager.getInstance(context).enqueueUniqueWork(
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 workRequest
             )
         } catch (_: Exception) {

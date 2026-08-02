@@ -9,7 +9,7 @@ import android.os.Build
 
 class NetworkChangeObserver(
     private val context: Context,
-    private val onNetworkChanged: (networkType: String) -> Unit
+    private val onNetworkChanged: (newType: String, oldType: String) -> Unit
 ) {
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -28,14 +28,16 @@ class NetworkChangeObserver(
             override fun onAvailable(network: Network) {
                 val currentType = getCurrentNetworkTypeName()
                 if (lastActiveNetworkType != currentType) {
+                    val oldType = lastActiveNetworkType
                     lastActiveNetworkType = currentType
-                    onNetworkChanged(currentType)
+                    onNetworkChanged(currentType, oldType)
                 }
             }
 
             override fun onLost(network: Network) {
+                val oldType = lastActiveNetworkType
                 lastActiveNetworkType = "DISCONNECTED"
-                onNetworkChanged("DISCONNECTED")
+                onNetworkChanged("DISCONNECTED", oldType)
             }
         }
 
