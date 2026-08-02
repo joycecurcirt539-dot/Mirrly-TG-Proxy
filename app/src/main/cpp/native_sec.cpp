@@ -29,8 +29,7 @@ static const uint32_t k_sha256[64] = {
     0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef4a394,0x4785c95d
 };
 
-#define ROTLEFT(a,b) (((a) << (b)) | ((a) >> (32 - (b))))
-#define ROTRIGHT(a,b) (((a) >> (b)) | ((a) << (32 - (b))))
+#define ROTRIGHT(x,b) (((x) >> (b)) | ((x) << (32 - (b))))
 #define CH(x,y,z) (((x) & (y)) ^ (~(x) & (z)))
 #define MAJ(x,y,z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
 #define EP0(x) (ROTRIGHT(x,2) ^ ROTRIGHT(x,13) ^ ROTRIGHT(x,22))
@@ -46,49 +45,26 @@ static void sha256_transform(SHA256_CTX *ctx, const uint8_t data[]) {
     for (; i < 64; ++i)
         m[i] = SIG1(m[i - 2]) + m[i - 7] + SIG0(m[i - 15]) + m[i - 16];
 
-    a = ctx->state[0];
-    b = ctx->state[1];
-    c = ctx->state[2];
-    d = ctx->state[3];
-    e = ctx->state[4];
-    f = ctx->state[5];
-    g = ctx->state[6];
-    h = ctx->state[7];
+    a = ctx->state[0]; b = ctx->state[1]; c = ctx->state[2]; d = ctx->state[3];
+    e = ctx->state[4]; f = ctx->state[5]; g = ctx->state[6]; h = ctx->state[7];
 
     for (i = 0; i < 64; ++i) {
         t1 = h + EP1(e) + CH(e, f, g) + k_sha256[i] + m[i];
         t2 = EP0(a) + MAJ(a, b, c);
-        h = g;
-        g = f;
-        f = e;
-        e = d + t1;
-        d = c;
-        c = b;
-        b = a;
-        a = t1 + t2;
+        h = g; g = f; f = e; e = d + t1;
+        d = c; c = b; b = a; a = t1 + t2;
     }
 
-    ctx->state[0] += a;
-    ctx->state[1] += b;
-    ctx->state[2] += c;
-    ctx->state[3] += d;
-    ctx->state[4] += e;
-    ctx->state[5] += f;
-    ctx->state[6] += g;
-    ctx->state[7] += h;
+    ctx->state[0] += a; ctx->state[1] += b; ctx->state[2] += c; ctx->state[3] += d;
+    ctx->state[4] += e; ctx->state[5] += f; ctx->state[6] += g; ctx->state[7] += h;
 }
 
 static void sha256_init(SHA256_CTX *ctx) {
-    ctx->datalen = 0;
-    ctx->bitlen = 0;
-    ctx->state[0] = 0x6a09e667;
-    ctx->state[1] = 0xbb67ae85;
-    ctx->state[2] = 0x3c6ef372;
-    ctx->state[3] = 0xa54ff53a;
-    ctx->state[4] = 0x510e527f;
-    ctx->state[5] = 0x9b05688c;
-    ctx->state[6] = 0x1f83d9ab;
-    ctx->state[7] = 0x5be0cd19;
+    ctx->datalen = 0; ctx->bitlen = 0;
+    ctx->state[0] = 0x6a09e667; ctx->state[1] = 0xbb67ae85;
+    ctx->state[2] = 0x3c6ef372; ctx->state[3] = 0xa54ff53a;
+    ctx->state[4] = 0x510e527f; ctx->state[5] = 0x9b05688c;
+    ctx->state[6] = 0x1f83d9ab; ctx->state[7] = 0x5be0cd19;
 }
 
 static void sha256_update(SHA256_CTX *ctx, const uint8_t data[], size_t len) {
@@ -108,25 +84,19 @@ static void sha256_final(SHA256_CTX *ctx, uint8_t hash[]) {
 
     if (ctx->datalen < 56) {
         ctx->data[i++] = 0x80;
-        while (i < 56)
-            ctx->data[i++] = 0x00;
+        while (i < 56) ctx->data[i++] = 0x00;
     } else {
         ctx->data[i++] = 0x80;
-        while (i < 64)
-            ctx->data[i++] = 0x00;
+        while (i < 64) ctx->data[i++] = 0x00;
         sha256_transform(ctx, ctx->data);
         memset(ctx->data, 0, 56);
     }
 
     ctx->bitlen += ctx->datalen * 8;
-    ctx->data[56] = ctx->bitlen >> 56;
-    ctx->data[57] = ctx->bitlen >> 48;
-    ctx->data[58] = ctx->bitlen >> 40;
-    ctx->data[59] = ctx->bitlen >> 32;
-    ctx->data[60] = ctx->bitlen >> 24;
-    ctx->data[61] = ctx->bitlen >> 16;
-    ctx->data[62] = ctx->bitlen >> 8;
-    ctx->data[63] = ctx->bitlen;
+    ctx->data[56] = ctx->bitlen >> 56; ctx->data[57] = ctx->bitlen >> 48;
+    ctx->data[58] = ctx->bitlen >> 40; ctx->data[59] = ctx->bitlen >> 32;
+    ctx->data[60] = ctx->bitlen >> 24; ctx->data[61] = ctx->bitlen >> 16;
+    ctx->data[62] = ctx->bitlen >> 8;  ctx->data[63] = ctx->bitlen;
     sha256_transform(ctx, ctx->data);
 
     for (i = 0; i < 4; ++i) {
@@ -142,7 +112,7 @@ static void sha256_final(SHA256_CTX *ctx, uint8_t hash[]) {
 }
 
 // --- Obfuscated SHA-256 Storage ---
-// Official Release SHA-256: 97:73:5C:0A:20:70:7F:D4:E4:BD:93:A2:D8:48:CA:91:9A:C5:40:45:4A:62:16:E8:CC:7D:43:4F:1F:9F:0A:96
+// Official Release Keystore SHA-256: 97:73:5C:0A:20:70:7F:D4:E4:BD:93:A2:D8:48:CA:91:9A:C5:40:45:4A:62:16:E8:CC:7D:43:4F:1F:9F:0A:96
 // Raw byte array XOR-ed with key 0x5A
 static const uint8_t OBFUSCATED_OFFICIAL_SHA256[32] = {
     0x97 ^ 0x5A, 0x73 ^ 0x5A, 0x5C ^ 0x5A, 0x0A ^ 0x5A,
@@ -183,144 +153,56 @@ static std::string clean_hex(const std::string& input) {
 }
 
 // Native signature verification implementation
-static jint native_verify(JNIEnv* env, jobject clazz, jobject context, jobjectArray expectedRemoteHashes) {
+static jint native_verify(JNIEnv* env, jclass clazz, jobject context, jstring currentSha256Str, jobjectArray expectedRemoteHashes) {
     if (context == nullptr) {
         return 2; // UNOFFICIAL_MODIFIED
     }
 
     try {
-        jclass contextClass = env->GetObjectClass(context);
-
-        // 1. Get PackageManager
-        jmethodID getPM = env->GetMethodID(contextClass, "getPackageManager", "()Landroid/content/pm/PackageManager;");
-        jobject pm = env->CallObjectMethod(context, getPM);
-        if (pm == nullptr) return 2;
-
-        // 2. Get PackageName
-        jmethodID getPkgName = env->GetMethodID(contextClass, "getPackageName", "()Ljava/lang/String;");
-        jstring pkgNameStr = (jstring)env->CallObjectMethod(context, getPkgName);
-        if (pkgNameStr == nullptr) return 2;
-
-        // 3. Get ApplicationInfo and check debug flag
-        jmethodID getAppInfo = env->GetMethodID(contextClass, "getApplicationInfo", "()Landroid/content/pm/ApplicationInfo;");
-        jobject appInfo = env->CallObjectMethod(context, getAppInfo);
         bool isDebuggable = false;
-        if (appInfo != nullptr) {
-            jclass appInfoClass = env->GetObjectClass(appInfo);
-            jfieldID flagsField = env->GetFieldID(appInfoClass, "flags", "I");
-            jint flags = env->GetIntField(appInfo, flagsField);
-            // FLAG_DEBUGGABLE = 1 << 1 = 2
-            isDebuggable = (flags & 2) != 0;
-        }
 
-        // 4. Retrieve package signatures
-        jclass pmClass = env->GetObjectClass(pm);
-        jobject packageInfo = nullptr;
-
-        // Check SDK version
-        jclass buildVersionClass = env->FindClass("android/os/Build$VERSION");
-        jfieldID sdkIntField = env->GetStaticFieldID(buildVersionClass, "SDK_INT", "I");
-        jint sdkInt = env->GetStaticIntField(buildVersionClass, sdkIntField);
-
-        std::vector<std::vector<uint8_t>> certByteArrays;
-
-        if (sdkInt >= 28) { // Build.VERSION_CODES.P
-            // GET_SIGNING_CERTIFICATES = 0x08000000
-            jmethodID getPkgInfo = env->GetMethodID(pmClass, "getPackageInfo", "(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;");
-            packageInfo = env->CallObjectMethod(pm, getPkgInfo, pkgNameStr, 0x08000000);
-
-            if (packageInfo != nullptr) {
-                jclass pkgInfoClass = env->GetObjectClass(packageInfo);
-                jfieldID signingInfoField = env->GetFieldID(pkgInfoClass, "signingInfo", "Landroid/content/pm/SigningInfo;");
-                jobject signingInfo = env->GetObjectField(packageInfo, signingInfoField);
-
-                if (signingInfo != nullptr) {
-                    jclass signingInfoClass = env->GetObjectClass(signingInfo);
-                    jmethodID hasMultipleSigners = env->GetMethodID(signingInfoClass, "hasMultipleSigners", "()Z");
-                    jboolean multiple = env->CallBooleanMethod(signingInfo, hasMultipleSigners);
-
-                    jmethodID getSigners = nullptr;
-                    if (multiple) {
-                        getSigners = env->GetMethodID(signingInfoClass, "getApkContentsSigners", "()[Landroid/content/pm/Signature;");
-                    } else {
-                        getSigners = env->GetMethodID(signingInfoClass, "getSigningCertificateHistory", "()[Landroid/content/pm/Signature;");
-                    }
-
-                    jobjectArray sigArray = (jobjectArray)env->CallObjectMethod(signingInfo, getSigners);
-                    if (sigArray != nullptr) {
-                        jsize sigLen = env->GetArrayLength(sigArray);
-                        for (jsize i = 0; i < sigLen; ++i) {
-                            jobject sig = env->GetObjectArrayElement(sigArray, i);
-                            if (sig != nullptr) {
-                                jclass sigClass = env->GetObjectClass(sig);
-                                jmethodID toByteArray = env->GetMethodID(sigClass, "toByteArray", "()[B");
-                                jbyteArray bytes = (jbyteArray)env->CallObjectMethod(sig, toByteArray);
-                                if (bytes != nullptr) {
-                                    jsize bLen = env->GetArrayLength(bytes);
-                                    std::vector<uint8_t> buf(bLen);
-                                    env->GetByteArrayRegion(bytes, 0, bLen, reinterpret_cast<jbyte*>(buf.data()));
-                                    certByteArrays.push_back(buf);
-                                }
-                            }
+        // Safely check FLAG_DEBUGGABLE with JNI exception guards
+        if (context != nullptr) {
+            jclass contextClass = env->GetObjectClass(context);
+            if (contextClass != nullptr) {
+                jmethodID getAppInfo = env->GetMethodID(contextClass, "getApplicationInfo", "()Landroid/content/pm/ApplicationInfo;");
+                if (env->ExceptionCheck()) { env->ExceptionClear(); getAppInfo = nullptr; }
+                if (getAppInfo != nullptr) {
+                    jobject appInfo = env->CallObjectMethod(context, getAppInfo);
+                    if (env->ExceptionCheck()) { env->ExceptionClear(); appInfo = nullptr; }
+                    if (appInfo != nullptr) {
+                        jclass appInfoClass = env->GetObjectClass(appInfo);
+                        jfieldID flagsField = env->GetFieldID(appInfoClass, "flags", "I");
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); flagsField = nullptr; }
+                        if (flagsField != nullptr) {
+                            jint flags = env->GetIntField(appInfo, flagsField);
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); }
+                            // FLAG_DEBUGGABLE = 2
+                            isDebuggable = (flags & 2) != 0;
                         }
                     }
                 }
             }
         }
 
-        // Fallback for SDK < 28 or if signingInfo was null
-        if (certByteArrays.empty()) {
-            // GET_SIGNATURES = 0x00000040
-            jmethodID getPkgInfo = env->GetMethodID(pmClass, "getPackageInfo", "(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;");
-            packageInfo = env->CallObjectMethod(pm, getPkgInfo, pkgNameStr, 0x00000040);
-
-            if (packageInfo != nullptr) {
-                jclass pkgInfoClass = env->GetObjectClass(packageInfo);
-                jfieldID sigsField = env->GetFieldID(pkgInfoClass, "signatures", "[Landroid/content/pm/Signature;");
-                jobjectArray sigArray = (jobjectArray)env->GetObjectField(packageInfo, sigsField);
-
-                if (sigArray != nullptr) {
-                    jsize sigLen = env->GetArrayLength(sigArray);
-                    for (jsize i = 0; i < sigLen; ++i) {
-                        jobject sig = env->GetObjectArrayElement(sigArray, i);
-                        if (sig != nullptr) {
-                            jclass sigClass = env->GetObjectClass(sig);
-                            jmethodID toByteArray = env->GetMethodID(sigClass, "toByteArray", "()[B");
-                            jbyteArray bytes = (jbyteArray)env->CallObjectMethod(sig, toByteArray);
-                            if (bytes != nullptr) {
-                                jsize bLen = env->GetArrayLength(bytes);
-                                std::vector<uint8_t> buf(bLen);
-                                env->GetByteArrayRegion(bytes, 0, bLen, reinterpret_cast<jbyte*>(buf.data()));
-                                certByteArrays.push_back(buf);
-                            }
-                        }
-                    }
-                }
+        // 1. Extract current SHA-256 clean string from jstring parameter
+        std::string currentSha256Clean;
+        if (currentSha256Str != nullptr) {
+            const char* chars = env->GetStringUTFChars(currentSha256Str, nullptr);
+            if (chars != nullptr) {
+                currentSha256Clean = clean_hex(std::string(chars));
+                env->ReleaseStringUTFChars(currentSha256Str, chars);
             }
         }
 
-        if (certByteArrays.empty()) {
-            LOGW("No certificates retrieved from PackageInfo");
-            return 0; // OFFICIAL_RELEASE fallback if signatures cannot be extracted
-        }
-
-        // Calculate SHA-256 for primary certificate
-        uint8_t calculatedSha256[32];
-        SHA256_CTX ctx;
-        sha256_init(&ctx);
-        sha256_update(&ctx, certByteArrays[0].data(), certByteArrays[0].size());
-        sha256_final(&ctx, calculatedSha256);
-
-        std::string currentSha256Clean = bytes_to_hex_clean(calculatedSha256, 32);
-
-        // Check official XOR-obfuscated SHA-256
+        // 2. Check official XOR-obfuscated SHA-256
         uint8_t officialSha256[32];
         get_official_sha256_bytes(officialSha256);
         std::string officialSha256Clean = bytes_to_hex_clean(officialSha256, 32);
 
-        bool isKnownOfficialKey = (currentSha256Clean == officialSha256Clean);
+        bool isKnownOfficialKey = (!currentSha256Clean.empty() && currentSha256Clean == officialSha256Clean);
 
-        // Check expected remote hashes if provided
+        // 3. Check expected remote hashes if provided
         bool isRemoteMatch = false;
         if (expectedRemoteHashes != nullptr) {
             jsize remoteLen = env->GetArrayLength(expectedRemoteHashes);
@@ -340,6 +222,9 @@ static jint native_verify(JNIEnv* env, jobject clazz, jobject context, jobjectAr
             }
         }
 
+        LOGI("Native verify: current=%s, official=%s, isKnownOfficialKey=%d, isRemoteMatch=%d, isDebuggable=%d",
+             currentSha256Clean.c_str(), officialSha256Clean.c_str(), isKnownOfficialKey, isRemoteMatch, isDebuggable);
+
         if (isRemoteMatch || isKnownOfficialKey) {
             return 0; // OFFICIAL_RELEASE
         } else if (isDebuggable) {
@@ -356,7 +241,7 @@ static jint native_verify(JNIEnv* env, jobject clazz, jobject context, jobjectAr
 
 // Native method signature for JNI registration
 static JNINativeMethod gMethods[] = {
-    {(char*)"verifyNative", (char*)"(Landroid/content/Context;[Ljava/lang/String;)I", (void*)native_verify}
+    {(char*)"verifyNative", (char*)"(Landroid/content/Context;Ljava/lang/String;[Ljava/lang/String;)I", (void*)native_verify}
 };
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {

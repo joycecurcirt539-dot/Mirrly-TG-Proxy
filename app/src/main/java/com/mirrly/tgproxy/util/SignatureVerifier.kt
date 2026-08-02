@@ -34,7 +34,7 @@ object SignatureVerifier {
 
     // Dynamically registered via JNI_OnLoad in native_sec.cpp
     @JvmStatic
-    private external fun verifyNative(context: Context, expectedRemoteHashes: Array<String>?): Int
+    private external fun verifyNative(context: Context, currentSha256: String?, expectedRemoteHashes: Array<String>?): Int
 
     @Volatile
     private var cachedStatus: SignatureStatus? = null
@@ -50,8 +50,9 @@ object SignatureVerifier {
 
         val status = if (isNativeLoaded) {
             try {
+                val currentSha256 = getSignatureSha256(context)
                 val array = expectedRemoteHashes?.toTypedArray()
-                val code = verifyNative(context, array)
+                val code = verifyNative(context, currentSha256, array)
                 when (code) {
                     0 -> SignatureStatus.OFFICIAL_RELEASE
                     1 -> SignatureStatus.DEBUG_BUILD
