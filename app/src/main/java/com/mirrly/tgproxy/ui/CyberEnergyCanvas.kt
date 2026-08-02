@@ -20,6 +20,7 @@ import com.mirrly.tgproxy.ui.theme.ActiveGreenLed
 import kotlin.math.cos
 import kotlin.math.sin
 
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -68,12 +69,16 @@ fun CyberEnergyCanvas(
         }
     }
 
-    // ── GYROSCOPE / ACCELEROMETER TILT INTEGRATION (PAUSED IN BACKGROUND) ─
+    // ── PERFORMANCE GUARD: CHECK IF USER DISABLED ANIMATIONS ──
+    val app = com.mirrly.tgproxy.MirrlyApplication.instance
+    val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
+
+    // ── GYROSCOPE / ACCELEROMETER TILT INTEGRATION (PAUSED IN BACKGROUND OR IF ANIMATIONS DISABLED) ─
     var rawTiltX by remember { mutableFloatStateOf(0f) }
     var rawTiltY by remember { mutableFloatStateOf(0f) }
 
-    DisposableEffect(context, isAppResumed) {
-        if (!isAppResumed) return@DisposableEffect onDispose {}
+    DisposableEffect(context, isAppResumed, isAnimationsDisabled) {
+        if (!isAppResumed || isAnimationsDisabled) return@DisposableEffect onDispose {}
 
         val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
         val sensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -96,11 +101,11 @@ fun CyberEnergyCanvas(
         }
     }
 
-    // ── ANIMATION FRAME TIMER (PAUSED IN BACKGROUND FOR 0% BATTERY DRAIN) ──
-    val timeState = produceState(initialValue = 0L, isAppResumed) {
-        if (!isAppResumed) return@produceState
+    // ── ANIMATION FRAME TIMER (PAUSED IN BACKGROUND OR IF ANIMATIONS DISABLED) ──
+    val timeState = produceState(initialValue = 0L, isAppResumed, isAnimationsDisabled) {
+        if (!isAppResumed || isAnimationsDisabled) return@produceState
         val startNano = System.nanoTime() - value
-        while (isAppResumed) {
+        while (isAppResumed && !isAnimationsDisabled) {
             withFrameNanos { frameTimeNanos ->
                 value = frameTimeNanos - startNano
             }
@@ -174,6 +179,11 @@ fun CyberEnergyCanvas(
         val width = size.width
         val height = size.height
         if (width <= 0f || height <= 0f) return@Canvas
+
+        if (isAnimationsDisabled) {
+            drawRect(color = Color.Black)
+            return@Canvas
+        }
 
         val t = timeState.value / 1_000_000_000f
 

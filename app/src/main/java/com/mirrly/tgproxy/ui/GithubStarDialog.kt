@@ -6,13 +6,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,45 +20,47 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import android.os.Build
+import android.view.WindowManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.os.Build
-import android.view.WindowManager
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import com.mirrly.tgproxy.R
-import com.mirrly.tgproxy.core.ReleaseInfo
 import com.mirrly.tgproxy.ui.theme.*
 
 @Composable
-fun UpdateAvailableDialog(
-    releaseInfo: ReleaseInfo,
-    onDismiss: () -> Unit
+fun GithubStarDialog(
+    onDismiss: () -> Unit,
+    onStarClicked: () -> Unit = {},
+    onNeverShowAgain: () -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val githubUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy"
+    var showConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showConfirmDialog) {
+        ExternalLinkConfirmDialog(
+            url = githubUrl,
+            onDismiss = { showConfirmDialog = false },
+            onConfirmed = {
+                onStarClicked()
+                onDismiss()
+            }
+        )
+    }
 
     var isVisible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         isVisible = true
-    }
-
-    var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
-
-    if (pendingRedirectUrl != null) {
-        ExternalLinkConfirmDialog(
-            url = pendingRedirectUrl ?: "",
-            onDismiss = { pendingRedirectUrl = null },
-            onConfirmed = onDismiss
-        )
     }
 
     Dialog(
@@ -118,7 +119,7 @@ fun UpdateAvailableDialog(
                             brush = Brush.horizontalGradient(
                                 colors = listOf(
                                     ActiveGreenLed.copy(alpha = 0.6f),
-                                    AmoledBorder,
+                                    Color(0xFF00F0FF).copy(alpha = 0.35f),
                                     ActiveGreenLed.copy(alpha = 0.35f)
                                 )
                             ),
@@ -134,10 +135,10 @@ fun UpdateAvailableDialog(
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Badge Icon
+                        // Glowing Badge Icon
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
@@ -147,58 +148,47 @@ fun UpdateAvailableDialog(
                                 .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), CircleShape)
                         ) {
                             Icon(
-                                painter = painterResource(id = R.drawable.ic_refresh),
+                                painter = painterResource(id = R.drawable.ic_github),
                                 contentDescription = null,
                                 tint = ActiveGreenLed,
-                                modifier = Modifier.size(26.dp)
+                                modifier = Modifier.size(28.dp)
                             )
                         }
 
-                        // Title
-                        Text(
-                            text = "Доступно обновление v${releaseInfo.versionName}",
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite,
-                            textAlign = TextAlign.Center
-                        )
-
-                        // Changelog Container (Scrollable Monospace text block)
-                        val changelogText = releaseInfo.releaseNotes.ifBlank {
-                            "Официальный список изменений и релизные сборки доступны в репозитории на GitHub."
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 160.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color(0xFF08090C))
-                                .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
-                                .padding(12.dp)
-                                .verticalScroll(rememberScrollState())
+                        // Title & Subtitle Description
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = changelogText,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = TextWhite.copy(alpha = 0.88f),
-                                lineHeight = 18.sp
+                                text = "Mirrly TG Proxy работает отлично?",
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Text(
+                                text = "Если приложение помогает вам обходить блокировки, поставьте нам звёздочку на GitHub. Для автора это лучшая мотивация!",
+                                fontSize = 13.sp,
+                                color = TextMuted,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 19.sp
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
 
                         // Action Buttons
                         Column(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            // Primary Download Button
+                            // Primary Button: Star on GitHub
                             Button(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    pendingRedirectUrl = releaseInfo.downloadUrl ?: releaseInfo.htmlUrl
+                                    showConfirmDialog = true
                                 },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = ActiveGreenLed,
@@ -209,37 +199,48 @@ fun UpdateAvailableDialog(
                                     .fillMaxWidth()
                                     .height(46.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_github),
-                                        contentDescription = null,
-                                        tint = Color.Black,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "Скачать с GitHub",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
-                                }
+                                Text(
+                                    text = "Поставить звёздочку",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
                             }
 
-                            // Skip Button
-                            TextButton(
+                            // Secondary Button: Later
+                            OutlinedButton(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onDismiss()
                                 },
-                                modifier = Modifier.fillMaxWidth()
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, AmoledBorder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(42.dp)
                             ) {
                                 Text(
-                                    text = "Пропустить",
-                                    color = TextMuted,
-                                    fontWeight = FontWeight.Medium,
+                                    text = "Позже",
+                                    color = TextWhite,
+                                    fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.5.sp
+                                )
+                            }
+
+                            // Tertiary Button: Don't show again
+                            TextButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onNeverShowAgain()
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(36.dp)
+                            ) {
+                                Text(
+                                    text = "Больше не показывать",
+                                    color = TextMuted,
+                                    fontWeight = FontWeight.Normal,
+                                    fontSize = 12.5.sp
                                 )
                             }
                         }
@@ -248,13 +249,4 @@ fun UpdateAvailableDialog(
             }
         }
     }
-}
-
-// Backward compatibility alias for existing usage
-@Composable
-fun UpdateDialog(
-    releaseInfo: ReleaseInfo,
-    onDismiss: () -> Unit
-) {
-    UpdateAvailableDialog(releaseInfo = releaseInfo, onDismiss = onDismiss)
 }

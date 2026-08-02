@@ -1,5 +1,11 @@
 package com.mirrly.tgproxy.core
 
+enum class SpeedPreset(val displayName: String, val defaultPoolSize: Int, val defaultBufferSizeBytes: Int) {
+    ECO("Эко (2 сокета)", 2, 32768),
+    BALANCED("Баланс (8 сокетов)", 8, 262144),
+    TURBO("Турбо (16 сокетов)", 16, 2097152)
+}
+
 data class ProxyConfig(
     var bindHost: String = "127.0.0.1",
     var bindPort: Int = 1443,
@@ -11,8 +17,20 @@ data class ProxyConfig(
     var autostartOnBoot: Boolean = false,
     var verboseLogs: Boolean = true,
     var fallbackDirectTcp: Boolean = true,
-    var isTestEnvironment: Boolean = false
+    var isTestEnvironment: Boolean = false,
+    var speedPresetName: String = SpeedPreset.BALANCED.name,
+    var tcpNoDelay: Boolean = true,
+    var bufferSizeBytes: Int = 131072 // 128KB default buffer
 ) {
+    val speedPreset: SpeedPreset
+        get() = try { SpeedPreset.valueOf(speedPresetName) } catch (_: Exception) { SpeedPreset.BALANCED }
+
+    fun applyPreset(preset: SpeedPreset) {
+        speedPresetName = preset.name
+        poolSize = preset.defaultPoolSize
+        bufferSizeBytes = preset.defaultBufferSizeBytes
+    }
+
     fun getEffectiveCfDomain(): String {
         return customCfDomain.trim()
     }

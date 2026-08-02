@@ -40,10 +40,18 @@ class TgWsBridge(
 
     suspend fun handleConnection() = withContext(Dispatchers.IO) {
         stats.activeConnections.incrementAndGet()
-        val inputStream: InputStream = clientSocket.getInputStream()
-        val outputStream: OutputStream = clientSocket.getOutputStream()
-
         try {
+            if (config.tcpNoDelay) {
+                try { clientSocket.tcpNoDelay = true } catch (_: Exception) {}
+            }
+            try {
+                clientSocket.receiveBufferSize = config.bufferSizeBytes
+                clientSocket.sendBufferSize = config.bufferSizeBytes
+            } catch (_: Exception) {}
+
+            val inputStream: InputStream = clientSocket.getInputStream()
+            val outputStream: OutputStream = clientSocket.getOutputStream()
+
             val handshakeHeader = ByteArray(TgConstants.HANDSHAKE_LEN)
             var bytesRead = 0
             while (bytesRead < TgConstants.HANDSHAKE_LEN) {
@@ -107,10 +115,20 @@ class TgWsBridge(
                     if (dcIp != null) {
                         try {
                             Socket(dcIp, 443).use { directSocket ->
+                                if (config.tcpNoDelay) {
+                                    try { directSocket.tcpNoDelay = true } catch (_: Exception) {}
+                                }
+                                try {
+                                    directSocket.receiveBufferSize = config.bufferSizeBytes
+                                    directSocket.sendBufferSize = config.bufferSizeBytes
+                                } catch (_: Exception) {}
+
                                 directSocket.getOutputStream().write(relayInit)
                                 directSocket.getOutputStream().flush()
+
+                                val bufLen = config.bufferSizeBytes.coerceAtLeast(16384)
                                 val fallbackJob = bridgeScope.launch {
-                                    val buf = ByteArray(16384)
+                                    val buf = ByteArray(bufLen)
                                     val directIn = directSocket.getInputStream()
                                     try {
                                         while (isActive) {
@@ -126,7 +144,7 @@ class TgWsBridge(
                                     }
                                 }
                                 try {
-                                    val buf = ByteArray(16384)
+                                    val buf = ByteArray(bufLen)
                                     while (isActive && !clientSocket.isClosed) {
                                         val len = inputStream.read(buf)
                                         if (len < 0) break
@@ -147,13 +165,13 @@ class TgWsBridge(
 
             val activeWs = wsClient
 
-            // Coroutine 1: WS -> Client Socket
+            // Coroutine 1: WS -> Client Socket (Download / Входящий трафик)
             val wsToClientJob = bridgeScope.launch {
                 try {
                     activeWs.messageChannel.consumeEach { frame ->
                         outputStream.write(frame)
                         outputStream.flush()
-                        stats.addSent(frame.size.toLong())
+                        stats.addReceived(frame.size.toLong())
                     }
                 } catch (_: Exception) {
                 } finally {
@@ -167,13 +185,14 @@ class TgWsBridge(
                 clientSocket.close()
             }
 
-            // Main loop: Client Socket -> WS
-            val readBuffer = ByteArray(16384)
+            // Main loop: Client Socket -> WS (Upload / Исходящий трафик)
+            val bufLen = config.bufferSizeBytes.coerceAtLeast(16384)
+            val readBuffer = ByteArray(bufLen)
             while (isActive && !clientSocket.isClosed) {
                 val readCount = inputStream.read(readBuffer)
                 if (readCount < 0) break
                 val chunk = readBuffer.copyOfRange(0, readCount)
-                stats.addReceived(readCount.toLong())
+                stats.addSent(readCount.toLong())
 
                 val packets = msgSplitter.split(chunk)
                 for (packet in packets) {

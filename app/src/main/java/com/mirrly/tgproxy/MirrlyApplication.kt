@@ -42,6 +42,15 @@ class MirrlyApplication : Application() {
         prefsManager = PreferencesManager(this)
         config = prefsManager.loadConfig()
         proxyServer = LocalProxyServer(config)
+        proxyServer.stats.externalByteProvider = {
+            val uid = android.os.Process.myUid()
+            val rx = android.net.TrafficStats.getUidRxBytes(uid)
+            val tx = android.net.TrafficStats.getUidTxBytes(uid)
+            Pair(
+                if (rx != android.net.TrafficStats.UNSUPPORTED.toLong() && rx > 0) rx else 0L,
+                if (tx != android.net.TrafficStats.UNSUPPORTED.toLong() && tx > 0) tx else 0L
+            )
+        }
         UpdateManager.scheduleDaytimeCheck(this)
     }
 

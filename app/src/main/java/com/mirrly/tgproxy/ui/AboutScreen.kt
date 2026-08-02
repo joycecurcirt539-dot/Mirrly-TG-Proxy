@@ -26,6 +26,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,8 +56,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.os.Build
+import android.view.WindowManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ui.theme.*
+import com.mirrly.tgproxy.util.shareApp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -135,55 +143,150 @@ fun AboutScreen(
     var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
 
     if (pendingRedirectUrl != null) {
-        AlertDialog(
+        val targetUrl = pendingRedirectUrl ?: ""
+        Dialog(
             onDismissRequest = { pendingRedirectUrl = null },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val url = pendingRedirectUrl
-                        pendingRedirectUrl = null
-                        if (url != null) openUrl(url)
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true
+            )
+        ) {
+            val view = LocalView.current
+            SideEffect {
+                val window = (view.parent as? DialogWindowProvider)?.window
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window?.attributes = window?.attributes?.apply {
+                        blurBehindRadius = 55
                     }
-                ) {
-                    Text(
-                        text = "Подтвердить",
-                        fontWeight = FontWeight.Bold,
-                        color = ActiveGreenLed
-                    )
                 }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { pendingRedirectUrl = null }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.20f))
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xE60D121C),
+                                    Color(0xD9080B12)
+                                )
+                            )
+                        )
+                        .background(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    Color(0xFF00F0FF).copy(alpha = 0.12f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                        .border(
+                            border = BorderStroke(
+                                width = 1.2.dp,
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color(0xFF00F0FF).copy(alpha = 0.65f),
+                                        Color(0xFF00F5D4).copy(alpha = 0.35f),
+                                        Color(0xFF00F0FF).copy(alpha = 0.45f)
+                                    )
+                                )
+                            ),
+                            shape = RoundedCornerShape(24.dp)
+                        )
+                        .lightSweep(
+                            isEnabled = true,
+                            shape = RoundedCornerShape(24.dp),
+                            borderWidth = 1.2.dp,
+                            sweepColor = Color(0xFF00F0FF)
+                        )
+                        .padding(22.dp)
                 ) {
-                    Text(
-                        text = "Отклонить",
-                        fontWeight = FontWeight.Normal,
-                        color = TextMuted
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF00F0FF).copy(alpha = 0.12f))
+                                .border(1.dp, Color(0xFF00F0FF).copy(alpha = 0.35f), CircleShape)
+                        ) {
+                            Text(text = "🌐", fontSize = 24.sp)
+                        }
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Внешний переход",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "Вы будете перенаправлены по внешней ссылке:\n\n$targetUrl",
+                                fontSize = 12.5.sp,
+                                color = TextWhite.copy(alpha = 0.85f),
+                                textAlign = TextAlign.Center,
+                                lineHeight = 18.sp
+                            )
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    pendingRedirectUrl = null
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, AmoledBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp)
+                            ) {
+                                Text("Отклонить", fontSize = 12.5.sp, color = TextMuted)
+                            }
+
+                            Button(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    pendingRedirectUrl = null
+                                    openUrl(targetUrl)
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF00F0FF),
+                                    contentColor = Color.Black
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp)
+                            ) {
+                                Text("Перейти", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
-            },
-            title = {
-                Text(
-                    text = "Внешний переход",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
-                    color = TextWhite
-                )
-            },
-            text = {
-                Text(
-                    text = "Вы будете перенаправлены по ссылке:\n\n${pendingRedirectUrl}",
-                    fontSize = 13.5.sp,
-                    color = TextWhite.copy(alpha = 0.85f),
-                    lineHeight = 19.sp
-                )
-            },
-            containerColor = Color(0xFF121212),
-            titleContentColor = TextWhite,
-            textContentColor = TextWhite,
-            shape = RoundedCornerShape(22.dp)
-        )
+            }
+        }
     }
 
     Box(
@@ -331,6 +434,9 @@ fun AboutScreen(
                 }
             }
 
+            // OFFICIAL SOURCE & VERIFICATION CARD
+            OfficialSourceCard()
+
             // 2. BIO & MISSION CARD
             Column(
                 modifier = Modifier.staggeredEntrance(index = 1),
@@ -383,41 +489,78 @@ fun AboutScreen(
                     color = TextMuted
                 )
 
-                // Link 1: Telegram Channel
-                LinkCardItem(
-                    iconRes = R.drawable.ic_telegram,
-                    iconTint = Color(0xFF29B6F6),
-                    title = "Telegram Канал",
-                    subtitle = "Анонсы, обновления и новости: t.me/WhyOKyHb",
-                    onClick = { pendingRedirectUrl = "https://t.me/WhyOKyHb" }
-                )
+                // Single Grouped Container for all Links
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(18.dp))
+                ) {
+                    // Link 1: Telegram Channel
+                    LinkCardItem(
+                        iconRes = R.drawable.ic_telegram,
+                        iconTint = Color(0xFF29B6F6),
+                        title = "Telegram Канал",
+                        subtitle = "Анонсы, обновления и новости: t.me/WhyOKyHb",
+                        onClick = { pendingRedirectUrl = "https://t.me/WhyOKyHb" }
+                    )
 
-                // Link 2: GitHub Profile
-                LinkCardItem(
-                    iconRes = R.drawable.ic_github,
-                    iconTint = TextWhite,
-                    title = "Профиль GitHub",
-                    subtitle = "github.com/joycecurcirt539-dot",
-                    onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot" }
-                )
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
 
-                // Link 3: GitHub Repository
-                LinkCardItem(
-                    iconRes = R.drawable.ic_github,
-                    iconTint = ActiveGreenLed,
-                    title = "Репозиторий проекта",
-                    subtitle = "Исходный код Mirrly TG Proxy на GitHub",
-                    onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy" }
-                )
+                    // Link 2: GitHub Profile
+                    LinkCardItem(
+                        iconRes = R.drawable.ic_github,
+                        iconTint = TextWhite,
+                        title = "Профиль GitHub",
+                        subtitle = "github.com/joycecurcirt539-dot",
+                        onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot" }
+                    )
 
-                // Link 4: GPLv3 License Screen
-                LinkCardItem(
-                    iconRes = R.drawable.ic_license,
-                    iconTint = ActiveGreenLed,
-                    title = "Лицензия проекта (GNU GPLv3)",
-                    subtitle = "Условия использования и открытый исходный код",
-                    onClick = { onOpenLicense() }
-                )
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+                    // Link 3: GitHub Repository
+                    LinkCardItem(
+                        iconRes = R.drawable.ic_github,
+                        iconTint = ActiveGreenLed,
+                        title = "Репозиторий проекта",
+                        subtitle = "Исходный код Mirrly TG Proxy на GitHub",
+                        onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy" }
+                    )
+
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+                    // Link 4: Share App
+                    LinkCardItem(
+                        iconRes = R.drawable.ic_send,
+                        iconTint = ActiveGreenLed,
+                        title = "Поделиться с друзьями",
+                        subtitle = "Рассказать о Mirrly TG Proxy в Telegram или соцсетях",
+                        onClick = { context.shareApp() }
+                    )
+
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+                    // Link 5: Report Bug or Idea (GitHub Issues)
+                    LinkCardItem(
+                        iconRes = R.drawable.ic_bug,
+                        iconTint = Color(0xFFFF9E00),
+                        title = "Нашли баг или есть идея?",
+                        subtitle = "Создайте Issue на GitHub — разработчик ответит лично",
+                        onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues/new" }
+                    )
+
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+                    // Link 6: GPLv3 License Screen
+                    LinkCardItem(
+                        iconRes = R.drawable.ic_license,
+                        iconTint = ActiveGreenLed,
+                        title = "Лицензия проекта (GNU GPLv3)",
+                        subtitle = "Условия использования и открытый исходный код",
+                        onClick = { onOpenLicense() }
+                    )
+                }
             }
 
             // 4. SUPPORT AUTHOR & DONATION CARD
@@ -661,9 +804,6 @@ private fun LinkCardItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.Transparent)
-            .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(16.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
@@ -671,28 +811,28 @@ private fun LinkCardItem(
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 onClick()
             }
-            .padding(16.dp),
+            .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.weight(1f)
         ) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.Transparent)
-                    .border(1.dp, iconTint.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(iconTint.copy(alpha = 0.12f))
+                    .border(1.dp, iconTint.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
             ) {
                 Icon(
                     painter = painterResource(id = iconRes),
                     contentDescription = null,
                     tint = iconTint,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
 
@@ -705,7 +845,7 @@ private fun LinkCardItem(
                 )
                 Text(
                     text = subtitle,
-                    fontSize = 12.sp,
+                    fontSize = 11.5.sp,
                     color = TextMuted
                 )
             }
@@ -715,7 +855,7 @@ private fun LinkCardItem(
             painter = painterResource(id = R.drawable.ic_chevron_right),
             contentDescription = null,
             tint = TextMuted,
-            modifier = Modifier.size(18.dp)
+            modifier = Modifier.size(16.dp)
         )
     }
 }

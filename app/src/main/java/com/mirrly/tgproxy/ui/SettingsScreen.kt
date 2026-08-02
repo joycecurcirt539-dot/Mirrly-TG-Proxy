@@ -20,8 +20,14 @@ package com.mirrly.tgproxy.ui
 
 import android.content.Intent
 import android.os.Build
+import android.view.WindowManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,6 +50,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -55,6 +62,7 @@ import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.service.ProxyForegroundService
 import com.mirrly.tgproxy.ui.theme.*
+import com.mirrly.tgproxy.util.shareApp
 import android.net.Uri
 import android.widget.Toast
 import kotlinx.coroutines.delay
@@ -134,8 +142,8 @@ fun InfoButton(
             text = "i",
             color = TextMuted,
             fontSize = 10.sp,
-            fontWeight = FontWeight.Black,
-            fontStyle = FontStyle.Italic,
+            fontWeight = FontWeight.Bold,
+            fontStyle = FontStyle.Normal,
             lineHeight = 10.sp
         )
     }
@@ -144,37 +152,113 @@ fun InfoButton(
 /** Всплывающее диалоговое окно с подробным описанием настройки */
 @Composable
 fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
-    AlertDialog(
+    val haptic = LocalHapticFeedback.current
+
+    Dialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF0D1117),
-        shape = RoundedCornerShape(20.dp),
-        title = {
-            Text(
-                text = title,
-                color = ActiveGreenLed,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
-            )
-        },
-        text = {
-            Text(
-                text = body,
-                color = TextWhite.copy(alpha = 0.85f),
-                fontSize = 14.sp,
-                lineHeight = 22.sp
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(
-                    text = "Понятно",
-                    color = ActiveGreenLed,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
-                )
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        val view = LocalView.current
+        SideEffect {
+            val window = (view.parent as? DialogWindowProvider)?.window
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                window?.attributes = window?.attributes?.apply {
+                    blurBehindRadius = 55
+                }
             }
         }
-    )
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.20f))
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xE6141822),
+                                Color(0xD90E1118)
+                            )
+                        )
+                    )
+                    .border(
+                        border = BorderStroke(
+                            width = 1.dp,
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color(0xFF3B465A),
+                                    Color(0xFF262E3D),
+                                    Color(0xFF3B465A)
+                                )
+                            )
+                        ),
+                        shape = RoundedCornerShape(24.dp)
+                    )
+                    .lightSweep(
+                        isEnabled = true,
+                        shape = RoundedCornerShape(24.dp),
+                        borderWidth = 1.dp,
+                        sweepColor = Color(0xFF63738A)
+                    )
+                    .padding(22.dp)
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = title,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = body,
+                            fontSize = 13.sp,
+                            color = TextWhite.copy(alpha = 0.88f),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 19.sp
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2E384A),
+                            contentColor = TextWhite
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFF4A576D)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp)
+                    ) {
+                        Text("Понятно", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextWhite)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -205,6 +289,7 @@ fun SettingsScreen(
     // Key of the setting whose info dialog is currently open (null = closed)
     var infoKey by remember { mutableStateOf<String?>(null) }
     var pendingUpdateRelease by remember { mutableStateOf<com.mirrly.tgproxy.core.ReleaseInfo?>(null) }
+    var pendingIssueRedirectUrl by remember { mutableStateOf<String?>(null) }
 
     fun snapToNearestPool(valIn: Float): Float {
         return poolOptions.minByOrNull { abs(it - valIn) } ?: valIn
@@ -269,6 +354,10 @@ fun SettingsScreen(
                 "Прокси автоматически запустится после перезагрузки устройства — не нужно включать вручную.\n\nРаботает через системный сигнал BOOT_COMPLETED.\n\nВажно: на устройствах MIUI, HyperOS и OneUI может потребоваться дополнительное разрешение «Автозапуск» в системных настройках телефона, иначе система заблокирует запуск."
             "reconnect" -> "Авто-переподключение" to
                 "При смене сети (Wi-Fi → LTE и обратно) прокси автоматически перезапускает соединения.\n\nБез этой функции Telegram может «зависать» на несколько секунд при переходе между сетями.\n\nФункция отслеживает изменения через NetworkCallback Android и перезапускает прокси только при реальной смене сети, а не временных потерях сигнала."
+            "preset" -> "Режимы производительности" to
+                "Настройка глубины буферов и количества сокетов для максимальной скорости:\n\n• Эко — 2 сокета, 32 КБ буфер. Минимальный расход энергии и памяти.\n\n• Баланс — 8 сокетов, 256 КБ буфер. Оптимальная скорость для повседневного использования.\n\n• Турбо — 16 сокетов, 2 МБ буфер. Максимальная пропускная способность при скачивании и выгрузке гигабайтных файлов на каналах до 1 Гбит/с."
+            "tcp_nodelay" -> "Мгновенная отдача (TCP_NODELAY)" to
+                "Отключает алгоритм Нагла (Nagle's Algorithm).\n\nПозволяет отправлять пакеты и чанки медиафайлов немедленно в сеть, устраняя задержки 40–200 мс при отсылке сообщений и загрузке файлов в Telegram."
             else -> return@let
         }
         InfoDialog(title = dlgTitle, body = dlgBody, onDismiss = { infoKey = null })
@@ -279,6 +368,61 @@ fun SettingsScreen(
         UpdateDialog(
             releaseInfo = release,
             onDismiss = { pendingUpdateRelease = null }
+        )
+    }
+
+    // Confirmation dialog before opening external Issue link
+    pendingIssueRedirectUrl?.let { url ->
+        AlertDialog(
+            onDismissRequest = { pendingIssueRedirectUrl = null },
+            containerColor = Color(0xFF0D1117),
+            shape = RoundedCornerShape(20.dp),
+            title = {
+                Text(
+                    text = "Переход по внешней ссылке",
+                    color = ActiveGreenLed,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "Вы будете перенаправлены на страницу создания Issue на GitHub:\n\n$url",
+                    color = TextWhite.copy(alpha = 0.85f),
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val targetUrl = pendingIssueRedirectUrl
+                        pendingIssueRedirectUrl = null
+                        targetUrl?.let {
+                            try {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
+                            } catch (_: Exception) {}
+                        }
+                    }
+                ) {
+                    Text(
+                        text = "Перейти",
+                        color = ActiveGreenLed,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingIssueRedirectUrl = null }) {
+                    Text(
+                        text = "Отмена",
+                        color = TextMuted,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp
+                    )
+                }
+            }
         )
     }
 
@@ -298,6 +442,13 @@ fun SettingsScreen(
                 .padding(horizontal = 22.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
+
+            // Top Section: Official Source & Verification (Seamless without background panel)
+            OfficialSourceCard(
+                onUpdateReleaseFound = { release ->
+                    pendingUpdateRelease = release
+                }
+            )
 
             // SECTION 1: Сеть
             Column(
@@ -463,12 +614,113 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    text = "СИСТЕМА",
+                    text = "СКОРОСТЬ И ПРОИЗВОДИТЕЛЬНОСТЬ",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
                     color = TextMuted
                 )
+
+                // Speed Preset Chips
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("Режим скорости и пропускной способности", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        InfoButton { infoKey = "preset" }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val activePreset = config.speedPreset
+                        com.mirrly.tgproxy.core.SpeedPreset.values().forEach { preset ->
+                            val isSelected = activePreset == preset
+                            val chipBg = Color.Transparent
+                            val chipBorder by animateColorAsState(
+                                targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
+                                animationSpec = tween(200),
+                                label = "presetBorder_${preset.name}"
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(chipBg)
+                                    .border(1.dp, chipBorder, RoundedCornerShape(12.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        config.applyPreset(preset)
+                                        poolSize = preset.defaultPoolSize.toFloat()
+                                        server.applyPoolSize(preset.defaultPoolSize)
+                                        app.saveConfig()
+                                    }
+                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    val iconRes = when (preset) {
+                                        com.mirrly.tgproxy.core.SpeedPreset.ECO -> R.drawable.ic_speed_eco
+                                        com.mirrly.tgproxy.core.SpeedPreset.BALANCED -> R.drawable.ic_speed_balanced
+                                        com.mirrly.tgproxy.core.SpeedPreset.TURBO -> R.drawable.ic_speed_turbo
+                                    }
+                                    val titleText = when (preset) {
+                                        com.mirrly.tgproxy.core.SpeedPreset.ECO -> "Эко"
+                                        com.mirrly.tgproxy.core.SpeedPreset.BALANCED -> "Баланс"
+                                        com.mirrly.tgproxy.core.SpeedPreset.TURBO -> "Турбо"
+                                    }
+
+                                    Icon(
+                                        painter = painterResource(id = iconRes),
+                                        contentDescription = null,
+                                        tint = if (isSelected) ActiveGreenLed else TextMuted,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+
+                                    Text(
+                                        text = titleText,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) ActiveGreenLed else TextWhite
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // TCP_NODELAY Switch
+                var tcpNoDelayState by remember { mutableStateOf(config.tcpNoDelay) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("Мгновенная отдача (TCP_NODELAY)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        InfoButton { infoKey = "tcp_nodelay" }
+                    }
+                    InertialSpringSwitch(
+                        checked = tcpNoDelayState,
+                        onCheckedChange = { newValue ->
+                            tcpNoDelayState = newValue
+                            config.tcpNoDelay = newValue
+                            app.saveConfig()
+                        }
+                    )
+                }
 
                 // Ultra-Smooth Dragging Socket Pool Slider with Snap-on-Release & Haptics
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -623,14 +875,34 @@ fun SettingsScreen(
                         }
                     )
                 }
+
+                // Disable Animations & Background Particles Switch (Performance Optimization)
+                var disableAnimations by remember { mutableStateOf(app.prefsManager.areAnimationsDisabled()) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("Отключить анимации и частицы", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Выключает живой фон для экономии процессора и батареи", color = TextMuted, fontSize = 11.5.sp)
+                    }
+                    InertialSpringSwitch(
+                        checked = disableAnimations,
+                        onCheckedChange = { newValue ->
+                            disableAnimations = newValue
+                            app.prefsManager.setAnimationsDisabled(newValue)
+                        }
+                    )
+                }
             }
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
-            // SECTION 4: О Приложении & Разработчике
+            // SECTION 5: О ПРИЛОЖЕНИИ (Compact Grouped Container)
             Column(
-                modifier = Modifier.staggeredEntrance(index = 3),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                modifier = Modifier.staggeredEntrance(index = 4),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
                     text = "О ПРИЛОЖЕНИИ",
@@ -640,183 +912,314 @@ fun SettingsScreen(
                     color = TextMuted
                 )
 
-                Row(
+                // Single Grouped Container for all About App items
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(18.dp))
                         .background(Color.Transparent)
-                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(16.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onOpenAbout()
-                        }
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(18.dp))
                 ) {
+                    // Item 1: About Developer & Project
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.Transparent)
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_user),
-                                contentDescription = null,
-                                tint = ActiveGreenLed,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Column {
-                            Text(
-                                text = "О разработчике & Проекте",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                            Text(
-                                text = "R1Xern • Информация, соцсети и поддержка",
-                                fontSize = 12.sp,
-                                color = TextMuted
-                            )
-                        }
-                    }
-
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_chevron_right),
-                        contentDescription = null,
-                        tint = TextMuted,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                // Check for Updates Row Item
-                var isCheckingUpdate by remember { mutableStateOf(false) }
-                val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
-                val coroutineScope = rememberCoroutineScope()
-
-                val isUpdateAvailable = currentUpdateInfo?.isUpdateAvailable == true
-                val yellowAccent = Color(0xFFFFB703)
-
-                val itemBorderColor = if (isUpdateAvailable) yellowAccent else Color(0xFF181E2E)
-                val itemBgColor = if (isUpdateAvailable) Color(0xFF1F1A0A) else Color.Transparent
-                val iconBoxBgColor = if (isUpdateAvailable) yellowAccent.copy(alpha = 0.2f) else Color.Transparent
-                val iconTint = if (isUpdateAvailable) yellowAccent else ActiveGreenLed
-                val titleColor = if (isUpdateAvailable) yellowAccent else TextWhite
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(itemBgColor)
-                        .border(if (isUpdateAvailable) 1.5.dp else 1.dp, itemBorderColor, RoundedCornerShape(16.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            if (isUpdateAvailable) {
-                                pendingUpdateRelease = currentUpdateInfo
-                            } else if (!isCheckingUpdate) {
-                                isCheckingUpdate = true
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                coroutineScope.launch {
-                                    val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false)
-                                    isCheckingUpdate = false
-                                    result.fold(
-                                        onSuccess = { info ->
-                                            if (info.isUpdateAvailable) {
-                                                pendingUpdateRelease = info
-                                            } else {
-                                                Toast.makeText(
-                                                    context,
-                                                    "У вас установлена актуальная версия v${com.mirrly.tgproxy.core.UpdateChecker.CURRENT_VERSION_NAME}",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        },
-                                        onFailure = { err ->
-                                            Toast.makeText(
-                                                context,
-                                                "Ошибка проверки обновлений: ${err.localizedMessage}",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    )
-                                }
+                                onOpenAbout()
+                            }
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(ActiveGreenLed.copy(alpha = 0.12f))
+                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_user),
+                                    contentDescription = null,
+                                    tint = ActiveGreenLed,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            Column {
+                                Text(
+                                    text = "О разработчике & Проекте",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Text(
+                                    text = "R1Xern • Информация, соцсети и поддержка",
+                                    fontSize = 11.5.sp,
+                                    color = TextMuted
+                                )
                             }
                         }
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(iconBoxBgColor)
-                                .border(1.dp, iconTint.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_refresh),
-                                contentDescription = null,
-                                tint = iconTint,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
 
-                        Column {
-                            Text(
-                                text = if (isUpdateAvailable) "Найдено обновление v${currentUpdateInfo?.versionName}!" else "Проверить обновления",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = titleColor
-                            )
-                            Text(
-                                text = when {
-                                    isCheckingUpdate -> "Проверка GitHub Releases..."
-                                    isUpdateAvailable -> "Доступна новая версия • Нажмите для установки"
-                                    else -> "Текущая версия v${com.mirrly.tgproxy.core.UpdateChecker.CURRENT_VERSION_NAME}"
-                                },
-                                fontSize = 12.sp,
-                                color = if (isUpdateAvailable) TextWhite.copy(alpha = 0.9f) else TextMuted
-                            )
-                        }
-                    }
-
-                    if (isCheckingUpdate) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = ActiveGreenLed,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_chevron_right),
                             contentDescription = null,
-                            tint = if (isUpdateAvailable) yellowAccent else TextMuted,
-                            modifier = Modifier.size(18.dp)
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
                         )
+                    }
+
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+                    // Item 2: Share App with Friends
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                context.shareApp()
+                            }
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(ActiveGreenLed.copy(alpha = 0.12f))
+                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_send),
+                                    contentDescription = null,
+                                    tint = ActiveGreenLed,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            Column {
+                                Text(
+                                    text = "Рассказать друзьям",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Text(
+                                    text = "Поделиться ссылкой на Mirrly TG Proxy",
+                                    fontSize = 11.5.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+                    // Item 3: Report Bug / Idea
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                pendingIssueRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues/new"
+                            }
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFFFF9E00).copy(alpha = 0.12f))
+                                    .border(1.dp, Color(0xFFFF9E00).copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_bug),
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF9E00),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            Column {
+                                Text(
+                                    text = "Нашли баг или есть идея?",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Text(
+                                    text = "Создайте Issue на GitHub — отвечу лично",
+                                    fontSize = 11.5.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+                    // Item 4: Check for Updates
+                    var isCheckingUpdate by remember { mutableStateOf(false) }
+                    val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
+                    val coroutineScope = rememberCoroutineScope()
+
+                    val isUpdateAvailable = currentUpdateInfo?.isUpdateAvailable == true
+                    val yellowAccent = Color(0xFFFFB703)
+
+                    val itemBgColor = if (isUpdateAvailable) Color(0xFF1F1A0A) else Color.Transparent
+                    val iconBoxBgColor = if (isUpdateAvailable) yellowAccent.copy(alpha = 0.2f) else ActiveGreenLed.copy(alpha = 0.12f)
+                    val iconTint = if (isUpdateAvailable) yellowAccent else ActiveGreenLed
+                    val titleColor = if (isUpdateAvailable) yellowAccent else TextWhite
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(itemBgColor)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                if (isUpdateAvailable) {
+                                    pendingUpdateRelease = currentUpdateInfo
+                                } else if (!isCheckingUpdate) {
+                                    isCheckingUpdate = true
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    coroutineScope.launch {
+                                        val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false)
+                                        isCheckingUpdate = false
+                                        result.fold(
+                                            onSuccess = { info ->
+                                                if (info.isUpdateAvailable) {
+                                                    pendingUpdateRelease = info
+                                                } else {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "У вас установлена актуальная версия v${com.mirrly.tgproxy.core.UpdateChecker.CURRENT_VERSION_NAME}",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                            },
+                                            onFailure = { err ->
+                                                Toast.makeText(
+                                                    context,
+                                                    "Ошибка проверки обновлений: ${err.localizedMessage}",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(iconBoxBgColor)
+                                    .border(1.dp, iconTint.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                    contentDescription = null,
+                                    tint = iconTint,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            Column {
+                                Text(
+                                    text = if (isUpdateAvailable) "Найдено обновление v${currentUpdateInfo?.versionName}!" else "Проверить обновления",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = titleColor
+                                )
+                                Text(
+                                    text = when {
+                                        isCheckingUpdate -> "Проверка GitHub Releases..."
+                                        isUpdateAvailable -> "Доступна новая версия • Нажмите для установки"
+                                        else -> "Текущая версия v${com.mirrly.tgproxy.core.UpdateChecker.CURRENT_VERSION_NAME}"
+                                    },
+                                    fontSize = 11.5.sp,
+                                    color = if (isUpdateAvailable) TextWhite.copy(alpha = 0.9f) else TextMuted
+                                )
+                            }
+                        }
+
+                        if (isCheckingUpdate) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = ActiveGreenLed,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_chevron_right),
+                                contentDescription = null,
+                                tint = if (isUpdateAvailable) yellowAccent else TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }
 
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
+
+            StarGithubCard(modifier = Modifier.staggeredEntrance(index = 5))
             Spacer(modifier = Modifier.height(16.dp))
         }
 
@@ -862,3 +1265,175 @@ fun SettingsScreen(
         }
     }
 }
+
+@Composable
+fun StarGithubCard(
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val githubUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy"
+    var showConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showConfirmDialog) {
+        ExternalLinkConfirmDialog(
+            url = githubUrl,
+            onDismiss = { showConfirmDialog = false }
+        )
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Section Header Label
+        Text(
+            text = "ПОДДЕРЖКА ПРОЕКТА",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.3.sp,
+            color = TextMuted
+        )
+
+        // Header Row: Star Icon Box + Badge Tag
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f, fill = false)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(ActiveGreenLed.copy(alpha = 0.12f))
+                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), CircleShape)
+                ) {
+                    Text(text = "⭐", fontSize = 20.sp)
+                }
+
+                Column {
+                    Text(
+                        text = "Понравился Mirrly TG Proxy?",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextWhite
+                    )
+                    Text(
+                        text = "Поддержите проект на GitHub",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = ActiveGreenLed
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(ActiveGreenLed.copy(alpha = 0.12f))
+                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "OPEN SOURCE",
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Black,
+                    color = ActiveGreenLed,
+                    letterSpacing = 0.8.sp
+                )
+            }
+        }
+
+        // Description
+        Text(
+            text = "Ваша звёздочка на GitHub помогает проекту развиваться, привлекает новых пользователей и вдохновляет на выпуск регулярных обновлений!",
+            fontSize = 12.5.sp,
+            color = TextWhite.copy(alpha = 0.85f),
+            lineHeight = 18.sp
+        )
+
+        // Badges row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(text = "⚡", fontSize = 11.sp)
+                Text(text = "100% Бесплатно", fontSize = 11.sp, color = TextMuted, fontWeight = FontWeight.Medium)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(text = "🛡️", fontSize = 11.sp)
+                Text(text = "Без рекламы", fontSize = 11.sp, color = TextMuted, fontWeight = FontWeight.Medium)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(text = "💎", fontSize = 11.sp)
+                Text(text = "Открытый код", fontSize = 11.sp, color = TextMuted, fontWeight = FontWeight.Medium)
+            }
+        }
+
+        // Action Button
+        Button(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                showConfirmDialog = true
+            },
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.Transparent,
+                contentColor = Color.Black
+            ),
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(46.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            ActiveGreenLed,
+                            Color(0xFF00F0FF)
+                        )
+                    )
+                )
+                .springPress()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_github),
+                    contentDescription = null,
+                    tint = Color.Black,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = "Поставить ⭐ Star на GitHub",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black
+                )
+            }
+        }
+    }
+}
+
+

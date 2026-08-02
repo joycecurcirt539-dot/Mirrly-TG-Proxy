@@ -141,6 +141,7 @@ fun HomeScreen(
     var totalRecv by remember { mutableStateOf("0 Б") }
     var totalSent by remember { mutableStateOf("0 Б") }
     var uptimeSeconds by remember { mutableLongStateOf(0L) }
+    var pingMs by remember { mutableLongStateOf(-1L) }
 
     val updateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
 
@@ -150,6 +151,7 @@ fun HomeScreen(
             while (isActive) {
                 val running = server.isRunning
                 val uptime = server.uptimeSeconds
+                val currPing = server.currentPingMs
                 var dl = "0 Б/с"
                 var ul = "0 Б/с"
                 var conns = 0
@@ -179,6 +181,7 @@ fun HomeScreen(
                     activeConns = conns
                     totalRecv = recv
                     totalSent = sent
+                    pingMs = currPing
                 }
                 delay(500)
             }
@@ -305,6 +308,18 @@ fun HomeScreen(
                 )
         ) {
             var showUpdateDialog by remember { mutableStateOf(false) }
+            var showValueBanner by remember {
+                mutableStateOf(com.mirrly.tgproxy.service.ValueTriggerManager.shouldShowValueBanner(context))
+            }
+
+            LaunchedEffect(Unit) {
+                while (isActive) {
+                    if (!showValueBanner && com.mirrly.tgproxy.service.ValueTriggerManager.shouldShowValueBanner(context)) {
+                        showValueBanner = true
+                    }
+                    delay(15000)
+                }
+            }
 
             // ─── 1. TOP SECTION (Update banner) ───
             Box(
@@ -749,6 +764,26 @@ fun HomeScreen(
                 }
             }
             // ─── Column closed above ───
+
+            if (showValueBanner) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = padding.calculateBottomPadding() + 8.dp)
+                ) {
+                    ValueStarBanner(
+                        onStarClicked = {
+                            com.mirrly.tgproxy.service.ValueTriggerManager.markValuePromptShown(context)
+                            showValueBanner = false
+                        },
+                        onDismiss = {
+                            com.mirrly.tgproxy.service.ValueTriggerManager.markValuePromptShown(context)
+                            showValueBanner = false
+                        }
+                    )
+                }
+            }
 
             // ── FLOATING EYE BUTTON (inside Box, outside Column) ──────────
             // Uses fillMaxSize+wrapContentSize trick to reach TopEnd without BoxScope.align

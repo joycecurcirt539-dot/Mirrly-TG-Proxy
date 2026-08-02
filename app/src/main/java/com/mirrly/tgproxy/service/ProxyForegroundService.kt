@@ -162,9 +162,16 @@ class ProxyForegroundService : Service() {
         updateJob = serviceScope.launch {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val server = MirrlyApplication.instance.proxyServer
+            var secondsCounter = 0
 
             while (isActive && server.isRunning) {
                 delay(1000)
+                secondsCounter++
+                if (secondsCounter >= 10) {
+                    ValueTriggerManager.addActiveSeconds(this@ProxyForegroundService, secondsCounter)
+                    secondsCounter = 0
+                }
+
                 val stats = server.stats
                 stats.updateSpeed()
 

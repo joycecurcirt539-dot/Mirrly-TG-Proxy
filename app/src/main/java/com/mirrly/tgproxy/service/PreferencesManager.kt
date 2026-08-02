@@ -3,9 +3,25 @@ package com.mirrly.tgproxy.service
 import android.content.Context
 import android.content.SharedPreferences
 import com.mirrly.tgproxy.core.ProxyConfig
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("mirrly_tg_proxy_prefs", Context.MODE_PRIVATE)
+
+    private val _animationsDisabledFlow = MutableStateFlow(areAnimationsDisabled())
+    val animationsDisabledFlow: StateFlow<Boolean> = _animationsDisabledFlow.asStateFlow()
+
+    private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
+        if (key == "disable_animations_particles") {
+            _animationsDisabledFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+    }
+
+    init {
+        prefs.registerOnSharedPreferenceChangeListener(preferenceChangeListener)
+    }
 
     fun loadConfig(): ProxyConfig {
         // Use ProxyConfig() as single source of truth for all defaults
@@ -18,6 +34,9 @@ class PreferencesManager(context: Context) {
         val poolSize = prefs.getInt("pool_size", defaults.poolSize)
         val autostart = prefs.getBoolean("autostart_on_boot", defaults.autostartOnBoot)
         val fallbackTcp = prefs.getBoolean("fallback_direct_tcp", defaults.fallbackDirectTcp)
+        val speedPresetName = prefs.getString("speed_preset", defaults.speedPresetName) ?: defaults.speedPresetName
+        val tcpNoDelay = prefs.getBoolean("tcp_nodelay", defaults.tcpNoDelay)
+        val bufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
 
         return ProxyConfig(
             bindHost = bindHost,
@@ -27,7 +46,10 @@ class PreferencesManager(context: Context) {
             customCfDomain = customDomain,
             poolSize = poolSize,
             autostartOnBoot = autostart,
-            fallbackDirectTcp = fallbackTcp
+            fallbackDirectTcp = fallbackTcp,
+            speedPresetName = speedPresetName,
+            tcpNoDelay = tcpNoDelay,
+            bufferSizeBytes = bufferSizeBytes
         )
     }
 
@@ -41,6 +63,9 @@ class PreferencesManager(context: Context) {
             .putInt("pool_size", config.poolSize)
             .putBoolean("autostart_on_boot", config.autostartOnBoot)
             .putBoolean("fallback_direct_tcp", config.fallbackDirectTcp)
+            .putString("speed_preset", config.speedPresetName)
+            .putBoolean("tcp_nodelay", config.tcpNoDelay)
+            .putInt("buffer_size_bytes", config.bufferSizeBytes)
             .apply()
     }
 
@@ -50,5 +75,32 @@ class PreferencesManager(context: Context) {
 
     fun setAutoReconnectEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("auto_reconnect_on_network_change", enabled).apply()
+    }
+
+    fun incrementLaunchCount(): Int {
+        val current = prefs.getInt("launch_count", 0) + 1
+        prefs.edit().putInt("launch_count", current).apply()
+        return current
+    }
+
+    fun getLaunchCount(): Int {
+        return prefs.getInt("launch_count", 0)
+    }
+
+    fun isGithubStarDismissed(): Boolean {
+        return prefs.getBoolean("github_star_dismissed", false)
+    }
+
+    fun setGithubStarDismissed(dismissed: Boolean = true) {
+        prefs.edit().putBoolean("github_star_dismissed", dismissed).apply()
+    }
+
+    fun areAnimationsDisabled(): Boolean {
+        return prefs.getBoolean("disable_animations_particles", false)
+    }
+
+    fun setAnimationsDisabled(disabled: Boolean) {
+        prefs.edit().putBoolean("disable_animations_particles", disabled).apply()
+        _animationsDisabledFlow.value = disabled
     }
 }

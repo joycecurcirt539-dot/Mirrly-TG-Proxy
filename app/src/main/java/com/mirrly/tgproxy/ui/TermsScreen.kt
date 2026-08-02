@@ -130,16 +130,18 @@ fun TermsScreen(
     }
 
     val activeTermsText = if (selectedLanguage == "ru") fullTermsTextRu else fullTermsTextEn
+    var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
+
+    if (pendingRedirectUrl != null) {
+        ExternalLinkConfirmDialog(
+            url = pendingRedirectUrl ?: "",
+            onDismiss = { pendingRedirectUrl = null }
+        )
+    }
 
     fun openGitHubTerms() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        try {
-            val url = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/blob/main/TERMS_OF_USE.md"
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, "Не удалось открыть ссылку: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-        }
+        pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/blob/main/TERMS_OF_USE.md"
     }
 
     fun copyTermsToClipboard() {

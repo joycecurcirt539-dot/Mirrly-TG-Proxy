@@ -6,13 +6,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,7 +23,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -36,38 +34,39 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.mirrly.tgproxy.R
-import com.mirrly.tgproxy.core.ReleaseInfo
 import com.mirrly.tgproxy.ui.theme.*
 
 @Composable
-fun UpdateAvailableDialog(
-    releaseInfo: ReleaseInfo,
+fun UnofficialBuildDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val officialReleasesUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
+    var showConfirmLinkDialog by remember { mutableStateOf(false) }
+
+    if (showConfirmLinkDialog) {
+        ExternalLinkConfirmDialog(
+            url = officialReleasesUrl,
+            onDismiss = { showConfirmLinkDialog = false },
+            onConfirmed = onDismiss
+        )
+    }
 
     var isVisible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         isVisible = true
     }
 
-    var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
-
-    if (pendingRedirectUrl != null) {
-        ExternalLinkConfirmDialog(
-            url = pendingRedirectUrl ?: "",
-            onDismiss = { pendingRedirectUrl = null },
-            onConfirmed = onDismiss
-        )
-    }
+    val warningAmber = Color(0xFFFF9E00)
+    val warningRed = Color(0xFFFF3B30)
 
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             dismissOnBackPress = true,
-            dismissOnClickOutside = true
+            dismissOnClickOutside = false
         )
     ) {
         val view = LocalView.current
@@ -85,7 +84,7 @@ fun UpdateAvailableDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.20f))
-                .padding(24.dp),
+                .padding(20.dp),
             contentAlignment = Alignment.Center
         ) {
             AnimatedVisibility(
@@ -100,26 +99,26 @@ fun UpdateAvailableDialog(
                         .background(
                             brush = Brush.verticalGradient(
                                 colors = listOf(
-                                    Color(0xE60D121C),
-                                    Color(0xD9080B12)
+                                    Color(0xE6140E0A),
+                                    Color(0xD90C0907)
                                 )
                             )
                         )
                         .background(
                             brush = Brush.radialGradient(
                                 colors = listOf(
-                                    ActiveGreenLed.copy(alpha = 0.12f),
+                                    warningAmber.copy(alpha = 0.12f),
                                     Color.Transparent
                                 )
                             )
                         )
                         .border(
-                            width = 1.dp,
+                            width = 1.5.dp,
                             brush = Brush.horizontalGradient(
                                 colors = listOf(
-                                    ActiveGreenLed.copy(alpha = 0.6f),
-                                    AmoledBorder,
-                                    ActiveGreenLed.copy(alpha = 0.35f)
+                                    warningRed.copy(alpha = 0.65f),
+                                    warningAmber.copy(alpha = 0.45f),
+                                    warningRed.copy(alpha = 0.3f)
                                 )
                             ),
                             shape = RoundedCornerShape(24.dp)
@@ -127,81 +126,65 @@ fun UpdateAvailableDialog(
                         .lightSweep(
                             isEnabled = true,
                             shape = RoundedCornerShape(24.dp),
-                            borderWidth = 1.dp,
-                            sweepColor = ActiveGreenLed
+                            borderWidth = 1.5.dp,
+                            sweepColor = warningAmber
                         )
                         .padding(22.dp)
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Badge Icon
+                        // Warning Icon Badge
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(56.dp)
+                                .size(58.dp)
                                 .clip(CircleShape)
-                                .background(ActiveGreenLed.copy(alpha = 0.15f))
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), CircleShape)
+                                .background(warningRed.copy(alpha = 0.18f))
+                                .border(1.dp, warningAmber.copy(alpha = 0.5f), CircleShape)
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_refresh),
-                                contentDescription = null,
-                                tint = ActiveGreenLed,
-                                modifier = Modifier.size(26.dp)
-                            )
+                            Text(text = "⚠️", fontSize = 28.sp)
                         }
 
-                        // Title
-                        Text(
-                            text = "Доступно обновление v${releaseInfo.versionName}",
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite,
-                            textAlign = TextAlign.Center
-                        )
-
-                        // Changelog Container (Scrollable Monospace text block)
-                        val changelogText = releaseInfo.releaseNotes.ifBlank {
-                            "Официальный список изменений и релизные сборки доступны в репозитории на GitHub."
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 160.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color(0xFF08090C))
-                                .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
-                                .padding(12.dp)
-                                .verticalScroll(rememberScrollState())
+                        // Title & Subtitle Description
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Text(
-                                text = changelogText,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = TextWhite.copy(alpha = 0.88f),
+                                text = "Неофициальная или модифицированная сборка!",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Text(
+                                text = "Данная версия приложения была пересобрана или изменена сторонними лицами.\n\nРазработчики Mirrly TG Proxy НЕ несут ответственности за безопасность, сохранность ваших данных и стабильность работы сторонних сборок.\n\nНастоятельно рекомендуем удалить эту сборку и установить оригинальное приложение из официального источника.",
+                                fontSize = 12.5.sp,
+                                color = TextMuted,
+                                textAlign = TextAlign.Center,
                                 lineHeight = 18.sp
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
 
                         // Action Buttons
                         Column(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            // Primary Download Button
+                            // Primary Button: Download from Official GitHub
                             Button(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    pendingRedirectUrl = releaseInfo.downloadUrl ?: releaseInfo.htmlUrl
+                                    showConfirmLinkDialog = true
                                 },
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = ActiveGreenLed,
+                                    containerColor = warningAmber,
                                     contentColor = Color.Black
                                 ),
                                 shape = RoundedCornerShape(14.dp),
@@ -220,26 +203,30 @@ fun UpdateAvailableDialog(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Text(
-                                        text = "Скачать с GitHub",
+                                        text = "Скачать с официального GitHub",
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
+                                        fontSize = 13.5.sp
                                     )
                                 }
                             }
 
-                            // Skip Button
-                            TextButton(
+                            // Secondary Button: I understand the risk
+                            OutlinedButton(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onDismiss()
                                 },
-                                modifier = Modifier.fillMaxWidth()
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(1.dp, AmoledBorder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp)
                             ) {
                                 Text(
-                                    text = "Пропустить",
+                                    text = "Я понимаю риск",
                                     color = TextMuted,
                                     fontWeight = FontWeight.Medium,
-                                    fontSize = 13.5.sp
+                                    fontSize = 12.5.sp
                                 )
                             }
                         }
@@ -248,13 +235,4 @@ fun UpdateAvailableDialog(
             }
         }
     }
-}
-
-// Backward compatibility alias for existing usage
-@Composable
-fun UpdateDialog(
-    releaseInfo: ReleaseInfo,
-    onDismiss: () -> Unit
-) {
-    UpdateAvailableDialog(releaseInfo = releaseInfo, onDismiss = onDismiss)
 }

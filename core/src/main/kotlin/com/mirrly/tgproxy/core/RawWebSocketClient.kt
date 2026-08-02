@@ -19,7 +19,7 @@ class RawWebSocketClient(
     private val hostHeader: String? = null
 ) {
     private var webSocket: WebSocket? = null
-    val messageChannel = Channel<ByteArray>(128)
+    val messageChannel = Channel<ByteArray>(256)
     val closeChannel = Channel<Unit>(Channel.CONFLATED)
 
     private val listener = object : WebSocketListener() {
@@ -76,10 +76,10 @@ class RawWebSocketClient(
     companion object {
         val okHttpClient: OkHttpClient by lazy {
             OkHttpClient.Builder()
-                .connectTimeout(10, TimeUnit.SECONDS)
+                .connectTimeout(8, TimeUnit.SECONDS)
                 .readTimeout(0, TimeUnit.MILLISECONDS) // Keep-alive for WS
-                .writeTimeout(10, TimeUnit.SECONDS)
-                .pingInterval(20, TimeUnit.SECONDS)
+                .writeTimeout(8, TimeUnit.SECONDS)
+                .pingInterval(15, TimeUnit.SECONDS)
                 .build()
         }
     }

@@ -19,25 +19,31 @@ object UpdateManager {
 
     private const val PREFS_NAME = "mirrly_update_prefs"
     private const val KEY_LAST_NOTIFIED_VERSION = "last_notified_version"
+    private const val KEY_CACHED_ETAG = "cached_etag"
     private const val WORK_NAME = "mirrly_daytime_update_checker"
 
     private val _updateState = MutableStateFlow<ReleaseInfo?>(null)
     val updateState: StateFlow<ReleaseInfo?> = _updateState.asStateFlow()
 
     suspend fun checkForUpdates(context: Context, notifyIfFound: Boolean = true): Result<ReleaseInfo> {
-        val result = UpdateChecker.checkForUpdates()
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val cachedEtag = prefs.getString(KEY_CACHED_ETAG, null)
+
+        val result = UpdateChecker.checkForUpdates(cachedEtag = cachedEtag)
         result.onSuccess { info ->
+            if (!info.etag.isNullOrBlank()) {
+                prefs.edit().putString(KEY_CACHED_ETAG, info.etag).apply()
+            }
+
             if (info.isUpdateAvailable) {
                 _updateState.value = info
-
-                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 val lastNotified = prefs.getString(KEY_LAST_NOTIFIED_VERSION, "")
 
                 if (notifyIfFound && lastNotified != info.versionName) {
                     prefs.edit().putString(KEY_LAST_NOTIFIED_VERSION, info.versionName).apply()
                     NotificationHelper.showUpdateNotification(context, info)
                 }
-            } else {
+            } else if (!info.isNotModified) {
                 _updateState.value = null
             }
         }

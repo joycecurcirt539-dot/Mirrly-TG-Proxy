@@ -93,6 +93,19 @@ class MainActivity : ComponentActivity() {
                 val server = app.proxyServer
                 var isProxyRunning by remember { mutableStateOf(server.isRunning) }
 
+                val signatureStatus = remember {
+                    com.mirrly.tgproxy.util.SignatureVerifier.verify(applicationContext)
+                }
+                var showUnofficialDialog by remember {
+                    mutableStateOf(signatureStatus == com.mirrly.tgproxy.util.SignatureStatus.UNOFFICIAL_MODIFIED)
+                }
+
+                val shouldShowStarDialog = remember {
+                    com.mirrly.tgproxy.service.LaunchCountManager.onAppLaunched(applicationContext)
+                    com.mirrly.tgproxy.service.LaunchCountManager.shouldShowStarDialog(applicationContext)
+                }
+                var showGithubStarDialog by remember { mutableStateOf(shouldShowStarDialog && !showUnofficialDialog) }
+
                 LaunchedEffect(Unit) {
                     withContext(Dispatchers.IO) {
                         com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(applicationContext, notifyIfFound = true)
@@ -436,6 +449,28 @@ class MainActivity : ComponentActivity() {
                     ) {
                         TermsScreen(
                             onBack = { currentScreen = "about" }
+                        )
+                    }
+
+                    if (showUnofficialDialog) {
+                        UnofficialBuildDialog(
+                            onDismiss = {
+                                showUnofficialDialog = false
+                            }
+                        )
+                    } else if (showGithubStarDialog) {
+                        GithubStarDialog(
+                            onDismiss = {
+                                showGithubStarDialog = false
+                            },
+                            onStarClicked = {
+                                com.mirrly.tgproxy.service.LaunchCountManager.setStarDismissed(applicationContext, true)
+                                showGithubStarDialog = false
+                            },
+                            onNeverShowAgain = {
+                                com.mirrly.tgproxy.service.LaunchCountManager.setStarDismissed(applicationContext, true)
+                                showGithubStarDialog = false
+                            }
                         )
                     }
                 }

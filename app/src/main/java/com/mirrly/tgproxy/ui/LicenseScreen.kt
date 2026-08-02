@@ -786,16 +786,18 @@ copy of the Program in return for a fee.
     }
 
     val activeLicenseText = if (selectedLanguage == "ru") fullLicenseTextRu else fullLicenseTextEn
+    var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
+
+    if (pendingRedirectUrl != null) {
+        ExternalLinkConfirmDialog(
+            url = pendingRedirectUrl ?: "",
+            onDismiss = { pendingRedirectUrl = null }
+        )
+    }
 
     fun openGitHubLicense() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        try {
-            val url = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/blob/main/LICENSE"
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, "Не удалось открыть ссылку: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-        }
+        pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/blob/main/LICENSE"
     }
 
     fun copyLicenseToClipboard() {

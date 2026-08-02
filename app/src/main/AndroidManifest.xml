@@ -49,6 +49,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+            </intent-filter>
         </activity>
 
         <service
@@ -61,7 +64,7 @@
             android:name=".service.ProxyTileService"
             android:exported="true"
             android:label="Mirrly Proxy"
-            android:icon="@drawable/ic_launcher_mirrly"
+            android:icon="@drawable/ic_qs_proxy"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />

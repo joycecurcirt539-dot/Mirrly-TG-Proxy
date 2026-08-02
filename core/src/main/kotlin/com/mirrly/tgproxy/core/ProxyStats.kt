@@ -8,9 +8,15 @@ class ProxyStats {
     val totalBytesSent = AtomicLong(0)
     val activeConnections = AtomicInteger(0)
 
+    @Volatile
+    var externalByteProvider: (() -> Pair<Long, Long>)? = null
+
+    private var baselineRx = 0L
+    private var baselineTx = 0L
+
     private var lastCheckTime = System.currentTimeMillis()
-    private var lastBytesRecv = 0L
-    private var lastBytesSent = 0L
+    private var lastBytesRecv = -1L
+    private var lastBytesSent = -1L
 
     @Volatile
     var downloadSpeedBps: Long = 0
@@ -20,12 +26,34 @@ class ProxyStats {
     var uploadSpeedBps: Long = 0
         private set
 
+    fun resetBaseline() {
+        val ext = externalByteProvider?.invoke()
+        if (ext != null && ext.first > 0) {
+            baselineRx = ext.first
+            baselineTx = ext.second
+        } else {
+            baselineRx = 0L
+            baselineTx = 0L
+        }
+        totalBytesReceived.set(0)
+        totalBytesSent.set(0)
+        lastBytesRecv = -1L
+        lastBytesSent = -1L
+        downloadSpeedBps = 0L
+        uploadSpeedBps = 0L
+        lastCheckTime = System.currentTimeMillis()
+    }
+
     fun addReceived(bytes: Long) {
-        totalBytesReceived.addAndGet(bytes)
+        if (bytes > 0) {
+            totalBytesReceived.addAndGet(bytes)
+        }
     }
 
     fun addSent(bytes: Long) {
-        totalBytesSent.addAndGet(bytes)
+        if (bytes > 0) {
+            totalBytesSent.addAndGet(bytes)
+        }
     }
 
     fun updateRawBytes(rxBytes: Long, txBytes: Long) {
@@ -49,7 +77,7 @@ class ProxyStats {
             val rxMatch = REGEX_RX.find(rawStr)
             if (rxMatch != null) {
                 val rx = rxMatch.groupValues[1].toLongOrNull()
-                if (rx != null && rx >= totalBytesReceived.get()) {
+                if (rx != null && rx > totalBytesReceived.get()) {
                     totalBytesReceived.set(rx)
                 }
             }
@@ -57,40 +85,66 @@ class ProxyStats {
             val txMatch = REGEX_TX.find(rawStr)
             if (txMatch != null) {
                 val tx = txMatch.groupValues[1].toLongOrNull()
-                if (tx != null && tx >= totalBytesSent.get()) {
+                if (tx != null && tx > totalBytesSent.get()) {
                     totalBytesSent.set(tx)
                 }
             }
         } catch (_: Exception) {}
     }
 
+    @Synchronized
     fun updateSpeed() {
         val now = System.currentTimeMillis()
         val dt = (now - lastCheckTime) / 1000.0
-        if (dt > 0.4) {
-            val currRecv = totalBytesReceived.get()
-            val currSent = totalBytesSent.get()
+        if (dt < 0.3) return
 
-            downloadSpeedBps = if (lastBytesRecv > 0) ((currRecv - lastBytesRecv) / dt).toLong().coerceAtLeast(0) else 0L
-            uploadSpeedBps = if (lastBytesSent > 0) ((currSent - lastBytesSent) / dt).toLong().coerceAtLeast(0) else 0L
+        val ext = externalByteProvider?.invoke()
+        if (ext != null && ext.first > 0) {
+            val extRx = (ext.first - baselineRx).coerceAtLeast(0)
+            val extTx = (ext.second - baselineTx).coerceAtLeast(0)
+            if (extRx > totalBytesReceived.get()) {
+                totalBytesReceived.set(extRx)
+            }
+            if (extTx > totalBytesSent.get()) {
+                totalBytesSent.set(extTx)
+            }
+        }
 
+        val currRecv = totalBytesReceived.get()
+        val currSent = totalBytesSent.get()
+
+        if (lastBytesRecv < 0L || lastBytesSent < 0L) {
             lastBytesRecv = currRecv
             lastBytesSent = currSent
             lastCheckTime = now
+            downloadSpeedBps = 0L
+            uploadSpeedBps = 0L
+            return
         }
+
+        if (currRecv >= lastBytesRecv) {
+            downloadSpeedBps = ((currRecv - lastBytesRecv) / dt).toLong().coerceAtLeast(0)
+        }
+        if (currSent >= lastBytesSent) {
+            uploadSpeedBps = ((currSent - lastBytesSent) / dt).toLong().coerceAtLeast(0)
+        }
+
+        lastBytesRecv = currRecv
+        lastBytesSent = currSent
+        lastCheckTime = now
     }
 
     companion object {
         private val REGEX_CONNS = Regex(
-            """(?:active_connections|active_conns|active|conns|connections)[\s=:]+['"]?(\d+)""",
+            """(?:active_connections|active_conns|active_conn|active|conns|connections|conn)[\s=:]+['"]?(\d+)""",
             RegexOption.IGNORE_CASE
         )
         private val REGEX_RX = Regex(
-            """(?:rx_bytes|bytes_recv|download_bytes|bytes_received)[\s=:]+['"]?(\d+)""",
+            """(?:rx_bytes|bytes_recv|download_bytes|bytes_received|rx|recv|download|bytes_in|in_bytes|received|read_bytes|bytes_read|rx_count)[\s=:]+['"]?(\d+)""",
             RegexOption.IGNORE_CASE
         )
         private val REGEX_TX = Regex(
-            """(?:tx_bytes|bytes_sent|upload_bytes)[\s=:]+['"]?(\d+)""",
+            """(?:tx_bytes|bytes_sent|upload_bytes|tx|sent|upload|bytes_out|out_bytes|written_bytes|bytes_written|tx_count)[\s=:]+['"]?(\d+)""",
             RegexOption.IGNORE_CASE
         )
     }
