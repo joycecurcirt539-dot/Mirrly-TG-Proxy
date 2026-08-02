@@ -15,8 +15,26 @@ enum class SignatureStatus {
 object SignatureVerifier {
     private const val TAG = "SignatureVerifier"
 
-    // Official release key SHA-256 fingerprint
+    // Official release key SHA-256 fingerprint (used for fallback if native library fails)
     private const val OFFICIAL_RELEASE_SHA256 = "97:73:5C:0A:20:70:7F:D4:E4:BD:93:A2:D8:48:CA:91:9A:C5:40:45:4A:62:16:E8:CC:7D:43:4F:1F:9F:0A:96"
+
+    @Volatile
+    private var isNativeLoaded = false
+
+    init {
+        try {
+            System.loadLibrary("mirrly_sec")
+            isNativeLoaded = true
+            AppLogger.i(TAG, "Native security library mirrly_sec loaded successfully")
+        } catch (e: Throwable) {
+            AppLogger.w(TAG, "Failed to load native security library mirrly_sec: ${e.message}")
+            isNativeLoaded = false
+        }
+    }
+
+    // Dynamically registered via JNI_OnLoad in native_sec.cpp
+    @JvmStatic
+    private external fun verifyNative(context: Context, expectedRemoteHashes: Array<String>?): Int
 
     @Volatile
     private var cachedStatus: SignatureStatus? = null
@@ -30,6 +48,28 @@ object SignatureVerifier {
             cachedStatus?.let { return it }
         }
 
+        val status = if (isNativeLoaded) {
+            try {
+                val array = expectedRemoteHashes?.toTypedArray()
+                val code = verifyNative(context, array)
+                when (code) {
+                    0 -> SignatureStatus.OFFICIAL_RELEASE
+                    1 -> SignatureStatus.DEBUG_BUILD
+                    else -> SignatureStatus.UNOFFICIAL_MODIFIED
+                }
+            } catch (e: Throwable) {
+                AppLogger.w(TAG, "Native verify call failed: ${e.message}, falling back to Kotlin verification")
+                verifyKotlinFallback(context, expectedRemoteHashes)
+            }
+        } else {
+            verifyKotlinFallback(context, expectedRemoteHashes)
+        }
+
+        cachedStatus = status
+        return status
+    }
+
+    private fun verifyKotlinFallback(context: Context, expectedRemoteHashes: List<String>?): SignatureStatus {
         val status = try {
             val signatures = getAppSignatures(context)
             if (signatures.isEmpty()) {
@@ -64,8 +104,6 @@ object SignatureVerifier {
             AppLogger.w(TAG, "Error verifying APK signature: ${e.message}")
             SignatureStatus.OFFICIAL_RELEASE
         }
-
-        cachedStatus = status
         return status
     }
 

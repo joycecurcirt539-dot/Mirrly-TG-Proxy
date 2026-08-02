@@ -11,3 +11,14 @@
 -dontwarn java.awt.**
 -keep interface com.mirrly.tgproxy.core.ProxyLibrary { *; }
 -keep class com.mirrly.tgproxy.core.NativeProxy { *; }
+
+# Keep SignatureVerifier and JNI native methods
+-keep class com.mirrly.tgproxy.util.SignatureVerifier {
+    public static <methods>;
+    private static <methods>;
+    native <methods>;
+}
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+

@@ -425,7 +425,7 @@ fun AboutScreen(
                                 .background(ActiveGreenLed)
                         )
                         Text(
-                            text = "Mirrly TG Proxy v1.0.4 (Release)",
+                            text = "Mirrly TG Proxy v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME} (Release)",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite

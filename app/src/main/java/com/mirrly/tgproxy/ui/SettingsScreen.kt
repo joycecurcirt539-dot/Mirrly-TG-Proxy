@@ -635,9 +635,9 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val activePreset = config.speedPreset
+                        val currentSnapPool = snapToNearestPool(poolSize).toInt()
                         com.mirrly.tgproxy.core.SpeedPreset.values().forEach { preset ->
-                            val isSelected = activePreset == preset
+                            val isSelected = currentSnapPool == preset.defaultPoolSize
                             val chipBg = Color.Transparent
                             val chipBorder by animateColorAsState(
                                 targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
@@ -761,6 +761,14 @@ fun SettingsScreen(
                             poolSize = snapped
                             val newSize = snapped.toInt()
                             if (newSize != config.poolSize) {
+                                config.poolSize = newSize
+                                val matchingPreset = com.mirrly.tgproxy.core.SpeedPreset.values().firstOrNull { it.defaultPoolSize == newSize }
+                                if (matchingPreset != null) {
+                                    config.speedPresetName = matchingPreset.name
+                                    config.bufferSizeBytes = matchingPreset.defaultBufferSizeBytes
+                                } else {
+                                    config.speedPresetName = "CUSTOM"
+                                }
                                 server.applyPoolSize(newSize)
                                 app.saveConfig()
                             }
