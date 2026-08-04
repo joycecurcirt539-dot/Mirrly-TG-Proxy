@@ -27,9 +27,13 @@ object UpdateManager {
     private val _updateState = MutableStateFlow<ReleaseInfo?>(null)
     val updateState: StateFlow<ReleaseInfo?> = _updateState.asStateFlow()
 
-    suspend fun checkForUpdates(context: Context, notifyIfFound: Boolean = true): Result<ReleaseInfo> {
+    suspend fun checkForUpdates(
+        context: Context,
+        notifyIfFound: Boolean = true,
+        forceRefresh: Boolean = false
+    ): Result<ReleaseInfo> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val cachedEtag = prefs.getString(KEY_CACHED_ETAG, null)
+        val cachedEtag = if (forceRefresh) null else prefs.getString(KEY_CACHED_ETAG, null)
 
         val result = UpdateChecker.checkForUpdates(
             currentVersion = com.mirrly.tgproxy.BuildConfig.VERSION_NAME,

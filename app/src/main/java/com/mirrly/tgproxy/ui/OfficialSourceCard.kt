@@ -172,7 +172,7 @@ fun OfficialSourceCard(
                         isCheckingUpdate = true
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         coroutineScope.launch {
-                            val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false)
+                            val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false, forceRefresh = true)
                             isCheckingUpdate = false
                             result.fold(
                                 onSuccess = { info ->

@@ -1086,13 +1086,11 @@ fun SettingsScreen(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                if (isUpdateAvailable) {
-                                    pendingUpdateRelease = currentUpdateInfo
-                                } else if (!isCheckingUpdate) {
+                                if (!isCheckingUpdate) {
                                     isCheckingUpdate = true
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     coroutineScope.launch {
-                                        val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false)
+                                        val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false, forceRefresh = true)
                                         isCheckingUpdate = false
                                         result.fold(
                                             onSuccess = { info ->

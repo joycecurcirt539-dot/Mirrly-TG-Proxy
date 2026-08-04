@@ -82,6 +82,9 @@ object UpdateChecker {
                             val bodyText = json.optString("body", "")
 
                             var downloadUrl: String? = null
+                            var releaseApkUrl: String? = null
+                            var fallbackApkUrl: String? = null
+
                             if (json.has("assets")) {
                                 val assetsArray = json.optJSONArray("assets")
                                 if (assetsArray != null) {
@@ -89,17 +92,21 @@ object UpdateChecker {
                                         val asset = assetsArray.optJSONObject(i) ?: continue
                                         val assetName = asset.optString("name", "")
                                         val assetUrl = asset.optString("browser_download_url", "")
-                                        if (assetName.endsWith("release.apk", ignoreCase = true)) {
-                                            downloadUrl = assetUrl
-                                            break
-                                        } else if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl == null) {
-                                            downloadUrl = assetUrl
-                                        } else if (downloadUrl == null && assetUrl.isNotBlank()) {
-                                            downloadUrl = assetUrl
+
+                                        if (assetName.endsWith(".apk", ignoreCase = true)) {
+                                            if (assetName.contains("release", ignoreCase = true) && !assetName.contains("debug", ignoreCase = true)) {
+                                                releaseApkUrl = assetUrl
+                                                break
+                                            } else if (!assetName.contains("debug", ignoreCase = true) && fallbackApkUrl == null) {
+                                                fallbackApkUrl = assetUrl
+                                            } else if (fallbackApkUrl == null && assetUrl.isNotBlank()) {
+                                                fallbackApkUrl = assetUrl
+                                            }
                                         }
                                     }
                                 }
                             }
+                            downloadUrl = releaseApkUrl ?: fallbackApkUrl
 
                             val sha256Regex = Regex("(?i)sha-?256[:\\s]+([a-fA-F0-9:-]{32,95})")
                             val shaMatches = sha256Regex.findAll(bodyText).toList()
