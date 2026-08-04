@@ -247,6 +247,33 @@ fun UpdateScreen(
                         color = TextWhite
                     )
 
+                    // Network & VPN Hint Banner
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF0D1422))
+                            .border(1.dp, Color(0xFF1E283D), RoundedCornerShape(12.dp))
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_settings),
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier
+                                .size(15.dp)
+                                .padding(top = 2.dp)
+                        )
+                        Text(
+                            text = "Обратите внимание: для скачивания файла обновления может потребоваться включение VPN или прокси в связи со сбоями сетевого доступа и фильтрацией CDN-доменов GitHub (githubusercontent.com) на стороне некоторых операторов связи.",
+                            fontSize = 11.5.sp,
+                            color = TextMuted,
+                            lineHeight = 15.sp
+                        )
+                    }
+
                     when (val status = downloadStatus) {
                         is DownloadStatus.Downloading -> {
                             Column(
