@@ -144,149 +144,10 @@ fun AboutScreen(
 
     if (pendingRedirectUrl != null) {
         val targetUrl = pendingRedirectUrl ?: ""
-        Dialog(
-            onDismissRequest = { pendingRedirectUrl = null },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                dismissOnBackPress = true,
-                dismissOnClickOutside = true
-            )
-        ) {
-            val view = LocalView.current
-            SideEffect {
-                val window = (view.parent as? DialogWindowProvider)?.window
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                    window?.attributes = window?.attributes?.apply {
-                        blurBehindRadius = 55
-                    }
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.20f))
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color(0xE60D121C),
-                                    Color(0xD9080B12)
-                                )
-                            )
-                        )
-                        .background(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    Color(0xFF00F0FF).copy(alpha = 0.12f),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                        .border(
-                            border = BorderStroke(
-                                width = 1.2.dp,
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(
-                                        Color(0xFF00F0FF).copy(alpha = 0.65f),
-                                        Color(0xFF00F5D4).copy(alpha = 0.35f),
-                                        Color(0xFF00F0FF).copy(alpha = 0.45f)
-                                    )
-                                )
-                            ),
-                            shape = RoundedCornerShape(24.dp)
-                        )
-                        .lightSweep(
-                            isEnabled = true,
-                            shape = RoundedCornerShape(24.dp),
-                            borderWidth = 1.2.dp,
-                            sweepColor = Color(0xFF00F0FF)
-                        )
-                        .padding(22.dp)
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(52.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF00F0FF).copy(alpha = 0.12f))
-                                .border(1.dp, Color(0xFF00F0FF).copy(alpha = 0.35f), CircleShape)
-                        ) {
-                            Text(text = "🌐", fontSize = 24.sp)
-                        }
-
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = "Внешний переход",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite,
-                                textAlign = TextAlign.Center
-                            )
-                            Text(
-                                text = "Вы будете перенаправлены по внешней ссылке:\n\n$targetUrl",
-                                fontSize = 12.5.sp,
-                                color = TextWhite.copy(alpha = 0.85f),
-                                textAlign = TextAlign.Center,
-                                lineHeight = 18.sp
-                            )
-                        }
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    pendingRedirectUrl = null
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, AmoledBorder),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(42.dp)
-                            ) {
-                                Text("Отклонить", fontSize = 12.5.sp, color = TextMuted)
-                            }
-
-                            Button(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    pendingRedirectUrl = null
-                                    openUrl(targetUrl)
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF00F0FF),
-                                    contentColor = Color.Black
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(42.dp)
-                            ) {
-                                Text("Перейти", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        ExternalLinkConfirmDialog(
+            url = targetUrl,
+            onDismiss = { pendingRedirectUrl = null }
+        )
     }
 
     Box(
@@ -402,35 +263,7 @@ fun AboutScreen(
                         )
                     }
 
-                    // Clickable Version Pill Badge -> opens GitHub releases
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(Color.Transparent)
-                            .border(1.dp, Color(0xFF1E283D), CircleShape)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
-                            }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(ActiveGreenLed)
-                        )
-                        Text(
-                            text = "Mirrly TG Proxy v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME} (Release)",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite
-                        )
-                    }
+
                 }
             }
 
@@ -593,7 +426,7 @@ fun AboutScreen(
                                 color = TextWhite
                             )
                             Text(
-                                text = "Ваша помощь стимулирует развитие новых фич!",
+                                text = "Приложение полностью бесплатное! Донат — исключительно по желанию для поддержки R1Xern.",
                                 fontSize = 12.sp,
                                 color = TextMuted
                             )

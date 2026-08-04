@@ -148,6 +148,9 @@ class MainActivity : ComponentActivity() {
                         "logs" -> {
                             currentScreen = "home"
                         }
+                        "history" -> {
+                            currentScreen = "home"
+                        }
                         "home" -> {
                             val now = System.currentTimeMillis()
                             if (now - lastBackTime < 2000) {
@@ -221,6 +224,7 @@ class MainActivity : ComponentActivity() {
                     val isHome = currentScreen == "home"
                     val isSettings = currentScreen == "settings"
                     val isLogs = currentScreen == "logs"
+                    val isHistory = currentScreen == "history"
                     val isAbout = currentScreen == "about"
                     val isLicense = currentScreen == "license"
                     val isTerms = currentScreen == "terms"
@@ -248,7 +252,7 @@ class MainActivity : ComponentActivity() {
                         targetValue = when {
                             isHome -> 0f
                             isSettings || isAbout || isLicense || isTerms || isUpdate -> -0.15f
-                            isLogs -> 0.15f
+                            isLogs || isHistory -> 0.15f
                             else -> 0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -301,6 +305,23 @@ class MainActivity : ComponentActivity() {
                         targetValue = if (isLogs) 1.0f else 0.0f,
                         animationSpec = tween(220),
                         label = "logsAlpha"
+                    )
+
+                    // Animated offsets & scales for History screen
+                    val historyOffsetFraction by animateFloatAsState(
+                        targetValue = if (isHistory) 0f else -1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "historyOffset"
+                    )
+                    val historyScale by animateFloatAsState(
+                        targetValue = if (isHistory) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "historyScale"
+                    )
+                    val historyAlpha by animateFloatAsState(
+                        targetValue = if (isHistory) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "historyAlpha"
                     )
 
                     // Animated offsets & scales for About screen
@@ -381,6 +402,9 @@ class MainActivity : ComponentActivity() {
                             onOpenLogs = {
                                 currentScreen = "logs"
                             },
+                            onOpenHistory = {
+                                currentScreen = "history"
+                            },
                             onOpenUpdate = {
                                 currentScreen = "update"
                             },
@@ -407,6 +431,22 @@ class MainActivity : ComponentActivity() {
                                 previousScreen = "logs"
                                 currentScreen = "settings"
                             }
+                        )
+                    }
+
+                    // HISTORY SCREEN (Pre-warmed & persistent)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                translationX = widthPx * historyOffsetFraction
+                                scaleX = historyScale
+                                scaleY = historyScale
+                                alpha = historyAlpha
+                            }
+                    ) {
+                        HistoryScreen(
+                            onBack = { currentScreen = "home" }
                         )
                     }
 

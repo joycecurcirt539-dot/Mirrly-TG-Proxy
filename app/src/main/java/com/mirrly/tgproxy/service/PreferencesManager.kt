@@ -28,7 +28,14 @@ class PreferencesManager(context: Context) {
         val defaults = ProxyConfig()
         val bindHost = prefs.getString("bind_host", defaults.bindHost) ?: defaults.bindHost
         val bindPort = prefs.getInt("bind_port", defaults.bindPort)
-        val secretHex = prefs.getString("secret_hex", "")?.ifEmpty { ProxyConfig.generateRandomSecret() } ?: ProxyConfig.generateRandomSecret()
+        val savedSecret = prefs.getString("secret_hex", null)
+        val secretHex = if (savedSecret.isNullOrEmpty()) {
+            val generatedSecret = ProxyConfig.generateRandomSecret()
+            prefs.edit().putString("secret_hex", generatedSecret).apply()
+            generatedSecret
+        } else {
+            savedSecret
+        }
         val cfEnabled = prefs.getBoolean("cf_proxy_enabled", defaults.cfProxyEnabled)
         val customDomain = prefs.getString("custom_cf_domain", defaults.customCfDomain) ?: defaults.customCfDomain
         val poolSize = prefs.getInt("pool_size", defaults.poolSize)

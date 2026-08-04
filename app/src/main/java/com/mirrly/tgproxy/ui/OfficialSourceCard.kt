@@ -9,6 +9,8 @@ import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -289,7 +291,7 @@ fun OfficialSourceCard(
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                     window?.attributes = window?.attributes?.apply {
-                        blurBehindRadius = 55
+                        blurBehindRadius = 70
                     }
                 }
             }
@@ -297,163 +299,135 @@ fun OfficialSourceCard(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.20f))
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center
+                    .background(Color.Black.copy(alpha = 0.12f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { showSecurityDialog = false }
+                    .padding(horizontal = 24.dp)
             ) {
-                Box(
+                // Detailed Security Info (Centered)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier
+                        .align(Alignment.Center)
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color(0xE60D121C),
-                                    Color(0xD9080B12)
-                                )
-                            )
-                        )
-                        .background(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    themeColor.copy(alpha = 0.12f),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                        .border(
-                            border = BorderStroke(
-                                width = 1.2.dp,
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(
-                                        themeColor.copy(alpha = 0.65f),
-                                        if (isOfficial) Color(0xFF00F5D4).copy(alpha = 0.35f) else Color(0xFFFFB703).copy(alpha = 0.35f),
-                                        themeColor.copy(alpha = 0.45f)
-                                    )
-                                )
-                            ),
-                            shape = RoundedCornerShape(24.dp)
-                        )
-                        .lightSweep(
-                            isEnabled = true,
-                            shape = RoundedCornerShape(24.dp),
-                            borderWidth = 1.2.dp,
-                            sweepColor = themeColor
-                        )
-                        .padding(22.dp)
+                        .padding(bottom = 70.dp)
+                        .clickable(enabled = false) {}
                 ) {
+                    // Category Pill
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = themeColor.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, themeColor.copy(alpha = 0.35f))
+                    ) {
+                        Text(
+                            text = "ПРОВЕРКА ПОДЛИННОСТИ",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = themeColor,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                        )
+                    }
+
+                    // Main Title
+                    Text(
+                        text = "Безопасность и подпись",
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite,
+                        textAlign = TextAlign.Center,
+                        letterSpacing = 0.3.sp
+                    )
+
+                    // Status Text
+                    Text(
+                        text = when (signatureStatus) {
+                            SignatureStatus.OFFICIAL_RELEASE -> "Официальный релизный ключ Mirrly TG Proxy подтвержден"
+                            SignatureStatus.DEBUG_BUILD -> "Отладочная сборка разработчика (Debug)"
+                            else -> "Цифровая подпись приложения подтверждена"
+                        },
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = themeColor,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Hash Display
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(text = "🛡️", fontSize = 20.sp)
-                            Text(
-                                text = "Окно безопасности",
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                        }
+                        Text(
+                            text = "Официальный отпечаток SHA-256:",
+                            fontSize = 12.sp,
+                            color = TextWhite.copy(alpha = 0.65f),
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = currentSha256,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = TextWhite.copy(alpha = 0.90f),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 16.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
+                }
 
-                        // Status Badge (Dynamic Light Blue / Orange Theme)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(themeColor.copy(alpha = 0.15f))
-                                .border(1.dp, themeColor.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                                .padding(vertical = 8.dp, horizontal = 12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = when (signatureStatus) {
-                                    SignatureStatus.OFFICIAL_RELEASE -> "✅ Подлинный релизный ключ Mirrly TG Proxy"
-                                    SignatureStatus.DEBUG_BUILD -> "🛠️ Отладочная сборка разработчика (Debug)"
-                                    else -> "✅ Подпись подтверждена"
-                                },
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = themeColor,
-                                textAlign = TextAlign.Center
-                            )
-                        }
+                // Bottom Floating Action Buttons
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 36.dp)
+                        .fillMaxWidth(0.90f)
+                        .clickable(enabled = false) {}
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            try {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clip = ClipData.newPlainText("SHA256 Signature", currentSha256)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "Хеш подписи скопирован!", Toast.LENGTH_SHORT).show()
+                            } catch (_: Exception) {}
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = TextWhite.copy(alpha = 0.90f)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text("Скопировать", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
 
-                        // Hash Display Box
-                        Column(
-                            horizontalAlignment = Alignment.Start,
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "Официальный отпечаток SHA-256:",
-                                fontSize = 11.5.sp,
-                                color = TextMuted,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isOfficial) Color(0x80030B12) else Color(0x800D0602))
-                                    .border(1.dp, themeColor.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
-                                    .padding(10.dp)
-                            ) {
-                                Text(
-                                    text = currentSha256,
-                                    fontSize = 11.sp,
-                                    color = TextWhite,
-                                    lineHeight = 16.sp
-                                )
-                            }
-                        }
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            // Copy Hash Button
-                            OutlinedButton(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    try {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = ClipData.newPlainText("SHA256 Signature", currentSha256)
-                                        clipboard.setPrimaryClip(clip)
-                                        Toast.makeText(context, "Хеш подписи скопирован!", Toast.LENGTH_SHORT).show()
-                                    } catch (_: Exception) {}
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, themeColor.copy(alpha = 0.4f)),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(40.dp)
-                            ) {
-                                Text("Скопировать хеш", fontSize = 11.5.sp, color = TextWhite)
-                            }
-
-                            // Close Button
-                            Button(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    showSecurityDialog = false
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = themeColor,
-                                    contentColor = Color.Black
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(40.dp)
-                            ) {
-                                Text("Закрыть", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showSecurityDialog = false
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White.copy(alpha = 0.20f),
+                            contentColor = TextWhite
+                        ),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text("Закрыть", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

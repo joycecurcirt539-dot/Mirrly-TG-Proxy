@@ -168,7 +168,7 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                 window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 55
+                    blurBehindRadius = 70
                 }
             }
         }
@@ -176,86 +176,79 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.20f))
-                .padding(24.dp),
-            contentAlignment = Alignment.Center
+                .background(Color.Black.copy(alpha = 0.12f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onDismiss() }
+                .padding(horizontal = 24.dp)
         ) {
-            Box(
+            // Detailed Info Content (Centered)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
+                    .align(Alignment.Center)
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color(0xE6141822),
-                                Color(0xD90E1118)
-                            )
-                        )
-                    )
-                    .border(
-                        border = BorderStroke(
-                            width = 1.dp,
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    Color(0xFF3B465A),
-                                    Color(0xFF262E3D),
-                                    Color(0xFF3B465A)
-                                )
-                            )
-                        ),
-                        shape = RoundedCornerShape(24.dp)
-                    )
-                    .lightSweep(
-                        isEnabled = true,
-                        shape = RoundedCornerShape(24.dp),
-                        borderWidth = 1.dp,
-                        sweepColor = Color(0xFF63738A)
-                    )
-                    .padding(22.dp)
+                    .padding(bottom = 70.dp)
+                    .clickable(enabled = false) {}
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.fillMaxWidth()
+                // Category Pill
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF00F0FF).copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.35f))
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = title,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite,
-                            textAlign = TextAlign.Center
-                        )
-                        Text(
-                            text = body,
-                            fontSize = 13.sp,
-                            color = TextWhite.copy(alpha = 0.88f),
-                            textAlign = TextAlign.Center,
-                            lineHeight = 19.sp
-                        )
-                    }
-
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onDismiss()
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2E384A),
-                            contentColor = TextWhite
-                        ),
-                        border = BorderStroke(1.dp, Color(0xFF4A576D)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(42.dp)
-                    ) {
-                        Text("Понятно", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextWhite)
-                    }
+                    Text(
+                        text = "СПРАВКА И НАСТРОЙКИ",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF00F0FF),
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
                 }
+
+                // Title
+                Text(
+                    text = title,
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite,
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 0.3.sp
+                )
+
+                // Body text
+                Text(
+                    text = body,
+                    fontSize = 13.5.sp,
+                    color = TextWhite.copy(alpha = 0.88f),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+            }
+
+            // Bottom Floating Action Button
+            Button(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onDismiss()
+                },
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White.copy(alpha = 0.20f),
+                    contentColor = TextWhite
+                ),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 36.dp)
+                    .fillMaxWidth(0.90f)
+                    .height(48.dp)
+            ) {
+                Text("Понятно", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -358,6 +351,8 @@ fun SettingsScreen(
                 "Настройка глубины буферов и количества сокетов для максимальной скорости:\n\n• Эко — 2 сокета, 32 КБ буфер. Минимальный расход энергии и памяти.\n\n• Баланс — 8 сокетов, 256 КБ буфер. Оптимальная скорость для повседневного использования.\n\n• Турбо — 16 сокетов, 2 МБ буфер. Максимальная пропускная способность при скачивании и выгрузке гигабайтных файлов на каналах до 1 Гбит/с."
             "tcp_nodelay" -> "Мгновенная отдача (TCP_NODELAY)" to
                 "Отключает алгоритм Нагла (Nagle's Algorithm).\n\nПозволяет отправлять пакеты и чанки медиафайлов немедленно в сеть, устраняя задержки 40–200 мс при отсылке сообщений и загрузке файлов в Telegram."
+            "disable_animations" -> "Отключение анимаций и частиц" to
+                "Оптимизирует энергопотребление и снижает нагрузку на процессор устройства.\n\nПри включении тумблера убираются фоновые визуальные частицы и тяжёлые анимации, что продлевает время автономной работы батареи и обеспечивает максимальную плавность на бюджетных устройствах."
             else -> return@let
         }
         InfoDialog(title = dlgTitle, body = dlgBody, onDismiss = { infoKey = null })
@@ -373,56 +368,9 @@ fun SettingsScreen(
 
     // Confirmation dialog before opening external Issue link
     pendingIssueRedirectUrl?.let { url ->
-        AlertDialog(
-            onDismissRequest = { pendingIssueRedirectUrl = null },
-            containerColor = Color(0xFF0D1117),
-            shape = RoundedCornerShape(20.dp),
-            title = {
-                Text(
-                    text = "Переход по внешней ссылке",
-                    color = ActiveGreenLed,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
-            },
-            text = {
-                Text(
-                    text = "Вы будете перенаправлены на страницу создания Issue на GitHub:\n\n$url",
-                    color = TextWhite.copy(alpha = 0.85f),
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val targetUrl = pendingIssueRedirectUrl
-                        pendingIssueRedirectUrl = null
-                        targetUrl?.let {
-                            try {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
-                            } catch (_: Exception) {}
-                        }
-                    }
-                ) {
-                    Text(
-                        text = "Перейти",
-                        color = ActiveGreenLed,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingIssueRedirectUrl = null }) {
-                    Text(
-                        text = "Отмена",
-                        color = TextMuted,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp
-                    )
-                }
-            }
+        ExternalLinkConfirmDialog(
+            url = url,
+            onDismiss = { pendingIssueRedirectUrl = null }
         )
     }
 
@@ -892,7 +840,13 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Отключить анимации и частицы", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Отключить анимации и частицы", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "disable_animations" }
+                        }
                         Text("Выключает живой фон для экономии процессора и батареи", color = TextMuted, fontSize = 11.5.sp)
                     }
                     InertialSpringSwitch(
@@ -1286,6 +1240,8 @@ fun StarGithubCard(
     if (showConfirmDialog) {
         ExternalLinkConfirmDialog(
             url = githubUrl,
+            title = "Оценить проект звёздочкой на GitHub",
+            description = "Ссылка ведет на официальную страницу открытого репозитория Mirrly TG Proxy на GitHub. Оценка звёздочкой (⭐ Star) — это совершенно бесплатный способ поддержать автора R1Xern и помочь продвижению проекта!",
             onDismiss = { showConfirmDialog = false }
         )
     }

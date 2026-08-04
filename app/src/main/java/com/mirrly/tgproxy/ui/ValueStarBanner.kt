@@ -42,6 +42,8 @@ fun ValueStarBanner(
     if (showConfirmDialog) {
         ExternalLinkConfirmDialog(
             url = githubUrl,
+            title = "Оценить проект звёздочкой на GitHub",
+            description = "Ссылка ведет на официальную страницу открытого репозитория Mirrly TG Proxy на GitHub. Оценка звёздочкой (⭐ Star) — это совершенно бесплатный способ поддержать автора R1Xern и помочь продвижению проекта!",
             onDismiss = { showConfirmDialog = false },
             onConfirmed = { onStarClicked() }
         )

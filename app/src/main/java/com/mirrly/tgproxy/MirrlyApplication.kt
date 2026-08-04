@@ -40,6 +40,7 @@ class MirrlyApplication : Application() {
         instance = this
         com.mirrly.tgproxy.core.AppLogger.startLogcatReader(android.os.Process.myPid())
         prefsManager = PreferencesManager(this)
+        com.mirrly.tgproxy.service.SessionHistoryManager.init(this)
         config = prefsManager.loadConfig()
         proxyServer = LocalProxyServer(config)
         proxyServer.stats.externalByteProvider = {

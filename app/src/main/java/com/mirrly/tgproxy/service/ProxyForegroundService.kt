@@ -12,9 +12,9 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import android.util.Log
 import android.widget.Toast
 import com.mirrly.tgproxy.MirrlyApplication
+import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.SpeedPreset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -143,7 +143,10 @@ class ProxyForegroundService : Service() {
 
         val server = app.proxyServer
         if (!server.isRunning) {
-            server.start(cacheDir)
+            val started = server.start(cacheDir)
+            if (started) {
+                SessionHistoryManager.onSessionStarted(getPresetShortName(app.config.speedPreset))
+            }
         }
 
         ProxyTileService.requestSync(this)
@@ -209,10 +212,10 @@ class ProxyForegroundService : Service() {
                     setReferenceCounted(false)
                     acquire(WAKELOCK_TIMEOUT_MS)
                 }
-                Log.d(TAG, "WakeLock acquired for 30 minutes")
+                AppLogger.i(TAG, "WakeLock acquired for 30 minutes")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to acquire WakeLock", e)
+            AppLogger.w(TAG, "Failed to acquire WakeLock: ${e.message}")
         }
     }
 
@@ -224,9 +227,9 @@ class ProxyForegroundService : Service() {
                 try {
                     releaseWakeLock()
                     acquireWakeLock()
-                    Log.d(TAG, "WakeLock refreshed")
+                    AppLogger.i(TAG, "WakeLock refreshed")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to refresh WakeLock", e)
+                    AppLogger.w(TAG, "Failed to refresh WakeLock: ${e.message}")
                 }
             }
         }
@@ -238,14 +241,14 @@ class ProxyForegroundService : Service() {
                 if (it.isHeld) it.release()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to release WakeLock", e)
+            AppLogger.w(TAG, "Failed to release WakeLock: ${e.message}")
         }
         wakeLock = null
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        Log.w(TAG, "onTaskRemoved: proxy service active, task removed from recents")
+        AppLogger.w(TAG, "onTaskRemoved: proxy service active, task removed from recents")
     }
 
     private fun startNotificationUpdates() {
@@ -269,6 +272,13 @@ class ProxyForegroundService : Service() {
                 val activeConns = stats.activeConnections.get()
                 val dlSpeedBps = stats.downloadSpeedBps
                 val ulSpeedBps = stats.uploadSpeedBps
+
+                SessionHistoryManager.onSessionUpdate(
+                    bytesReceived = stats.totalBytesReceived.get(),
+                    bytesSent = stats.totalBytesSent.get(),
+                    peakSpeedBps = maxOf(stats.peakDownloadSpeedBps, stats.peakUploadSpeedBps),
+                    activeConnections = activeConns
+                )
 
                 if (activeConns > 0 && dlSpeedBps == 0L && ulSpeedBps == 0L) {
                     zeroSpeedStallSeconds++
@@ -349,6 +359,14 @@ class ProxyForegroundService : Service() {
             val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
             val durationSec = server.uptimeSeconds
             val peakSpeedBps = maxOf(stats.peakDownloadSpeedBps, stats.peakUploadSpeedBps)
+            val activeConns = stats.activeConnections.get()
+
+            SessionHistoryManager.onSessionEnded(
+                bytesReceived = stats.totalBytesReceived.get(),
+                bytesSent = stats.totalBytesSent.get(),
+                peakSpeedBps = peakSpeedBps,
+                maxConnections = activeConns
+            )
 
             val transferredStr = humanBytes(totalBytes)
             val durationStr = formatDuration(durationSec)

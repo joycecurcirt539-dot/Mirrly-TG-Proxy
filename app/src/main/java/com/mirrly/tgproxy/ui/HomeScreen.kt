@@ -93,6 +93,7 @@ enum class ProxyUiState {
 fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenLogs: () -> Unit,
+    onOpenHistory: () -> Unit = {},
     onOpenUpdate: () -> Unit = {},
     onUiHiddenChange: (Boolean) -> Unit = {}
 ) {
@@ -246,16 +247,29 @@ fun HomeScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onOpenLogs()
-                    }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_logs),
-                            contentDescription = "Логи",
-                            tint = TextWhite,
-                            modifier = Modifier.size(22.dp)
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenLogs()
+                        }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_logs),
+                                contentDescription = "Логи",
+                                tint = TextWhite,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        IconButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenHistory()
+                        }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_history),
+                                contentDescription = "История сессий",
+                                tint = TextWhite,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 },
                 actions = {

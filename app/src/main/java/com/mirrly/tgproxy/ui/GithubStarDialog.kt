@@ -9,6 +9,8 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,6 +52,8 @@ fun GithubStarDialog(
     if (showConfirmDialog) {
         ExternalLinkConfirmDialog(
             url = githubUrl,
+            title = "Оценить проект звёздочкой на GitHub",
+            description = "Ссылка ведет на официальную страницу открытого репозитория Mirrly TG Proxy на GitHub. Оценка звёздочкой (⭐ Star) — это совершенно бесплатный способ поддержать автора R1Xern и помочь продвижению проекта!",
             onDismiss = { showConfirmDialog = false },
             onConfirmed = {
                 onStarClicked()
@@ -77,7 +81,7 @@ fun GithubStarDialog(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                 window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 55
+                    blurBehindRadius = 70
                 }
             }
         }
@@ -85,165 +89,119 @@ fun GithubStarDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.20f))
-                .padding(24.dp),
-            contentAlignment = Alignment.Center
+                .background(Color.Black.copy(alpha = 0.12f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onDismiss() }
+                .padding(horizontal = 24.dp)
         ) {
-            AnimatedVisibility(
-                visible = isVisible,
-                enter = fadeIn(tween(250)) + scaleIn(tween(280), initialScale = 0.9f)
+            // Detailed Content (Centered)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(bottom = 120.dp)
+                    .clickable(enabled = false) {}
             ) {
-                Box(
+                // Category Pill
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF00F0FF).copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.35f))
+                ) {
+                    Text(
+                        text = "ОЦЕНКА НА GITHUB (STAR)",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF00F0FF),
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
+                }
+
+                // Title
+                Text(
+                    text = "Поддержите проект Star на GitHub",
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite,
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 0.3.sp
+                )
+
+                // Description Body
+                Text(
+                    text = "Приложение Mirrly TG Proxy распространяется абсолютно бесплатно. Поставив «Звезду» в репозитории на GitHub, вы помогаете проекту расти и мотивируете автора развивать новые функции.",
+                    fontSize = 13.5.sp,
+                    color = TextWhite.copy(alpha = 0.88f),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+            }
+
+            // Bottom Action Buttons
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 28.dp)
+                    .fillMaxWidth(0.92f)
+                    .clickable(enabled = false) {}
+            ) {
+                Button(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showConfirmDialog = true
+                    },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White.copy(alpha = 0.20f),
+                        contentColor = TextWhite
+                    ),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .wrapContentHeight()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color(0xE60D121C),
-                                    Color(0xD9080B12)
-                                )
-                            )
-                        )
-                        .background(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    ActiveGreenLed.copy(alpha = 0.12f),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                        .border(
-                            width = 1.dp,
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    ActiveGreenLed.copy(alpha = 0.6f),
-                                    Color(0xFF00F0FF).copy(alpha = 0.35f),
-                                    ActiveGreenLed.copy(alpha = 0.35f)
-                                )
-                            ),
-                            shape = RoundedCornerShape(24.dp)
-                        )
-                        .lightSweep(
-                            isEnabled = true,
-                            shape = RoundedCornerShape(24.dp),
-                            borderWidth = 1.dp,
-                            sweepColor = ActiveGreenLed
-                        )
-                        .padding(22.dp)
+                        .height(48.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    Text("Поставить Star", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.20f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = TextWhite.copy(alpha = 0.85f)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
                     ) {
-                        // Glowing Badge Icon
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(CircleShape)
-                                .background(ActiveGreenLed.copy(alpha = 0.15f))
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_github),
-                                contentDescription = null,
-                                tint = ActiveGreenLed,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
+                        Text("Позже", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
 
-                        // Title & Subtitle Description
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "Mirrly TG Proxy работает отлично?",
-                                fontSize = 19.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite,
-                                textAlign = TextAlign.Center
-                            )
-
-                            Text(
-                                text = "Если приложение помогает вам обходить блокировки, поставьте нам звёздочку на GitHub. Для автора это лучшая мотивация!",
-                                fontSize = 13.sp,
-                                color = TextMuted,
-                                textAlign = TextAlign.Center,
-                                lineHeight = 19.sp
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(2.dp))
-
-                        // Action Buttons
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            // Primary Button: Star on GitHub
-                            Button(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    showConfirmDialog = true
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = ActiveGreenLed,
-                                    contentColor = Color.Black
-                                ),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(46.dp)
-                            ) {
-                                Text(
-                                    text = "Поставить звёздочку",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                            }
-
-                            // Secondary Button: Later
-                            OutlinedButton(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onDismiss()
-                                },
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, AmoledBorder),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(42.dp)
-                            ) {
-                                Text(
-                                    text = "Позже",
-                                    color = TextWhite,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 13.5.sp
-                                )
-                            }
-
-                            // Tertiary Button: Don't show again
-                            TextButton(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onNeverShowAgain()
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(36.dp)
-                            ) {
-                                Text(
-                                    text = "Больше не показывать",
-                                    color = TextMuted,
-                                    fontWeight = FontWeight.Normal,
-                                    fontSize = 12.5.sp
-                                )
-                            }
-                        }
+                    TextButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onNeverShowAgain()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                    ) {
+                        Text("Не показывать", fontSize = 12.5.sp, color = TextWhite.copy(alpha = 0.60f))
                     }
                 }
             }
