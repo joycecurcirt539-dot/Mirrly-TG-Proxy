@@ -335,7 +335,7 @@ fun UpdateScreen(
                                     .background(Color(0x33FF5252))
                                     .border(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f), RoundedCornerShape(14.dp))
                                     .padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
                                     text = "Ошибка скачивания",
@@ -348,6 +348,27 @@ fun UpdateScreen(
                                     color = TextWhite.copy(alpha = 0.9f),
                                     fontSize = 12.sp
                                 )
+
+                                Button(
+                                    onClick = {
+                                        val url = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
+                                        pendingRedirectUrl = url
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(38.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF1E283D)
+                                    ),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Скачать через браузер",
+                                        color = TextWhite,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
 

@@ -151,7 +151,13 @@ object UpdateDownloader {
                 true
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Error downloading update: ${e.message}")
-                _status.value = DownloadStatus.Error("Ошибка сети: ${e.localizedMessage ?: "Неизвестная ошибка"}")
+                val errMsg = when {
+                    e is java.net.UnknownHostException || e.message?.contains("Unable to resolve host", ignoreCase = true) == true -> {
+                        "Сбой DNS (блокировка провайдера): Сервер CDN GitHub (release-assets.githubusercontent.com) заблокирован или недоступен. Включите прокси/VPN или используйте скачивание через браузер."
+                    }
+                    else -> "Ошибка сети: ${e.localizedMessage ?: "Неизвестная ошибка"}"
+                }
+                _status.value = DownloadStatus.Error(errMsg)
                 false
             }
         }
