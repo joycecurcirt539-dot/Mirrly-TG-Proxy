@@ -11,6 +11,7 @@
 [![Compose](https://img.shields.io/badge/UI-Jetpack_Compose-4285F4?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![Rust Engine](https://img.shields.io/badge/Core-Native_Rust_%2B_JNA-DE4128?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![Version](https://img.shields.io/badge/%D0%A0%D0%B5%D0%BB%D0%B8%D0%B7-v1.0.7-00E676?style=for-the-badge)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?style=for-the-badge&logo=github&logoColor=white&color=0088cc&label=%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D0%BD%D0%B8%D0%B9)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![License](https://img.shields.io/badge/%D0%9B%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-GPLv3-blue?style=for-the-badge)](LICENSE)
 
 *Оптимизация сетевых маршрутов, снижение задержек соединения и туннелирование трафика MTProto через промежуточные WebSocket CDN-узлы. Работает на нативном C/Rust ядре с пулом прогретых сокетов WsPool.*
