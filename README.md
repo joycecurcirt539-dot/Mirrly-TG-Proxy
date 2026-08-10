@@ -101,7 +101,7 @@ flowchart TD
 
 <div align="center">
 
-| Главный экран | Таймер сна | История сессий |
+| Главный экран | Таймер сна | История сессий (Временный интерфейс) |
 | :-: | :-: | :-: |
 | <img src="docs/assets/home.jpg" alt="Главный экран" width="240" /> | <img src="docs/assets/timer_sleep.jpg" alt="Таймер сна" width="240" /> | <img src="docs/assets/history.jpg" alt="История сессий" width="240" /> |
 
