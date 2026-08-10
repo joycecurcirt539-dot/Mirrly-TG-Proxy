@@ -101,9 +101,15 @@ flowchart TD
 
 <div align="center">
 
-| Главный экран | Настройки | Журнал событий |
+| Главный экран | Таймер сна | История сессий |
 | :-: | :-: | :-: |
-| <img src="docs/assets/home.jpg" alt="Главный экран" width="240" /> | <img src="docs/assets/settings.jpg" alt="Экран настроек" width="240" /> | <img src="docs/assets/logs.jpg" alt="Экран логов" width="240" /> |
+| <img src="docs/assets/home.jpg" alt="Главный экран" width="240" /> | <img src="docs/assets/timer_sleep.jpg" alt="Таймер сна" width="240" /> | <img src="docs/assets/history.jpg" alt="История сессий" width="240" /> |
+
+<br />
+
+| Настройки (Параметры) | Настройки (Диагностика) | Журнал событий |
+| :-: | :-: | :-: |
+| <img src="docs/assets/settings_1.jpg" alt="Настройки - Параметры" width="240" /> | <img src="docs/assets/settings_2.jpg" alt="Настройки - Диагностика" width="240" /> | <img src="docs/assets/logs.jpg" alt="Экран логов" width="240" /> |
 
 <br />
 
