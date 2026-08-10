@@ -20,28 +20,23 @@ package com.mirrly.tgproxy.ui
 
 import android.os.Build
 import android.view.WindowManager
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -49,7 +44,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
-import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.service.SleepTimerManager
 import com.mirrly.tgproxy.ui.theme.*
 import java.text.SimpleDateFormat
@@ -87,127 +81,123 @@ fun SleepTimerDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.65f))
+                .background(Color.Black.copy(alpha = 0.12f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) { onDismiss() }
-                .padding(horizontal = 22.dp, vertical = 32.dp),
-            contentAlignment = Alignment.Center
+                .padding(horizontal = 24.dp)
         ) {
-            Surface(
+            // Detailed Content (Centered)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
+                    .align(Alignment.Center)
                     .fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { /* Catch clicks inside */ },
-                shape = RoundedCornerShape(26.dp),
-                color = AmoledSurface,
-                border = BorderStroke(1.dp, Color(0xFF232838))
+                    .padding(bottom = 76.dp, top = 24.dp)
+                    .verticalScroll(rememberScrollState())
+                    .clickable(enabled = false) {}
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(22.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                // Category Pill
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = if (timerState.isActive) ActiveGreenLed.copy(alpha = 0.12f) else Color(0xFF00F0FF).copy(alpha = 0.12f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (timerState.isActive) ActiveGreenLed.copy(alpha = 0.35f) else Color(0xFF00F0FF).copy(alpha = 0.35f)
+                    )
                 ) {
-                    // Header Icon & Title
-                    Box(
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (timerState.isActive) ActiveGreenLed.copy(alpha = 0.15f)
-                                else Color(0xFF1E2333)
-                            )
-                            .border(
-                                1.dp,
-                                if (timerState.isActive) ActiveGreenLed.copy(alpha = 0.4f)
-                                else Color(0xFF2C3246),
-                                CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
+                    Text(
+                        text = if (timerState.isActive) "ТАЙМЕР АКТИВЕН" else "ТАЙМЕР СНА И АВТООТКЛЮЧЕНИЯ",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (timerState.isActive) ActiveGreenLed else Color(0xFF00F0FF),
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
+                }
+
+                // Main Title
+                Text(
+                    text = if (timerState.isActive) "Таймер автоотключения" else "Настройка таймера сна",
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite,
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 0.3.sp
+                )
+
+                // Detailed Description
+                val targetTimeStr = remember(timerState.targetTimeMs) {
+                    if (timerState.targetTimeMs > 0) {
+                        SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timerState.targetTimeMs))
+                    } else ""
+                }
+
+                Text(
+                    text = if (timerState.isActive) {
+                        "Прокси-сервер автоматически остановится в $targetTimeStr. Соединение и фоновые службы будут безопасно отключены."
+                    } else {
+                        "Выберите время, через которое прокси-сервер автоматически отключится для экономии заряда батареи и мобильного трафика."
+                    },
+                    fontSize = 13.5.sp,
+                    color = TextWhite.copy(alpha = 0.88f),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                if (timerState.isActive) {
+                    // ── ACTIVE TIMER STATE ──
+                    // Large Countdown display
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color.White.copy(alpha = 0.05f),
+                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.30f))
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_timer),
-                            contentDescription = null,
-                            tint = if (timerState.isActive) ActiveGreenLed else TextWhite,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "ОСТАЛОСЬ ДО ОТКЛЮЧЕНИЯ",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.4.sp,
+                                color = TextWhite.copy(alpha = 0.65f)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = timerState.formatRemainingTime(),
+                                fontSize = 34.sp,
+                                fontWeight = FontWeight.Black,
+                                color = ActiveGreenLed,
+                                letterSpacing = 1.5.sp
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                    Text(
-                        text = if (timerState.isActive) "Таймер автоотключения" else "Таймер сна",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite,
-                        textAlign = TextAlign.Center
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    if (timerState.isActive) {
-                        // ── ACTIVE TIMER STATE ──
-                        val targetTimeStr = remember(timerState.targetTimeMs) {
-                            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timerState.targetTimeMs))
-                        }
-
-                        Text(
-                            text = "Прокси автоматически выключится в $targetTimeStr",
-                            fontSize = 13.sp,
-                            color = TextMuted,
-                            textAlign = TextAlign.Center
-                        )
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        // Large Countdown display
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(18.dp),
-                            color = Color(0xFF0C0E14),
-                            border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.25f))
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 18.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = "ОСТАЛОСЬ",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 1.5.sp,
-                                    color = TextMuted
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = timerState.formatRemainingTime(),
-                                    fontSize = 32.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = ActiveGreenLed,
-                                    letterSpacing = 1.5.sp
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
+                    // Quick Extend Section
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Text(
                             text = "БЫСТРОЕ ПРОДЛЕНИЕ",
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = TextMuted,
                             letterSpacing = 1.2.sp,
-                            modifier = Modifier.fillMaxWidth()
+                            color = TextWhite.copy(alpha = 0.60f)
                         )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -225,162 +215,174 @@ fun SleepTimerDialog(
                                 SleepTimerManager.extendTimer(context, 60)
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        // Turn off timer button
-                        Button(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                SleepTimerManager.cancelTimer(context)
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(46.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFEF4444).copy(alpha = 0.15f),
-                                contentColor = Color(0xFFEF4444)
-                            ),
-                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f))
-                        ) {
-                            Text("Отключить таймер", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
-                    } else {
-                        // ── INACTIVE TIMER: SELECT PRESET ──
-                        Text(
-                            text = "Выберите время, через которое прокси-сервер автоматически отключится для экономии заряда и трафика:",
-                            fontSize = 12.5.sp,
-                            color = TextMuted,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 17.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(18.dp))
-
-                        // 6 Quick Presets Grid
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                PresetButton("15 мин", 15, Modifier.weight(1f)) { min ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    SleepTimerManager.startTimer(context, min)
-                                    onDismiss()
-                                }
-                                PresetButton("30 мин", 30, Modifier.weight(1f)) { min ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    SleepTimerManager.startTimer(context, min)
-                                    onDismiss()
-                                }
-                                PresetButton("45 мин", 45, Modifier.weight(1f)) { min ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    SleepTimerManager.startTimer(context, min)
-                                    onDismiss()
-                                }
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                PresetButton("1 час", 60, Modifier.weight(1f)) { min ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    SleepTimerManager.startTimer(context, min)
-                                    onDismiss()
-                                }
-                                PresetButton("2 часа", 120, Modifier.weight(1f)) { min ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    SleepTimerManager.startTimer(context, min)
-                                    onDismiss()
-                                }
-                                PresetButton("4 часа", 240, Modifier.weight(1f)) { min ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    SleepTimerManager.startTimer(context, min)
-                                    onDismiss()
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(18.dp))
-
-                        // Custom Slider Section
-                        Surface(
+                    }
+                } else {
+                    // ── INACTIVE TIMER: SELECT PRESET OR CUSTOM ──
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color(0xFF0C0E14),
-                            border = BorderStroke(1.dp, Color(0xFF1E2333))
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                            listOf(15 to "15 мин", 30 to "30 мин", 45 to "45 мин").forEach { (min, label) ->
+                                PresetChip(
+                                    title = label,
+                                    isSelected = customMinutes.toInt() == min,
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Text(
-                                        text = "Свой интервал:",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = TextWhite
-                                    )
-                                    val formattedCustom = formatMinutes(customMinutes.toInt())
-                                    Text(
-                                        text = formattedCustom,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = ActiveGreenLed
-                                    )
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    customMinutes = min.toFloat()
                                 }
-
-                                Slider(
-                                    value = customMinutes,
-                                    onValueChange = { customMinutes = it },
-                                    valueRange = 5f..360f,
-                                    steps = 70, // 5 min increments
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = ActiveGreenLed,
-                                        activeTrackColor = ActiveGreenLed,
-                                        inactiveTrackColor = Color(0xFF222838)
-                                    )
-                                )
-
-                                Button(
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        SleepTimerManager.startTimer(context, customMinutes.toInt())
-                                        onDismiss()
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(40.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = ActiveGreenLed,
-                                        contentColor = Color.Black
-                                    )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(60 to "1 час", 120 to "2 часа", 240 to "4 часа").forEach { (min, label) ->
+                                PresetChip(
+                                    title = label,
+                                    isSelected = customMinutes.toInt() == min,
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Text(
-                                        text = "Запустить на ${formatMinutes(customMinutes.toInt())}",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    customMinutes = min.toFloat()
                                 }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
 
-                    // Close / Dismiss
-                    TextButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth()
+                    // Custom Slider Section
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White.copy(alpha = 0.05f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
                     ) {
-                        Text("Закрыть", color = TextMuted, fontSize = 13.5.sp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Точная настройка:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = TextWhite.copy(alpha = 0.85f)
+                                )
+                                Text(
+                                    text = formatMinutes(customMinutes.toInt()),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF00F0FF)
+                                )
+                            }
+
+                            Slider(
+                                value = customMinutes,
+                                onValueChange = { customMinutes = it },
+                                valueRange = 5f..360f,
+                                steps = 70, // 5 min increments
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFF00F0FF),
+                                    activeTrackColor = Color(0xFF00F0FF),
+                                    inactiveTrackColor = Color.White.copy(alpha = 0.12f)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Floating Bottom Action Buttons
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 36.dp)
+                    .fillMaxWidth()
+                    .clickable(enabled = false) {}
+            ) {
+                if (timerState.isActive) {
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = TextWhite.copy(alpha = 0.90f)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text("Закрыть", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
+
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            SleepTimerManager.cancelTimer(context)
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFF3B30).copy(alpha = 0.20f),
+                            contentColor = Color(0xFFFF453A)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFFFF3B30).copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text("Отключить", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = TextWhite.copy(alpha = 0.90f)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text("Отклонить", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
+
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            SleepTimerManager.startTimer(context, customMinutes.toInt())
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White.copy(alpha = 0.20f),
+                            contentColor = TextWhite
+                        ),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text("Запустить", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -389,25 +391,28 @@ fun SleepTimerDialog(
 }
 
 @Composable
-private fun PresetButton(
+private fun PresetChip(
     title: String,
-    minutes: Int,
+    isSelected: Boolean,
     modifier: Modifier = Modifier,
-    onClick: (Int) -> Unit
+    onClick: () -> Unit
 ) {
     Surface(
-        onClick = { onClick(minutes) },
-        modifier = modifier.height(44.dp),
+        onClick = onClick,
+        modifier = modifier.height(42.dp),
         shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF141824),
-        border = BorderStroke(1.dp, Color(0xFF252C3E))
+        color = if (isSelected) Color(0xFF00F0FF).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.06f),
+        border = BorderStroke(
+            1.dp,
+            if (isSelected) Color(0xFF00F0FF).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.18f)
+        )
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
                 text = title,
                 fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = TextWhite
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (isSelected) Color(0xFF00F0FF) else TextWhite.copy(alpha = 0.90f)
             )
         }
     }
@@ -421,15 +426,15 @@ private fun QuickExtendChip(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.height(38.dp),
-        shape = RoundedCornerShape(10.dp),
-        color = Color(0xFF161B28),
+        modifier = modifier.height(40.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = ActiveGreenLed.copy(alpha = 0.10f),
         border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
                 text = title,
-                fontSize = 12.5.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = ActiveGreenLed
             )

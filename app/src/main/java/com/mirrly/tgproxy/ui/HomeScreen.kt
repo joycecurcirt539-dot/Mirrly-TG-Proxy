@@ -599,77 +599,93 @@ fun HomeScreen(
                         },
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Status / Timer
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(bottom = 3.dp)
+                    // Unified Central Time & Sleep Timer Capsule (Cyber aesthetic)
+                    Surface(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showSleepTimerDialog = true
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White.copy(alpha = 0.04f),
+                        border = BorderStroke(
+                            1.dp,
+                            if (timerState.isActive) Color(0xFFFF9E00).copy(alpha = 0.40f)
+                            else Color.White.copy(alpha = 0.10f)
+                        ),
+                        modifier = Modifier
+                            .padding(bottom = 6.dp)
+                            .animateContentSize(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            )
                     ) {
-                        val dotColor = when (currentState) {
-                            ProxyUiState.CONNECTED -> ActiveGreenLed
-                            ProxyUiState.CONNECTING -> ActiveGreenLed
-                            ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
-                            ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)
-                        }
-                        val animatedDotColor by animateColorAsState(
-                            targetValue = dotColor,
-                            animationSpec = tween(400),
-                            label = "dotColor"
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            val dotColor = when (currentState) {
+                                ProxyUiState.CONNECTED -> ActiveGreenLed
+                                ProxyUiState.CONNECTING -> ActiveGreenLed
+                                ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
+                                ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)
+                            }
+                            val animatedDotColor by animateColorAsState(
+                                targetValue = dotColor,
+                                animationSpec = tween(400),
+                                label = "dotColor"
+                            )
 
-                        Surface(
-                            shape = CircleShape,
-                            color = animatedDotColor,
-                            modifier = Modifier.size(6.dp)
-                        ) {}
-
-                        val statusText = when (currentState) {
-                            ProxyUiState.CONNECTED -> formatUptime(uptimeSeconds)
-                            ProxyUiState.CONNECTING -> "ПОДКЛЮЧЕНИЕ..."
-                            ProxyUiState.DISCONNECTING -> "ОТКЛЮЧЕНИЕ..."
-                            ProxyUiState.DISCONNECTED -> "00:00:00"
-                        }
-                        RollingNumberText(
-                            text = statusText,
-                            color = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else if (currentState == ProxyUiState.DISCONNECTING) Color(0xFFFF9E00) else TextMuted,
-                            fontSize = if (isCompactHeight) 14.sp else 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.1.sp
-                        )
-
-                        // Sleep Timer pill badge
-                        if (currentState == ProxyUiState.CONNECTED || timerState.isActive) {
-                            Spacer(modifier = Modifier.width(4.dp))
+                            // Status LED Dot
                             Surface(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    showSleepTimerDialog = true
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (timerState.isActive) Color(0xFF2C2210) else Color(0xFF141824),
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (timerState.isActive) Color(0xFFFF9E00).copy(alpha = 0.6f)
-                                    else Color(0xFF22283A)
-                                ),
-                                modifier = Modifier.height(22.dp)
-                            ) {
+                                shape = CircleShape,
+                                color = animatedDotColor,
+                                modifier = Modifier.size(6.dp)
+                            ) {}
+
+                            // Uptime Connection Duration
+                            val statusText = when (currentState) {
+                                ProxyUiState.CONNECTED -> formatUptime(uptimeSeconds)
+                                ProxyUiState.CONNECTING -> "ПОДКЛЮЧЕНИЕ..."
+                                ProxyUiState.DISCONNECTING -> "ОТКЛЮЧЕНИЕ..."
+                                ProxyUiState.DISCONNECTED -> "00:00:00"
+                            }
+                            RollingNumberText(
+                                text = statusText,
+                                color = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else if (currentState == ProxyUiState.DISCONNECTING) Color(0xFFFF9E00) else TextMuted,
+                                fontSize = if (isCompactHeight) 14.sp else 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.1.sp
+                            )
+
+                            // Sleep Timer Segment (Expands when active)
+                            if (timerState.isActive) {
+                                // Subtle Divider
+                                Box(
+                                    modifier = Modifier
+                                        .width(1.dp)
+                                        .height(13.dp)
+                                        .background(Color.White.copy(alpha = 0.20f))
+                                )
+
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                    modifier = Modifier.padding(horizontal = 6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(
                                         painter = painterResource(id = R.drawable.ic_timer),
                                         contentDescription = null,
-                                        tint = if (timerState.isActive) Color(0xFFFF9E00) else TextMuted,
-                                        modifier = Modifier.size(11.dp)
+                                        tint = Color(0xFFFF9E00),
+                                        modifier = Modifier.size(12.dp)
                                     )
                                     Text(
-                                        text = if (timerState.isActive) "⏳ ${timerState.formatRemainingTime()}" else "Сон",
-                                        color = if (timerState.isActive) Color(0xFFFF9E00) else TextMuted,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.Bold
+                                        text = timerState.formatRemainingTime(),
+                                        color = Color(0xFFFF9E00),
+                                        fontSize = if (isCompactHeight) 13.5.sp else 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.8.sp
                                     )
                                 }
                             }
