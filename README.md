@@ -107,7 +107,7 @@ flowchart TD
 
 <br />
 
-| Настройки (Параметры) | Настройки (Диагностика) | Журнал событий |
+| Настройки (1 часть) | Настройки (2 часть) | Журнал событий |
 | :-: | :-: | :-: |
 | <img src="docs/assets/settings_1.jpg" alt="Настройки - Параметры" width="240" /> | <img src="docs/assets/settings_2.jpg" alt="Настройки - Диагностика" width="240" /> | <img src="docs/assets/logs.jpg" alt="Экран логов" width="240" /> |
 
