@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -18,7 +19,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -55,7 +55,7 @@ fun UpdateAvailableDialog(
     var isVisible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         isVisible = true
-        UpdateDownloader.resetStatus()
+        UpdateDownloader.cancelDownload()
     }
 
     var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
@@ -70,7 +70,7 @@ fun UpdateAvailableDialog(
 
     Dialog(
         onDismissRequest = {
-            UpdateDownloader.resetStatus()
+            UpdateDownloader.cancelDownload()
             onDismiss()
         },
         properties = DialogProperties(
@@ -85,7 +85,7 @@ fun UpdateAvailableDialog(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                 window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 55
+                    blurBehindRadius = 60
                 }
             }
         }
@@ -93,8 +93,8 @@ fun UpdateAvailableDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.20f))
-                .padding(24.dp),
+                .background(Color.Black.copy(alpha = 0.45f))
+                .padding(20.dp),
             contentAlignment = Alignment.Center
         ) {
             AnimatedVisibility(
@@ -105,37 +105,12 @@ fun UpdateAvailableDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .wrapContentHeight()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color(0xE60D121C),
-                                    Color(0xD9080B12)
-                                )
-                            )
-                        )
-                        .background(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    ActiveGreenLed.copy(alpha = 0.12f),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                        .border(
-                            width = 1.dp,
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    ActiveGreenLed.copy(alpha = 0.6f),
-                                    AmoledBorder,
-                                    ActiveGreenLed.copy(alpha = 0.35f)
-                                )
-                            ),
-                            shape = RoundedCornerShape(24.dp)
-                        )
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Color(0xE6080B12))
+                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(22.dp))
                         .lightSweep(
                             isEnabled = true,
-                            shape = RoundedCornerShape(24.dp),
+                            shape = RoundedCornerShape(22.dp),
                             borderWidth = 1.dp,
                             sweepColor = ActiveGreenLed
                         )
@@ -146,33 +121,44 @@ fun UpdateAvailableDialog(
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Badge Icon
+                        // Badge Icon (Transparent with Neon Outline)
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(56.dp)
+                                .size(54.dp)
                                 .clip(CircleShape)
-                                .background(ActiveGreenLed.copy(alpha = 0.15f))
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), CircleShape)
+                                .background(Color.Transparent)
+                                .border(1.5.dp, ActiveGreenLed.copy(alpha = 0.6f), CircleShape)
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_refresh),
                                 contentDescription = null,
                                 tint = ActiveGreenLed,
-                                modifier = Modifier.size(26.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
 
-                        // Title
-                        Text(
-                            text = "Доступно обновление v${releaseInfo.versionName}",
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite,
-                            textAlign = TextAlign.Center
-                        )
+                        // Title & Subtitle
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Text(
+                                text = "Доступно обновление v${releaseInfo.versionName}",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "Официальный релиз Mirrly TG Proxy",
+                                fontSize = 12.sp,
+                                color = TextMuted,
+                                textAlign = TextAlign.Center
+                            )
+                        }
 
-                        // Changelog Container (Scrollable Monospace text block)
+                        // Changelog Container (Transparent with clean border)
                         val changelogText = releaseInfo.releaseNotes.ifBlank {
                             "Официальный список изменений и релизные сборки доступны в репозитории на GitHub."
                         }
@@ -180,32 +166,32 @@ fun UpdateAvailableDialog(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 140.dp)
+                                .heightIn(max = 130.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(Color(0xFF08090C))
-                                .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(14.dp))
                                 .padding(12.dp)
                                 .verticalScroll(rememberScrollState())
                         ) {
                             Text(
                                 text = changelogText,
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 fontFamily = FontFamily.Monospace,
                                 color = TextWhite.copy(alpha = 0.88f),
-                                lineHeight = 18.sp
+                                lineHeight = 17.sp
                             )
                         }
 
-                        // In-App Download Status / Progress Content
+                        // In-App Download Status / Progress Content (All Transparent)
                         when (val status = downloadStatus) {
                             is DownloadStatus.Downloading -> {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(14.dp))
-                                        .background(Color(0xFF0D131F))
-                                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
-                                        .padding(14.dp),
+                                        .background(Color.Transparent)
+                                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                                        .padding(12.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
@@ -216,50 +202,38 @@ fun UpdateAvailableDialog(
                                     ) {
                                         Text(
                                             text = "Загрузка обновления...",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
                                             color = TextWhite
                                         )
                                         if (status.progress >= 0f) {
                                             Text(
                                                 text = "${(status.progress * 100).toInt()}%",
-                                                fontSize = 13.sp,
+                                                fontSize = 12.5.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = ActiveGreenLed
                                             )
                                         }
                                     }
 
-                                    if (status.progress >= 0f) {
-                                        LinearProgressIndicator(
-                                            progress = { status.progress },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(6.dp)
-                                                .clip(RoundedCornerShape(3.dp)),
-                                            color = ActiveGreenLed,
-                                            trackColor = Color.White.copy(alpha = 0.1f)
-                                        )
-                                    } else {
-                                        LinearProgressIndicator(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(6.dp)
-                                                .clip(RoundedCornerShape(3.dp)),
-                                            color = ActiveGreenLed,
-                                            trackColor = Color.White.copy(alpha = 0.1f)
-                                        )
-                                    }
+                                    LinearProgressIndicator(
+                                        progress = { if (status.progress >= 0f) status.progress else 0f },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(5.dp)
+                                            .clip(RoundedCornerShape(3.dp)),
+                                        color = ActiveGreenLed,
+                                        trackColor = Color.White.copy(alpha = 0.08f)
+                                    )
 
                                     val downloadedMbStr = String.format(Locale.US, "%.1f", status.downloadedBytes / (1024f * 1024f))
                                     val totalMbStr = if (status.totalBytes > 0) {
                                         String.format(Locale.US, "%.1f MB", status.totalBytes / (1024f * 1024f))
-                                    } else {
-                                        "..."
-                                    }
+                                    } else "..."
+
                                     Text(
                                         text = "$downloadedMbStr MB / $totalMbStr",
-                                        fontSize = 11.5.sp,
+                                        fontSize = 11.sp,
                                         color = TextMuted
                                     )
                                 }
@@ -270,20 +244,20 @@ fun UpdateAvailableDialog(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(14.dp))
-                                        .background(Color(0xFF0D131F))
-                                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
-                                        .padding(14.dp),
+                                        .background(Color.Transparent)
+                                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                                        .padding(12.dp),
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
+                                        modifier = Modifier.size(18.dp),
                                         color = ActiveGreenLed,
                                         strokeWidth = 2.dp
                                     )
                                     Text(
-                                        text = "Проверка подлинности SHA-256...",
-                                        fontSize = 13.sp,
+                                        text = "Проверка SHA-256 отпечатка...",
+                                        fontSize = 12.5.sp,
                                         color = TextWhite,
                                         fontWeight = FontWeight.Medium
                                     )
@@ -295,7 +269,7 @@ fun UpdateAvailableDialog(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(14.dp))
-                                        .background(Color(0x33FF5252))
+                                        .background(Color.Transparent)
                                         .border(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f), RoundedCornerShape(14.dp))
                                         .padding(12.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -304,12 +278,12 @@ fun UpdateAvailableDialog(
                                         text = "Ошибка скачивания",
                                         color = Color(0xFFFF5252),
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
+                                        fontSize = 12.5.sp
                                     )
                                     Text(
                                         text = status.message,
                                         color = TextWhite.copy(alpha = 0.9f),
-                                        fontSize = 12.sp
+                                        fontSize = 11.5.sp
                                     )
                                 }
                             }
@@ -319,8 +293,8 @@ fun UpdateAvailableDialog(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(14.dp))
-                                        .background(ActiveGreenLed.copy(alpha = 0.1f))
-                                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                                        .background(Color.Transparent)
+                                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
                                         .padding(12.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
@@ -333,22 +307,18 @@ fun UpdateAvailableDialog(
                                         textAlign = TextAlign.Center
                                     )
                                     Text(
-                                        text = "Нажмите кнопкy ниже для запуска установки.",
+                                        text = "Нажмите кнопку ниже для запуска установки.",
                                         color = TextWhite.copy(alpha = 0.85f),
-                                        fontSize = 12.sp,
+                                        fontSize = 11.5.sp,
                                         textAlign = TextAlign.Center
                                     )
                                 }
                             }
 
-                            DownloadStatus.Idle -> {
-                                // Idle state - display normal options
-                            }
+                            DownloadStatus.Idle -> {}
                         }
 
-                        Spacer(modifier = Modifier.height(2.dp))
-
-                        // Action Buttons
+                        // Action Buttons (Transparent outlines, no solid backgrounds)
                         Column(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -374,22 +344,24 @@ fun UpdateAvailableDialog(
                                             }
                                         },
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = ActiveGreenLed,
-                                            contentColor = Color.Black
+                                            containerColor = Color.Transparent,
+                                            contentColor = ActiveGreenLed
                                         ),
+                                        border = BorderStroke(1.5.dp, ActiveGreenLed),
                                         shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(46.dp)
+                                            .springPress()
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             Icon(
-                                                painter = painterResource(id = R.drawable.ic_refresh),
+                                                painter = painterResource(id = R.drawable.ic_arrow_down),
                                                 contentDescription = null,
-                                                tint = Color.Black,
+                                                tint = ActiveGreenLed,
                                                 modifier = Modifier.size(18.dp)
                                             )
                                             Text(
@@ -401,21 +373,21 @@ fun UpdateAvailableDialog(
                                     }
 
                                     // Secondary Button - Browser GitHub
-                                    OutlinedButton(
+                                    Button(
                                         onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             pendingRedirectUrl = releaseInfo.htmlUrl
                                         },
                                         shape = RoundedCornerShape(14.dp),
-                                        colors = ButtonDefaults.outlinedButtonColors(
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color.Transparent,
                                             contentColor = TextWhite
                                         ),
-                                        border = ButtonDefaults.outlinedButtonBorder.copy(
-                                            brush = Brush.horizontalGradient(listOf(AmoledBorder, ActiveGreenLed.copy(alpha = 0.4f)))
-                                        ),
+                                        border = BorderStroke(1.dp, Color(0xFF1E283D)),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(42.dp)
+                                            .springPress()
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
@@ -439,7 +411,7 @@ fun UpdateAvailableDialog(
                                     TextButton(
                                         onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            UpdateDownloader.resetStatus()
+                                            UpdateDownloader.cancelDownload()
                                             onDismiss()
                                         },
                                         modifier = Modifier.fillMaxWidth()
@@ -448,7 +420,7 @@ fun UpdateAvailableDialog(
                                             text = "Пропустить",
                                             color = TextMuted,
                                             fontWeight = FontWeight.Medium,
-                                            fontSize = 13.5.sp
+                                            fontSize = 13.sp
                                         )
                                     }
                                 }
@@ -467,13 +439,15 @@ fun UpdateAvailableDialog(
                                             }
                                         },
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = ActiveGreenLed,
-                                            contentColor = Color.Black
+                                            containerColor = Color.Transparent,
+                                            contentColor = ActiveGreenLed
                                         ),
+                                        border = BorderStroke(1.5.dp, ActiveGreenLed),
                                         shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(46.dp)
+                                            .springPress()
                                     ) {
                                         Text(
                                             text = if (canInstall) "Установить обновление" else "Разрешить установку в Настройках",
@@ -484,7 +458,7 @@ fun UpdateAvailableDialog(
 
                                     TextButton(
                                         onClick = {
-                                            UpdateDownloader.resetStatus()
+                                            UpdateDownloader.cancelDownload()
                                             onDismiss()
                                         },
                                         modifier = Modifier.fillMaxWidth()
@@ -516,13 +490,15 @@ fun UpdateAvailableDialog(
                                             }
                                         },
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = ActiveGreenLed,
-                                            contentColor = Color.Black
+                                            containerColor = Color.Transparent,
+                                            contentColor = ActiveGreenLed
                                         ),
+                                        border = BorderStroke(1.5.dp, ActiveGreenLed),
                                         shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(44.dp)
+                                            .springPress()
                                     ) {
                                         Text(
                                             text = "Повторить загрузку",
@@ -531,29 +507,40 @@ fun UpdateAvailableDialog(
                                         )
                                     }
 
-                                    OutlinedButton(
+                                    Button(
                                         onClick = {
                                             pendingRedirectUrl = releaseInfo.htmlUrl
                                         },
                                         shape = RoundedCornerShape(14.dp),
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextWhite),
-                                        modifier = Modifier.fillMaxWidth()
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color.Transparent,
+                                            contentColor = TextWhite
+                                        ),
+                                        border = BorderStroke(1.dp, Color(0xFF1E283D)),
+                                        modifier = Modifier.fillMaxWidth().height(40.dp)
                                     ) {
-                                        Text(text = "Скачать через браузер", fontSize = 13.sp)
+                                        Text(text = "Скачать через браузер", fontSize = 12.5.sp)
                                     }
                                 }
 
                                 is DownloadStatus.Downloading, is DownloadStatus.Verifying -> {
-                                    TextButton(
+                                    Button(
                                         onClick = {
-                                            UpdateDownloader.resetStatus()
-                                            onDismiss()
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            UpdateDownloader.cancelDownload()
                                         },
-                                        modifier = Modifier.fillMaxWidth()
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color.Transparent,
+                                            contentColor = Color(0xFFFF6B6B)
+                                        ),
+                                        border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.6f)),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.fillMaxWidth().height(44.dp).springPress()
                                     ) {
                                         Text(
-                                            text = "Скрыть",
-                                            color = TextMuted,
+                                            text = "✕ Отменить загрузку",
+                                            color = Color(0xFFFF6B6B),
+                                            fontWeight = FontWeight.SemiBold,
                                             fontSize = 13.sp
                                         )
                                     }

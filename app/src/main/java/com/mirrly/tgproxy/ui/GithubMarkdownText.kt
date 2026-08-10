@@ -124,12 +124,12 @@ fun GithubMarkdownText(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF0F1522))
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.Transparent)
                             .border(
                                 width = 1.dp,
-                                color = ActiveGreenLed.copy(alpha = 0.4f),
-                                shape = RoundedCornerShape(8.dp)
+                                color = ActiveGreenLed.copy(alpha = 0.35f),
+                                shape = RoundedCornerShape(10.dp)
                             )
                             .padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -202,8 +202,8 @@ private fun CodeBlockCard(codeText: String) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF070A0F))
-            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+            .background(Color.Transparent)
+            .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(12.dp))
             .padding(12.dp)
     ) {
         Text(
@@ -236,7 +236,7 @@ fun parseInlineMarkdown(text: String): AnnotatedString {
                             style = SpanStyle(
                                 fontFamily = FontFamily.Monospace,
                                 color = ActiveGreenLed,
-                                background = Color(0xFF101724)
+                                background = Color.Transparent
                             )
                         ) {
                             append(" $code ")

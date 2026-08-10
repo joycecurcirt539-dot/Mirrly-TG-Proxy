@@ -51,8 +51,32 @@ object UpdateDownloader {
 
     private const val MAX_APK_SIZE_BYTES = 100L * 1024L * 1024L // 100 MB Limit
 
+    private val lock = Any()
+    @Volatile
+    private var isCancelled = false
+    private var activeCall: okhttp3.Call? = null
+    private var currentDownloadFile: File? = null
+
+    fun cancelDownload() {
+        synchronized(lock) {
+            isCancelled = true
+            try {
+                activeCall?.cancel()
+            } catch (_: Exception) {}
+            activeCall = null
+
+            try {
+                currentDownloadFile?.delete()
+            } catch (_: Exception) {}
+            currentDownloadFile = null
+
+            _status.value = DownloadStatus.Idle
+        }
+        AppLogger.i(TAG, "Download cancelled by user.")
+    }
+
     fun resetStatus() {
-        _status.value = DownloadStatus.Idle
+        cancelDownload()
     }
 
     suspend fun downloadAndVerifyApk(
@@ -63,6 +87,12 @@ object UpdateDownloader {
     ): Boolean {
         return withContext(Dispatchers.IO) {
             var targetFile: File? = null
+            synchronized(lock) {
+                isCancelled = false
+                activeCall = null
+                currentDownloadFile = null
+            }
+
             try {
                 _status.value = DownloadStatus.Downloading(0f, 0L, 0L)
 
@@ -83,14 +113,35 @@ object UpdateDownloader {
                     .header("User-Agent", "Mirrly-TG-Proxy-Downloader/$versionName")
                     .build()
 
-                val response = client.newCall(request).execute()
+                val call = client.newCall(request)
+                synchronized(lock) {
+                    if (isCancelled) {
+                        destFile.delete()
+                        _status.value = DownloadStatus.Idle
+                        return@withContext false
+                    }
+                    activeCall = call
+                    currentDownloadFile = destFile
+                }
+
+                val response = call.execute()
                 if (!response.isSuccessful) {
+                    if (isCancelled) {
+                        destFile.delete()
+                        _status.value = DownloadStatus.Idle
+                        return@withContext false
+                    }
                     _status.value = DownloadStatus.Error("Ошибка загрузки HTTP ${response.code}")
                     return@withContext false
                 }
 
                 val body = response.body
                 if (body == null) {
+                    if (isCancelled) {
+                        destFile.delete()
+                        _status.value = DownloadStatus.Idle
+                        return@withContext false
+                    }
                     _status.value = DownloadStatus.Error("Пустой ответ сервера")
                     return@withContext false
                 }
@@ -110,6 +161,14 @@ object UpdateDownloader {
 
                 try {
                     while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                        if (isCancelled) {
+                            outputStream.close()
+                            inputStream.close()
+                            destFile.delete()
+                            _status.value = DownloadStatus.Idle
+                            return@withContext false
+                        }
+
                         downloadedBytes += bytesRead
                         if (downloadedBytes > MAX_APK_SIZE_BYTES) {
                             outputStream.close()
@@ -126,16 +185,24 @@ object UpdateDownloader {
                             -1f
                         }
 
-                        _status.value = DownloadStatus.Downloading(
-                            progress = progress,
-                            downloadedBytes = downloadedBytes,
-                            totalBytes = totalBytes
-                        )
+                        if (!isCancelled) {
+                            _status.value = DownloadStatus.Downloading(
+                                progress = progress,
+                                downloadedBytes = downloadedBytes,
+                                totalBytes = totalBytes
+                            )
+                        }
                     }
                 } finally {
                     outputStream.flush()
                     outputStream.close()
                     inputStream.close()
+                }
+
+                if (isCancelled) {
+                    destFile.delete()
+                    _status.value = DownloadStatus.Idle
+                    return@withContext false
                 }
 
                 AppLogger.i(TAG, "Download finished: ${destFile.length()} bytes saved to ${destFile.absolutePath}")
@@ -144,6 +211,11 @@ object UpdateDownloader {
                 _status.value = DownloadStatus.Verifying
 
                 val calculatedSha256 = calculateSha256(destFile)
+                if (isCancelled) {
+                    destFile.delete()
+                    _status.value = DownloadStatus.Idle
+                    return@withContext false
+                }
                 AppLogger.i(TAG, "Calculated SHA-256: $calculatedSha256")
 
                 if (expectedSha256List.isNotEmpty()) {
@@ -186,11 +258,24 @@ object UpdateDownloader {
                 }
                 AppLogger.i(TAG, "Downloaded APK digital signature verified successfully: $signatureStatus")
 
+                if (isCancelled) {
+                    destFile.delete()
+                    _status.value = DownloadStatus.Idle
+                    return@withContext false
+                }
+
                 _status.value = DownloadStatus.ReadyToInstall(destFile)
                 true
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Error downloading update: ${e.message}")
                 runCatching { targetFile?.delete() }
+
+                if (isCancelled || e is java.io.InterruptedIOException || e is java.net.SocketException && e.message?.contains("Socket closed", ignoreCase = true) == true || e.message?.contains("Canceled", ignoreCase = true) == true) {
+                    AppLogger.i(TAG, "Download cleanly cancelled.")
+                    _status.value = DownloadStatus.Idle
+                    return@withContext false
+                }
+
                 val errMsg = when {
                     e is java.net.UnknownHostException || e.message?.contains("Unable to resolve host", ignoreCase = true) == true -> {
                         "Сбой DNS (блокировка провайдера): Сервер CDN GitHub (release-assets.githubusercontent.com) заблокирован или недоступен. Включите прокси/VPN или используйте скачивание через браузер."
@@ -199,6 +284,11 @@ object UpdateDownloader {
                 }
                 _status.value = DownloadStatus.Error(errMsg)
                 false
+            } finally {
+                synchronized(lock) {
+                    activeCall = null
+                    currentDownloadFile = null
+                }
             }
         }
     }
