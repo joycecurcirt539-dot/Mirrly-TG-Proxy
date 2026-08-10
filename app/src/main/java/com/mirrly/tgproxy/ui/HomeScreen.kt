@@ -607,11 +607,6 @@ fun HomeScreen(
                         },
                         shape = RoundedCornerShape(16.dp),
                         color = Color.White.copy(alpha = 0.04f),
-                        border = BorderStroke(
-                            1.dp,
-                            if (timerState.isActive) Color(0xFFFF9E00).copy(alpha = 0.40f)
-                            else Color.White.copy(alpha = 0.10f)
-                        ),
                         modifier = Modifier
                             .padding(bottom = 6.dp)
                             .animateContentSize(
@@ -660,7 +655,7 @@ fun HomeScreen(
                                 letterSpacing = 1.1.sp
                             )
 
-                            // Sleep Timer Segment (Expands when active)
+                            // Sleep Timer Segment (Expands with rolling animation when active)
                             if (timerState.isActive) {
                                 // Subtle Divider
                                 Box(
@@ -672,7 +667,7 @@ fun HomeScreen(
 
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(4.5.dp)
                                 ) {
                                     Icon(
                                         painter = painterResource(id = R.drawable.ic_timer),
@@ -680,12 +675,12 @@ fun HomeScreen(
                                         tint = Color(0xFFFF9E00),
                                         modifier = Modifier.size(12.dp)
                                     )
-                                    Text(
+                                    RollingNumberText(
                                         text = timerState.formatRemainingTime(),
                                         color = Color(0xFFFF9E00),
-                                        fontSize = if (isCompactHeight) 13.5.sp else 14.sp,
+                                        fontSize = if (isCompactHeight) 14.sp else 15.sp,
                                         fontWeight = FontWeight.Bold,
-                                        letterSpacing = 0.8.sp
+                                        letterSpacing = 1.1.sp
                                     )
                                 }
                             }
