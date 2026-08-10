@@ -85,58 +85,62 @@ Mirrly TG Proxy спроектирован с упором на использо
 ## 4. Архитектура системы
 
 ```mermaid
-flowchart LR
-    subgraph Client ["1. Клиент Telegram"]
-        direction TB
-        TGApp["Клиенты Telegram<br/>(Official / AyuGram / NekoGram)"]
+flowchart TD
+    subgraph ClientLayer ["1. Клиенты Telegram (Android-устройство)"]
+        TGApp["Клиенты Telegram<br/>(Official / AyuGram / NekoGram / ExteraGram / Telegram X)"]
     end
 
-    subgraph AppCore ["2. Локальный Прокси-сервер Mirrly (Android)"]
-        direction TB
-        ModeSelect{"Режим работы<br/>(proxyModeName)"}
+    subgraph ServiceLayer ["2. Локальный Прокси-сервер Mirrly (Android Service, Без VPN)"]
+        ModeSwitch{"Переключатель режима<br/>(proxyModeName)"}
         
-        subgraph SocksBranch ["Ветка SOCKS5 (Порт 10808)"]
-            SocksEng["Socks5WsBridge<br/>(TCP Relay / Звонки и чаты)"]
+        subgraph SocksBox ["Режим SOCKS5 (Порт 10808)"]
+            SocksEngine["Socks5WsBridge (Kotlin)<br/>Слушатель сокета 10808<br/>Прозрачный TCP Relay (Чаты & Звонки)"]
         end
 
-        subgraph MTProtoBranch ["Ветка MTProto (Порт 1443)"]
-            TgWsEng["TgWsBridge<br/>(Kotlin WSS Туннель)"]
-            NativeEng["NativeProxy.so<br/>(C++ Fake-TLS / WsPool)"]
+        subgraph MtprotoBox ["Режим MTProto (Порт 1443)"]
+            TgWsEngine["TgWsBridge (Kotlin)<br/>WSS TCP туннелирование"]
+            NativeEngine["NativeProxy.so (C++ NDK)<br/>Fake-TLS & WsPool Manager"]
         end
 
-        ModeSelect -->|SOCKS5| SocksEng
-        ModeSelect -->|MTProto + Воркер| TgWsEng
-        ModeSelect -->|MTProto Без воркера| NativeEng
+        ModeSwitch -->|SOCKS5| SocksEngine
+        ModeSwitch -->|MTProto + Воркер| TgWsEngine
+        ModeSwitch -->|MTProto Без воркера| NativeEngine
     end
 
-    subgraph Router ["3. Маршрутизация Cloudflare Worker"]
-        direction TB
-        WorkerResolver{"Выбор домена<br/>(getEffectiveCfDomain)"}
-        UserWorker["1. Кастомный домен пользователя"]
-        DefaultWorker["2. Тестовый воркер Mirrly"]
-        DirectRoute["3. Прямой TCP (Без воркера)"]
+    subgraph ResolverLayer ["3. Движок Маршрутизации (getEffectiveCfDomain)"]
+        WorkerResolver{"Приоритет выбора адреса"}
+        UserWorker["1. Кастомный домен пользователя<br/>(100% Приоритет / Безопасность)"]
+        DefaultWorker["2. Тестовый воркер Mirrly<br/>(SOCKS5 / MTProto тумблеры)"]
+        DirectRoute["3. Прямой TCP Маршрут<br/>(Без использование воркера)"]
 
         WorkerResolver -->|Заполнен customCfDomain| UserWorker
-        WorkerResolver -->|Включен тумблер| DefaultWorker
-        WorkerResolver -->|Выключен тумблер| DirectRoute
+        WorkerResolver -->|Включен дефолтный тумблер| DefaultWorker
+        WorkerResolver -->|Тумблеры выключены| DirectRoute
     end
 
-    subgraph Network ["4. Инфраструктура Cloudflare & Telegram"]
-        direction TB
-        WssTunnel["WSS TLS-туннель<br/>(wss://.../tcp?target=...)"]
-        CFWorker["Cloudflare Edge Worker<br/>(cloudflare:sockets)"]
-        TGDCs["Telegram DCs (DC 1 - DC 5)<br/>& VoIP Рефлекторы"]
+    subgraph InfrastructureLayer ["4. Инфраструктура Cloudflare CDN & Серверы Telegram"]
+        subgraph CFEdge ["Сеть Cloudflare CDN (300+ Edge Data Centers)"]
+            CFWorker["Cloudflare Worker (V8 Edge Script)<br/>WSS TLS-туннелирование & cloudflare:sockets"]
+        end
 
-        WssTunnel --> CFWorker
-        CFWorker -->|Прямой TCP сокет| TGDCs
-        DirectRoute -.->|Прямое подключение| TGDCs
+        subgraph TelegramInfra ["Сеть Серверов Telegram"]
+            TelegramDC["Telegram DCs (DC 1 - DC 5)<br/>Чаты, Медиафайлы, Каналы"]
+            VoIPNodes["Telegram VoIP Reflectors<br/>Голосовые и видеовызовы"]
+        end
+
+        CFWorker -->|Прямые TCP сокеты| TelegramDC
+        CFWorker -->|Прямые TCP сокеты| VoIPNodes
+        DirectRoute -.->|Прямое TCP подключение| TelegramDC
     end
 
-    TGApp -->|127.0.0.1| ModeSelect
-    SocksEng --> WorkerResolver
-    TgWsEng --> WorkerResolver
-    UserWorker --> WssTunnel
-    DefaultWorker --> WssTunnel
+    TGApp -->|Подключение к 127.0.0.1:1443| ModeSwitch
+    TGApp -->|Подключение к 127.0.0.1:10808| ModeSwitch
+    
+    SocksEngine --> WorkerResolver
+    TgWsEngine --> WorkerResolver
+    
+    UserWorker --> CFWorker
+    DefaultWorker --> CFWorker
 ```
 
 ---
