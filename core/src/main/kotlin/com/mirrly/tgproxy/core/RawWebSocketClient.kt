@@ -22,9 +22,21 @@ class RawWebSocketClient(
     val messageChannel = Channel<ByteArray>(256)
     val closeChannel = Channel<Unit>(Channel.CONFLATED)
 
+    @Volatile
+    var isConnected: Boolean = false
+        private set
+
+    @Volatile
+    var isClosed: Boolean = false
+        private set
+
+    val isAlive: Boolean
+        get() = isConnected && !isClosed && !closeChannel.isClosedForReceive && closeChannel.isEmpty
+
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
-            // Connected
+            isConnected = true
+            isClosed = false
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -36,15 +48,21 @@ class RawWebSocketClient(
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            isClosed = true
+            isConnected = false
             webSocket.close(1000, "Normal closure")
             closeChannel.trySend(Unit)
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            isClosed = true
+            isConnected = false
             closeChannel.trySend(Unit)
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            isClosed = true
+            isConnected = false
             closeChannel.trySend(Unit)
         }
     }
@@ -62,10 +80,13 @@ class RawWebSocketClient(
     }
 
     fun send(data: ByteArray): Boolean {
+        if (isClosed) return false
         return webSocket?.send(ByteString.of(*data)) ?: false
     }
 
     fun close() {
+        isClosed = true
+        isConnected = false
         try {
             webSocket?.close(1000, "Normal closure")
         } catch (_: Exception) {}

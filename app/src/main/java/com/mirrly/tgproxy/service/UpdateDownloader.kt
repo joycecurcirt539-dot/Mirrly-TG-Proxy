@@ -7,6 +7,8 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.util.SignatureStatus
+import com.mirrly.tgproxy.util.SignatureVerifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +49,8 @@ object UpdateDownloader {
             .build()
     }
 
+    private const val MAX_APK_SIZE_BYTES = 100L * 1024L * 1024L // 100 MB Limit
+
     fun resetStatus() {
         _status.value = DownloadStatus.Idle
     }
@@ -58,6 +62,7 @@ object UpdateDownloader {
         versionName: String
     ): Boolean {
         return withContext(Dispatchers.IO) {
+            var targetFile: File? = null
             try {
                 _status.value = DownloadStatus.Downloading(0f, 0L, 0L)
 
@@ -70,7 +75,8 @@ object UpdateDownloader {
                     runCatching { file.delete() }
                 }
 
-                val targetFile = File(apkDir, "mirrly_v${versionName.replace(".", "_")}.apk")
+                val destFile = File(apkDir, "mirrly_v${versionName.replace(".", "_")}.apk")
+                targetFile = destFile
 
                 val request = Request.Builder()
                     .url(downloadUrl)
@@ -90,40 +96,54 @@ object UpdateDownloader {
                 }
 
                 val totalBytes = body.contentLength()
+                if (totalBytes > MAX_APK_SIZE_BYTES) {
+                    _status.value = DownloadStatus.Error("Превышен допустимый размер файла обновления (макс. 100 МБ)")
+                    return@withContext false
+                }
+
                 val inputStream = body.byteStream()
-                val outputStream = FileOutputStream(targetFile)
+                val outputStream = FileOutputStream(destFile)
 
                 val buffer = ByteArray(16 * 1024)
                 var bytesRead: Int
                 var downloadedBytes = 0L
 
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    outputStream.write(buffer, 0, bytesRead)
-                    downloadedBytes += bytesRead
+                try {
+                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                        downloadedBytes += bytesRead
+                        if (downloadedBytes > MAX_APK_SIZE_BYTES) {
+                            outputStream.close()
+                            inputStream.close()
+                            destFile.delete()
+                            _status.value = DownloadStatus.Error("Превышен лимит размера файла (>100 МБ). Загрузка остановлена.")
+                            return@withContext false
+                        }
+                        outputStream.write(buffer, 0, bytesRead)
 
-                    val progress = if (totalBytes > 0) {
-                        (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
-                    } else {
-                        -1f
+                        val progress = if (totalBytes > 0) {
+                            (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                        } else {
+                            -1f
+                        }
+
+                        _status.value = DownloadStatus.Downloading(
+                            progress = progress,
+                            downloadedBytes = downloadedBytes,
+                            totalBytes = totalBytes
+                        )
                     }
-
-                    _status.value = DownloadStatus.Downloading(
-                        progress = progress,
-                        downloadedBytes = downloadedBytes,
-                        totalBytes = totalBytes
-                    )
+                } finally {
+                    outputStream.flush()
+                    outputStream.close()
+                    inputStream.close()
                 }
 
-                outputStream.flush()
-                outputStream.close()
-                inputStream.close()
-
-                AppLogger.i(TAG, "Download finished: ${targetFile.length()} bytes saved to ${targetFile.absolutePath}")
+                AppLogger.i(TAG, "Download finished: ${destFile.length()} bytes saved to ${destFile.absolutePath}")
 
                 // Step 2: Verification of SHA-256
                 _status.value = DownloadStatus.Verifying
 
-                val calculatedSha256 = calculateSha256(targetFile)
+                val calculatedSha256 = calculateSha256(destFile)
                 AppLogger.i(TAG, "Calculated SHA-256: $calculatedSha256")
 
                 if (expectedSha256List.isNotEmpty()) {
@@ -138,7 +158,7 @@ object UpdateDownloader {
                             TAG,
                             "SHA-256 mismatch! Calculated: $normalizedCalculated, Expected list: $expectedSha256List"
                         )
-                        targetFile.delete()
+                        destFile.delete()
                         _status.value = DownloadStatus.Error("Ошибка целостности файла: SHA-256 не совпадает с официальным релизом!")
                         return@withContext false
                     }
@@ -147,10 +167,30 @@ object UpdateDownloader {
                     AppLogger.w(TAG, "No expected SHA-256 provided in release notes. Skipping strict verification.")
                 }
 
-                _status.value = DownloadStatus.ReadyToInstall(targetFile)
+                // Step 3: Sanity check that the downloaded file is a valid Android APK archive
+                val archiveInfo = context.packageManager.getPackageArchiveInfo(destFile.absolutePath, 0)
+                if (archiveInfo == null) {
+                    AppLogger.e(TAG, "Downloaded file is not a valid Android APK archive.")
+                    destFile.delete()
+                    _status.value = DownloadStatus.Error("Повреждённый файл: архив не является корректным Android APK")
+                    return@withContext false
+                }
+
+                // Step 4: Cryptographic signature verification of the downloaded APK BEFORE installation
+                val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile, expectedSha256List)
+                if (signatureStatus == SignatureStatus.UNOFFICIAL_MODIFIED) {
+                    AppLogger.e(TAG, "Downloaded APK signature verification failed! Signature does not match official release key.")
+                    destFile.delete()
+                    _status.value = DownloadStatus.Error("Ошибка безопасности: цифровая подпись APK не совпадает с официальным ключом разработчика!")
+                    return@withContext false
+                }
+                AppLogger.i(TAG, "Downloaded APK digital signature verified successfully: $signatureStatus")
+
+                _status.value = DownloadStatus.ReadyToInstall(destFile)
                 true
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Error downloading update: ${e.message}")
+                runCatching { targetFile?.delete() }
                 val errMsg = when {
                     e is java.net.UnknownHostException || e.message?.contains("Unable to resolve host", ignoreCase = true) == true -> {
                         "Сбой DNS (блокировка провайдера): Сервер CDN GitHub (release-assets.githubusercontent.com) заблокирован или недоступен. Включите прокси/VPN или используйте скачивание через браузер."

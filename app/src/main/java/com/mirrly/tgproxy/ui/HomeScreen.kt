@@ -144,8 +144,9 @@ fun HomeScreen(
     var totalSent by remember { mutableStateOf("0 Б") }
     var uptimeSeconds by remember { mutableLongStateOf(0L) }
     var pingMs by remember { mutableLongStateOf(-1L) }
-
     val updateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
+    val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
+    var showSleepTimerDialog by remember { mutableStateOf(false) }
 
     // Execute stats calculation on IO thread off the main looper to eliminate main thread frame delay
     LaunchedEffect(Unit) {
@@ -240,83 +241,136 @@ fun HomeScreen(
                         text = "Mirrly - TG Proxy",
                         color = TextWhite,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                        letterSpacing = 0.8.sp,
+                        fontSize = 16.sp,
+                        letterSpacing = 0.4.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
                     )
                 },
                 navigationIcon = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onOpenLogs()
-                        }) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier.padding(start = 4.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onOpenLogs()
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_logs),
                                 contentDescription = "Логи",
                                 tint = TextWhite,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onOpenHistory()
-                        }) {
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onOpenHistory()
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_history),
                                 contentDescription = "История сессий",
                                 tint = TextWhite,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
                 },
                 actions = {
-                    // Update Tab Button — appears only when update is available
-                    if (updateInfo?.isUpdateAvailable == true) {
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onOpenUpdate()
-                        }) {
-                            Box(contentAlignment = Alignment.TopEnd) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_refresh),
-                                    contentDescription = "Обновления",
-                                    tint = ActiveGreenLed,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(ActiveGreenLed)
-                                )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        // Update Tab Button — appears only when update is available
+                        if (updateInfo?.isUpdateAvailable == true) {
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onOpenUpdate()
+                                },
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.TopEnd) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_refresh),
+                                        contentDescription = "Обновления",
+                                        tint = ActiveGreenLed,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(ActiveGreenLed)
+                                    )
+                                }
                             }
                         }
-                    }
-                    // Eye toggle button — hides UI into stealth mode
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        isUiHidden = true
-                    }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_eye),
-                            contentDescription = "Скрыть интерфейс",
-                            tint = TextWhite,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onOpenSettings()
-                    }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_settings),
-                            contentDescription = "Настройки",
-                            tint = TextWhite,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        // Sleep Timer button
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showSleepTimerDialog = true
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.TopEnd) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_timer),
+                                    contentDescription = "Таймер сна",
+                                    tint = if (timerState.isActive) ActiveGreenLed else TextWhite,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                if (timerState.isActive) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(ActiveGreenLed)
+                                    )
+                                }
+                            }
+                        }
+                        // Eye toggle button — hides UI into stealth mode
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                isUiHidden = true
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_eye),
+                                contentDescription = "Скрыть интерфейс",
+                                tint = TextWhite,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onOpenSettings()
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_settings),
+                                contentDescription = "Настройки",
+                                tint = TextWhite,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -324,7 +378,7 @@ fun HomeScreen(
         },
         containerColor = Color.Transparent
     ) { padding ->
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
@@ -344,6 +398,17 @@ fun HomeScreen(
                     } else Modifier
                 )
         ) {
+            val screenHeight = maxHeight
+            val isCompactHeight = screenHeight < 720.dp
+            val isVeryCompactHeight = screenHeight < 620.dp
+
+            val ringSize = when {
+                isVeryCompactHeight -> 175.dp
+                isCompactHeight -> 205.dp
+                else -> 235.dp
+            }
+            val powerIconSize = ringSize * (170f / 240f)
+
             var showValueBanner by remember {
                 mutableStateOf(com.mirrly.tgproxy.service.ValueTriggerManager.shouldShowValueBanner(context))
             }
@@ -357,27 +422,37 @@ fun HomeScreen(
                 }
             }
 
-            // ─── 1. TOP SECTION (Update banner) ───
-            Box(
+            val powerInteractionSource = remember { MutableInteractionSource() }
+            val isPowerPressed by powerInteractionSource.collectIsPressedAsState()
+
+            val springScale by animateFloatAsState(
+                targetValue = if (isPowerPressed) 0.86f else 1.00f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                ),
+                label = "powerSpringScale"
+            )
+
+            // Dynamic unified vertical Column preventing any overlap across all screen ratios & DPIs
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .padding(top = padding.calculateTopPadding() + 10.dp)
-                    .padding(horizontal = 20.dp)
-                    .graphicsLayer {
-                        // slides up
-                        translationY = -120.dp.toPx() * uiAnimProgress
-                        alpha = (1f - uiAnimProgress * 2f).coerceIn(0f, 1f)
-                    }
+                    .fillMaxSize()
+                    .padding(
+                        top = padding.calculateTopPadding(),
+                        bottom = padding.calculateBottomPadding() + if (isCompactHeight) 4.dp else 8.dp
+                    )
+                    .padding(horizontal = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Update Available Banner (if newer version available on GitHub)
+                // ─── 1. TOP SECTION (Update banner if present) ───
                 updateInfo?.let { info ->
                     if (info.isUpdateAvailable) {
                         val updateYellow = Color(0xFFFFB703)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 8.dp)
+                                .padding(top = 4.dp, bottom = 4.dp)
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(
                                     Brush.horizontalGradient(
@@ -392,7 +467,11 @@ fun HomeScreen(
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onOpenUpdate()
                                 }
-                                .padding(14.dp)
+                                .padding(12.dp)
+                                .graphicsLayer {
+                                    translationY = -120.dp.toPx() * uiAnimProgress
+                                    alpha = (1f - uiAnimProgress * 2f).coerceIn(0f, 1f)
+                                }
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -401,13 +480,13 @@ fun HomeScreen(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Box(
                                         contentAlignment = Alignment.Center,
                                         modifier = Modifier
-                                            .size(36.dp)
+                                            .size(32.dp)
                                             .clip(CircleShape)
                                             .background(updateYellow.copy(alpha = 0.2f))
                                     ) {
@@ -415,7 +494,7 @@ fun HomeScreen(
                                             painter = painterResource(id = R.drawable.ic_refresh),
                                             contentDescription = null,
                                             tint = updateYellow,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
 
@@ -423,12 +502,12 @@ fun HomeScreen(
                                         Text(
                                             text = "Найдено обновление v${info.versionName}!",
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
+                                            fontSize = 13.sp,
                                             color = updateYellow
                                         )
                                         Text(
                                             text = "Нажмите для просмотра и установки",
-                                            fontSize = 12.sp,
+                                            fontSize = 11.5.sp,
                                             color = TextWhite.copy(alpha = 0.85f)
                                         )
                                     }
@@ -438,361 +517,381 @@ fun HomeScreen(
                                     painter = painterResource(id = R.drawable.ic_chevron_right),
                                     contentDescription = null,
                                     tint = updateYellow,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ─── 2. CENTER SECTION (Power button) ───
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .graphicsLayer {
+                            alpha = (1f - uiAnimProgress).coerceIn(0f, 1f)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(ringSize)
+                            .graphicsLayer {
+                                scaleX = springScale
+                                scaleY = springScale
+                            }
+                            .clickable(
+                                interactionSource = powerInteractionSource,
+                                indication = null
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val serviceIntent = Intent(context, ProxyForegroundService::class.java)
+                                if (currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING) {
+                                    pendingState = ProxyUiState.DISCONNECTING
+                                    serviceIntent.action = ProxyForegroundService.ACTION_STOP
+                                    context.startService(serviceIntent)
+                                } else {
+                                    pendingState = ProxyUiState.CONNECTING
+                                    serviceIntent.action = ProxyForegroundService.ACTION_START
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                        context.startForegroundService(serviceIntent)
+                                    } else {
+                                        context.startService(serviceIntent)
+                                    }
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        RotatingProxyRing(
+                            state = currentState,
+                            modifier = Modifier.size(ringSize)
+                        )
+
+                        val iconTint = when (currentState) {
+                            ProxyUiState.CONNECTED -> ActiveGreenLed
+                            ProxyUiState.CONNECTING -> ActiveGreenLed
+                            ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
+                            ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)
+                        }
+                        val animatedIconTint by animateColorAsState(
+                            targetValue = iconTint,
+                            animationSpec = tween(500),
+                            label = "iconTint"
+                        )
+
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_power),
+                            contentDescription = "Включение прокси",
+                            tint = animatedIconTint,
+                            modifier = Modifier.size(powerIconSize)
+                        )
+                    }
+                }
+
+                // ─── 3. BOTTOM SECTION (Lower controls) ───
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            translationY = 160.dp.toPx() * uiAnimProgress
+                            alpha = (1f - uiAnimProgress * 1.5f).coerceIn(0f, 1f)
+                        },
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Status / Timer
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(bottom = 3.dp)
+                    ) {
+                        val dotColor = when (currentState) {
+                            ProxyUiState.CONNECTED -> ActiveGreenLed
+                            ProxyUiState.CONNECTING -> ActiveGreenLed
+                            ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
+                            ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)
+                        }
+                        val animatedDotColor by animateColorAsState(
+                            targetValue = dotColor,
+                            animationSpec = tween(400),
+                            label = "dotColor"
+                        )
+
+                        Surface(
+                            shape = CircleShape,
+                            color = animatedDotColor,
+                            modifier = Modifier.size(6.dp)
+                        ) {}
+
+                        val statusText = when (currentState) {
+                            ProxyUiState.CONNECTED -> formatUptime(uptimeSeconds)
+                            ProxyUiState.CONNECTING -> "ПОДКЛЮЧЕНИЕ..."
+                            ProxyUiState.DISCONNECTING -> "ОТКЛЮЧЕНИЕ..."
+                            ProxyUiState.DISCONNECTED -> "00:00:00"
+                        }
+                        RollingNumberText(
+                            text = statusText,
+                            color = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else if (currentState == ProxyUiState.DISCONNECTING) Color(0xFFFF9E00) else TextMuted,
+                            fontSize = if (isCompactHeight) 14.sp else 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.1.sp
+                        )
+
+                        // Sleep Timer pill badge
+                        if (currentState == ProxyUiState.CONNECTED || timerState.isActive) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Surface(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    showSleepTimerDialog = true
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (timerState.isActive) Color(0xFF2C2210) else Color(0xFF141824),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (timerState.isActive) Color(0xFFFF9E00).copy(alpha = 0.6f)
+                                    else Color(0xFF22283A)
+                                ),
+                                modifier = Modifier.height(22.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    modifier = Modifier.padding(horizontal = 6.dp)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_timer),
+                                        contentDescription = null,
+                                        tint = if (timerState.isActive) Color(0xFFFF9E00) else TextMuted,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Text(
+                                        text = if (timerState.isActive) "⏳ ${timerState.formatRemainingTime()}" else "Сон",
+                                        color = if (timerState.isActive) Color(0xFFFF9E00) else TextMuted,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // User-friendly Status line (Replaces raw internal IP and socket debug counts)
+                    val statusSubtitle = when (currentState) {
+                        ProxyUiState.CONNECTED -> {
+                            if (app.config.cfProxyEnabled) {
+                                if (app.config.customCfDomain.isNotBlank()) {
+                                    "Cloudflare WSS (${app.config.customCfDomain.trim()}) • Защищено"
+                                } else {
+                                    "Cloudflare WSS • Защищено"
+                                }
+                            } else {
+                                "Локальный прокси • Защищено"
+                            }
+                        }
+                        ProxyUiState.CONNECTING -> "Установка защищенного соединения..."
+                        ProxyUiState.DISCONNECTING -> "Остановка соединения..."
+                        ProxyUiState.DISCONNECTED -> "Защита отключена • Нажмите кнопку для старта"
+                    }
+
+                    Text(
+                        text = statusSubtitle,
+                        color = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed.copy(alpha = 0.9f) else TextMuted,
+                        fontSize = if (isCompactHeight) 11.5.sp else 12.sp,
+                        fontWeight = if (currentState == ProxyUiState.CONNECTED) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 8.dp else 12.dp))
+
+                    // Telemetry Download & Upload speeds (50/50 centered)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Download Speed & Total (Weight 1f)
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_arrow_down),
+                                    contentDescription = null,
+                                    tint = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else TextMuted,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Входящий", color = TextMuted, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            RollingNumberText(
+                                text = dlSpeed,
+                                color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = if (isCompactHeight) 15.sp else 17.sp
+                            )
+                            RollingNumberText(
+                                text = "Всего: $totalRecv",
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
+
+                        // Divider line (50.0% centered)
+                        Box(
+                            modifier = Modifier
+                                .height(28.dp)
+                                .width(1.dp)
+                                .background(Color(0xFF1F2433))
+                        )
+
+                        // Upload Speed & Total (Weight 1f)
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_arrow_up),
+                                    contentDescription = null,
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Исходящий", color = TextMuted, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            RollingNumberText(
+                                text = ulSpeed,
+                                color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = if (isCompactHeight) 15.sp else 17.sp
+                            )
+                            RollingNumberText(
+                                text = "Всего: $totalSent",
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
+
+                    // WsPool Real-Time Smooth Bezier Socket Stability Graph
+                    WsPoolStabilityGraph(
+                        isProxyActive = currentState == ProxyUiState.CONNECTED,
+                        activeConns = activeConns,
+                        maxPoolSize = app.config.poolSize,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(if (isCompactHeight) 48.dp else 58.dp)
+                            .padding(horizontal = 12.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 8.dp else 12.dp))
+
+                    // Action Buttons Dock (Always visible, requiring Proxy ON)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Left Action: Copy Link
+                        Surface(
+                            onClick = {
+                                if (currentState != ProxyUiState.CONNECTED) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    Toast.makeText(context, "⚠️ Включите прокси сначала!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val tgUrl = server.getTelegramProxyUrl()
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Telegram Proxy", tgUrl)
+                                    clipboard.setPrimaryClip(clip)
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    Toast.makeText(context, "Ссылка скопирована!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(if (isCompactHeight) 46.dp else 52.dp)
+                                .springPress(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                if (currentState == ProxyUiState.CONNECTED) Color(0xFF1F2433) else Color(0xFF161A26)
+                            )
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_copy),
+                                    contentDescription = "Скопировать",
+                                    tint = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(if (isCompactHeight) 17.dp else 19.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "Скопировать",
+                                    color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = if (isCompactHeight) 13.sp else 14.sp
+                                )
+                            }
+                        }
+
+                        // Right Action: Apply to Telegram
+                        Surface(
+                            onClick = {
+                                if (currentState != ProxyUiState.CONNECTED) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    Toast.makeText(context, "⚠️ Включите прокси сначала!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val tgUrl = server.getTelegramProxyUrl()
+                                    applyToTelegramPackages(context, tgUrl)
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(if (isCompactHeight) 46.dp else 52.dp)
+                                .springPress(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                if (currentState == ProxyUiState.CONNECTED) Color(0xFF1F2433) else Color(0xFF161A26)
+                            )
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_send),
+                                    contentDescription = "В Telegram",
+                                    tint = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else TextMuted.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(if (isCompactHeight) 17.dp else 19.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "В Telegram",
+                                    color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = if (isCompactHeight) 13.sp else 14.sp
                                 )
                             }
                         }
                     }
                 }
             }
-
-            // ─── 2. CENTER SECTION (Power button) ───
-            val powerInteractionSource = remember { MutableInteractionSource() }
-            val isPowerPressed by powerInteractionSource.collectIsPressedAsState()
-
-            val springScale by animateFloatAsState(
-                targetValue = if (isPowerPressed) 0.86f else 1.00f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessLow
-                ),
-                label = "powerSpringScale"
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.Center)
-                    .graphicsLayer {
-                        // Only fades out/in
-                        alpha = (1f - uiAnimProgress).coerceIn(0f, 1f)
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(240.dp)
-                        .graphicsLayer {
-                            scaleX = springScale
-                            scaleY = springScale
-                        }
-                        .clickable(
-                            interactionSource = powerInteractionSource,
-                            indication = null
-                        ) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            val serviceIntent = Intent(context, ProxyForegroundService::class.java)
-                            if (currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING) {
-                                pendingState = ProxyUiState.DISCONNECTING
-                                serviceIntent.action = ProxyForegroundService.ACTION_STOP
-                                context.startService(serviceIntent)
-                            } else {
-                                pendingState = ProxyUiState.CONNECTING
-                                serviceIntent.action = ProxyForegroundService.ACTION_START
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                    context.startForegroundService(serviceIntent)
-                                } else {
-                                    context.startService(serviceIntent)
-                                }
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    RotatingProxyRing(
-                        state = currentState,
-                        modifier = Modifier.size(240.dp)
-                    )
-
-                    val iconTint = when (currentState) {
-                        ProxyUiState.CONNECTED -> ActiveGreenLed
-                        ProxyUiState.CONNECTING -> ActiveGreenLed
-                        ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
-                        ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)
-                    }
-                    val animatedIconTint by animateColorAsState(
-                        targetValue = iconTint,
-                        animationSpec = tween(500),
-                        label = "iconTint"
-                    )
-
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_power),
-                        contentDescription = "Включение прокси",
-                        tint = animatedIconTint,
-                        modifier = Modifier.size(170.dp)
-                    )
-                }
-            }
-
-            // ─── 3. BOTTOM SECTION (Lower controls) ───
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = padding.calculateBottomPadding() + 10.dp)
-                    .padding(horizontal = 20.dp)
-                    .graphicsLayer {
-                        translationY = 160.dp.toPx() * uiAnimProgress
-                        alpha = (1f - uiAnimProgress * 1.5f).coerceIn(0f, 1f)
-                    },
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Status / Timer
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(bottom = 6.dp)
-                ) {
-                    val dotColor = when (currentState) {
-                        ProxyUiState.CONNECTED -> ActiveGreenLed
-                        ProxyUiState.CONNECTING -> ActiveGreenLed
-                        ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
-                        ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)
-                    }
-                    val animatedDotColor by animateColorAsState(
-                        targetValue = dotColor,
-                        animationSpec = tween(400),
-                        label = "dotColor"
-                    )
-
-                    Surface(
-                        shape = CircleShape,
-                        color = animatedDotColor,
-                        modifier = Modifier.size(6.dp)
-                    ) {}
-
-                    val statusText = when (currentState) {
-                        ProxyUiState.CONNECTED -> formatUptime(uptimeSeconds)
-                        ProxyUiState.CONNECTING -> "ПОДКЛЮЧЕНИЕ..."
-                        ProxyUiState.DISCONNECTING -> "ОТКЛЮЧЕНИЕ..."
-                        ProxyUiState.DISCONNECTED -> "00:00:00"
-                    }
-                    RollingNumberText(
-                        text = statusText,
-                        color = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else if (currentState == ProxyUiState.DISCONNECTING) Color(0xFFFF9E00) else TextMuted,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.1.sp
-                    )
-                }
-
-                // Compact Network / IP / Socket info line
-                val ipPortText = when (currentState) {
-                    ProxyUiState.CONNECTED -> "127.0.0.1:${app.config.bindPort} • Сокеты: $activeConns/${app.config.poolSize}"
-                    ProxyUiState.CONNECTING -> "Запуск прокси-сервера..."
-                    ProxyUiState.DISCONNECTING -> "Остановка прокси-сервера..."
-                    ProxyUiState.DISCONNECTED -> "127.0.0.1:${app.config.bindPort} • Не подключено"
-                }
-                Text(
-                    text = ipPortText,
-                    color = TextMuted,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-
-                if (app.config.cfProxyEnabled) {
-                    val cfLabel = if (app.config.customCfDomain.isNotBlank()) {
-                        "Cloudflare Active (${app.config.customCfDomain.trim()})"
-                    } else {
-                        "Cloudflare Proxy Active"
-                    }
-                    Text(
-                        text = cfLabel,
-                        color = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else TextMuted.copy(alpha = 0.6f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Telemetry Download & Upload speeds (50/50 centered)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Download Speed & Total (Weight 1f)
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_arrow_down),
-                                contentDescription = null,
-                                tint = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else TextMuted,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Входящий", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        }
-                        Spacer(modifier = Modifier.height(2.dp))
-                        RollingNumberText(
-                            text = dlSpeed,
-                            color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp
-                        )
-                        RollingNumberText(
-                            text = "Всего: $totalRecv",
-                            color = TextMuted,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Normal
-                        )
-                    }
-
-                    // Divider line (50.0% centered)
-                    Box(
-                        modifier = Modifier
-                            .height(32.dp)
-                            .width(1.dp)
-                            .background(Color(0xFF1F2433))
-                    )
-
-                    // Upload Speed & Total (Weight 1f)
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_arrow_up),
-                                contentDescription = null,
-                                tint = TextMuted,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Исходящий", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        }
-                        Spacer(modifier = Modifier.height(2.dp))
-                        RollingNumberText(
-                            text = ulSpeed,
-                            color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp
-                        )
-                        RollingNumberText(
-                            text = "Всего: $totalSent",
-                            color = TextMuted,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Normal
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // WsPool Real-Time Smooth Bezier Socket Stability Graph
-                WsPoolStabilityGraph(
-                    isProxyActive = currentState == ProxyUiState.CONNECTED,
-                    activeConns = activeConns,
-                    maxPoolSize = app.config.poolSize,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(60.dp)
-                        .padding(horizontal = 12.dp)
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Action Buttons Dock (Always visible, requiring Proxy ON)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Left Action: Copy Link
-                    Surface(
-                        onClick = {
-                            if (currentState != ProxyUiState.CONNECTED) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                Toast.makeText(context, "⚠️ Включите прокси сначала!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                val tgUrl = server.getTelegramProxyUrl()
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("Telegram Proxy", tgUrl)
-                                clipboard.setPrimaryClip(clip)
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                Toast.makeText(context, "Ссылка скопирована!", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(52.dp)
-                            .springPress(),
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(
-                            1.dp,
-                            if (currentState == ProxyUiState.CONNECTED) Color(0xFF1F2433) else Color(0xFF161A26)
-                        )
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_copy),
-                                contentDescription = "Скопировать",
-                                tint = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
-                                modifier = Modifier.size(19.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "Скопировать",
-                                color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
-                        }
-                    }
-
-                    // Right Action: Apply to Telegram
-                    Surface(
-                        onClick = {
-                            if (currentState != ProxyUiState.CONNECTED) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                Toast.makeText(context, "⚠️ Включите прокси сначала!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                val tgUrl = server.getTelegramProxyUrl()
-                                applyToTelegramPackages(context, tgUrl)
-                            }
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(52.dp)
-                            .springPress(),
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(
-                            1.dp,
-                            if (currentState == ProxyUiState.CONNECTED) Color(0xFF1F2433) else Color(0xFF161A26)
-                        )
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_send),
-                                contentDescription = "В Telegram",
-                                tint = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else TextMuted.copy(alpha = 0.5f),
-                                modifier = Modifier.size(19.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "В Telegram",
-                                color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
-                        }
-                    }
-                }
-            }
-            // ─── Column closed above ───
 
             if (showValueBanner) {
                 Box(
@@ -814,8 +913,13 @@ fun HomeScreen(
                 }
             }
 
+            if (showSleepTimerDialog) {
+                SleepTimerDialog(
+                    onDismiss = { showSleepTimerDialog = false }
+                )
+            }
+
             // ── FLOATING EYE BUTTON (inside Box, outside Column) ──────────
-            // Uses fillMaxSize+wrapContentSize trick to reach TopEnd without BoxScope.align
             val eyeAlpha by animateFloatAsState(
                 targetValue = if (isUiHidden && eyeButtonVisible) 1f else 0f,
                 animationSpec = tween(durationMillis = 350),
@@ -845,10 +949,10 @@ fun HomeScreen(
                         tint = Color(0xFF00FF87),
                         modifier = Modifier.size(22.dp)
                     )
+                }
             }
         }
     }
-}
 }
 // end of HomeScreen
 
@@ -942,10 +1046,10 @@ fun RotatingProxyRing(
         val innerAngle = -(t * 24f + kotlin.math.cos(t * 0.35f) * 28f) % 360f
 
         // Smooth wave amplitude for organic curved path ("извилистая плавная дуга")
-        val waveAmp = 3.2.dp.toPx()
+        val waveAmp = (diameter * 0.013f).coerceIn(2.dp.toPx(), 3.5.dp.toPx())
 
         // Outer Ring Bounds
-        val outerInset = stroke / 2f + 8.dp.toPx()
+        val outerInset = stroke / 2f + (diameter * 0.035f).coerceIn(4f, 10.dp.toPx())
         val outerRadius = (diameter - outerInset * 2) / 2f
         val outerTopLeft = Offset(outerInset, outerInset)
         val outerSize = Size(outerRadius * 2, outerRadius * 2)
@@ -1017,7 +1121,7 @@ fun RotatingProxyRing(
         val innerAlphaFactor = if (isDualForced) 1.0f else (organicDualFactor * 0.85f)
 
         if (innerAlphaFactor > 0.05f) {
-            val innerInset = stroke / 2f + 25.dp.toPx()
+            val innerInset = stroke / 2f + (diameter * 0.105f).coerceIn(16.dp.toPx(), 26.dp.toPx())
             val innerRadius = (diameter - innerInset * 2) / 2f
             val innerTopLeft = Offset(innerInset, innerInset)
             val innerSize = Size(innerRadius * 2, innerRadius * 2)

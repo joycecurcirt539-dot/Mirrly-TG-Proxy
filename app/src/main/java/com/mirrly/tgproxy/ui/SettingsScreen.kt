@@ -283,6 +283,8 @@ fun SettingsScreen(
     var infoKey by remember { mutableStateOf<String?>(null) }
     var pendingUpdateRelease by remember { mutableStateOf<com.mirrly.tgproxy.core.ReleaseInfo?>(null) }
     var pendingIssueRedirectUrl by remember { mutableStateOf<String?>(null) }
+    val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
+    var showSleepTimerDialog by remember { mutableStateOf(false) }
 
     fun snapToNearestPool(valIn: Float): Float {
         return poolOptions.minByOrNull { abs(it - valIn) } ?: valIn
@@ -857,6 +859,35 @@ fun SettingsScreen(
                         }
                     )
                 }
+
+                // Sleep Timer Settings Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showSleepTimerDialog = true
+                        }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("Таймер сна (автоотключение)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(
+                            text = if (timerState.isActive) "Активен • Отключение через ${timerState.formatRemainingTime()}" else "Выключен • Нажмите для выбора интервала",
+                            color = if (timerState.isActive) ActiveGreenLed else TextMuted,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_timer),
+                        contentDescription = null,
+                        tint = if (timerState.isActive) ActiveGreenLed else TextMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
@@ -1204,7 +1235,10 @@ fun SettingsScreen(
                         text = "Настройки",
                         color = TextWhite,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+                        fontSize = 18.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 },
                 navigationIcon = {
@@ -1221,6 +1255,12 @@ fun SettingsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+            )
+        }
+
+        if (showSleepTimerDialog) {
+            SleepTimerDialog(
+                onDismiss = { showSleepTimerDialog = false }
             )
         }
     }

@@ -24,13 +24,13 @@ class WsPool(private val poolSize: Int = 4) {
         while (!queue.isEmpty()) {
             val item = queue.poll() ?: break
             val ageMs = now - item.createdAt
-            // Max pool connection age: 120 seconds
-            if (ageMs > 120_000) {
+            // 1. Max pool connection age: 60 seconds (prevents stale NAT timeouts on mobile networks)
+            if (ageMs > 60_000) {
                 item.client.close()
                 continue
             }
-            // Check if the server already closed this socket (closeChannel has a signal)
-            if (!item.client.closeChannel.isEmpty) {
+            // 2. Zero-Latency Health Check: discard dead or closed sockets
+            if (!item.client.isAlive) {
                 item.client.close()
                 continue
             }
@@ -83,5 +83,21 @@ class WsPool(private val poolSize: Int = 4) {
             }
         }
         idlePool.clear()
+    }
+
+    /**
+     * Instantly triggers background refill for the most active Telegram DCs (DC2 and DC4).
+     * Called upon network restoration so fresh WSS sockets are ready within milliseconds.
+     */
+    fun warmUpPrimaryDCs(isTestEnv: Boolean = false) {
+        val primaryKeys = listOf(
+            PoolKey(2, false),
+            PoolKey(4, false),
+            PoolKey(2, true),
+            PoolKey(4, true)
+        )
+        for (key in primaryKeys) {
+            triggerRefill(key, isTestEnv)
+        }
     }
 }

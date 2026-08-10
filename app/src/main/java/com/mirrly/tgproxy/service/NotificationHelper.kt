@@ -21,6 +21,10 @@ object NotificationHelper {
 
     const val SUMMARY_NOTIFICATION_ID = 3003
 
+    const val TIMER_CHANNEL_ID = "mirrly_timer_channel"
+    const val TIMER_WARNING_NOTIFICATION_ID = 4004
+    const val TIMER_EXPIRED_NOTIFICATION_ID = 4005
+
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -43,6 +47,16 @@ object NotificationHelper {
                 enableVibration(true)
             }
             manager.createNotificationChannel(updateChannel)
+
+            val timerChannel = NotificationChannel(
+                TIMER_CHANNEL_ID,
+                "Таймер автоотключения Mirrly",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Предупреждения об автоотключении прокси по таймеру сна"
+                enableVibration(true)
+            }
+            manager.createNotificationChannel(timerChannel)
         }
     }
 
@@ -209,5 +223,102 @@ object NotificationHelper {
     fun cancelSummaryNotification(context: Context) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.cancel(SUMMARY_NOTIFICATION_ID)
+    }
+
+    fun showTimerWarningNotification(context: Context, remainingMinutes: Int) {
+        createNotificationChannel(context)
+
+        val appIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            TIMER_WARNING_NOTIFICATION_ID,
+            appIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val extendIntent = Intent(context, ProxyForegroundService::class.java).apply {
+            action = ProxyForegroundService.ACTION_EXTEND_TIMER
+            putExtra("extra_minutes", 15)
+        }
+        val extendPendingIntent = PendingIntent.getService(
+            context,
+            4006,
+            extendIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val cancelTimerIntent = Intent(context, ProxyForegroundService::class.java).apply {
+            action = ProxyForegroundService.ACTION_CANCEL_TIMER
+        }
+        val cancelTimerPendingIntent = PendingIntent.getService(
+            context,
+            4007,
+            cancelTimerIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val text = "До автоматического отключения прокси осталось $remainingMinutes мин."
+
+        val notification = NotificationCompat.Builder(context, TIMER_CHANNEL_ID)
+            .setContentTitle("⏳ Таймер автоотключения")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .addAction(android.R.drawable.ic_input_add, "+15 минут", extendPendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Отменить", cancelTimerPendingIntent)
+            .build()
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(TIMER_WARNING_NOTIFICATION_ID, notification)
+    }
+
+    fun showTimerExpiredNotification(context: Context) {
+        createNotificationChannel(context)
+
+        val appIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            TIMER_EXPIRED_NOTIFICATION_ID,
+            appIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val restartIntent = Intent(context, ProxyForegroundService::class.java).apply {
+            action = ProxyForegroundService.ACTION_START
+        }
+        val restartPendingIntent = PendingIntent.getService(
+            context,
+            4008,
+            restartIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val text = "Прокси-сервер автоматически отключен по таймеру сна."
+
+        val notification = NotificationCompat.Builder(context, TIMER_CHANNEL_ID)
+            .setContentTitle("💤 Прокси отключен по таймеру")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .addAction(android.R.drawable.ic_media_play, "Включить снова", restartPendingIntent)
+            .build()
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(TIMER_EXPIRED_NOTIFICATION_ID, notification)
+    }
+
+    fun cancelTimerWarningNotification(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(TIMER_WARNING_NOTIFICATION_ID)
     }
 }

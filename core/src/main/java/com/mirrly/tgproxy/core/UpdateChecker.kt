@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -24,7 +25,8 @@ data class ReleaseInfo(
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_API_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
-    const val CURRENT_VERSION_NAME = "1.0.7"
+    private const val GITHUB_API_ALL_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
+    const val CURRENT_VERSION_NAME = "1.0.8"
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -203,5 +205,71 @@ object UpdateChecker {
             if (l < c) return false
         }
         return false
+    }
+
+    suspend fun fetchTotalDownloads(): Result<Int> {
+        return withContext(Dispatchers.IO) {
+            var shieldsCount = 0
+            var githubCount = 0
+
+            // 1. Fetch from Shields.io API (1:1 sync with GitHub badge)
+            try {
+                val shieldsRequest = Request.Builder()
+                    .url("https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total.json")
+                    .header("User-Agent", "Mirrly-TG-Proxy-AndroidApp/$CURRENT_VERSION_NAME")
+                    .build()
+
+                client.newCall(shieldsRequest).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string() ?: ""
+                        val json = JSONObject(body)
+                        val msg = json.optString("message", "").replace("[^0-9]".toRegex(), "")
+                        shieldsCount = msg.toIntOrNull() ?: json.optInt("value", 0)
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Shields API error: ${e.message}")
+            }
+
+            // 2. Fetch direct from GitHub REST API (all releases per_page=100)
+            try {
+                val request = Request.Builder()
+                    .url("https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases?per_page=100")
+                    .header("User-Agent", "Mirrly-TG-Proxy-AndroidApp/$CURRENT_VERSION_NAME")
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .build()
+
+                val response = client.newCall(request).execute()
+                response.use { resp ->
+                    if (resp.isSuccessful) {
+                        val bodyString = resp.body?.string() ?: "[]"
+                        val jsonArray = JSONArray(bodyString)
+                        var total = 0
+                        for (i in 0 until jsonArray.length()) {
+                            val releaseObj = jsonArray.optJSONObject(i) ?: continue
+                            val assets = releaseObj.optJSONArray("assets") ?: continue
+                            for (j in 0 until assets.length()) {
+                                val asset = assets.optJSONObject(j) ?: continue
+                                val name = asset.optString("name", "")
+                                if (name.endsWith(".apk", ignoreCase = true)) {
+                                    total += asset.optInt("download_count", 0)
+                                }
+                            }
+                        }
+                        githubCount = total
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "GitHub API error: ${e.message}")
+            }
+
+            val finalTotal = maxOf(shieldsCount, githubCount)
+            AppLogger.i(TAG, "Fetched downloads: Shields=$shieldsCount, GitHubAPI=$githubCount => Final=$finalTotal")
+            if (finalTotal > 0) {
+                Result.success(finalTotal)
+            } else {
+                Result.failure(Exception("Could not fetch download stats"))
+            }
+        }
     }
 }

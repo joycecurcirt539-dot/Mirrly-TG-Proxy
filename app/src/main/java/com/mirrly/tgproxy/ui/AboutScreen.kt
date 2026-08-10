@@ -24,6 +24,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import kotlinx.coroutines.launch
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -269,6 +270,9 @@ fun AboutScreen(
 
             // OFFICIAL SOURCE & VERIFICATION CARD
             OfficialSourceCard()
+
+            // GITHUB TOTAL DOWNLOADS STATS CARD
+            DownloadStatsCard()
 
             // 2. BIO & MISSION CARD
             Column(
@@ -603,7 +607,10 @@ fun AboutScreen(
                         text = "О разработчике",
                         color = TextWhite,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+                        fontSize = 18.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 },
                 navigationIcon = {
@@ -710,5 +717,140 @@ private fun TechBadge(text: String, modifier: Modifier = Modifier) {
             color = TextWhite.copy(alpha = 0.9f),
             textAlign = TextAlign.Center
         )
+    }
+}
+
+@Composable
+fun DownloadStatsCard(
+    modifier: Modifier = Modifier
+) {
+    val coroutineScope = rememberCoroutineScope()
+    var totalDownloads by remember { mutableStateOf<Int?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var isError by remember { mutableStateOf(false) }
+
+    fun loadStats() {
+        coroutineScope.launch {
+            isLoading = true
+            isError = false
+            val result = com.mirrly.tgproxy.core.UpdateChecker.fetchTotalDownloads()
+            result.onSuccess { count ->
+                totalDownloads = count
+                isLoading = false
+            }.onFailure {
+                isError = true
+                isLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        loadStats()
+    }
+
+    val cyanGlow = Color(0xFF0088CC)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Transparent)
+            .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(16.dp))
+            .lightSweep(isEnabled = true, shape = RoundedCornerShape(16.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(cyanGlow.copy(alpha = 0.12f))
+                    .border(1.dp, cyanGlow.copy(alpha = 0.35f), CircleShape)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_arrow_down),
+                    contentDescription = null,
+                    tint = cyanGlow,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "СКАЧИВАНИЙ С GITHUB",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.1.sp,
+                        color = TextMuted
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(if (isLoading) Color(0xFFFF9E00) else ActiveGreenLed)
+                    )
+                }
+
+                if (isLoading) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            color = cyanGlow,
+                            strokeWidth = 1.8.dp
+                        )
+                        Text(
+                            text = "Получение статистики...",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextMuted
+                        )
+                    }
+                } else if (isError) {
+                    Text(
+                        text = "Сбой загрузки (нажмите для повтора)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFFF9E00),
+                        modifier = Modifier.clickable { loadStats() }
+                    )
+                } else {
+                    val countText = totalDownloads?.let { String.format("%,d", it).replace(',', ' ') } ?: "0"
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = countText,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            color = TextWhite
+                        )
+                        Text(
+                            text = "скачиваний (v1.0.0 — v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME})",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = cyanGlow
+                        )
+                    }
+                }
+            }
+        }
     }
 }

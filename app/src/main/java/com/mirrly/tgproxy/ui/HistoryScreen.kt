@@ -140,7 +140,10 @@ fun HistoryScreen(
                             text = "История сессий",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
-                            color = TextWhite
+                            color = TextWhite,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     },
                     navigationIcon = {

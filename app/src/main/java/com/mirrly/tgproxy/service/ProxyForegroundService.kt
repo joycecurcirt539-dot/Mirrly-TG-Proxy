@@ -41,6 +41,8 @@ class ProxyForegroundService : Service() {
         const val ACTION_RESTART = "com.mirrly.tgproxy.RESTART"
         const val ACTION_CYCLE_PRESET = "com.mirrly.tgproxy.CYCLE_PRESET"
         const val ACTION_COPY_LINK = "com.mirrly.tgproxy.COPY_LINK"
+        const val ACTION_EXTEND_TIMER = "com.mirrly.tgproxy.EXTEND_TIMER"
+        const val ACTION_CANCEL_TIMER = "com.mirrly.tgproxy.CANCEL_TIMER"
 
         private const val WAKELOCK_TIMEOUT_MS = 30L * 60 * 1000
         private const val WAKELOCK_REFRESH_MS = 25L * 60 * 1000
@@ -52,10 +54,18 @@ class ProxyForegroundService : Service() {
         NotificationHelper.createNotificationChannel(this)
 
         networkObserver = NetworkChangeObserver(this) { newType, oldType ->
-            if (newType == "DISCONNECTED") return@NetworkChangeObserver
             val app = MirrlyApplication.instance
 
+            if (newType == "DISCONNECTED") {
+                AppLogger.i(TAG, "Связь с сетью потеряна (DISCONNECTED). Сброс сокетов...")
+                app.proxyServer.resetWsPool()
+                return@NetworkChangeObserver
+            }
+
             if (app.proxyServer.isRunning) {
+                // 1. Мгновенный сброс протухших сокетов и упреждающий прогрев WSS
+                app.proxyServer.onNetworkRestored()
+
                 if (oldType == "Wi-Fi" && (newType.contains("Mobile") || newType.contains("Cellular"))) {
                     val stats = app.proxyServer.stats
                     val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
@@ -70,15 +80,16 @@ class ProxyForegroundService : Service() {
                     isReconnectingNetwork = true
                     serviceScope.launch {
                         try {
-                            delay(1000)
+                            delay(500)
                             if (app.proxyServer.isRunning) {
                                 app.proxyServer.stop()
-                                delay(500)
+                                delay(300)
                                 app.proxyServer.start(cacheDir)
+                                app.proxyServer.onNetworkRestored()
                             }
                         } catch (_: Exception) {
                         } finally {
-                            delay(1500)
+                            delay(1000)
                             isReconnectingNetwork = false
                         }
                     }
@@ -118,6 +129,19 @@ class ProxyForegroundService : Service() {
             }
             ACTION_COPY_LINK -> {
                 copyProxyLinkToClipboard()
+                return START_REDELIVER_INTENT
+            }
+            ACTION_EXTEND_TIMER -> {
+                val extraMin = intent.getIntExtra("extra_minutes", 15)
+                SleepTimerManager.extendTimer(this, extraMin)
+                showToastOnMainThread("⏳ Таймер продлен на +$extraMin мин")
+                updateNotificationImmediately()
+                return START_REDELIVER_INTENT
+            }
+            ACTION_CANCEL_TIMER -> {
+                SleepTimerManager.cancelTimer(this)
+                showToastOnMainThread("⏳ Таймер автоотключения отменен")
+                updateNotificationImmediately()
                 return START_REDELIVER_INTENT
             }
         }
@@ -325,10 +349,13 @@ class ProxyForegroundService : Service() {
             else -> "Обход Telegram активен"
         }
 
+        val timerState = SleepTimerManager.timerState.value
+        val timerSuffix = if (timerState.isActive) " | ⏳ ${timerState.formatRemainingTime()}" else ""
+
         val text = if (isStalled) {
-            "$tgStatus | ↓ 0.0 B/s | $netName | Сокетов: $activeConns (Нажмите 'Перезапустить')"
+            "$tgStatus | ↓ 0.0 B/s | $netName$timerSuffix (Нажмите 'Перезапустить')"
         } else {
-            "$tgStatus | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName | Сокетов: $activeConns"
+            "$tgStatus | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
         }
 
         val updatedNotification = NotificationHelper.buildNotification(
@@ -345,6 +372,7 @@ class ProxyForegroundService : Service() {
     }
 
     private fun stopProxyService() {
+        SleepTimerManager.cancelTimer(this)
         networkObserver?.stop()
         networkObserver = null
         wakeLockJob?.cancel()

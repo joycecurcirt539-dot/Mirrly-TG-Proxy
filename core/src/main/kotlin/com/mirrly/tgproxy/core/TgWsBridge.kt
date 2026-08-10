@@ -109,19 +109,23 @@ class TgWsBridge(
             }
 
             if (!wsConnected || wsClient == null) {
-                // Direct TCP Fallback
+                // Direct TCP Fallback (Last-resort single attempt with 2.5s fast-fail timeout)
                 if (config.fallbackDirectTcp) {
                     val dcIp = (if (config.isTestEnvironment) TgConstants.DC_TEST_IPS else TgConstants.DC_DEFAULT_IPS)[handshakeResult.dcId]
                     if (dcIp != null) {
                         try {
-                            Socket(dcIp, 443).use { directSocket ->
+                            Socket().use { directSocket ->
                                 if (config.tcpNoDelay) {
                                     try { directSocket.tcpNoDelay = true } catch (_: Exception) {}
                                 }
                                 try {
                                     directSocket.receiveBufferSize = config.bufferSizeBytes
                                     directSocket.sendBufferSize = config.bufferSizeBytes
+                                    directSocket.soTimeout = 15000
                                 } catch (_: Exception) {}
+
+                                // Fast-fail connect timeout: 2500ms (prevent hanging when Telegram DC is blocked by DPI)
+                                directSocket.connect(java.net.InetSocketAddress(dcIp, 443), 2500)
 
                                 directSocket.getOutputStream().write(relayInit)
                                 directSocket.getOutputStream().flush()

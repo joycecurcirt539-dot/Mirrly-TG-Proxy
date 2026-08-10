@@ -237,6 +237,22 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
     }
 
+    fun onNetworkRestored() {
+        AppLogger.i("LocalProxyServer", "Сетевое подключение восстановлено. Сброс WsPool и фоновый прогрев WSS...")
+        try {
+            wsPool?.clear()
+            wsPool?.warmUpPrimaryDCs(config.isTestEnvironment)
+        } catch (e: Exception) {
+            AppLogger.w("LocalProxyServer", "Ошибка при обновлении WsPool: ${e.message}")
+        }
+    }
+
+    fun resetWsPool() {
+        try {
+            wsPool?.clear()
+        } catch (_: Exception) {}
+    }
+
     fun getTelegramProxyUrl(): String {
         val nativeSecret = try { NativeProxy.getSecretWithPrefix() } catch (_: Throwable) { null }
         val secretWithPrefix = if (!nativeSecret.isNullOrEmpty()) {

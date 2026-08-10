@@ -69,7 +69,10 @@ fun UpdateScreen(
                             text = "Обновление системы",
                             fontWeight = FontWeight.Bold,
                             fontSize = 17.sp,
-                            color = TextWhite
+                            color = TextWhite,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         Box(
                             modifier = Modifier
@@ -184,7 +187,7 @@ fun UpdateScreen(
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "Версия v${releaseInfo?.versionName ?: "1.0.7"}",
+                            text = "Версия v${releaseInfo?.versionName ?: com.mirrly.tgproxy.BuildConfig.VERSION_NAME}",
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite,

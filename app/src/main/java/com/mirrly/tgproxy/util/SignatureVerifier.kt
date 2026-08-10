@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import com.mirrly.tgproxy.core.AppLogger
+import java.io.File
 import java.security.MessageDigest
 
 enum class SignatureStatus {
@@ -106,6 +107,67 @@ object SignatureVerifier {
             SignatureStatus.OFFICIAL_RELEASE
         }
         return status
+    }
+
+    /**
+     * Verifies the cryptographic signing certificate of a downloaded APK file BEFORE installation.
+     * Guarantees that only authentic APKs signed with the official release key can be installed.
+     */
+    fun verifyApkFile(context: Context, apkFile: File, expectedRemoteHashes: List<String>? = null): SignatureStatus {
+        val signatures = getApkFileSignatures(context, apkFile)
+        if (signatures.isEmpty()) {
+            AppLogger.e(TAG, "verifyApkFile: No signatures found in ${apkFile.name}")
+            return SignatureStatus.UNOFFICIAL_MODIFIED
+        }
+
+        val apkSha256WithColons = hashSha256(signatures[0])
+        val apkSha256Clean = apkSha256WithColons.replace(":", "").uppercase()
+        AppLogger.i(TAG, "Downloaded APK Certificate SHA-256: $apkSha256WithColons")
+
+        val cleanOfficial = OFFICIAL_RELEASE_SHA256.replace(":", "").uppercase()
+        val isKnownOfficialKey = apkSha256Clean == cleanOfficial
+
+        val cleanExpectedList = expectedRemoteHashes?.mapNotNull { h ->
+            h.replace(":", "").uppercase().takeIf { it.isNotBlank() }
+        } ?: emptyList()
+
+        val isRemoteMatch = cleanExpectedList.any { clean ->
+            apkSha256Clean == clean
+        }
+
+        val isCurrentDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+        return when {
+            isKnownOfficialKey || isRemoteMatch -> SignatureStatus.OFFICIAL_RELEASE
+            isCurrentDebug -> SignatureStatus.DEBUG_BUILD
+            else -> SignatureStatus.UNOFFICIAL_MODIFIED
+        }
+    }
+
+    private fun getApkFileSignatures(context: Context, apkFile: File): List<ByteArray> {
+        val pm = context.packageManager
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val packageInfo = pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
+                val signingInfo = packageInfo?.signingInfo
+                if (signingInfo != null) {
+                    if (signingInfo.hasMultipleSigners()) {
+                        signingInfo.apkContentsSigners.map { it.toByteArray() }
+                    } else {
+                        signingInfo.signingCertificateHistory.map { it.toByteArray() }
+                    }
+                } else emptyList()
+            } else {
+                @Suppress("DEPRECATION")
+                val packageInfo = pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNATURES)
+                @Suppress("DEPRECATION")
+                val signatures = packageInfo?.signatures
+                signatures?.map { it.toByteArray() } ?: emptyList()
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to retrieve signatures from APK file: ${e.message}")
+            emptyList()
+        }
     }
 
     fun getSignatureSha256(context: Context): String {
