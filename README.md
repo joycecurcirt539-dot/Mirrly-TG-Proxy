@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="icon%20for%20github%20readme.png" alt="Mirrly TG Proxy Logo" width="220" />
+<img src="docs/assets/logo.png" alt="Mirrly TG Proxy Logo" width="220" />
 
 # Mirrly TG Proxy для Android
 
@@ -92,13 +92,13 @@ flowchart TD
 
 | Главный экран | Настройки | Журнал событий |
 | :-: | :-: | :-: |
-| <img src="screenshot/home.jpg" alt="Главный экран" width="240" /> | <img src="screenshot/settings.jpg" alt="Экран настроек" width="240" /> | <img src="screenshot/logs.jpg" alt="Экран логов" width="240" /> |
+| <img src="docs/assets/home.jpg" alt="Главный экран" width="240" /> | <img src="docs/assets/settings.jpg" alt="Экран настроек" width="240" /> | <img src="docs/assets/logs.jpg" alt="Экран логов" width="240" /> |
 
 <br />
 
 | Проверка соединения в Telegram |
 | :-: |
-| <img src="screenshot/ping.jpg" alt="Проверка пинга" width="360" /> |
+| <img src="docs/assets/ping.jpg" alt="Проверка пинга" width="360" /> |
 
 </div>
 

@@ -41,7 +41,12 @@ captures/
 .DS_Store
 Thumbs.db
 *.log
+
 # Native C++ build files
 .cxx/
 app/.cxx/
+
+# Verification and temporary tool directories
+.verify_check/
+
 
