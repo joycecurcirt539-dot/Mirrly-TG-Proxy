@@ -86,26 +86,88 @@ Mirrly TG Proxy спроектирован с упором на использо
 
 ```mermaid
 flowchart TD
-    subgraph AndroidDevice ["Android-устройство (Без VPN)"]
-        TGClient["Клиент Telegram\n(Official / AyuGram / NekoGram)"]
-        MTProtoLocal["Локальный MTProto\n127.0.0.1:1443"]
-        SocksLocal["Локальный SOCKS5 (Звонки)\n127.0.0.1:10808"]
-        PoolMgr{"Маршрутизация WsPool & Туннелей"}
+    subgraph UI_Layer ["Интерфейс приложения (Jetpack Compose & State Manager)"]
+        HomeScreen["Главный экран\n(Статус, Капсула времени, Умные кнопки action)"]
+        SettingsScreen["Экран настроек\n(Переключатель режимов, Кастомный домен, Тумблеры воркеров)"]
+        Dialogs["Интерактивные диалоги\n(Инструкция воркера, Предупреждение SOCKS5, Таймер сна)"]
+        PrefMgr[("PreferencesManager\n(SharedPreferences: secret_hex, proxy_mode)")]
         
-        TGClient -->|Чаты / Медиа| MTProtoLocal
-        TGClient -->|Звонки / Голос| SocksLocal
-        MTProtoLocal --> PoolMgr
-        SocksLocal --> PoolMgr
+        HomeScreen <--> SettingsScreen
+        SettingsScreen <--> Dialogs
+        SettingsScreen --> PrefMgr
     end
 
-    subgraph Internet ["Сеть Cloudflare CDN (Edge Nodes)"]
-        PoolMgr -->|Личный / Тестовый WSS Туннель| CFWorker["Cloudflare Worker (V8 Edge Script)\ncloudflare:sockets"]
+    subgraph Service_Layer ["Фоновая служба & Жизненный цикл (Android Foreground Service)"]
+        ProxyService["ProxyForegroundService\n(Уведомления в шторке, Auto-reconnect)"]
+        SleepTimer["SleepTimerManager\n(Таймер автоотключения)"]
+        ServerCore["LocalProxyServer\n(Центральный менеджер прокси-серверов)"]
+        
+        PrefMgr --> ProxyService
+        ProxyService --> ServerCore
+        SleepTimer --> ProxyService
     end
 
-    subgraph TelegramDCs ["Инфраструктура Telegram"]
-        CFWorker --> DC1["DC1 - DC5 Telegram (Чаты & Медиа)"]
-        CFWorker --> VoIPReflectors["Telegram VoIP Reflectors (Звонки)"]
+    subgraph ModeSelector {"Переключатель режимов (proxyModeName)"}
+        ServerCore --> ModeSelector
     end
+
+    subgraph MTProto_Branch ["РЕЖИМ MTPROTO (Порт 1443) — Чаты, Медиа и Каналы"]
+        MTProtoEngineSelector{"Проверка наличия воркера\n(getEffectiveCfDomain)"}
+        
+        ModeSelector -->|proxyMode = MTPROTO| MTProtoEngineSelector
+        
+        TgWsBridge["TgWsBridge (Kotlin-движок)\nWSS TCP туннелирование /tcp?target=..."]
+        NativeEngine["NativeProxy.so (C++ NDK)\nFake-TLS dd... & Прямые WSS"]
+        WsPool["WsPool Manager\n(Прогретый пул WSS-сокетов DC 1..5)"]
+        FastFail["Smart Fast-Fail Fallback\n(2.5с таймаут прямого TCP)"]
+        
+        MTProtoEngineSelector -->|Воркер активен| TgWsBridge
+        MTProtoEngineSelector -->|Без воркера| NativeEngine
+        NativeEngine -.-> WsPool
+        TgWsBridge -.-> WsPool
+        NativeEngine -.-> FastFail
+    end
+
+    subgraph SOCKS5_Branch ["РЕЖИМ SOCKS5 (Порт 10808) — Чаты и Голосовые/Видеозвонки"]
+        SocksEngine["Socks5WsBridge (Kotlin SOCKS5 Движок)\nСлушатель сокета 10808 & Прозрачный TCP Relay"]
+        
+        ModeSelector -->|proxyMode = SOCKS5| SocksEngine
+    end
+
+    subgraph Resolver_Layer ["Логика выбора Cloudflare Worker (getEffectiveCfDomain)"]
+        WorkerResolver{"Приоритет домена воркера"}
+        UserCustom["1. Кастомный домен пользователя\n(customCfDomain)"]
+        DefaultWorker["2. Тестовый воркер Mirrly\n(useDefaultWorkerSocks5 / useDefaultWorkerMtproto)"]
+        DirectRoute["3. Прямой маршрут без воркера"]
+        
+        WorkerResolver -->|Если заполнен customCfDomain| UserCustom
+        WorkerResolver -->|Если пусто & включен тумблер| DefaultWorker
+        WorkerResolver -->|Если пусто & выключен тумблер| DirectRoute
+    end
+
+    TgWsBridge --> WorkerResolver
+    SocksEngine --> WorkerResolver
+
+    subgraph Cloudflare_Edge ["Инфраструктура Cloudflare CDN (Edge Nodes)"]
+        WssTunnel["WSS TLS-туннель (wss://.../tcp?target=...)\nМаскировка трафика под HTTPS"]
+        CFWorker["Cloudflare Worker (V8 Edge Script)\nimport { connect } from 'cloudflare:sockets'"]
+        
+        UserCustom --> WssTunnel
+        DefaultWorker --> WssTunnel
+        WssTunnel --> CFWorker
+    end
+
+    subgraph Telegram_Infrastructure ["Дата-центры & Рефлекторы Telegram"]
+        TelegramDC["Telegram DCs (DC 1 - DC 5)\n149.154.167.x:443 / 91.108.56.x:443"]
+        VoIPNodes["Telegram VoIP Reflectors\n(Рефлекторы голосовых и видеовызовов)"]
+        
+        CFWorker -->|Прямой TCP сокет| TelegramDC
+        CFWorker -->|Прямой TCP сокет| VoIPNodes
+        DirectRoute -.->|Прямой TCP без CF| TelegramDC
+    end
+
+    TGApp["Клиенты Telegram\n(Official / AyuGram / NekoGram)"] -->|Подключение к 127.0.0.1:1443| MTProto_Branch
+    TGApp -->|Подключение к 127.0.0.1:10808| SOCKS5_Branch
 ```
 
 ---
