@@ -60,6 +60,7 @@ import androidx.compose.ui.platform.LocalDensity
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.ProxyConfig
+import com.mirrly.tgproxy.core.ProxyMode
 import com.mirrly.tgproxy.service.ProxyForegroundService
 import com.mirrly.tgproxy.ui.theme.*
 import com.mirrly.tgproxy.util.shareApp
@@ -272,9 +273,21 @@ fun SettingsScreen(
             portText.toIntOrNull()?.let { it < 1 || it > 65535 } ?: portText.isNotEmpty()
         }
     }
-    var secretText by remember { mutableStateOf(config.secretHex) }
+    var socks5PortText by remember { mutableStateOf(config.socks5Port.toString()) }
+    val isSocks5PortError by remember {
+        derivedStateOf {
+            socks5PortText.toIntOrNull()?.let { it < 1 || it > 65535 } ?: socks5PortText.isNotEmpty()
+        }
+    }
+    var secretText by remember(config.secretHex) { mutableStateOf(config.secretHex) }
     var showSecret by remember { mutableStateOf(false) }
     var customDomainText by remember { mutableStateOf(config.customCfDomain) }
+    var useDefaultWorkerSocks5 by remember { mutableStateOf(config.useDefaultWorkerSocks5) }
+    var useDefaultWorkerMtproto by remember { mutableStateOf(config.useDefaultWorkerMtproto) }
+
+    var selectedMode by remember { mutableStateOf(config.proxyMode) }
+    var showSocks5WarningDialog by remember { mutableStateOf(false) }
+    var showWorkerGuideDialog by remember { mutableStateOf(false) }
 
     val poolOptions = remember { listOf(2f, 4f, 8f, 16f) }
     var poolSize by remember { mutableFloatStateOf(config.poolSize.toFloat()) }
@@ -314,6 +327,15 @@ fun SettingsScreen(
         }
     }
 
+    LaunchedEffect(socks5PortText) {
+        delay(600)
+        val p = socks5PortText.toIntOrNull()
+        if (p != null && p in 1..65535 && p != config.socks5Port) {
+            config.socks5Port = p
+            restartProxyIfNeeded()
+        }
+    }
+
     LaunchedEffect(secretText) {
         delay(600)
         val trimmed = secretText.trim()
@@ -341,8 +363,18 @@ fun SettingsScreen(
                 "Локальный TCP-порт, на котором прокси принимает подключения от Telegram.\n\nРекомендованное значение: 1443. Этот порт не требует прав root и обычно не занят другими приложениями.\n\nДопустимый диапазон: 1–65535. Если порт занят — прокси не запустится. После смены порта обновите настройки прокси в Telegram."
             "secret" -> "Секретный ключ (MTProto)" to
                 "32-символьный hex-ключ протокола MTProto. Его необходимо указать в настройках прокси Telegram — без него подключение невозможно.\n\nПрефикс dd означает режим Fake TLS: трафик маскируется под обычный HTTPS, что позволяет обходить DPI-фильтрацию.\n\nНажмите 🔄 для генерации нового случайного ключа. После смены обновите ссылку-приглашение в Telegram."
-            "cf_domain" -> "Кастомный домен Cloudflare Worker" to
-                "Адрес вашего Cloudflare Worker, через который проходит весь трафик до серверов Telegram.\n\nЕсли поле пустое — используется встроенный домен Mirrly. Собственный домен обеспечивает максимальную независимость и надёжность.\n\nФормат: worker.mydomain.workers.dev или ваш домен, привязанный к Cloudflare Worker."
+            "cf_domain" -> "Безопасность & Принцип работы Cloudflare Worker" to
+                "🔒 БЕЗОПАСНОСТЬ ЛИЧНЫХ ДАННЫХ:\n" +
+                "Для 100% защиты вашей конфиденциальности и анонимности мы НАСТОЯТЕЛЬНО рекомендуем НЕ использовать тестовые воркеры разработчика на постоянной основе, а развернуть свой личный воркер по инструкции ниже.\n\n" +
+                "При использовании чужого воркера ваш трафик проходит через посторонний узел. Разворачивая собственный бесплатный воркер, вы гарантируете, что логи и ключи доступа принадлежат ТОЛЬКО вам.\n\n" +
+                "⚙️ КАК РАБОТАЕТ CLOUDFLARE WORKER:\n" +
+                "• Cloudflare Worker — это бессерверный V8-скрипт на глобальной сети Cloudflare Edge (300+ городов по всему миру).\n" +
+                "• Он принимает трафик Telegram через зашифрованные WebSockets (wss://) и создает прямое TCP-подключение к дата-центрам Telegram через серверные каналы Cloudflare.\n" +
+                "• Для провайдеров и систем DPI/ТСПУ этот трафик выглядит как абсолютно обычное безопасное посещение любого сайта на Cloudflare, что полностью сводит на нет попытки блокировки.\n\n" +
+                "💡 ПОЧЕМУ СВОЙ ВОРКЕР ЛУЧШЕ:\n" +
+                "• Бесплатный тариф Cloudflare даёт 100 000 запросов в день лично вам.\n" +
+                "• Отсутствие зависимости от сторонних серверов и чужих лимитов.\n" +
+                "• Максимальная скорость для звонков, скачивания тяжёлых файлов и видео."
             "pool" -> "Размер пула сокетов" to
                 "Количество WebSocket-соединений, которые прокси держит открытыми заранее (pre-warming).\n\nБольший пул = меньше задержка при открытии чата:\n• 2 — минимальный расход батареи и RAM\n• 4 — баланс скорости и экономии (рекомендуется)\n• 8 — быстрый отклик, умеренный расход\n• 16 — максимальная скорость, повышенный расход\n\nКаждое соединение занимает ~50–100 КБ RAM и поддерживает фоновое соединение с Cloudflare."
             "autostart" -> "Автозапуск при загрузке" to
@@ -355,6 +387,8 @@ fun SettingsScreen(
                 "Отключает алгоритм Нагла (Nagle's Algorithm).\n\nПозволяет отправлять пакеты и чанки медиафайлов немедленно в сеть, устраняя задержки 40–200 мс при отсылке сообщений и загрузке файлов в Telegram."
             "disable_animations" -> "Отключение анимаций и частиц" to
                 "Оптимизирует энергопотребление и снижает нагрузку на процессор устройства.\n\nПри включении тумблера убираются фоновые визуальные частицы и тяжёлые анимации, что продлевает время автономной работы батареи и обеспечивает максимальную плавность на бюджетных устройствах."
+            "protocols_info" -> "Режимы работы прокси" to
+                "• MTProto (рекомендуется):\nНативный протокол Telegram с WsPool, Fake-TLS и турбо-буферами. Максимальная скорость. Используй эту ссылку: tg://proxy?...secret=dd...\n\n• SOCKS5 (для звонков и чатов):\nПрозрачный TCP relay. Telegram шифрует данные самостоятельно. Поддерживает чаты, медиа и голосовые/видеозвонки одновременно. Используй tg://socks?...\n\nПримечание: оба режима не работают одновременно — выбери один."
             else -> return@let
         }
         InfoDialog(title = dlgTitle, body = dlgBody, onDismiss = { infoKey = null })
@@ -400,9 +434,91 @@ fun SettingsScreen(
                 }
             )
 
-            // SECTION 1: Сеть
+            // SECTION 0: Протокол
             Column(
                 modifier = Modifier.staggeredEntrance(index = 0),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "ПРОТОКОЛ",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.3.sp,
+                        color = TextMuted
+                    )
+                    InfoButton { infoKey = "protocols_info" }
+                }
+
+                // Mode Selector Chips (чистый стиль без лишних обводок, плашек и эмодзи)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(ProxyMode.MTPROTO, ProxyMode.SOCKS5).forEach { mode ->
+                        val isSelected = selectedMode == mode
+                        val chipBorder by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
+                            animationSpec = tween(200),
+                            label = "modeBorder_${mode.name}"
+                        )
+                        val chipTextColor by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                            animationSpec = tween(200),
+                            label = "modeText_${mode.name}"
+                        )
+                        val chipBgColor by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
+                            animationSpec = tween(200),
+                            label = "modeBg_${mode.name}"
+                        )
+
+                        val modeLabel = when (mode) {
+                            ProxyMode.MTPROTO -> "MTProto"
+                            ProxyMode.SOCKS5  -> "SOCKS5 [БЕТА]"
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(chipBgColor)
+                                .border(1.dp, chipBorder, RoundedCornerShape(12.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (mode == ProxyMode.SOCKS5 && config.customCfDomain.trim().isEmpty()) {
+                                        showSocks5WarningDialog = true
+                                    } else {
+                                        selectedMode = mode
+                                        config.proxyModeName = mode.name
+                                        restartProxyIfNeeded()
+                                    }
+                                }
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = modeLabel,
+                                fontSize = 13.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = chipTextColor
+                            )
+                        }
+                    }
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
+
+            // SECTION 1: Сеть
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 1),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
@@ -413,104 +529,139 @@ fun SettingsScreen(
                     color = TextMuted
                 )
 
-                // Port Input
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("Порт подключения", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        InfoButton { infoKey = "port" }
-                    }
-                    OutlinedTextField(
-                        value = portText,
-                        onValueChange = { portText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        isError = isPortError,
-                        shape = RoundedCornerShape(14.dp),
-                        supportingText = if (isPortError) {
-                            { Text("Введите число от 1 до 65535", color = Color(0xFFEF4444), fontSize = 12.sp) }
-                        } else null,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedBorderColor = if (isPortError) Color(0xFFEF4444) else ActiveGreenLed,
-                            unfocusedBorderColor = if (isPortError) Color(0xFFEF4444) else Color(0xFF1E2333),
-                            focusedTextColor = TextWhite,
-                            unfocusedTextColor = TextWhite,
-                            errorBorderColor = Color(0xFFEF4444),
-                            errorTextColor = TextWhite
+                // Port Input (MTProto или SOCKS5 в зависимости от режима)
+                if (selectedMode == ProxyMode.MTPROTO) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Порт MTProto", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "port" }
+                        }
+                        OutlinedTextField(
+                            value = portText,
+                            onValueChange = { portText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            isError = isPortError,
+                            shape = RoundedCornerShape(14.dp),
+                            supportingText = if (isPortError) {
+                                { Text("Введите число от 1 до 65535", color = Color(0xFFEF4444), fontSize = 12.sp) }
+                            } else null,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedBorderColor = if (isPortError) Color(0xFFEF4444) else ActiveGreenLed,
+                                unfocusedBorderColor = if (isPortError) Color(0xFFEF4444) else Color(0xFF1E2333),
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite,
+                                errorBorderColor = Color(0xFFEF4444),
+                                errorTextColor = TextWhite
+                            )
                         )
-                    )
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Порт SOCKS5", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "port" }
+                        }
+                        OutlinedTextField(
+                            value = socks5PortText,
+                            onValueChange = { socks5PortText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            isError = isSocks5PortError,
+                            shape = RoundedCornerShape(14.dp),
+                            supportingText = if (isSocks5PortError) {
+                                { Text("Введите число от 1 до 65535", color = Color(0xFFEF4444), fontSize = 12.sp) }
+                            } else null,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedBorderColor = if (isSocks5PortError) Color(0xFFEF4444) else ActiveGreenLed,
+                                unfocusedBorderColor = if (isSocks5PortError) Color(0xFFEF4444) else Color(0xFF1E2333),
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite,
+                                errorBorderColor = Color(0xFFEF4444),
+                                errorTextColor = TextWhite
+                            )
+                        )
+                    }
                 }
 
-                // Secret Key Input
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("Секретный ключ (Hex)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        InfoButton { infoKey = "secret" }
-                    }
-                    OutlinedTextField(
-                        value = secretText,
-                        onValueChange = { secretText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(0.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(end = 4.dp)
-                            ) {
-                                IconButton(
-                                    onClick = {
-                                        showSecret = !showSecret
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    },
-                                    modifier = Modifier.size(32.dp)
+                // Secret Key Input (показывается только в режиме MTProto)
+                if (selectedMode == ProxyMode.MTPROTO) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Секретный ключ (Hex)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "secret" }
+                        }
+                        OutlinedTextField(
+                            value = secretText,
+                            onValueChange = { secretText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(end = 4.dp)
                                 ) {
-                                    Crossfade(targetState = showSecret, animationSpec = tween(180), label = "eyeFade") { isVisible ->
+                                    IconButton(
+                                        onClick = {
+                                            showSecret = !showSecret
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Crossfade(targetState = showSecret, animationSpec = tween(180), label = "eyeFade") { isVisible ->
+                                            Icon(
+                                                painter = painterResource(id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye),
+                                                contentDescription = null,
+                                                tint = if (isVisible) ActiveGreenLed else TextMuted,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            val newSecret = ProxyConfig.generateRandomSecret()
+                                            secretText = newSecret
+                                            config.secretHex = newSecret
+                                            restartProxyIfNeeded()
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
                                         Icon(
-                                            painter = painterResource(id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye),
+                                            painter = painterResource(id = R.drawable.ic_refresh),
                                             contentDescription = null,
-                                            tint = if (isVisible) ActiveGreenLed else TextMuted,
+                                            tint = TextWhite,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
-                                IconButton(
-                                    onClick = {
-                                        val newSecret = ProxyConfig.generateRandomSecret()
-                                        secretText = newSecret
-                                        config.secretHex = newSecret
-                                        restartProxyIfNeeded()
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_refresh),
-                                        contentDescription = null,
-                                        tint = TextWhite,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedBorderColor = ActiveGreenLed,
-                            unfocusedBorderColor = Color(0xFF1E2333),
-                            focusedTextColor = TextWhite,
-                            unfocusedTextColor = TextWhite
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedBorderColor = ActiveGreenLed,
+                                unfocusedBorderColor = Color(0xFF1E2333),
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite
+                            )
                         )
-                    )
+                    }
                 }
             }
 
@@ -518,16 +669,41 @@ fun SettingsScreen(
 
             // SECTION 2: Cloudflare (Always Enabled)
             Column(
-                modifier = Modifier.staggeredEntrance(index = 1),
+                modifier = Modifier.staggeredEntrance(index = 2),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text(
-                    text = "CLOUDFLARE TUNNEL",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "CLOUDFLARE TUNNEL",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.3.sp,
+                        color = TextMuted
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = ActiveGreenLed.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
+                        modifier = Modifier.clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showWorkerGuideDialog = true
+                        }
+                    ) {
+                        Text(
+                            text = "ИНСТРУКЦИЯ ВОРКЕРА",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ActiveGreenLed,
+                            letterSpacing = 0.8.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
 
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(
@@ -541,7 +717,7 @@ fun SettingsScreen(
                         value = customDomainText,
                         onValueChange = { customDomainText = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("worker.mydomain.workers.dev (опционально)", color = TextMuted, fontSize = 13.sp) },
+                        placeholder = { Text("worker.mydomain.workers.dev (свой воркер)", color = TextMuted, fontSize = 13.sp) },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -552,6 +728,60 @@ fun SettingsScreen(
                             focusedTextColor = TextWhite,
                             unfocusedTextColor = TextWhite
                         )
+                    )
+                }
+
+                // Тестовый Cloudflare Worker Mirrly для SOCKS5
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Тестовый Cloudflare Worker Mirrly (SOCKS5)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "cf_domain" }
+                        }
+                        Text("Использовать личный тестовый воркер разработчика для SOCKS5, если не развёрнут свой", color = TextMuted, fontSize = 11.5.sp)
+                    }
+                    InertialSpringSwitch(
+                        checked = useDefaultWorkerSocks5,
+                        onCheckedChange = { newValue ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            useDefaultWorkerSocks5 = newValue
+                            config.useDefaultWorkerSocks5 = newValue
+                            restartProxyIfNeeded()
+                        }
+                    )
+                }
+
+                // Тестовый Cloudflare Worker Mirrly для MTProto
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Тестовый Cloudflare Worker Mirrly (MTProto)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "cf_domain" }
+                        }
+                        Text("Использовать личный тестовый воркер разработчика для MTProto, если не развёрнут свой", color = TextMuted, fontSize = 11.5.sp)
+                    }
+                    InertialSpringSwitch(
+                        checked = useDefaultWorkerMtproto,
+                        onCheckedChange = { newValue ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            useDefaultWorkerMtproto = newValue
+                            config.useDefaultWorkerMtproto = newValue
+                            restartProxyIfNeeded()
+                        }
                     )
                 }
             }
@@ -1261,6 +1491,33 @@ fun SettingsScreen(
         if (showSleepTimerDialog) {
             SleepTimerDialog(
                 onDismiss = { showSleepTimerDialog = false }
+            )
+        }
+
+        if (showSocks5WarningDialog) {
+            Socks5WarningDialog(
+                onOpenGuide = {
+                    showSocks5WarningDialog = false
+                    showWorkerGuideDialog = true
+                },
+                onConfirmSocks5 = {
+                    showSocks5WarningDialog = false
+                    selectedMode = ProxyMode.SOCKS5
+                    config.proxyModeName = ProxyMode.SOCKS5.name
+                    restartProxyIfNeeded()
+                },
+                onRevertToMtproto = {
+                    showSocks5WarningDialog = false
+                    selectedMode = ProxyMode.MTPROTO
+                    config.proxyModeName = ProxyMode.MTPROTO.name
+                    restartProxyIfNeeded()
+                }
+            )
+        }
+
+        if (showWorkerGuideDialog) {
+            CloudflareWorkerGuideDialog(
+                onDismiss = { showWorkerGuideDialog = false }
             )
         }
     }

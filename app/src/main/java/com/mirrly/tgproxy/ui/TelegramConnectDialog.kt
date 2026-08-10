@@ -1,0 +1,354 @@
+/*
+ * Mirrly TG Proxy - Native MTProto & Cloudflare WebSocket Proxy for Android
+ * Copyright (C) 2026 R1Xern (Mirrly Dev)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package com.mirrly.tgproxy.ui
+
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.os.Build
+import android.view.WindowManager
+import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import com.mirrly.tgproxy.MirrlyApplication
+import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.ui.theme.*
+
+@Composable
+fun TelegramConnectDialog(
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val app = MirrlyApplication.instance
+    val server = app.proxyServer
+
+    val mtprotoUrl = remember { server.getTelegramProxyUrl() }
+    val socks5Url = remember { server.getTelegramSocks5Url() }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        val view = LocalView.current
+        SideEffect {
+            val window = (view.parent as? DialogWindowProvider)?.window
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                window?.attributes = window?.attributes?.apply {
+                    blurBehindRadius = 70
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.12f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onDismiss() }
+                .padding(horizontal = 20.dp)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(bottom = 76.dp, top = 24.dp)
+                    .verticalScroll(rememberScrollState())
+                    .clickable(enabled = false) {}
+            ) {
+                // Category Pill
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF00F0FF).copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.35f))
+                ) {
+                    Text(
+                        text = "ВЫБОР ПРОТОКОЛА ДЛЯ TELEGRAM",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF00F0FF),
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
+                }
+
+                Text(
+                    text = "Подключение к Telegram",
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = "Выберите подходящий протокол под вашу текущую задачу:",
+                    fontSize = 13.sp,
+                    color = TextWhite.copy(alpha = 0.85f),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 18.sp
+                )
+
+                // ─── CARD 1: MTProto Proxy (Рекомендуется для чатов) ───
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (!app.config.isSocks5Mode) ActiveGreenLed.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.04f),
+                    border = BorderStroke(1.dp, if (!app.config.isSocks5Mode) ActiveGreenLed.copy(alpha = 0.7f) else Color(0xFF1E2433)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = ActiveGreenLed,
+                                    modifier = Modifier.size(8.dp)
+                                ) {}
+                                Text(
+                                    text = "MTProto Proxy",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = TextWhite
+                                )
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = ActiveGreenLed.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    text = if (!app.config.isSocks5Mode) "АКТИВЕН • РЕКОМЕНДУЕТСЯ" else "РЕКОМЕНДУЕТСЯ",
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = ActiveGreenLed,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Идеально для чатов, каналов и 4K-медиа. Максимальная скорость, пул WsPool и минимальный расход батареи.",
+                            fontSize = 12.5.sp,
+                            color = TextWhite.copy(alpha = 0.78f),
+                            lineHeight = 17.sp
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onDismiss()
+                                    applyToTelegramPackages(context, mtprotoUrl)
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ActiveGreenLed.copy(alpha = 0.22f),
+                                    contentColor = ActiveGreenLed
+                                ),
+                                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.6f)),
+                                modifier = Modifier.weight(1.3f).height(42.dp)
+                            ) {
+                                Text("В Telegram", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Telegram MTProto", mtprotoUrl))
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    Toast.makeText(context, "MTProto ссылка скопирована!", Toast.LENGTH_SHORT).show()
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                                modifier = Modifier.weight(1f).height(42.dp)
+                            ) {
+                                Text("Копировать", color = TextWhite, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+
+                // ─── CARD 2: SOCKS5 Proxy (Для звонков) ───
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (app.config.isSocks5Mode) Color(0xFF00F0FF).copy(alpha = 0.06f) else Color.White.copy(alpha = 0.04f),
+                    border = BorderStroke(1.dp, if (app.config.isSocks5Mode) Color(0xFF00F0FF).copy(alpha = 0.7f) else Color(0xFF1E2433)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFF00F0FF),
+                                    modifier = Modifier.size(8.dp)
+                                ) {}
+                                Text(
+                                    text = "SOCKS5 Proxy",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = TextWhite
+                                )
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFFF3D00).copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, Color(0xFFFF3D00).copy(alpha = 0.5f))
+                            ) {
+                                Text(
+                                    text = if (app.config.isSocks5Mode) "АКТИВЕН • БЕТА" else "БЕТА • ДЛЯ ЗВОНКОВ",
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFFFF3D00),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Поддерживает обход блокировок аудио- и видеозвонков через TCP-туннель. Режим находится в стадии БЕТА-тестирования, стабильность работы не гарантируется.",
+                            fontSize = 12.5.sp,
+                            color = TextWhite.copy(alpha = 0.78f),
+                            lineHeight = 17.sp
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onDismiss()
+                                    applyToTelegramPackages(context, socks5Url)
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF00F0FF).copy(alpha = 0.22f),
+                                    contentColor = Color(0xFF00F0FF)
+                                ),
+                                border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.6f)),
+                                modifier = Modifier.weight(1.3f).height(42.dp)
+                            ) {
+                                Text("В Telegram", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Telegram SOCKS5", socks5Url))
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    Toast.makeText(context, "SOCKS5 ссылка скопирована!", Toast.LENGTH_SHORT).show()
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+                                modifier = Modifier.weight(1f).height(42.dp)
+                            ) {
+                                Text("Копировать", color = TextWhite, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Bottom Action Button
+            Button(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onDismiss()
+                },
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White.copy(alpha = 0.20f),
+                    contentColor = TextWhite
+                ),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+                    .fillMaxWidth(0.90f)
+                    .height(48.dp)
+            ) {
+                Text(
+                    text = "Закрыть",
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite
+                )
+            }
+        }
+    }
+}

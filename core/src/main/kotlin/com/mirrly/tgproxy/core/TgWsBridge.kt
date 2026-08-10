@@ -76,18 +76,44 @@ class TgWsBridge(
             var wsConnected = false
             var wsClient: RawWebSocketClient? = null
 
-            // 1. Try pre-warmed connection pool hit
-            val pooledClient = wsPool?.get(handshakeResult.dcId, handshakeResult.isMedia, config.isTestEnvironment)
-            if (pooledClient != null) {
-                if (pooledClient.send(relayInit)) {
-                    wsClient = pooledClient
-                    wsConnected = true
-                } else {
-                    pooledClient.close()
+            val cfDomain = config.getEffectiveCfDomain()
+
+            // 1. Попытка подключения через Cloudflare Worker (Кастомный воркер пользователя или включенный дефолтный)
+            if (cfDomain.isNotEmpty()) {
+                val dcIpMap = if (config.isTestEnvironment) TgConstants.DC_TEST_IPS else TgConstants.DC_DEFAULT_IPS
+                val dcIp = dcIpMap[handshakeResult.dcId] ?: "149.154.167.51"
+                val wsUrl = "wss://$cfDomain/tcp?target=$dcIp:443&host=$dcIp&port=443"
+                val client = RawWebSocketClient(wsUrl)
+                try {
+                    AppLogger.i("TgWsBridge", "MTProto: Подключение к Cloudflare Worker ($cfDomain) для DC ${handshakeResult.dcId} ($dcIp:443)...")
+                    client.connect()
+                    if (client.send(relayInit)) {
+                        wsClient = client
+                        wsConnected = true
+                        AppLogger.i("TgWsBridge", "MTProto: Успешное WSS туннелирование через Cloudflare Worker ($cfDomain) для DC ${handshakeResult.dcId}")
+                    } else {
+                        client.close()
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w("TgWsBridge", "MTProto: Ошибка подключения к Cloudflare Worker ($cfDomain): ${e.message}")
+                    client.close()
                 }
             }
 
-            // 2. If pool missed, establish on-demand connection
+            // 2. Попытка использования прогретого пула WsPool (если CF воркер не был использован или отвалился)
+            if (!wsConnected && wsPool != null) {
+                val pooledClient = wsPool.get(handshakeResult.dcId, handshakeResult.isMedia, config.isTestEnvironment)
+                if (pooledClient != null) {
+                    if (pooledClient.send(relayInit)) {
+                        wsClient = pooledClient
+                        wsConnected = true
+                    } else {
+                        pooledClient.close()
+                    }
+                }
+            }
+
+            // 3. Фолбек на прямые домены Telegram WebSockets
             if (!wsConnected) {
                 for (domain in domains) {
                     val wsUrl = "wss://$domain${if (config.isTestEnvironment) TgConstants.WS_PATH_TEST else TgConstants.WS_PATH}"

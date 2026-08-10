@@ -135,6 +135,33 @@ object HumanLogTranslator {
                 if (!count.isNullOrEmpty()) "Пул сокетов обновлен ($count параллельных потоков)" else "Пул сокетов готов к работе"
             }
 
+            // SOCKS5 & Cloudflare Worker Tunneling
+            msg.contains("Кастомный домен Cloudflare Worker не назначен", ignoreCase = true) -> {
+                "SOCKS5: Кастомный домен Worker не задан! Пропуск WSS и переход на прямое TCP-подключение (может блокироваться в РФ)"
+            }
+            msg.contains("Успешное туннелирование", ignoreCase = true) -> {
+                val target = Regex("""к\s+([0-9a-zA-Z\.:_-]+)""").find(msg)?.groupValues?.get(1) ?: ""
+                if (target.isNotEmpty()) "SOCKS5: Успешный WSS-туннель к $target через Cloudflare Worker" else "SOCKS5: Успешный WSS-туннель через Cloudflare Worker"
+            }
+            msg.contains("Не удалось установить сокет с Worker", ignoreCase = true) -> {
+                "SOCKS5: Не удалось соединиться с Cloudflare Worker (таймаут или сокет закрыт)"
+            }
+            msg.contains("Ошибка подключения к Worker", ignoreCase = true) -> {
+                val err = msg.substringAfter("Worker", "").trim()
+                if (err.isNotEmpty()) "SOCKS5: Ошибка соединения с Worker: $err" else "SOCKS5: Ошибка подключения к Cloudflare Worker"
+            }
+            msg.contains("SOCKS5 Direct TCP", ignoreCase = true) && msg.contains("Не удалось", ignoreCase = true) -> {
+                "SOCKS5: Ошибка прямого TCP-подключения (заблокировано провайдером/РКН)"
+            }
+            msg.contains("SOCKS5 Direct TCP", ignoreCase = true) -> {
+                val target = Regex("""к\s+([0-9a-zA-Z\.:_-]+)""").find(msg)?.groupValues?.get(1) ?: ""
+                if (target.isNotEmpty()) "SOCKS5: Прямое TCP-подключение к $target (без защиты WSS)" else "SOCKS5: Прямое TCP-подключение (без защиты WSS)"
+            }
+            msg.contains("[SOCKS5 CONNECT]", ignoreCase = true) -> {
+                val target = msg.substringAfter("Назначение:").trim()
+                if (target.isNotEmpty()) "SOCKS5: Запрос соединения с $target" else "SOCKS5: Запрос нового TCP-подключения"
+            }
+
             // Cloudflare Tunnel
             msg.contains("Cloudflare", ignoreCase = true) -> {
                 val isError = msg.contains("fail", ignoreCase = true) ||

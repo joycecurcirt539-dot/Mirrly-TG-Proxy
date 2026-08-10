@@ -34,6 +34,8 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     private var speedJob: Job? = null
     private var kotlinEngineJob: Job? = null
     private var serverSocket: ServerSocket? = null
+    private var socks5Job: Job? = null
+    private var socks5ServerSocket: ServerSocket? = null
     private var wsPool: WsPool? = null
     private val scope = CoroutineScope(Dispatchers.IO)
 
@@ -59,6 +61,28 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         if (isRunning) return true
 
         stats.resetBaseline()
+
+        // В режиме SOCKS5 — запускаем только SOCKS5-движок (прозрачный TCP relay)
+        if (config.isSocks5Mode) {
+            if (wsPool == null) {
+                wsPool = WsPool(config.poolSize)
+            }
+            val ok = startSocks5Engine()
+            if (!ok) return false
+
+            speedJob = scope.launch {
+                while (isActive && isRunning) {
+                    stats.updateSpeed()
+                    if (System.currentTimeMillis() % 5000 < 1000) {
+                        measurePingAsync()
+                    }
+                    delay(1000)
+                }
+            }
+            return true
+        }
+
+        // Режим MTPROTO — запускаем нативный движок (или Kotlin-fallback)
         AppLogger.i("LocalProxyServer", "Настройка нативного движка прокси...")
         var nativeStarted = false
         try {
@@ -75,6 +99,15 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             val useCf = config.cfProxyEnabled
             val workerDomain = config.getEffectiveCfDomain()
 
+            // Если для MTProto задан Cloudflare Worker (кастомный или дефолтный), запускаем Kotlin TgWsBridge с WSS TCP туннелированием
+            if (workerDomain.isNotEmpty()) {
+                AppLogger.i("LocalProxyServer", "Для MTProto активен Cloudflare Worker ($workerDomain). Запуск Kotlin TgWsBridge...")
+                if (wsPool == null) {
+                    wsPool = WsPool(config.poolSize)
+                }
+                return startKotlinEngine()
+            }
+
             NativeProxy.setCfProxyConfig(
                 enabled = useCf,
                 priority = useCf,
@@ -82,13 +115,26 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             )
 
             val secret = config.rawSecret32
-            val code = NativeProxy.startProxy(
+            var code = NativeProxy.startProxy(
                 host = config.bindHost,
                 port = config.bindPort,
                 dcIps = "",
                 secret = secret,
                 verbose = if (config.verboseLogs) 1 else 0
             )
+
+            // Если сокет ещё освобождается стеком ОС (code 3 = EADDRINUSE) -> ждём 350мс и пробуем повторно
+            if (code == 3) {
+                AppLogger.w("LocalProxyServer", "Порт ${config.bindPort} всё ещё освобождается (code 3), повторная попытка через 350мс...")
+                try { Thread.sleep(350) } catch (_: Exception) {}
+                code = NativeProxy.startProxy(
+                    host = config.bindHost,
+                    port = config.bindPort,
+                    dcIps = "",
+                    secret = secret,
+                    verbose = if (config.verboseLogs) 1 else 0
+                )
+            }
 
             if (code == 0) {
                 nativeStarted = true
@@ -105,8 +151,15 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
 
         if (!nativeStarted) {
+            if (wsPool == null) {
+                wsPool = WsPool(config.poolSize)
+            }
             val ok = startKotlinEngine()
             if (!ok) return false
+        } else {
+            if (wsPool == null) {
+                wsPool = WsPool(config.poolSize)
+            }
         }
 
         speedJob = scope.launch {
@@ -129,37 +182,95 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     }
 
     private fun startKotlinEngine(): Boolean {
-        return try {
-            val bindAddr = InetAddress.getByName(config.bindHost)
-            val socket = ServerSocket(config.bindPort, 128, bindAddr)
-            socket.reuseAddress = true
-            serverSocket = socket
-            wsPool = WsPool(config.poolSize)
-
-            isRunning = true
-            if (startTimeMs == 0L) {
-                startTimeMs = System.currentTimeMillis()
+        var socket: ServerSocket? = null
+        var lastErr: Exception? = null
+        for (attempt in 1..3) {
+            try {
+                val bindAddr = InetAddress.getByName(config.bindHost)
+                val s = ServerSocket()
+                s.reuseAddress = true
+                s.bind(java.net.InetSocketAddress(bindAddr, config.bindPort), 128)
+                socket = s
+                break
+            } catch (e: Exception) {
+                lastErr = e
+                AppLogger.w("LocalProxyServer", "Попытка $attempt биндинга Kotlin-движка на ${config.bindPort} не удалась: ${e.message}")
+                try { Thread.sleep(250) } catch (_: Exception) {}
             }
-            AppLogger.i("LocalProxyServer", "Kotlin-движок TgWsBridge запущен на ${config.bindHost}:${config.bindPort}")
+        }
+        if (socket == null) {
+            AppLogger.e("LocalProxyServer", "Не удалось запустить Kotlin-движок прокси: ${lastErr?.message}")
+            return false
+        }
+        serverSocket = socket
+        // Note: wsPool is created in start() before this method is called via the native fallback path.
 
-            kotlinEngineJob = scope.launch {
-                while (isActive && isRunning && !socket.isClosed) {
-                    try {
-                        val client = socket.accept()
-                        launch {
-                            val bridge = TgWsBridge(client, config, stats, wsPool)
-                            bridge.handleConnection()
-                        }
-                    } catch (_: Exception) {
-                        break
+        isRunning = true
+        if (startTimeMs == 0L) {
+            startTimeMs = System.currentTimeMillis()
+        }
+        AppLogger.i("LocalProxyServer", "Kotlin-движок TgWsBridge запущен на ${config.bindHost}:${config.bindPort}")
+
+        kotlinEngineJob = scope.launch {
+            while (isActive && isRunning && !socket.isClosed) {
+                try {
+                    val client = socket.accept()
+                    launch {
+                        val bridge = TgWsBridge(client, config, stats, wsPool)
+                        bridge.handleConnection()
                     }
+                } catch (_: Exception) {
+                    break
                 }
             }
-            true
-        } catch (e: Exception) {
-            AppLogger.e("LocalProxyServer", "Не удалось запустить Kotlin-движок прокси: ${e.message}")
-            false
         }
+        return true
+    }
+
+    private fun startSocks5Engine(): Boolean {
+        var socket: ServerSocket? = null
+        var lastErr: Exception? = null
+        for (attempt in 1..3) {
+            try {
+                val bindAddr = InetAddress.getByName(config.bindHost)
+                val s = ServerSocket()
+                s.reuseAddress = true
+                s.bind(java.net.InetSocketAddress(bindAddr, config.activePort), 128)
+                socket = s
+                break
+            } catch (e: Exception) {
+                lastErr = e
+                AppLogger.w("LocalProxyServer", "Попытка $attempt биндинга SOCKS5-движка на ${config.activePort} не удалась: ${e.message}")
+                try { Thread.sleep(250) } catch (_: Exception) {}
+            }
+        }
+        if (socket == null) {
+            AppLogger.e("LocalProxyServer", "Не удалось запустить SOCKS5-движок на порту ${config.activePort}: ${lastErr?.message}")
+            return false
+        }
+        socks5ServerSocket = socket
+
+        isRunning = true
+        if (startTimeMs == 0L) {
+            startTimeMs = System.currentTimeMillis()
+        }
+
+        AppLogger.i("LocalProxyServer", "Kotlin-движок SOCKS5 запущен на ${config.bindHost}:${config.activePort} (Звонки и сообщения)")
+
+        socks5Job = scope.launch {
+            while (isActive && isRunning && !socket.isClosed) {
+                try {
+                    val client = socket.accept()
+                    launch {
+                        val bridge = Socks5WsBridge(client, config, stats, wsPool)
+                        bridge.handleConnection()
+                    }
+                } catch (_: Exception) {
+                    break
+                }
+            }
+        }
+        return true
     }
 
     @Synchronized
@@ -171,11 +282,18 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         speedJob = null
         kotlinEngineJob?.cancel()
         kotlinEngineJob = null
+        socks5Job?.cancel()
+        socks5Job = null
 
         try {
             serverSocket?.close()
         } catch (_: Exception) {}
         serverSocket = null
+
+        try {
+            socks5ServerSocket?.close()
+        } catch (_: Exception) {}
+        socks5ServerSocket = null
 
         try {
             wsPool?.clear()
@@ -188,6 +306,9 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         } catch (t: Throwable) {
             AppLogger.e("LocalProxyServer", "Ошибка остановки нативного движка: ${t.message}")
         }
+
+        // Кроткая пауза 250 мс для полного освобождения порта сокета стеком ОС
+        try { Thread.sleep(250) } catch (_: Exception) {}
     }
 
     @Synchronized
@@ -254,13 +375,16 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     }
 
     fun getTelegramProxyUrl(): String {
-        val nativeSecret = try { NativeProxy.getSecretWithPrefix() } catch (_: Throwable) { null }
-        val secretWithPrefix = if (!nativeSecret.isNullOrEmpty()) {
-            nativeSecret
-        } else {
-            val cleanSecret = config.rawSecret32
-            "dd$cleanSecret"
+        val cleanSecret = config.rawSecret32
+        val secretWithPrefix = when {
+            config.secretHex.startsWith("ee") || config.secretHex.startsWith("dd") -> config.secretHex
+            else -> "ee$cleanSecret"
         }
         return "tg://proxy?server=${config.bindHost}&port=${config.bindPort}&secret=$secretWithPrefix"
+    }
+
+    fun getTelegramSocks5Url(): String {
+        // Include empty user/pass for compatibility with all Telegram versions (NO AUTH mode)
+        return "tg://socks?server=${config.bindHost}&port=${config.activePort}&user=&pass="
     }
 }

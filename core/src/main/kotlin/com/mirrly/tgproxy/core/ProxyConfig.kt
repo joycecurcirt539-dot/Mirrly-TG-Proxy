@@ -6,6 +6,16 @@ enum class SpeedPreset(val displayName: String, val defaultPoolSize: Int, val de
     TURBO("Турбо (16 сокетов)", 16, 2097152)
 }
 
+/**
+ * Режим работы прокси.
+ * MTPROTO — нативный MTProto движок (чаты, медиа, файлы).
+ * SOCKS5  — прозрачный TCP relay (чаты + звонки через SOCKS5).
+ */
+enum class ProxyMode {
+    MTPROTO,
+    SOCKS5
+}
+
 data class ProxyConfig(
     var bindHost: String = "127.0.0.1",
     var bindPort: Int = 1443,
@@ -20,10 +30,31 @@ data class ProxyConfig(
     var isTestEnvironment: Boolean = false,
     var speedPresetName: String = SpeedPreset.BALANCED.name,
     var tcpNoDelay: Boolean = true,
-    var bufferSizeBytes: Int = 131072 // 128KB default buffer
+    var bufferSizeBytes: Int = 131072, // 128KB default buffer
+    var socks5Port: Int = 10808,
+    // Раздельные флаги вызова встроенного (временно поднятого) воркера
+    var useDefaultWorkerSocks5: Boolean = true,
+    var useDefaultWorkerMtproto: Boolean = false,
+    // proxyModeName — единый источник истины (MTPROTO или SOCKS5)
+    var proxyModeName: String = ProxyMode.MTPROTO.name,
+    // Оставляем для обратной совместимости с PreferencesManager
+    @Deprecated("Используй proxyMode") var socks5Enabled: Boolean = false,
+    @Deprecated("Более не используется") var dualPortMode: Boolean = false
 ) {
     val speedPreset: SpeedPreset
         get() = try { SpeedPreset.valueOf(speedPresetName) } catch (_: Exception) { SpeedPreset.BALANCED }
+
+    /** Текущий режим прокси. Единый источник истины. */
+    val proxyMode: ProxyMode
+        get() = try { ProxyMode.valueOf(proxyModeName) } catch (_: Exception) { ProxyMode.MTPROTO }
+
+    /** Короткий computed helper — true если включён режим SOCKS5. */
+    val isSocks5Mode: Boolean
+        get() = proxyMode == ProxyMode.SOCKS5
+
+    /** Порт, который сейчас активен (зависит от режима). */
+    val activePort: Int
+        get() = if (isSocks5Mode) socks5Port else bindPort
 
     fun applyPreset(preset: SpeedPreset) {
         speedPresetName = preset.name
@@ -32,7 +63,15 @@ data class ProxyConfig(
     }
 
     fun getEffectiveCfDomain(): String {
-        return customCfDomain.trim()
+        val userDomain = customCfDomain.trim()
+        if (userDomain.isNotEmpty()) {
+            return userDomain
+        }
+        return if (isSocks5Mode) {
+            if (useDefaultWorkerSocks5) "mirrly-tg-proxy-worker.brawny-singer.workers.dev" else ""
+        } else {
+            if (useDefaultWorkerMtproto) "mirrly-tg-proxy-worker.brawny-singer.workers.dev" else ""
+        }
     }
 
     val rawSecret32: String

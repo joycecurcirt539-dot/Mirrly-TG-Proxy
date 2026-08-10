@@ -26,7 +26,7 @@ object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_API_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
     private const val GITHUB_API_ALL_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
-    const val CURRENT_VERSION_NAME = "1.0.8"
+    const val CURRENT_VERSION_NAME = "1.0.9"
 
     private val client by lazy {
         OkHttpClient.Builder()

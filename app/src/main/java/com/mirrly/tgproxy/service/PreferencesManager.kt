@@ -3,6 +3,7 @@ package com.mirrly.tgproxy.service
 import android.content.Context
 import android.content.SharedPreferences
 import com.mirrly.tgproxy.core.ProxyConfig
+import com.mirrly.tgproxy.core.ProxyMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +45,20 @@ class PreferencesManager(context: Context) {
         val speedPresetName = prefs.getString("speed_preset", defaults.speedPresetName) ?: defaults.speedPresetName
         val tcpNoDelay = prefs.getBoolean("tcp_nodelay", defaults.tcpNoDelay)
         val bufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
+        val socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
+
+        // Миграция: если proxy_mode ещё не сохранён, читаем старый socks5_enabled
+        val proxyModeName = if (prefs.contains("proxy_mode")) {
+            prefs.getString("proxy_mode", ProxyMode.MTPROTO.name) ?: ProxyMode.MTPROTO.name
+        } else {
+            // Старые установки: если был socks5_enabled=true → переводим в SOCKS5 режим
+            @Suppress("DEPRECATION")
+            if (prefs.getBoolean("socks5_enabled", false)) ProxyMode.SOCKS5.name
+            else ProxyMode.MTPROTO.name
+        }
+
+        val useDefaultSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
+        val useDefaultMtproto = prefs.getBoolean("use_default_worker_mtproto", defaults.useDefaultWorkerMtproto)
 
         return ProxyConfig(
             bindHost = bindHost,
@@ -56,7 +71,11 @@ class PreferencesManager(context: Context) {
             fallbackDirectTcp = fallbackTcp,
             speedPresetName = speedPresetName,
             tcpNoDelay = tcpNoDelay,
-            bufferSizeBytes = bufferSizeBytes
+            bufferSizeBytes = bufferSizeBytes,
+            socks5Port = socks5Port,
+            useDefaultWorkerSocks5 = useDefaultSocks5,
+            useDefaultWorkerMtproto = useDefaultMtproto,
+            proxyModeName = proxyModeName
         )
     }
 
@@ -73,6 +92,10 @@ class PreferencesManager(context: Context) {
             .putString("speed_preset", config.speedPresetName)
             .putBoolean("tcp_nodelay", config.tcpNoDelay)
             .putInt("buffer_size_bytes", config.bufferSizeBytes)
+            .putInt("socks5_port", config.socks5Port)
+            .putBoolean("use_default_worker_socks5", config.useDefaultWorkerSocks5)
+            .putBoolean("use_default_worker_mtproto", config.useDefaultWorkerMtproto)
+            .putString("proxy_mode", config.proxyModeName)
             .apply()
     }
 

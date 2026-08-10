@@ -9,7 +9,7 @@
 [![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-1.9%2B-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/UI-Jetpack_Compose-4285F4?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/jetpack/compose)
-[![Version](https://img.shields.io/badge/Релиз-v1.0.8-00E676?style=for-the-badge)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Version](https://img.shields.io/badge/Релиз-v1.0.9-00E676?style=for-the-badge)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?style=for-the-badge&logo=github&logoColor=white&color=0088cc&label=Скачиваний)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Stars](https://img.shields.io/github/stars/joycecurcirt539-dot/Mirrly-TG-Proxy?style=for-the-badge&logo=github&logoColor=white&color=f5a623&label=Звёзд)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
 [![Changelog](https://img.shields.io/badge/История_изменений-CHANGELOG-blue?style=for-the-badge)](CHANGELOG.md)
@@ -48,7 +48,11 @@ Mirrly TG Proxy запускает на Android-устройстве локал�
 
 ## 2. Ключевые возможности
 
+* **Двойной шлюз маршрутизации (MTProto + SOCKS5)**:
+  * **MTProto Proxy (Порт 1443, Рекомендуется)**: максимальная скорость загрузки, пулы сокетов WsPool, буфер 2 МБ, Fake-TLS маскировка для чатов и 4K-медиа.
+  * **SOCKS5 Proxy (Порт 10808, Для звонков)**: поддержка обхода блокировок аудио- и видеозвонков через TCP VoIP туннель к рефлекторам Telegram.
 * **Технология предварительно открытых сокетов (WsPool)**: постоянное удержание пула горячих WSS-соединений к дата-центрам Telegram устраняет задержку сетевого рукопожатия при отправке и получении сообщений.
+* **Умный резервный канал (Smart Fast-Fail Fallback v1.0.8)**: быстрый 2.5-секундный таймаут переключения на прямой TCP при сбоях WSS предотвращает зависание интерфейса при фильтрации ТСПУ.
 * **Профили производительности (Speed Presets)**:
   * **Турбо**: 16 сокетов на дата-центр, сетевой буфер 2 МБ для параллельной загрузки тяжелых медиафайлов и видеопотоков 4K на каналах до 1 Гбит/с.
   * **Баланс**: 8 сокетов на дата-центр, буфер 256 КБ — оптимальный баланс скорости и энергопотребления для повседневной работы.
@@ -68,22 +72,31 @@ Mirrly TG Proxy запускает на Android-устройстве локал�
 
 ```mermaid
 flowchart TD
-    subgraph AndroidDevice ["Android-устройство"]
-        TGClient["Клиент Telegram\n(Official / AyuGram / NekoGram)"] -->|MTProto Fake TLS| LocalServer["Локальный прокси-сервер\n127.0.0.1:1443"]
-        LocalServer -->|Нативное ядро C/Rust + Kotlin| PoolMgr{"Маршрутизация WsPool"}
+    subgraph AndroidDevice ["Android-устройство (Без VPN)"]
+        TGClient["Клиент Telegram\n(Official / AyuGram / NekoGram)"]
+        MTProtoLocal["Локальный MTProto\n127.0.0.1:1443"]
+        SocksLocal["Локальный SOCKS5 (Звонки)\n127.0.0.1:10808"]
+        PoolMgr{"Маршрутизация WsPool & Fallback"}
+        
+        TGClient -->|Чаты / Медиа| MTProtoLocal
+        TGClient -->|Звонки / Данные| SocksLocal
+        MTProtoLocal --> PoolMgr
+        SocksLocal --> PoolMgr
     end
 
     subgraph Internet ["Сеть Cloudflare CDN"]
         PoolMgr -->|Основной канал: HTTPS WSS| CFWorker["Cloudflare Worker / Edge CDN"]
     end
 
-    subgraph DirectFallback ["Резервный канал"]
-        PoolMgr -.->|Fast-Fail TCP Fallback| DirectTCP["Прямое TCP-соединение"]
+    subgraph DirectFallback ["Резервный канал (v1.0.8)"]
+        PoolMgr -.->|Smart Fast-Fail TCP (2.5с)| DirectTCP["Прямое TCP-соединение"]
     end
 
-    subgraph TelegramDCs ["Дата-центры Telegram"]
-        CFWorker --> DC1["DC1 - DC5 Telegram"]
+    subgraph TelegramDCs ["Инфраструктура Telegram"]
+        CFWorker --> DC1["DC1 - DC5 Telegram (Чаты)"]
+        CFWorker --> VoIPReflectors["Telegram VoIP Reflectors (Звонки)"]
         DirectTCP -.-> DC1
+        DirectTCP -.-> VoIPReflectors
     end
 ```
 

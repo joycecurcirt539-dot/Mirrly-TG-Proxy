@@ -149,7 +149,7 @@ class ProxyForegroundService : Service() {
         val notification = NotificationHelper.buildNotification(
             context = this,
             statusText = "Mirrly TG Proxy работает",
-            speedText = "Порт: ${app.config.bindPort} | Скорость: 0 Б/с",
+            speedText = "Порт: ${app.config.activePort} | Скорость: 0 Б/с",
             presetName = getPresetShortName(app.config.speedPreset)
         )
 
@@ -199,13 +199,20 @@ class ProxyForegroundService : Service() {
     private fun copyProxyLinkToClipboard() {
         val app = MirrlyApplication.instance
         val config = app.config
-        val tgUrl = "tg://proxy?server=${config.bindHost}&port=${config.bindPort}&secret=${config.secretHex}"
+        val server = app.proxyServer
+
+        val tgUrl = if (config.isSocks5Mode) {
+            server.getTelegramSocks5Url()
+        } else {
+            "tg://proxy?server=${config.bindHost}&port=${config.bindPort}&secret=${config.secretHex}"
+        }
+        val label = if (config.isSocks5Mode) "tg://socks" else "tg://proxy"
 
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = ClipData.newPlainText("Telegram Proxy Link", tgUrl)
             clipboard.setPrimaryClip(clip)
-            showToastOnMainThread("Ссылка tg://proxy скопирована!")
+            showToastOnMainThread("Ссылка $label скопирована!")
         } catch (e: Exception) {
             showToastOnMainThread("Ошибка копирования ссылки")
         }

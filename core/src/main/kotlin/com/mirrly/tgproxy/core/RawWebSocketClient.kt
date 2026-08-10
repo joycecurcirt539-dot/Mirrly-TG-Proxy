@@ -21,6 +21,7 @@ class RawWebSocketClient(
     private var webSocket: WebSocket? = null
     val messageChannel = Channel<ByteArray>(256)
     val closeChannel = Channel<Unit>(Channel.CONFLATED)
+    val openChannel = Channel<Boolean>(Channel.CONFLATED)
 
     @Volatile
     var isConnected: Boolean = false
@@ -37,6 +38,7 @@ class RawWebSocketClient(
         override fun onOpen(webSocket: WebSocket, response: Response) {
             isConnected = true
             isClosed = false
+            openChannel.trySend(true)
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -50,6 +52,7 @@ class RawWebSocketClient(
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             isClosed = true
             isConnected = false
+            openChannel.trySend(false)
             webSocket.close(1000, "Normal closure")
             closeChannel.trySend(Unit)
         }
@@ -57,12 +60,14 @@ class RawWebSocketClient(
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             isClosed = true
             isConnected = false
+            openChannel.trySend(false)
             closeChannel.trySend(Unit)
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             isClosed = true
             isConnected = false
+            openChannel.trySend(false)
             closeChannel.trySend(Unit)
         }
     }
@@ -77,6 +82,17 @@ class RawWebSocketClient(
         }
 
         webSocket = okHttpClient.newWebSocket(requestBuilder.build(), listener)
+    }
+
+    suspend fun connectAndAwait(timeoutMs: Long = 3000): Boolean {
+        connect()
+        return kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            try {
+                openChannel.receive()
+            } catch (_: Exception) {
+                false
+            }
+        } ?: false
     }
 
     fun send(data: ByteArray): Boolean {

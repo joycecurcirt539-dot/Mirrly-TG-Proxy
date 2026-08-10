@@ -147,6 +147,7 @@ fun HomeScreen(
     val updateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
     val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
     var showSleepTimerDialog by remember { mutableStateOf(false) }
+    var showConnectDialog by remember { mutableStateOf(false) }
 
     // Execute stats calculation on IO thread off the main looper to eliminate main thread frame delay
     LaunchedEffect(Unit) {
@@ -818,12 +819,13 @@ fun HomeScreen(
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     Toast.makeText(context, "⚠️ Включите прокси сначала!", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    val tgUrl = server.getTelegramProxyUrl()
+                                    val tgUrl = if (app.config.isSocks5Mode) server.getTelegramSocks5Url() else server.getTelegramProxyUrl()
+                                    val label = if (app.config.isSocks5Mode) "SOCKS5" else "MTProto"
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     val clip = ClipData.newPlainText("Telegram Proxy", tgUrl)
                                     clipboard.setPrimaryClip(clip)
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    Toast.makeText(context, "Ссылка скопирована!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Ссылка $label скопирована!", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             modifier = Modifier
@@ -865,7 +867,8 @@ fun HomeScreen(
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     Toast.makeText(context, "⚠️ Включите прокси сначала!", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    val tgUrl = server.getTelegramProxyUrl()
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    val tgUrl = if (app.config.isSocks5Mode) server.getTelegramSocks5Url() else server.getTelegramProxyUrl()
                                     applyToTelegramPackages(context, tgUrl)
                                 }
                             },
@@ -927,6 +930,12 @@ fun HomeScreen(
             if (showSleepTimerDialog) {
                 SleepTimerDialog(
                     onDismiss = { showSleepTimerDialog = false }
+                )
+            }
+
+            if (showConnectDialog) {
+                TelegramConnectDialog(
+                    onDismiss = { showConnectDialog = false }
                 )
             }
 
@@ -1184,7 +1193,7 @@ private val telegramPackages = listOf(
     "org.thunderdog.challegram"
 )
 
-private fun applyToTelegramPackages(context: Context, url: String) {
+fun applyToTelegramPackages(context: Context, url: String) {
     val pm = context.packageManager
     val uri = Uri.parse(url)
 
