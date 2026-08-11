@@ -6,24 +6,24 @@
 
 **Локальный MTProto & SOCKS5 прокси-сервер с поддержкой личных Cloudflare Worker для подключения Telegram без VPN**
 
-[![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com)
-[![Kotlin](https://img.shields.io/badge/Kotlin-1.9%2B-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org)
-[![Compose](https://img.shields.io/badge/UI-Jetpack_Compose-4285F4?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/jetpack/compose)
-[![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_V8-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](https://workers.cloudflare.com)
-[![NDK](https://img.shields.io/badge/C%2B%2B-NDK_Native-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)](https://developer.android.com/ndk)
+[![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
+[![Kotlin](https://img.shields.io/badge/Kotlin-1.9%2B-7F52FF?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Compose](https://img.shields.io/badge/UI-Jetpack_Compose-4285F4?style=flat-square&logo=android&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_V8-F38020?style=flat-square&logo=cloudflare&logoColor=white)](https://workers.cloudflare.com)
+[![NDK](https://img.shields.io/badge/C%2B%2B-NDK_Native-00599C?style=flat-square&logo=cplusplus&logoColor=white)](https://developer.android.com/ndk)
 <br/>
-[![Version](https://img.shields.io/badge/Релиз-v1.1.0-00E676?style=for-the-badge)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
-[![Downloads](https://img.shields.io/badge/Скачиваний-Релизы_GitHub-0088cc?style=for-the-badge&logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
-[![Stars](https://img.shields.io/badge/Звёзд-GitHub_Stars-f5a623?style=for-the-badge&logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
-[![Issues](https://img.shields.io/badge/Вопросы_и_баги-GitHub_Issues-E53935?style=for-the-badge&logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues)
+[![Version](https://img.shields.io/badge/Релиз-v1.1.0-00E676?style=flat-square)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Downloads](https://img.shields.io/badge/Скачиваний-Релизы_GitHub-0088cc?style=flat-square&logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Stars](https://img.shields.io/badge/Звёзд-GitHub_Stars-f5a623?style=flat-square&logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
+[![Issues](https://img.shields.io/badge/Вопросы_и_баги-GitHub_Issues-E53935?style=flat-square&logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues)
 <br/>
-[![Telegram](https://img.shields.io/badge/Telegram-Канал_сообщества-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/WhyOkyHb)
-[![Privacy](https://img.shields.io/badge/Приватность-No_VPN_%7C_No_Logs-00C853?style=for-the-badge&logo=shield&logoColor=white)](#10-безопасность-и-условия-использования)
-[![Worker Script](https://img.shields.io/badge/Код_Воркера-cloudflare__worker.js-F38020?style=for-the-badge&logo=javascript&logoColor=white)](docs/cloudflare_worker.js)
+[![Telegram](https://img.shields.io/badge/Telegram-Канал_сообщества-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/WhyOkyHb)
+[![Privacy](https://img.shields.io/badge/Приватность-No_VPN_%7C_No_Logs-00C853?style=flat-square&logo=shield&logoColor=white)](#10-безопасность-и-условия-использования)
+[![Worker Script](https://img.shields.io/badge/Код_Воркера-cloudflare__worker.js-F38020?style=flat-square&logo=javascript&logoColor=white)](docs/cloudflare_worker.js)
 <br/>
-[![Changelog](https://img.shields.io/badge/История-CHANGELOG-blue?style=for-the-badge)](CHANGELOG.md)
-[![Terms](https://img.shields.io/badge/Условия-TERMS-informational?style=for-the-badge)](TERMS_OF_USE.md)
-[![License](https://img.shields.io/badge/Лицензия-GPLv3-lightgrey?style=for-the-badge)](LICENSE)
+[![Changelog](https://img.shields.io/badge/История-CHANGELOG-blue?style=flat-square)](CHANGELOG.md)
+[![Terms](https://img.shields.io/badge/Условия-TERMS-informational?style=flat-square)](TERMS_OF_USE.md)
+[![License](https://img.shields.io/badge/Лицензия-GPLv3-lightgrey?style=flat-square)](LICENSE)
 
 *Оптимизация маршрутизации трафика Telegram через зашифрованные WebSocket-сессии Cloudflare и личные Cloudflare Worker. Работает локально в фоновом режиме без прав администратора и создания VPN-профиля.*
 
