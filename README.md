@@ -6,42 +6,26 @@
 
 **Локальный MTProto & SOCKS5 прокси-сервер с поддержкой личных Cloudflare Worker для подключения Telegram без VPN**
 
-<p align="center">
-  <!-- Технологический стек -->
-  <a href="https://developer.android.com"><img src="https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android" /></a>
-  <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-1.9%2B-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin" /></a>
-  <a href="https://developer.android.com/jetpack/compose"><img src="https://img.shields.io/badge/UI-Jetpack_Compose-4285F4?style=for-the-badge&logo=android&logoColor=white" alt="Compose" /></a>
-  <a href="https://workers.cloudflare.com"><img src="https://img.shields.io/badge/Cloudflare-Workers_V8-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Cloudflare" /></a>
-  <a href="https://developer.android.com/ndk"><img src="https://img.shields.io/badge/C%2B%2B-NDK_Native-00599C?style=for-the-badge&logo=cplusplus&logoColor=white" alt="NDK" /></a>
-</p>
-
-<p align="center">
-  <!-- Статистика и Релизы -->
-  <a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"><img src="https://img.shields.io/badge/Релиз-v1.1.0-00E676?style=for-the-badge" alt="Version" /></a>
-  <a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"><img src="https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?style=for-the-badge&logo=github&logoColor=white&color=0088cc&label=Скачиваний" alt="Downloads" /></a>
-  <a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers"><img src="https://img.shields.io/github/stars/joycecurcirt539-dot/Mirrly-TG-Proxy?style=for-the-badge&logo=github&logoColor=white&color=f5a623&label=Звёзд" alt="Stars" /></a>
-  <a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues"><img src="https://img.shields.io/github/issues/joycecurcirt539-dot/Mirrly-TG-Proxy?style=for-the-badge&logo=github&logoColor=white&color=E53935&label=Вопросы%20и%20баги" alt="Issues" /></a>
-</p>
-
-<p align="center">
-  <!-- Сообщество и Документация -->
-  <a href="https://t.me/WhyOkyHb"><img src="https://img.shields.io/badge/Telegram-Канал_сообщества-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram" /></a>
-  <a href="#10-безопасность-и-условия-использования"><img src="https://img.shields.io/badge/Приватность-No_VPN_%7C_No_Logs-00C853?style=for-the-badge&logo=shield&logoColor=white" alt="Privacy" /></a>
-  <a href="docs/cloudflare_worker.js"><img src="https://img.shields.io/badge/Код_Воркера-cloudflare__worker.js-F38020?style=for-the-badge&logo=javascript&logoColor=white" alt="Worker" /></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/История-CHANGELOG-blue?style=for-the-badge" alt="Changelog" /></a>
-  <a href="TERMS_OF_USE.md"><img src="https://img.shields.io/badge/Условия-TERMS-informational?style=for-the-badge" alt="Terms" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/Лицензия-GPLv3-lightgrey?style=for-the-badge" alt="License" /></a>
-</p>
+[![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com)
+[![Kotlin](https://img.shields.io/badge/Kotlin-1.9%2B-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Compose](https://img.shields.io/badge/UI-Jetpack_Compose-4285F4?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_V8-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](https://workers.cloudflare.com)
+[![NDK](https://img.shields.io/badge/C%2B%2B-NDK_Native-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)](https://developer.android.com/ndk)
+<br/>
+[![Version](https://img.shields.io/badge/Релиз-v1.1.0-00E676?style=for-the-badge)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Downloads](https://img.shields.io/badge/Скачиваний-Релизы_GitHub-0088cc?style=for-the-badge&logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Stars](https://img.shields.io/badge/Звёзд-GitHub_Stars-f5a623?style=for-the-badge&logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
+[![Issues](https://img.shields.io/badge/Вопросы_и_баги-GitHub_Issues-E53935?style=for-the-badge&logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues)
+<br/>
+[![Telegram](https://img.shields.io/badge/Telegram-Канал_сообщества-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/WhyOkyHb)
+[![Privacy](https://img.shields.io/badge/Приватность-No_VPN_%7C_No_Logs-00C853?style=for-the-badge&logo=shield&logoColor=white)](#10-безопасность-и-условия-использования)
+[![Worker Script](https://img.shields.io/badge/Код_Воркера-cloudflare__worker.js-F38020?style=for-the-badge&logo=javascript&logoColor=white)](docs/cloudflare_worker.js)
+<br/>
+[![Changelog](https://img.shields.io/badge/История-CHANGELOG-blue?style=for-the-badge)](CHANGELOG.md)
+[![Terms](https://img.shields.io/badge/Условия-TERMS-informational?style=for-the-badge)](TERMS_OF_USE.md)
+[![License](https://img.shields.io/badge/Лицензия-GPLv3-lightgrey?style=for-the-badge)](LICENSE)
 
 *Оптимизация маршрутизации трафика Telegram через зашифрованные WebSocket-сессии Cloudflare и личные Cloudflare Worker. Работает локально в фоновом режиме без прав администратора и создания VPN-профиля.*
-
-<br/>
-
-<p align="center">
-  <a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"><b>📥 Скачать APK (v1.1.0)</b></a> &nbsp;•&nbsp;
-  <a href="docs/cloudflare_worker.js"><b>⚡ Скрипт Воркера</b></a> &nbsp;•&nbsp;
-  <a href="https://t.me/WhyOkyHb"><b>💬 Обсудить в Telegram</b></a>
-</p>
 
 ---
 
