@@ -47,5 +47,30 @@ class MTProtoCryptoTest {
         // Test with empty chunk
         val parts = splitter.split(ByteArray(0))
         assertTrue(parts.isEmpty())
+
+        // Test zero length with larger buffer
+        val buf = ByteArray(1024)
+        val partsEmpty = splitter.split(buf, 10, 0)
+        assertTrue(partsEmpty.isEmpty())
+    }
+
+    @Test
+    fun testMsgSplitterWithOffsetAndLength() {
+        val relayInit = ByteArray(64) { it.toByte() }
+        val splitterWithOffset = MsgSplitter(relayInit, TgConstants.PROTO_ABRIDGED_INT)
+        val splitterSliced = MsgSplitter(relayInit, TgConstants.PROTO_ABRIDGED_INT)
+
+        val rawPayload = ByteArray(100) { (it % 256).toByte() }
+        val largeBuffer = ByteArray(500)
+        val offset = 50
+        System.arraycopy(rawPayload, 0, largeBuffer, offset, rawPayload.size)
+
+        val resOffset = splitterWithOffset.split(largeBuffer, offset, rawPayload.size)
+        val resSliced = splitterSliced.split(rawPayload)
+
+        assertEquals(resSliced.size, resOffset.size)
+        for (i in resSliced.indices) {
+            assertArrayEquals(resSliced[i], resOffset[i])
+        }
     }
 }

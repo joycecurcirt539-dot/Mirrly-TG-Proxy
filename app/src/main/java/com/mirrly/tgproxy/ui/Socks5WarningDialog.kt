@@ -31,9 +31,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -66,12 +68,12 @@ fun Socks5WarningDialog(
         )
     ) {
         val view = LocalView.current
-        SideEffect {
+        LaunchedEffect(Unit) {
             val window = (view.parent as? DialogWindowProvider)?.window
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                 window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 70
+                    blurBehindRadius = 50
                 }
             }
         }
@@ -86,18 +88,19 @@ fun Socks5WarningDialog(
                 ) { onRevertToMtproto() }
                 .padding(horizontal = 24.dp)
         ) {
-            // Detailed Information (Centered like Link Redirection Tab)
+            // Detailed Information with Smooth Fading Edges
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth()
-                    .padding(bottom = 120.dp, top = 24.dp)
+                    .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
+                    .padding(bottom = 180.dp, top = 24.dp)
                     .verticalScroll(rememberScrollState())
                     .clickable(enabled = false) {}
             ) {
-                // Category Pills Row with BETA tag
+                // Main Title & Category Badges (Centered)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -137,25 +140,88 @@ fun Socks5WarningDialog(
                 // Main Title
                 Text(
                     text = "Режим SOCKS5 Proxy [БЕТА]",
-                    fontSize = 21.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,
                     textAlign = TextAlign.Center,
                     letterSpacing = 0.3.sp
                 )
 
-                // Detailed Description with explicit Non-Guarantee Warning
-                Text(
-                    text = "В режиме SOCKS5 трафик мессенджера не использует стандартные WSS-сервера Telegram. Для обхода блокировок и работы звонков необходимо развернуть собственный Cloudflare Worker.\n\nОбратите внимание: Режим SOCKS5 находится в стадии БЕТА-тестирования. Стабильная работа, высокая скорость и постоянный обход блокировок на данный момент НЕ гарантируются.\n\nДля обычных чатов и медиа рекомендуется использовать MTProto — он работает стабильно и «из коробки».",
-                    fontSize = 13.sp,
-                    color = TextWhite.copy(alpha = 0.88f),
-                    textAlign = TextAlign.Center,
-                    lineHeight = 19.sp,
-                    modifier = Modifier.padding(horizontal = 6.dp)
-                )
+                // Card 1: Main SOCKS5 Overview
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White.copy(alpha = 0.04f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "В режиме SOCKS5 трафик мессенджера не использует стандартные WSS-сервера Telegram. Для обхода блокировок и работы звонков необходимо развернуть собственный Cloudflare Worker.",
+                        fontSize = 13.sp,
+                        color = TextWhite.copy(alpha = 0.88f),
+                        textAlign = TextAlign.Start,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.padding(14.dp)
+                    )
+                }
+
+                // Card 2: BETA Warning Card (Amber Glass)
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFFFF9E00).copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, Color(0xFFFF9E00).copy(alpha = 0.30f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "ОБРАТИТЕ ВНИМАНИЕ",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFF9E00),
+                            letterSpacing = 0.6.sp
+                        )
+                        Text(
+                            text = "Режим SOCKS5 находится в стадии БЕТА-тестирования. Стабильная работа, высокая скорость и постоянный обход блокировок на данный момент НЕ гарантируются.",
+                            fontSize = 12.5.sp,
+                            color = TextWhite.copy(alpha = 0.90f),
+                            textAlign = TextAlign.Start,
+                            lineHeight = 18.5.sp
+                        )
+                    }
+                }
+
+                // Card 3: Recommendation Card (Cyan Glass)
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF00F0FF).copy(alpha = 0.06f),
+                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.25f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "РЕКОМЕНДАЦИЯ",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00F0FF),
+                            letterSpacing = 0.6.sp
+                        )
+                        Text(
+                            text = "Для обычных чатов и медиа рекомендуется использовать MTProto — он работает стабильно и «из коробки».",
+                            fontSize = 12.5.sp,
+                            color = TextWhite.copy(alpha = 0.90f),
+                            textAlign = TextAlign.Start,
+                            lineHeight = 18.5.sp
+                        )
+                    }
+                }
             }
 
-            // Bottom Action Buttons Dock (Floating at bottom like Link Redirection Tab)
+            // Bottom Action Buttons Dock (Floating seamlessly over blurred background)
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,

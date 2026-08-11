@@ -31,11 +31,16 @@ import androidx.compose.ui.unit.sp
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.LogEntry
+import com.mirrly.tgproxy.core.LogEvent
 import com.mirrly.tgproxy.core.LogLevel
 import com.mirrly.tgproxy.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.withContext
 
 private data class LogCalcResult(
     val filteredLogs: List<LogEntry>,
+    val totalCount: Int,
     val infoCount: Int,
     val warnCount: Int,
     val errorCount: Int
@@ -49,41 +54,69 @@ fun LogsScreen(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val logs by AppLogger.logsFlow.collectAsState()
+
+    val rawLogs = remember { mutableStateListOf<LogEntry>() }
+
+    LaunchedEffect(Unit) {
+        rawLogs.clear()
+        rawLogs.addAll(AppLogger.getLogs())
+        AppLogger.logEvents.collect { event ->
+            when (event) {
+                is LogEvent.Added -> {
+                    rawLogs.add(event.entry)
+                    if (rawLogs.size > 250) {
+                        rawLogs.removeAt(0)
+                    }
+                }
+                LogEvent.Cleared -> {
+                    rawLogs.clear()
+                }
+            }
+        }
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedLevel by remember { mutableStateOf<LogLevel?>(null) }
 
-    val calcResult = remember(logs, selectedLevel, searchQuery) {
-        var infoC = 0
-        var warnC = 0
-        var errorC = 0
-        val query = searchQuery.trim()
-        val hasQuery = query.isNotEmpty()
-        val filtered = ArrayList<LogEntry>(logs.size)
+    var calcResult by remember { mutableStateOf(LogCalcResult(emptyList(), 0, 0, 0, 0)) }
 
-        for (i in logs.indices) {
-            val entry = logs[i]
-            when (entry.level) {
-                LogLevel.INFO -> infoC++
-                LogLevel.WARN -> warnC++
-                LogLevel.ERROR -> errorC++
-            }
+    LaunchedEffect(Unit) {
+        snapshotFlow { Triple(rawLogs.toList(), searchQuery, selectedLevel) }
+            .collectLatest { (logs, query, level) ->
+                val result = withContext(Dispatchers.Default) {
+                    var infoC = 0
+                    var warnC = 0
+                    var errorC = 0
+                    val trimmedQuery = query.trim()
+                    val hasQuery = trimmedQuery.isNotEmpty()
+                    val filtered = ArrayList<LogEntry>(logs.size)
 
-            if (selectedLevel != null && entry.level != selectedLevel) continue
-            if (hasQuery) {
-                val matches = entry.humanMessage.contains(query, ignoreCase = true) ||
-                        entry.rawMessage.contains(query, ignoreCase = true) ||
-                        entry.tag.contains(query, ignoreCase = true)
-                if (!matches) continue
+                    for (i in logs.indices) {
+                        val entry = logs[i]
+                        when (entry.level) {
+                            LogLevel.INFO -> infoC++
+                            LogLevel.WARN -> warnC++
+                            LogLevel.ERROR -> errorC++
+                        }
+
+                        if (level != null && entry.level != level) continue
+                        if (hasQuery) {
+                            val matches = entry.humanMessage.contains(trimmedQuery, ignoreCase = true) ||
+                                    entry.rawMessage.contains(trimmedQuery, ignoreCase = true) ||
+                                    entry.tag.contains(trimmedQuery, ignoreCase = true)
+                            if (!matches) continue
+                        }
+                        filtered.add(entry)
+                    }
+                    filtered.reverse()
+                    LogCalcResult(filtered, logs.size, infoC, warnC, errorC)
+                }
+                calcResult = result
             }
-            filtered.add(entry)
-        }
-        filtered.reverse()
-        LogCalcResult(filtered, infoC, warnC, errorC)
     }
 
     val filteredLogs = calcResult.filteredLogs
+    val totalCount = calcResult.totalCount
     val infoCount = calcResult.infoCount
     val warnCount = calcResult.warnCount
     val errorCount = calcResult.errorCount
@@ -275,7 +308,7 @@ fun LogsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     LogFilterBadge(
-                        text = "Все (${logs.size})",
+                        text = "Все ($totalCount)",
                         isSelected = selectedLevel == null,
                         activeColor = TextWhite,
                         onClick = {

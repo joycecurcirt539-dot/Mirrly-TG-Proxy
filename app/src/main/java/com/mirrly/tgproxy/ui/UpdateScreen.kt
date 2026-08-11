@@ -445,18 +445,20 @@ fun UpdateScreen(
                                     Button(
                                         onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            val url = releaseInfo?.downloadUrl
-                                            if (!url.isNullOrBlank()) {
+                                            val info = releaseInfo
+                                            val rawUrl = info?.downloadUrl
+                                            if (info != null && !rawUrl.isNullOrBlank()) {
+                                                val validUrl = rawUrl
                                                 coroutineScope.launch {
                                                     UpdateDownloader.downloadAndVerifyApk(
                                                         context = context,
-                                                        downloadUrl = url,
-                                                        expectedSha256List = releaseInfo.expectedSha256List,
-                                                        versionName = releaseInfo.versionName
+                                                        downloadUrl = validUrl,
+                                                        expectedSha256List = info.expectedSha256List,
+                                                        versionName = info.versionName
                                                     )
                                                 }
                                             } else {
-                                                pendingRedirectUrl = releaseInfo?.htmlUrl
+                                                pendingRedirectUrl = info?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
                                             }
                                         },
                                         colors = ButtonDefaults.buttonColors(
@@ -580,18 +582,20 @@ fun UpdateScreen(
                                     Button(
                                         onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            val url = releaseInfo?.downloadUrl
-                                            if (!url.isNullOrBlank()) {
+                                            val info = releaseInfo
+                                            val rawUrl = info?.downloadUrl
+                                            if (info != null && !rawUrl.isNullOrBlank()) {
+                                                val validUrl = rawUrl
                                                 coroutineScope.launch {
                                                     UpdateDownloader.downloadAndVerifyApk(
                                                         context = context,
-                                                        downloadUrl = url,
-                                                        expectedSha256List = releaseInfo.expectedSha256List,
-                                                        versionName = releaseInfo.versionName
+                                                        downloadUrl = validUrl,
+                                                        expectedSha256List = info.expectedSha256List,
+                                                        versionName = info.versionName
                                                     )
                                                 }
                                             } else {
-                                                pendingRedirectUrl = releaseInfo?.htmlUrl
+                                                pendingRedirectUrl = info?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
                                             }
                                         },
                                         colors = ButtonDefaults.buttonColors(

@@ -41,6 +41,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -69,7 +70,7 @@ export default {
         JSON.stringify({
           status: "active",
           service: "Mirrly TG Proxy Cloudflare Worker",
-          version: "1.0.9",
+          version: "1.1.0",
           time: new Date().toISOString()
         }),
         {
@@ -186,12 +187,12 @@ fun CloudflareWorkerGuideDialog(
         )
     ) {
         val view = LocalView.current
-        SideEffect {
+        LaunchedEffect(Unit) {
             val window = (view.parent as? DialogWindowProvider)?.window
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                 window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 70
+                    blurBehindRadius = 50
                 }
             }
         }
@@ -206,14 +207,15 @@ fun CloudflareWorkerGuideDialog(
                 ) { onDismiss() }
                 .padding(horizontal = 24.dp)
         ) {
-            // Detailed Guide Steps (Centered like Link Redirection Tab)
+            // Detailed Guide Steps with Smooth Fading Edges
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth()
-                    .padding(bottom = 120.dp, top = 24.dp)
+                    .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
+                    .padding(bottom = 140.dp, top = 24.dp)
                     .verticalScroll(rememberScrollState())
                     .clickable(enabled = false) {}
             ) {
@@ -272,30 +274,28 @@ fun CloudflareWorkerGuideDialog(
                     lineHeight = 18.sp
                 )
 
-                // Security & Technical Info Card
+                // Security & Technical Info Card (Transparent Cyan Glass)
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF0D131F),
-                    border = BorderStroke(1.dp, Color(0xFF1E283C)),
+                    color = Color(0xFF00F0FF).copy(alpha = 0.06f),
+                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.25f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
                         modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            text = "🔒 БЕЗОПАСНОСТЬ ЛИЧНЫХ ДАННЫХ И ПРИНЦИП РАБОТЫ",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
+                            text = "БЕЗОПАСНОСТЬ ЛИЧНЫХ ДАННЫХ И ПРИНЦИП РАБОТЫ",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
                             color = Color(0xFF00F0FF),
                             letterSpacing = 0.8.sp
                         )
-                        Text(
-                            text = "• Для 100% безопасности личных данных рекомендуется развернуть СВОЙ воркер. При использовании чужого воркера трафик проходит через стороннюю ноду.\n• Cloudflare Worker — это бессерверный V8-скрипт в сети Edge (300+ дата-центров). Он туннелирует трафик Telegram через WebSockets (wss://), маскируя его под обычный безопасный HTTPS-веб-сайт, что полностью сводит на нет попытки блокировки DPI/ТСПУ.\n• Каждый бесплатный аккаунт Cloudflare получает 100 000 запросов в день.",
-                            fontSize = 11.5.sp,
-                            color = TextWhite.copy(alpha = 0.88f),
-                            lineHeight = 16.5.sp
-                        )
+
+                        GuideBulletItem("Для 100% безопасности личных данных рекомендуется развернуть СВОЙ воркер. При использовании чужого воркера трафик проходит через стороннюю ноду.")
+                        GuideBulletItem("Cloudflare Worker — это бессерверный V8-скрипт в сети Edge (300+ дата-центров). Он туннелирует трафик Telegram через WebSockets (wss://), маскируя его под обычный безопасный HTTPS-веб-сайт, что полностью сводит на нет попытки блокировки DPI/ТСПУ.")
+                        GuideBulletItem("Каждый бесплатный аккаунт Cloudflare получает 100 000 запросов в день.")
                     }
                 }
 
@@ -303,7 +303,7 @@ fun CloudflareWorkerGuideDialog(
 
                 // Steps List
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     RedirectionGuideStepItem(
@@ -346,7 +346,7 @@ fun CloudflareWorkerGuideDialog(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             if (isCopied) {
-                                Text("✓", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ActiveGreenLed)
+                                Text("Скопировано", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = ActiveGreenLed)
                             } else {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_copy),
@@ -356,7 +356,7 @@ fun CloudflareWorkerGuideDialog(
                                 )
                             }
                             Text(
-                                text = if (isCopied) "Код скопирован в буфер!" else "Скопировать JS-код воркера",
+                                text = if (isCopied) "в буфер!" else "Скопировать JS-код воркера",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -377,7 +377,7 @@ fun CloudflareWorkerGuideDialog(
                 }
             }
 
-            // Bottom Action Buttons Dock (Floating at bottom like Link Redirection Tab)
+            // Bottom Action Buttons Dock (Floating seamlessly over blurred background)
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -439,48 +439,82 @@ fun CloudflareWorkerGuideDialog(
 }
 
 @Composable
+private fun GuideBulletItem(text: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .size(5.dp)
+                .background(Color(0xFF00F0FF), CircleShape)
+        )
+        Text(
+            text = text,
+            fontSize = 12.sp,
+            color = TextWhite.copy(alpha = 0.88f),
+            lineHeight = 17.5.sp,
+            textAlign = TextAlign.Start,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
 fun RedirectionGuideStepItem(
     stepNumber: String,
     title: String,
     description: String
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Top
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White.copy(alpha = 0.04f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Surface(
-            shape = CircleShape,
-            color = Color(0xFF00F0FF).copy(alpha = 0.12f),
-            border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.4f)),
-            modifier = Modifier.size(26.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top
         ) {
-            Box(contentAlignment = Alignment.Center) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFF00F0FF).copy(alpha = 0.15f),
+                border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.45f)),
+                modifier = Modifier.size(28.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = stepNumber,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF00F0FF)
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
-                    text = stepNumber,
-                    fontSize = 12.sp,
+                    text = title,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF00F0FF)
+                    color = TextWhite
+                )
+                Text(
+                    text = description,
+                    fontSize = 12.5.sp,
+                    color = TextWhite.copy(alpha = 0.82f),
+                    lineHeight = 18.sp,
+                    textAlign = TextAlign.Start
                 )
             }
-        }
-
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(
-                text = title,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextWhite
-            )
-            Text(
-                text = description,
-                fontSize = 12.5.sp,
-                color = TextWhite.copy(alpha = 0.8f),
-                lineHeight = 17.sp
-            )
         }
     }
 }

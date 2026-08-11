@@ -19,7 +19,7 @@ export default {
         JSON.stringify({
           status: "active",
           service: "Mirrly TG Proxy Cloudflare Worker",
-          version: "1.0.9",
+          version: "1.1.0",
           time: new Date().toISOString()
         }),
         {

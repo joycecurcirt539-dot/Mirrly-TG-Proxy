@@ -60,6 +60,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -74,8 +77,6 @@ import com.mirrly.tgproxy.core.UpdateChecker
 import com.mirrly.tgproxy.service.ProxyForegroundService
 import com.mirrly.tgproxy.service.humanBytes
 import com.mirrly.tgproxy.ui.theme.*
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.detectTapGestures
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -134,6 +135,7 @@ fun HomeScreen(
 
     var isRunning by remember { mutableStateOf(server.isRunning) }
     var pendingState by remember { mutableStateOf<ProxyUiState?>(null) }
+    var lastPowerClickMs by remember { mutableLongStateOf(0L) }
 
     val currentState = pendingState ?: if (isRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
 
@@ -293,27 +295,28 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                         modifier = Modifier.padding(end = 4.dp)
                     ) {
-                        // Update Tab Button — appears only when update is available
-                        if (updateInfo?.isUpdateAvailable == true) {
-                            IconButton(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onOpenUpdate()
-                                },
-                                modifier = Modifier.size(38.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.TopEnd) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_refresh),
-                                        contentDescription = "Обновления",
-                                        tint = ActiveGreenLed,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                        // Update Tab Button — always available for quick access to UpdateScreen
+                        val hasUpdate = updateInfo?.isUpdateAvailable == true
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onOpenUpdate()
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.TopEnd) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                    contentDescription = "Обновления",
+                                    tint = if (hasUpdate) Color(0xFFFFB703) else TextWhite,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                if (hasUpdate) {
                                     Box(
                                         modifier = Modifier
                                             .size(7.dp)
                                             .clip(CircleShape)
-                                            .background(ActiveGreenLed)
+                                            .background(Color(0xFFFFB703))
                                     )
                                 }
                             }
@@ -447,32 +450,26 @@ fun HomeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // ─── 1. TOP SECTION (Update banner if present) ───
-                updateInfo?.let { info ->
-                    if (info.isUpdateAvailable) {
+                val isBannerVisible = (updateInfo?.isUpdateAvailable == true) && !isUiHidden
+                AnimatedVisibility(
+                    visible = isBannerVisible,
+                    enter = fadeIn(tween(300)) + expandVertically(tween(350)),
+                    exit = fadeOut(tween(250)) + shrinkVertically(tween(300))
+                ) {
+                    updateInfo?.let { info ->
                         val updateYellow = Color(0xFFFFB703)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 4.dp, bottom = 4.dp)
+                                .padding(vertical = 4.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(
-                                    Brush.horizontalGradient(
-                                        colors = listOf(
-                                            Color(0xFF241E08),
-                                            Color(0xFF141005)
-                                        )
-                                    )
-                                )
-                                .border(1.dp, updateYellow, RoundedCornerShape(16.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, updateYellow.copy(alpha = 0.85f), RoundedCornerShape(16.dp))
                                 .clickable {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onOpenUpdate()
                                 }
                                 .padding(12.dp)
-                                .graphicsLayer {
-                                    translationY = -120.dp.toPx() * uiAnimProgress
-                                    alpha = (1f - uiAnimProgress * 2f).coerceIn(0f, 1f)
-                                }
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -489,7 +486,7 @@ fun HomeScreen(
                                         modifier = Modifier
                                             .size(32.dp)
                                             .clip(CircleShape)
-                                            .background(updateYellow.copy(alpha = 0.2f))
+                                            .background(updateYellow.copy(alpha = 0.18f))
                                     ) {
                                         Icon(
                                             painter = painterResource(id = R.drawable.ic_refresh),
@@ -546,6 +543,11 @@ fun HomeScreen(
                                 interactionSource = powerInteractionSource,
                                 indication = null
                             ) {
+                                if (pendingState != null) return@clickable
+                                val now = System.currentTimeMillis()
+                                if (now - lastPowerClickMs < 450L) return@clickable
+                                lastPowerClickMs = now
+
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 val serviceIntent = Intent(context, ProxyForegroundService::class.java)
                                 if (currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING) {
@@ -981,9 +983,41 @@ fun RotatingProxyRing(
     state: ProxyUiState,
     modifier: Modifier = Modifier
 ) {
-    val timeState = produceState(initialValue = 0L) {
-        val startNano = System.nanoTime()
-        while (true) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // ── BATTERY LIFECYCLE GUARD: MONITOR APP FOREGROUND/BACKGROUND STATE ──
+    var isAppResumed by remember { mutableStateOf(true) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP -> {
+                    isAppResumed = false
+                }
+                Lifecycle.Event.ON_RESUME,
+                Lifecycle.Event.ON_START -> {
+                    isAppResumed = true
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // ── PERFORMANCE GUARD: CHECK IF USER DISABLED ANIMATIONS ──
+    val app = MirrlyApplication.instance
+    val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
+
+    val isActive = state != ProxyUiState.DISCONNECTED
+
+    val timeState = produceState(initialValue = 0L, isActive, isAppResumed, isAnimationsDisabled) {
+        if (!isActive || !isAppResumed || isAnimationsDisabled) return@produceState
+        val startNano = System.nanoTime() - value
+        while (isActive && isAppResumed && !isAnimationsDisabled) {
             withFrameNanos { frameTimeNanos ->
                 value = frameTimeNanos - startNano
             }
@@ -1051,6 +1085,27 @@ fun RotatingProxyRing(
         label = "strokeWidth"
     )
 
+    // Reusable Path instances to avoid per-frame allocations
+    val wavyPath = remember { Path() }
+    val innerPath = remember { Path() }
+
+    // Precalculate density metrics once per density change
+    val dp2Px = remember(density) { with(density) { 2.dp.toPx() } }
+    val dp3_5Px = remember(density) { with(density) { 3.5.dp.toPx() } }
+    val dp4Px = remember(density) { with(density) { 4.dp.toPx() } }
+    val dp10Px = remember(density) { with(density) { 10.dp.toPx() } }
+    val dp16Px = remember(density) { with(density) { 16.dp.toPx() } }
+    val dp26Px = remember(density) { with(density) { 26.dp.toPx() } }
+
+    val sweepColors = remember(animatedTailColor, animatedHeadColor, animatedAlpha) {
+        listOf(
+            animatedTailColor.copy(alpha = animatedAlpha * 0.15f),
+            animatedHeadColor.copy(alpha = animatedAlpha),
+            animatedHeadColor.copy(alpha = animatedAlpha),
+            animatedTailColor.copy(alpha = animatedAlpha * 0.1f)
+        )
+    }
+
     Canvas(modifier = modifier) {
         if (animatedAlpha <= 0.01f) return@Canvas
 
@@ -1066,10 +1121,10 @@ fun RotatingProxyRing(
         val innerAngle = -(t * 24f + kotlin.math.cos(t * 0.35f) * 28f) % 360f
 
         // Smooth wave amplitude for organic curved path ("извилистая плавная дуга")
-        val waveAmp = (diameter * 0.013f).coerceIn(2.dp.toPx(), 3.5.dp.toPx())
+        val waveAmp = (diameter * 0.013f).coerceIn(dp2Px, dp3_5Px)
 
         // Outer Ring Bounds
-        val outerInset = stroke / 2f + (diameter * 0.035f).coerceIn(4f, 10.dp.toPx())
+        val outerInset = stroke / 2f + (diameter * 0.035f).coerceIn(dp4Px, dp10Px)
         val outerRadius = (diameter - outerInset * 2) / 2f
         val outerTopLeft = Offset(outerInset, outerInset)
         val outerSize = Size(outerRadius * 2, outerRadius * 2)
@@ -1089,7 +1144,7 @@ fun RotatingProxyRing(
         rotate(degrees = outerAngle, pivot = center) {
             val steps = 72
             val sweepRad = Math.toRadians(animatedSweepAngle.toDouble()).toFloat()
-            val wavyPath = androidx.compose.ui.graphics.Path()
+            wavyPath.reset()
 
             for (i in 0..steps) {
                 val stepFrac = i.toFloat() / steps
@@ -1106,14 +1161,7 @@ fun RotatingProxyRing(
             // Draw curved ring arc
             drawPath(
                 path = wavyPath,
-                brush = Brush.sweepGradient(
-                    colors = listOf(
-                        animatedTailColor.copy(alpha = animatedAlpha * 0.15f),
-                        animatedHeadColor.copy(alpha = animatedAlpha),
-                        animatedHeadColor.copy(alpha = animatedAlpha),
-                        animatedTailColor.copy(alpha = animatedAlpha * 0.1f)
-                    )
-                ),
+                brush = Brush.sweepGradient(colors = sweepColors),
                 style = Stroke(width = stroke, cap = StrokeCap.Round)
             )
 
@@ -1141,16 +1189,14 @@ fun RotatingProxyRing(
         val innerAlphaFactor = if (isDualForced) 1.0f else (organicDualFactor * 0.85f)
 
         if (innerAlphaFactor > 0.05f) {
-            val innerInset = stroke / 2f + (diameter * 0.105f).coerceIn(16.dp.toPx(), 26.dp.toPx())
+            val innerInset = stroke / 2f + (diameter * 0.105f).coerceIn(dp16Px, dp26Px)
             val innerRadius = (diameter - innerInset * 2) / 2f
-            val innerTopLeft = Offset(innerInset, innerInset)
-            val innerSize = Size(innerRadius * 2, innerRadius * 2)
             val innerSweep = (110f + 25f * kotlin.math.sin(t * 0.5f)).coerceIn(80f, 150f)
 
             rotate(degrees = innerAngle, pivot = center) {
                 val innerSteps = 50
                 val innerSweepRad = Math.toRadians(innerSweep.toDouble()).toFloat()
-                val innerPath = androidx.compose.ui.graphics.Path()
+                innerPath.reset()
 
                 for (i in 0..innerSteps) {
                     val stepFrac = i.toFloat() / innerSteps
@@ -1259,6 +1305,22 @@ fun RollingNumberText(
     fontStyle: FontStyle = FontStyle.Normal,
     letterSpacing: TextUnit = TextUnit.Unspecified
 ) {
+    val app = MirrlyApplication.instance
+    val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
+
+    if (isAnimationsDisabled) {
+        Text(
+            text = text,
+            modifier = modifier,
+            color = color,
+            fontSize = fontSize,
+            fontWeight = fontWeight,
+            fontStyle = fontStyle,
+            letterSpacing = letterSpacing
+        )
+        return
+    }
+
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
@@ -1348,6 +1410,50 @@ fun WsPoolStabilityGraph(
         label = "headPulseScale"
     )
 
+    val steps = 80 // High sub-pixel sampling density for max smoothing
+    val yArray = remember { FloatArray(steps + 1) }
+
+    // Reusable Path instances to prevent frame allocations
+    val strokePath = remember { Path() }
+    val fillPath = remember { Path() }
+
+    val density = LocalDensity.current
+    val dp5Px = remember(density) { with(density) { 5.dp.toPx() } }
+    val dp2Px = remember(density) { with(density) { 2.dp.toPx() } }
+    val dp3Px = remember(density) { with(density) { 3.dp.toPx() } }
+    val densityPxRatio = density.density
+
+    val neonColor = if (isProxyActive) ActiveGreenLed else InactiveGrayLed
+
+    val fillBrush = remember(neonColor, isProxyActive) {
+        Brush.verticalGradient(
+            colors = listOf(
+                neonColor.copy(alpha = if (isProxyActive) 0.32f else 0.08f),
+                Color.Transparent
+            )
+        )
+    }
+
+    val ambientGlowBrush = remember(neonColor) {
+        Brush.horizontalGradient(
+            colors = listOf(
+                neonColor.copy(alpha = 0.15f),
+                neonColor.copy(alpha = 0.40f),
+                neonColor.copy(alpha = 0.40f)
+            )
+        )
+    }
+
+    val mainLineBrush = remember(neonColor) {
+        Brush.horizontalGradient(
+            colors = listOf(
+                neonColor.copy(alpha = 0.4f),
+                neonColor,
+                neonColor
+            )
+        )
+    }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
@@ -1361,11 +1467,10 @@ fun WsPoolStabilityGraph(
             val height = size.height
             if (width <= 0f || height <= 0f) return@Canvas
 
-            val steps = 80 // High sub-pixel sampling density for max smoothing
             val stepX = width / steps
             val t = timeSeconds
 
-            val points = List(steps + 1) { i ->
+            for (i in 0..steps) {
                 val u = i.toFloat() / steps // normalized 0..1
                 
                 // Silky Soft Low-Frequency Harmonic Superposition
@@ -1377,65 +1482,50 @@ fun WsPoolStabilityGraph(
                 val waveHeightSpan = animatedAmplitude * height * 0.40f
                 val centerY = height - (animatedAmplitude * height * 0.38f) - (height * 0.14f)
                 
-                val y = (centerY + combinedWave * waveHeightSpan).coerceIn(4f, height - 4f)
-                Offset(i * stepX, y)
+                yArray[i] = (centerY + combinedWave * waveHeightSpan).coerceIn(4f, height - 4f)
             }
 
             // Construct Ultra-Smooth Catmull-Rom C1 Spline Path with Derivative Tangents
-            val strokePath = Path().apply {
-                moveTo(points.first().x, points.first().y)
-                for (i in 0 until points.size - 1) {
-                    val p0 = points[if (i > 0) i - 1 else i]
-                    val p1 = points[i]
-                    val p2 = points[i + 1]
-                    val p3 = points[if (i + 2 < points.size) i + 2 else i + 1]
+            strokePath.reset()
+            strokePath.moveTo(0f, yArray[0])
+            for (i in 0 until steps) {
+                val p0y = yArray[if (i > 0) i - 1 else i]
+                val p1y = yArray[i]
+                val p2y = yArray[i + 1]
+                val p3y = yArray[if (i + 2 <= steps) i + 2 else i + 1]
 
-                    // Exact Catmull-Rom tangent derivative control points (Zero-Kink C1 Continuity)
-                    val control1 = Offset(
-                        p1.x + (p2.x - p0.x) / 6f,
-                        p1.y + (p2.y - p0.y) / 6f
-                    )
-                    val control2 = Offset(
-                        p2.x - (p3.x - p1.x) / 6f,
-                        p2.y - (p3.y - p1.y) / 6f
-                    )
-                    cubicTo(control1.x, control1.y, control2.x, control2.y, p2.x, p2.y)
-                }
+                val p0x = if (i > 0) (i - 1) * stepX else i * stepX
+                val p1x = i * stepX
+                val p2x = (i + 1) * stepX
+                val p3x = if (i + 2 <= steps) (i + 2) * stepX else (i + 1) * stepX
+
+                val control1X = p1x + (p2x - p0x) / 6f
+                val control1Y = p1y + (p2y - p0y) / 6f
+                val control2X = p2x - (p3x - p1x) / 6f
+                val control2Y = p2y - (p3y - p1y) / 6f
+
+                strokePath.cubicTo(control1X, control1Y, control2X, control2Y, p2x, p2y)
             }
 
             // Area Fill Path under the Bezier Curve
-            val fillPath = Path().apply {
-                addPath(strokePath)
-                lineTo(width, height)
-                lineTo(0f, height)
-                close()
-            }
-
-            val neonColor = if (isProxyActive) ActiveGreenLed else InactiveGrayLed
+            fillPath.reset()
+            fillPath.addPath(strokePath)
+            fillPath.lineTo(width, height)
+            fillPath.lineTo(0f, height)
+            fillPath.close()
 
             // 1. Draw Gradient Area Fill under Liquid Wave
             drawPath(
                 path = fillPath,
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        neonColor.copy(alpha = if (isProxyActive) 0.32f else 0.08f),
-                        Color.Transparent
-                    )
-                )
+                brush = fillBrush
             )
 
             // 2. Draw Soft Ambient Glow Line Layer
             drawPath(
                 path = strokePath,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        neonColor.copy(alpha = 0.15f),
-                        neonColor.copy(alpha = 0.40f),
-                        neonColor.copy(alpha = 0.40f)
-                    )
-                ),
+                brush = ambientGlowBrush,
                 style = Stroke(
-                    width = 5.dp.toPx(),
+                    width = dp5Px,
                     cap = StrokeCap.Round,
                     join = StrokeJoin.Round
                 )
@@ -1444,31 +1534,26 @@ fun WsPoolStabilityGraph(
             // 3. Draw Main Crisp Silky Bezier Line
             drawPath(
                 path = strokePath,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        neonColor.copy(alpha = 0.4f),
-                        neonColor,
-                        neonColor
-                    )
-                ),
+                brush = mainLineBrush,
                 style = Stroke(
-                    width = 2.dp.toPx(),
+                    width = dp2Px,
                     cap = StrokeCap.Round,
                     join = StrokeJoin.Round
                 )
             )
 
-            // 3. Draw Head Pulsating Glowing LED Dot at the leading edge
-            if (isProxyActive && points.isNotEmpty()) {
-                val headPoint = points.last()
+            // 4. Draw Head Pulsating Glowing LED Dot at the leading edge
+            if (isProxyActive) {
+                val headPoint = Offset(width, yArray[steps])
+                val pulseRadius = headPulseScale * densityPxRatio
                 drawCircle(
                     color = ActiveGreenLed.copy(alpha = 0.35f),
-                    radius = headPulseScale.dp.toPx(),
+                    radius = pulseRadius,
                     center = headPoint
                 )
                 drawCircle(
                     color = ActiveGreenLed,
-                    radius = 3.dp.toPx(),
+                    radius = dp3Px,
                     center = headPoint
                 )
             }
@@ -1486,3 +1571,4 @@ fun WsPoolStabilityGraph(
         )
     }
 }
+

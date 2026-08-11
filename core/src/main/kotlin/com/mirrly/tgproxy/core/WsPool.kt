@@ -2,6 +2,7 @@ package com.mirrly.tgproxy.core
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -14,7 +15,7 @@ class WsPool(private val poolSize: Int = 4) {
 
     private val idlePool = ConcurrentHashMap<PoolKey, ConcurrentLinkedQueue<PooledSocket>>()
     private val refillingSet = ConcurrentHashMap<PoolKey, Boolean>()
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     fun get(dcId: Int, isMedia: Boolean, isTestEnv: Boolean): RawWebSocketClient? {
         val key = PoolKey(dcId, isMedia)

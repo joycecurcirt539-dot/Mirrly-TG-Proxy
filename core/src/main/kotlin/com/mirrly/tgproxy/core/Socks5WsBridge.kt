@@ -264,10 +264,12 @@ class Socks5WsBridge(
                                     outputStream.flush()
                                     stats.addReceived(len.toLong())
                                 }
-                            } catch (e: Exception) {
-                                AppLogger.w("Socks5WsBridge", "⚠️ [Direct TCP IN] Завершено/Ошибка: ${e.message}")
+                            } catch (e: Throwable) {
+                                if (e !is kotlinx.coroutines.CancellationException && e !is java.io.InterruptedIOException) {
+                                    AppLogger.w("Socks5WsBridge", "⚠️ [Direct TCP IN] Завершено/Ошибка: ${e.message}")
+                                }
                             } finally {
-                                try { directSocket.close() } catch (_: Exception) {}
+                                try { directSocket.close() } catch (_: Throwable) {}
                             }
                         }
 
@@ -280,9 +282,13 @@ class Socks5WsBridge(
                                 directOut.flush()
                                 stats.addSent(len.toLong())
                             }
+                        } catch (e: Throwable) {
+                            if (e !is kotlinx.coroutines.CancellationException && e !is java.io.InterruptedIOException) {
+                                AppLogger.w("Socks5WsBridge", "⚠️ [Direct TCP OUT] Завершено/Ошибка: ${e.message}")
+                            }
                         } finally {
                             fallbackJob.cancel()
-                            try { directSocket.close() } catch (_: Exception) {}
+                            try { directSocket.close() } catch (_: Throwable) {}
                         }
                     }
                 } catch (e: Exception) {
@@ -328,8 +334,7 @@ class Socks5WsBridge(
             while (bridgeScope.isActive && !clientSocket.isClosed && activeWs.isAlive) {
                 val count = inputStream.read(buf)
                 if (count < 0) break
-                val chunk = buf.copyOf(count)
-                if (!activeWs.send(chunk)) break
+                if (!activeWs.send(buf, 0, count)) break
                 stats.addSent(count.toLong())
             }
         } catch (e: Exception) {

@@ -46,6 +46,10 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         private set
 
     @Volatile
+    var isNativeRunning: Boolean = false
+        private set
+
+    @Volatile
     var startTimeMs: Long = 0L
         private set
 
@@ -53,17 +57,30 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     var currentPingMs: Long = -1L
         private set
 
+    @Volatile
+    var isTransitioning: Boolean = false
+        private set
+
     val uptimeSeconds: Long
         get() = if (isRunning && startTimeMs > 0L) (System.currentTimeMillis() - startTimeMs) / 1000L else 0L
 
     @Synchronized
     fun start(cacheDir: File? = null): Boolean {
-        if (isRunning) return true
+        if (isRunning || isTransitioning) return isRunning
+        isTransitioning = true
+        try {
+            return performStart(cacheDir)
+        } finally {
+            isTransitioning = false
+        }
+    }
 
+    private fun performStart(cacheDir: File?): Boolean {
         stats.resetBaseline()
 
         // В режиме SOCKS5 — запускаем только SOCKS5-движок (прозрачный TCP relay)
         if (config.isSocks5Mode) {
+            isNativeRunning = false
             if (wsPool == null) {
                 wsPool = WsPool(config.poolSize)
             }
@@ -102,6 +119,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             // Если для MTProto задан Cloudflare Worker (кастомный или дефолтный), запускаем Kotlin TgWsBridge с WSS TCP туннелированием
             if (workerDomain.isNotEmpty()) {
                 AppLogger.i("LocalProxyServer", "Для MTProto активен Cloudflare Worker ($workerDomain). Запуск Kotlin TgWsBridge...")
+                isNativeRunning = false
                 if (wsPool == null) {
                     wsPool = WsPool(config.poolSize)
                 }
@@ -138,15 +156,18 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
             if (code == 0) {
                 nativeStarted = true
+                isNativeRunning = true
                 isRunning = true
                 if (startTimeMs == 0L) {
                     startTimeMs = System.currentTimeMillis()
                 }
                 AppLogger.i("LocalProxyServer", "Нативный прокси успешно запущен на ${config.bindHost}:${config.bindPort} (Cloudflare: $useCf)")
             } else {
+                isNativeRunning = false
                 AppLogger.w("LocalProxyServer", "Код ответа нативной библиотеки: $code, переключение на Kotlin-движок...")
             }
         } catch (t: Throwable) {
+            isNativeRunning = false
             AppLogger.w("LocalProxyServer", "Нативный прокси недоступен (${t.message}), переключение на Kotlin TgWsBridge...")
         }
 
@@ -164,12 +185,14 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
         speedJob = scope.launch {
             while (isActive && isRunning) {
-                try {
-                    val nativeStats = NativeProxy.getStats()
-                    if (!nativeStats.isNullOrEmpty()) {
-                        stats.parseNativeStats(nativeStats)
-                    }
-                } catch (_: Exception) {}
+                if (isNativeRunning) {
+                    try {
+                        val nativeStats = NativeProxy.getStats()
+                        if (!nativeStats.isNullOrEmpty()) {
+                            stats.parseNativeStats(nativeStats)
+                        }
+                    } catch (_: Exception) {}
+                }
                 stats.updateSpeed()
                 if (System.currentTimeMillis() % 5000 < 1000) {
                     measurePingAsync()
@@ -276,6 +299,15 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     @Synchronized
     fun stop() {
         if (!isRunning) return
+        isTransitioning = true
+        try {
+            performStop()
+        } finally {
+            isTransitioning = false
+        }
+    }
+
+    private fun performStop() {
         isRunning = false
         startTimeMs = 0L
         speedJob?.cancel()
@@ -300,11 +332,14 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         } catch (_: Exception) {}
         wsPool = null
 
-        try {
-            NativeProxy.stopProxy()
-            AppLogger.i("LocalProxyServer", "Движок прокси успешно остановлен")
-        } catch (t: Throwable) {
-            AppLogger.e("LocalProxyServer", "Ошибка остановки нативного движка: ${t.message}")
+        if (isNativeRunning) {
+            isNativeRunning = false
+            try {
+                NativeProxy.stopProxy()
+                AppLogger.i("LocalProxyServer", "Движок прокси успешно остановлен")
+            } catch (t: Throwable) {
+                AppLogger.e("LocalProxyServer", "Ошибка остановки нативного движка: ${t.message}")
+            }
         }
 
         // Кроткая пауза 250 мс для полного освобождения порта сокета стеком ОС
@@ -333,12 +368,14 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         val clamped = newSize.coerceIn(2, 16)
         config.poolSize = clamped
         AppLogger.i("LocalProxyServer", "Изменение пула сокетов → $clamped")
-        try {
-            NativeProxy.setPoolSize(clamped)
-            AppLogger.i("LocalProxyServer", "Пул сокетов обновлён динамически: $clamped")
-        } catch (t: Throwable) {
-            AppLogger.w("LocalProxyServer", "setPoolSize() не удался (${t.message}), перезапуск прокси...")
-            if (isRunning) restart(cacheDir)
+        if (isNativeRunning) {
+            try {
+                NativeProxy.setPoolSize(clamped)
+                AppLogger.i("LocalProxyServer", "Пул сокетов обновлён динамически: $clamped")
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "setPoolSize() не удался (${t.message}), перезапуск прокси...")
+                if (isRunning) restart(cacheDir)
+            }
         }
     }
 

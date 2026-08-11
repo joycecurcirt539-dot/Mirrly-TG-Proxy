@@ -38,7 +38,7 @@ class PreferencesManager(context: Context) {
             savedSecret
         }
         val cfEnabled = prefs.getBoolean("cf_proxy_enabled", defaults.cfProxyEnabled)
-        val customDomain = prefs.getString("custom_cf_domain", defaults.customCfDomain) ?: defaults.customCfDomain
+        val customDomain = ProxyConfig.sanitizeDomain(prefs.getString("custom_cf_domain", defaults.customCfDomain) ?: defaults.customCfDomain)
         val poolSize = prefs.getInt("pool_size", defaults.poolSize)
         val autostart = prefs.getBoolean("autostart_on_boot", defaults.autostartOnBoot)
         val fallbackTcp = prefs.getBoolean("fallback_direct_tcp", defaults.fallbackDirectTcp)
@@ -80,12 +80,14 @@ class PreferencesManager(context: Context) {
     }
 
     fun saveConfig(config: ProxyConfig) {
+        val sanitizedDomain = ProxyConfig.sanitizeDomain(config.customCfDomain)
+        config.customCfDomain = sanitizedDomain
         prefs.edit()
             .putString("bind_host", config.bindHost)
             .putInt("bind_port", config.bindPort)
             .putString("secret_hex", config.secretHex)
             .putBoolean("cf_proxy_enabled", config.cfProxyEnabled)
-            .putString("custom_cf_domain", config.customCfDomain)
+            .putString("custom_cf_domain", sanitizedDomain)
             .putInt("pool_size", config.poolSize)
             .putBoolean("autostart_on_boot", config.autostartOnBoot)
             .putBoolean("fallback_direct_tcp", config.fallbackDirectTcp)

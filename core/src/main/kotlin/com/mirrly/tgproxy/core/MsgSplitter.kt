@@ -19,18 +19,21 @@ class MsgSplitter(relayInit: ByteArray, private val protoInt: Int) {
     }
 
     @Synchronized
-    fun split(chunk: ByteArray): List<ByteArray> {
-        if (chunk.isEmpty()) return emptyList()
-        if (disabled) return listOf(chunk)
+    fun split(chunk: ByteArray, offset: Int = 0, length: Int = chunk.size): List<ByteArray> {
+        if (length <= 0) return emptyList()
+        if (disabled) {
+            val slice = if (offset == 0 && length == chunk.size) chunk else chunk.copyOfRange(offset, offset + length)
+            return listOf(slice)
+        }
 
-        val decrypted = decCipher.update(chunk)
+        val decrypted = decCipher.update(chunk, offset, length)
 
         val cipherBytes: ByteArray
         val plainBytes: ByteArray
         val hasResidue = cipherBuf.size() > 0
 
         if (hasResidue) {
-            cipherBuf.write(chunk)
+            cipherBuf.write(chunk, offset, length)
             plainBuf.write(decrypted)
             cipherBytes = cipherBuf.toByteArray()
             plainBytes = plainBuf.toByteArray()
@@ -40,37 +43,39 @@ class MsgSplitter(relayInit: ByteArray, private val protoInt: Int) {
         }
 
         val parts = mutableListOf<ByteArray>()
-        var offset = 0
-        val bufLen = cipherBytes.size
+        var curPlainOffset = 0
+        val bufLen = if (hasResidue) cipherBytes.size else length
 
-        while (offset < bufLen) {
-            val avail = bufLen - offset
-            val packetLen = nextPacketLen(plainBytes, offset, avail) ?: break
+        while (curPlainOffset < bufLen) {
+            val avail = bufLen - curPlainOffset
+            val packetLen = nextPacketLen(plainBytes, curPlainOffset, avail) ?: break
             if (packetLen <= 0) {
-                parts.add(cipherBytes.copyOfRange(offset, bufLen))
-                offset = bufLen
+                val startCipherOffset = if (hasResidue) curPlainOffset else (offset + curPlainOffset)
+                val endCipherOffset = if (hasResidue) cipherBytes.size else (offset + bufLen)
+                parts.add(cipherBytes.copyOfRange(startCipherOffset, endCipherOffset))
+                curPlainOffset = bufLen
                 disabled = true
                 break
             }
-            parts.add(cipherBytes.copyOfRange(offset, offset + packetLen))
-            offset += packetLen
+            val startCipherOffset = if (hasResidue) curPlainOffset else (offset + curPlainOffset)
+            parts.add(cipherBytes.copyOfRange(startCipherOffset, startCipherOffset + packetLen))
+            curPlainOffset += packetLen
         }
 
         if (hasResidue) {
-            if (offset > 0) {
-                val remainingCipher = if (offset < bufLen) cipherBytes.copyOfRange(offset, bufLen) else ByteArray(0)
-                val remainingPlain = if (offset < bufLen) plainBytes.copyOfRange(offset, bufLen) else ByteArray(0)
+            if (curPlainOffset > 0) {
+                val remainingLen = bufLen - curPlainOffset
                 cipherBuf.reset()
                 plainBuf.reset()
-                if (remainingCipher.isNotEmpty()) {
-                    cipherBuf.write(remainingCipher)
-                    plainBuf.write(remainingPlain)
+                if (remainingLen > 0) {
+                    cipherBuf.write(cipherBytes, curPlainOffset, remainingLen)
+                    plainBuf.write(plainBytes, curPlainOffset, remainingLen)
                 }
             }
         } else {
-            if (offset < bufLen) {
-                cipherBuf.write(cipherBytes, offset, bufLen - offset)
-                plainBuf.write(plainBytes, offset, bufLen - offset)
+            if (curPlainOffset < bufLen) {
+                cipherBuf.write(cipherBytes, offset + curPlainOffset, bufLen - curPlainOffset)
+                plainBuf.write(plainBytes, curPlainOffset, bufLen - curPlainOffset)
             }
         }
 

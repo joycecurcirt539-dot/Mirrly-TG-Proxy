@@ -26,7 +26,7 @@ object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_API_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
     private const val GITHUB_API_ALL_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
-    const val CURRENT_VERSION_NAME = "1.0.9"
+    const val CURRENT_VERSION_NAME = "1.1.0"
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -84,6 +84,7 @@ object UpdateChecker {
                             val bodyText = json.optString("body", "")
 
                             var downloadUrl: String? = null
+                            var universalApkUrl: String? = null
                             var releaseApkUrl: String? = null
                             var fallbackApkUrl: String? = null
 
@@ -96,19 +97,19 @@ object UpdateChecker {
                                         val assetUrl = asset.optString("browser_download_url", "")
 
                                         if (assetName.endsWith(".apk", ignoreCase = true)) {
-                                            if (assetName.contains("release", ignoreCase = true) && !assetName.contains("debug", ignoreCase = true)) {
-                                                releaseApkUrl = assetUrl
+                                            if (assetName.contains("universal", ignoreCase = true) && !assetName.contains("debug", ignoreCase = true)) {
+                                                universalApkUrl = assetUrl
                                                 break
+                                            } else if (assetName.contains("release", ignoreCase = true) && !assetName.contains("debug", ignoreCase = true) && releaseApkUrl == null) {
+                                                releaseApkUrl = assetUrl
                                             } else if (!assetName.contains("debug", ignoreCase = true) && fallbackApkUrl == null) {
-                                                fallbackApkUrl = assetUrl
-                                            } else if (fallbackApkUrl == null && assetUrl.isNotBlank()) {
                                                 fallbackApkUrl = assetUrl
                                             }
                                         }
                                     }
                                 }
                             }
-                            downloadUrl = releaseApkUrl ?: fallbackApkUrl
+                            downloadUrl = universalApkUrl ?: releaseApkUrl ?: fallbackApkUrl
 
                             val sha256Regex = Regex("(?i)sha-?256[:\\s]+([a-fA-F0-9:-]{32,95})")
                             val shaMatches = sha256Regex.findAll(bodyText).toList()
@@ -171,7 +172,7 @@ object UpdateChecker {
 
         val summary = lines.take(2).joinToString(" ").take(160).trim()
         return if (summary.isNotBlank()) {
-            "В v$versionName: $summary"
+            summary
         } else {
             "Доступна новая версия v$versionName со свежими улучшениями безопасности и скорости."
         }
@@ -179,6 +180,11 @@ object UpdateChecker {
 
     fun cleanVersionString(ver: String): String {
         var v = ver.trim()
+        val versionRegex = Regex("""\d+(\.\d+)+""")
+        val match = versionRegex.find(v)
+        if (match != null) {
+            return match.value
+        }
         if (v.startsWith("v", ignoreCase = true)) {
             v = v.substring(1).trim()
         }
@@ -192,10 +198,12 @@ object UpdateChecker {
     fun isVersionNewer(latest: String, current: String): Boolean {
         val cleanLatest = cleanVersionString(latest)
         val cleanCurrent = cleanVersionString(current)
-        if (cleanLatest.isBlank()) return false
+        if (cleanLatest.isBlank() || cleanCurrent.isBlank()) return false
+        if (cleanLatest == cleanCurrent) return false
 
         val latestParts = cleanLatest.split(".").mapNotNull { it.toIntOrNull() }
         val currentParts = cleanCurrent.split(".").mapNotNull { it.toIntOrNull() }
+        if (latestParts.isEmpty() || currentParts.isEmpty()) return false
 
         val maxParts = maxOf(latestParts.size, currentParts.size)
         for (i in 0 until maxParts) {
@@ -207,7 +215,9 @@ object UpdateChecker {
         return false
     }
 
-    suspend fun fetchTotalDownloads(): Result<Int> {
+    suspend fun fetchTotalDownloads(
+        currentVersion: String = CURRENT_VERSION_NAME
+    ): Result<Int> {
         return withContext(Dispatchers.IO) {
             var shieldsCount = 0
             var githubCount = 0
@@ -216,7 +226,7 @@ object UpdateChecker {
             try {
                 val shieldsRequest = Request.Builder()
                     .url("https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total.json")
-                    .header("User-Agent", "Mirrly-TG-Proxy-AndroidApp/$CURRENT_VERSION_NAME")
+                    .header("User-Agent", "Mirrly-TG-Proxy-AndroidApp/$currentVersion")
                     .build()
 
                 client.newCall(shieldsRequest).execute().use { resp ->
@@ -235,7 +245,7 @@ object UpdateChecker {
             try {
                 val request = Request.Builder()
                     .url("https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases?per_page=100")
-                    .header("User-Agent", "Mirrly-TG-Proxy-AndroidApp/$CURRENT_VERSION_NAME")
+                    .header("User-Agent", "Mirrly-TG-Proxy-AndroidApp/$currentVersion")
                     .header("Accept", "application/vnd.github.v3+json")
                     .build()
 

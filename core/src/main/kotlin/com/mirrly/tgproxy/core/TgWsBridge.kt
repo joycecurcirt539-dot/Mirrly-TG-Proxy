@@ -168,9 +168,9 @@ class TgWsBridge(
                                             outputStream.flush()
                                             stats.addSent(len.toLong())
                                         }
-                                    } catch (_: Exception) {}
+                                    } catch (_: Throwable) {}
                                     finally {
-                                        try { directSocket.close() } catch (_: Exception) {}
+                                        try { directSocket.close() } catch (_: Throwable) {}
                                     }
                                 }
                                 try {
@@ -182,9 +182,10 @@ class TgWsBridge(
                                         directSocket.getOutputStream().flush()
                                         stats.addReceived(len.toLong())
                                     }
-                                } finally {
+                                } catch (_: Throwable) {}
+                                finally {
                                     fallbackJob.cancel()
-                                    try { directSocket.close() } catch (_: Exception) {}
+                                    try { directSocket.close() } catch (_: Throwable) {}
                                 }
                             }
                         } catch (_: Exception) {}
@@ -221,10 +222,9 @@ class TgWsBridge(
             while (isActive && !clientSocket.isClosed) {
                 val readCount = inputStream.read(readBuffer)
                 if (readCount < 0) break
-                val chunk = readBuffer.copyOfRange(0, readCount)
                 stats.addSent(readCount.toLong())
 
-                val packets = msgSplitter.split(chunk)
+                val packets = msgSplitter.split(readBuffer, 0, readCount)
                 for (packet in packets) {
                     if (!activeWs.send(packet)) {
                         break

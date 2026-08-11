@@ -41,45 +41,81 @@ interface ProxyLibrary : Library {
 }
 
 object NativeProxy {
+    @Volatile
+    var isStarted: Boolean = false
+        private set
+
     fun startProxy(host: String, port: Int, dcIps: String, secret: String, verbose: Int): Int {
-        return ProxyLibrary.INSTANCE.StartProxy(host, port, dcIps, secret, verbose)
+        val code = ProxyLibrary.INSTANCE.StartProxy(host, port, dcIps, secret, verbose)
+        if (code == 0) {
+            isStarted = true
+        }
+        return code
     }
 
     fun stopProxy(): Int {
-        return ProxyLibrary.INSTANCE.StopProxy()
+        if (!isStarted) {
+            return 0
+        }
+        isStarted = false
+        return try {
+            ProxyLibrary.INSTANCE.StopProxy()
+        } catch (t: Throwable) {
+            -1
+        }
     }
 
     fun setPoolSize(size: Int) {
-        ProxyLibrary.INSTANCE.SetPoolSize(size)
+        if (!isStarted) return
+        try {
+            ProxyLibrary.INSTANCE.SetPoolSize(size)
+        } catch (_: Throwable) {}
     }
 
     fun setCfProxyCacheDir(cacheDir: String) {
-        ProxyLibrary.INSTANCE.SetCfProxyCacheDir(cacheDir)
+        try {
+            ProxyLibrary.INSTANCE.SetCfProxyCacheDir(cacheDir)
+        } catch (_: Throwable) {}
     }
 
     fun setCfProxyConfig(enabled: Boolean, priority: Boolean, userDomain: String) {
-        ProxyLibrary.INSTANCE.SetCfProxyConfig(
-            if (enabled) 1 else 0,
-            if (priority) 1 else 0,
-            userDomain
-        )
+        try {
+            ProxyLibrary.INSTANCE.SetCfProxyConfig(
+                if (enabled) 1 else 0,
+                if (priority) 1 else 0,
+                userDomain
+            )
+        } catch (_: Throwable) {}
     }
 
     fun setSecret(secret: String) {
-        ProxyLibrary.INSTANCE.SetSecret(secret)
+        if (!isStarted) return
+        try {
+            ProxyLibrary.INSTANCE.SetSecret(secret)
+        } catch (_: Throwable) {}
     }
 
     fun getSecretWithPrefix(): String? {
-        val ptr = ProxyLibrary.INSTANCE.GetSecretWithPrefix() ?: return null
-        val res = ptr.getString(0)
-        ProxyLibrary.INSTANCE.FreeString(ptr)
-        return res
+        if (!isStarted) return null
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetSecretWithPrefix() ?: return null
+            val res = ptr.getString(0)
+            ProxyLibrary.INSTANCE.FreeString(ptr)
+            res
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     fun getStats(): String? {
-        val ptr = ProxyLibrary.INSTANCE.GetStats() ?: return null
-        val res = ptr.getString(0)
-        ProxyLibrary.INSTANCE.FreeString(ptr)
-        return res
+        if (!isStarted) return null
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetStats() ?: return null
+            val res = ptr.getString(0)
+            ProxyLibrary.INSTANCE.FreeString(ptr)
+            res
+        } catch (_: Throwable) {
+            null
+        }
     }
 }

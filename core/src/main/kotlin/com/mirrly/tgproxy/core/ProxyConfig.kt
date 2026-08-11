@@ -63,15 +63,16 @@ data class ProxyConfig(
     }
 
     fun getEffectiveCfDomain(): String {
-        val userDomain = customCfDomain.trim()
+        val userDomain = sanitizeDomain(customCfDomain)
         if (userDomain.isNotEmpty()) {
             return userDomain
         }
-        return if (isSocks5Mode) {
+        val defaultDomain = if (isSocks5Mode) {
             if (useDefaultWorkerSocks5) "mirrly-tg-proxy-worker.brawny-singer.workers.dev" else ""
         } else {
             if (useDefaultWorkerMtproto) "mirrly-tg-proxy-worker.brawny-singer.workers.dev" else ""
         }
+        return sanitizeDomain(defaultDomain)
     }
 
     val rawSecret32: String
@@ -95,6 +96,17 @@ data class ProxyConfig(
         get() = hexToBytes(rawSecret32)
 
     companion object {
+        fun sanitizeDomain(input: String): String {
+            var domain = input.trim()
+            if (domain.isEmpty()) return ""
+            domain = domain.replace(Regex("^(?i)(https?|wss?):/+"), "")
+            if (domain.contains("@")) {
+                domain = domain.substringAfterLast("@")
+            }
+            domain = domain.substringBefore('/').substringBefore('?').substringBefore('#')
+            return domain.trim().trim('/')
+        }
+
         fun hexToBytes(hex: String): ByteArray {
             val cleanHex = hex.filter { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }.lowercase()
             val padded = if (cleanHex.length % 2 != 0) "0$cleanHex" else cleanHex

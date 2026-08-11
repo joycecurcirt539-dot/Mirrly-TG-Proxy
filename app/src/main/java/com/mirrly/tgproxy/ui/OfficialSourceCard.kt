@@ -12,8 +12,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,6 +46,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun OfficialSourceCard(
     modifier: Modifier = Modifier,
+    onOpenUpdate: (() -> Unit)? = null,
     onUpdateReleaseFound: ((com.mirrly.tgproxy.core.ReleaseInfo) -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -130,7 +133,7 @@ fun OfficialSourceCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Button 1: Repository
+            // Button 1: Repository (GitHub)
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -165,19 +168,22 @@ fun OfficialSourceCard(
                 }
             }
 
-            // Button 2: Check Release
+            // Button 2: Check Release / Open Update Screen directly
             OutlinedButton(
                 onClick = {
-                    if (!isCheckingUpdate) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    val isUpdateAvailable = currentUpdateInfo?.isUpdateAvailable == true
+                    if (isUpdateAvailable) {
+                        onOpenUpdate?.invoke() ?: currentUpdateInfo?.let { onUpdateReleaseFound?.invoke(it) }
+                    } else if (!isCheckingUpdate) {
                         isCheckingUpdate = true
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         coroutineScope.launch {
                             val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false, forceRefresh = true)
                             isCheckingUpdate = false
                             result.fold(
                                 onSuccess = { info ->
                                     if (info.isUpdateAvailable) {
-                                        onUpdateReleaseFound?.invoke(info)
+                                        onOpenUpdate?.invoke() ?: onUpdateReleaseFound?.invoke(info)
                                     } else {
                                         Toast.makeText(
                                             context,
@@ -248,18 +254,12 @@ fun OfficialSourceCard(
                     .weight(1f)
                     .height(36.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(text = "🔑", fontSize = 11.sp)
-                    Text(
-                        text = "Проверить хеш",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = statusColor
-                    )
-                }
+                Text(
+                    text = "Проверить хеш",
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = statusColor
+                )
             }
         }
     }
@@ -286,12 +286,12 @@ fun OfficialSourceCard(
             )
         ) {
             val view = LocalView.current
-            SideEffect {
+            LaunchedEffect(Unit) {
                 val window = (view.parent as? DialogWindowProvider)?.window
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                     window?.attributes = window?.attributes?.apply {
-                        blurBehindRadius = 70
+                        blurBehindRadius = 50
                     }
                 }
             }
@@ -306,14 +306,16 @@ fun OfficialSourceCard(
                     ) { showSecurityDialog = false }
                     .padding(horizontal = 24.dp)
             ) {
-                // Detailed Security Info (Centered)
+                // Detailed Security Info with Smooth Fading Edges
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier
                         .align(Alignment.Center)
                         .fillMaxWidth()
-                        .padding(bottom = 70.dp)
+                        .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
+                        .padding(bottom = 120.dp, top = 24.dp)
+                        .verticalScroll(rememberScrollState())
                         .clickable(enabled = false) {}
                 ) {
                     // Category Pill
@@ -342,46 +344,58 @@ fun OfficialSourceCard(
                         letterSpacing = 0.3.sp
                     )
 
-                    // Status Text
-                    Text(
-                        text = when (signatureStatus) {
-                            SignatureStatus.OFFICIAL_RELEASE -> "Официальный релизный ключ Mirrly TG Proxy подтвержден"
-                            SignatureStatus.DEBUG_BUILD -> "Отладочная сборка разработчика (Debug)"
-                            else -> "Цифровая подпись приложения подтверждена"
-                        },
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = themeColor,
-                        textAlign = TextAlign.Center
-                    )
-
-                    Spacer(modifier = Modifier.height(2.dp))
-
-                    // Hash Display
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    // Card 1: Status Explanation (Glass Card)
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = themeColor.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, themeColor.copy(alpha = 0.30f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Официальный отпечаток SHA-256:",
-                            fontSize = 12.sp,
-                            color = TextWhite.copy(alpha = 0.65f),
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = currentSha256,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Normal,
+                            text = when (signatureStatus) {
+                                SignatureStatus.OFFICIAL_RELEASE -> "Официальная цифровая подпись Mirrly TG Proxy подтверждена. Данная сборка выпущена разработчиками в репозитории GitHub."
+                                SignatureStatus.DEBUG_BUILD -> "Отладочная версия (Debug). Приложение собрано в среде разработки с тестовым ключом."
+                                else -> "Цифровая подпись приложения верифицирована."
+                            },
+                            fontSize = 13.sp,
                             color = TextWhite.copy(alpha = 0.90f),
-                            textAlign = TextAlign.Center,
-                            lineHeight = 16.sp,
-                            modifier = Modifier.padding(horizontal = 8.dp)
+                            textAlign = TextAlign.Start,
+                            lineHeight = 18.5.sp,
+                            modifier = Modifier.padding(14.dp)
                         )
+                    }
+
+                    // Card 2: SHA-256 Fingerprint Display (Glass Card)
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White.copy(alpha = 0.04f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "ОФИЦИАЛЬНЫЙ ОТПЕЧАТОК SHA-256",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White.copy(alpha = 0.65f),
+                                letterSpacing = 0.6.sp
+                            )
+                            Text(
+                                text = currentSha256,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = TextWhite.copy(alpha = 0.95f),
+                                textAlign = TextAlign.Start,
+                                lineHeight = 17.sp
+                            )
+                        }
                     }
                 }
 
-                // Bottom Floating Action Buttons
+                // Bottom Floating Action Buttons (Seamless over blurred background)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier
@@ -408,6 +422,7 @@ fun OfficialSourceCard(
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
+                            .springPress()
                     ) {
                         Text("Скопировать", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
@@ -426,6 +441,7 @@ fun OfficialSourceCard(
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
+                            .springPress()
                     ) {
                         Text("Закрыть", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }

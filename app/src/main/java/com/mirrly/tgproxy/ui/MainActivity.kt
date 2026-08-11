@@ -176,6 +176,7 @@ class MainActivity : ComponentActivity() {
                 )
 
                 var isUiHidden by remember { mutableStateOf(false) }
+                val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
 
                 BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                     // Global Seamless Cyber Energy Canvas with Zero-Lag GPU Hardware Blur Optimization
@@ -406,6 +407,7 @@ class MainActivity : ComponentActivity() {
                                 currentScreen = "history"
                             },
                             onOpenUpdate = {
+                                previousScreen = "home"
                                 currentScreen = "update"
                             },
                             onUiHiddenChange = { hidden ->
@@ -463,7 +465,11 @@ class MainActivity : ComponentActivity() {
                     ) {
                         SettingsScreen(
                             onBack = { currentScreen = previousScreen },
-                            onOpenAbout = { currentScreen = "about" }
+                            onOpenAbout = { currentScreen = "about" },
+                            onOpenUpdate = {
+                                previousScreen = "settings"
+                                currentScreen = "update"
+                            }
                         )
                     }
 
@@ -481,7 +487,11 @@ class MainActivity : ComponentActivity() {
                         AboutScreen(
                             onBack = { currentScreen = "settings" },
                             onOpenLicense = { currentScreen = "license" },
-                            onOpenTerms = { currentScreen = "terms" }
+                            onOpenTerms = { currentScreen = "terms" },
+                            onOpenUpdate = {
+                                previousScreen = "about"
+                                currentScreen = "update"
+                            }
                         )
                     }
 
@@ -528,10 +538,9 @@ class MainActivity : ComponentActivity() {
                                 alpha = updateAlpha
                             }
                     ) {
-                        val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
                         UpdateScreen(
                             releaseInfo = currentUpdateInfo,
-                            onBack = { currentScreen = "home" }
+                            onBack = { currentScreen = previousScreen }
                         )
                     }
 

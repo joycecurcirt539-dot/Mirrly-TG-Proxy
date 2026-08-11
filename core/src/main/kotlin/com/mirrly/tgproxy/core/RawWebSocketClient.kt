@@ -7,6 +7,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
@@ -19,7 +20,7 @@ class RawWebSocketClient(
     private val hostHeader: String? = null
 ) {
     private var webSocket: WebSocket? = null
-    val messageChannel = Channel<ByteArray>(256)
+    val messageChannel = Channel<ByteArray>(Channel.UNLIMITED)
     val closeChannel = Channel<Unit>(Channel.CONFLATED)
     val openChannel = Channel<Boolean>(Channel.CONFLATED)
 
@@ -31,6 +32,7 @@ class RawWebSocketClient(
     var isClosed: Boolean = false
         private set
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val isAlive: Boolean
         get() = isConnected && !isClosed && !closeChannel.isClosedForReceive && closeChannel.isEmpty
 
@@ -42,11 +44,19 @@ class RawWebSocketClient(
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            messageChannel.trySend(bytes.toByteArray())
+            val result = messageChannel.trySend(bytes.toByteArray())
+            if (!result.isSuccess) {
+                AppLogger.w("RawWebSocketClient", "⚠️ messageChannel.trySend failed. Closing WS to prevent TCP stream corruption.")
+                close()
+            }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            messageChannel.trySend(text.toByteArray(Charsets.UTF_8))
+            val result = messageChannel.trySend(text.toByteArray(Charsets.UTF_8))
+            if (!result.isSuccess) {
+                AppLogger.w("RawWebSocketClient", "⚠️ messageChannel.trySend failed. Closing WS to prevent TCP stream corruption.")
+                close()
+            }
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -55,6 +65,7 @@ class RawWebSocketClient(
             openChannel.trySend(false)
             webSocket.close(1000, "Normal closure")
             closeChannel.trySend(Unit)
+            messageChannel.close()
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -62,6 +73,7 @@ class RawWebSocketClient(
             isConnected = false
             openChannel.trySend(false)
             closeChannel.trySend(Unit)
+            messageChannel.close(t)
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -69,6 +81,7 @@ class RawWebSocketClient(
             isConnected = false
             openChannel.trySend(false)
             closeChannel.trySend(Unit)
+            messageChannel.close()
         }
     }
 
@@ -97,7 +110,12 @@ class RawWebSocketClient(
 
     fun send(data: ByteArray): Boolean {
         if (isClosed) return false
-        return webSocket?.send(ByteString.of(*data)) ?: false
+        return webSocket?.send(data.toByteString(0, data.size)) ?: false
+    }
+
+    fun send(bytes: ByteArray, offset: Int, byteCount: Int): Boolean {
+        if (isClosed) return false
+        return webSocket?.send(bytes.toByteString(offset, byteCount)) ?: false
     }
 
     fun close() {

@@ -12,8 +12,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -72,12 +74,12 @@ fun UnofficialBuildDialog(
         )
     ) {
         val view = LocalView.current
-        SideEffect {
+        LaunchedEffect(Unit) {
             val window = (view.parent as? DialogWindowProvider)?.window
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                 window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 70
+                    blurBehindRadius = 50
                 }
             }
         }
@@ -92,14 +94,16 @@ fun UnofficialBuildDialog(
                 ) { onDismiss() }
                 .padding(horizontal = 24.dp)
         ) {
-            // Detailed Warning Content (Centered)
+            // Detailed Warning Content with Smooth Fading Edges
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth()
-                    .padding(bottom = 120.dp)
+                    .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
+                    .padding(bottom = 150.dp, top = 24.dp)
+                    .verticalScroll(rememberScrollState())
                     .clickable(enabled = false) {}
             ) {
                 // Category Pill
@@ -128,25 +132,32 @@ fun UnofficialBuildDialog(
                     letterSpacing = 0.3.sp
                 )
 
-                // Body text
-                Text(
-                    text = "Данная версия приложения была пересобрана или изменена сторонними лицами. Разработчики Mirrly TG Proxy не несут ответственности за безопасность и сохранность данных в сторонних сборках. Настоятельно рекомендуем установить оригинальную версию из репозитория GitHub.",
-                    fontSize = 13.sp,
-                    color = TextWhite.copy(alpha = 0.88f),
-                    textAlign = TextAlign.Center,
-                    lineHeight = 19.sp,
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                )
+                // Body text in Amber Glass Card
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = warningAmber.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, warningAmber.copy(alpha = 0.30f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Данная версия приложения была пересобрана или изменена сторонними лицами. Разработчики Mirrly TG Proxy не несут ответственности за безопасность и сохранность данных в сторонних сборках. Настоятельно рекомендуем установить оригинальную версию из репозитория GitHub.",
+                        fontSize = 13.sp,
+                        color = TextWhite.copy(alpha = 0.90f),
+                        textAlign = TextAlign.Start,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.padding(14.dp)
+                    )
+                }
             }
 
-            // Floating Bottom Action Buttons
+            // Floating Bottom Action Buttons (Seamless over blurred background)
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 28.dp)
-                    .fillMaxWidth(0.92f)
+                    .fillMaxWidth()
                     .clickable(enabled = false) {}
             ) {
                 Button(
@@ -156,13 +167,14 @@ fun UnofficialBuildDialog(
                     },
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White.copy(alpha = 0.20f),
-                        contentColor = TextWhite
+                        containerColor = Color(0xFF00F0FF).copy(alpha = 0.20f),
+                        contentColor = Color(0xFF00F0FF)
                     ),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.50f)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
+                        .springPress()
                 ) {
                     Text("Скачать с официального GitHub", fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                 }
@@ -172,14 +184,15 @@ fun UnofficialBuildDialog(
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onDismiss()
                     },
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.20f)),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = TextWhite.copy(alpha = 0.80f)
+                        contentColor = TextWhite.copy(alpha = 0.90f)
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(42.dp)
+                        .height(44.dp)
+                        .springPress()
                 ) {
                     Text("Я понимаю риск", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }

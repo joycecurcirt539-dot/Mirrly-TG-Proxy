@@ -1,8 +1,18 @@
 package com.mirrly.tgproxy.core
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -11,10 +21,16 @@ data class LogEntry(
     val timestamp: Long = System.currentTimeMillis(),
     val level: LogLevel,
     val tag: String,
-    val rawMessage: String,
-    val humanMessage: String = HumanLogTranslator.translateToHumanRussian(tag, rawMessage),
-    val formattedTime: String = timeFormatter.get()?.format(Date(timestamp)) ?: ""
+    val rawMessage: String
 ) {
+    val humanMessage: String by lazy(LazyThreadSafetyMode.NONE) {
+        HumanLogTranslator.translateToHumanRussian(tag, rawMessage)
+    }
+
+    val formattedTime: String by lazy(LazyThreadSafetyMode.NONE) {
+        timeFormatter.get()?.format(Date(timestamp)) ?: ""
+    }
+
     companion object {
         private val timeFormatter = object : ThreadLocal<SimpleDateFormat>() {
             override fun initialValue(): SimpleDateFormat {
@@ -28,16 +44,35 @@ enum class LogLevel {
     INFO, WARN, ERROR
 }
 
+sealed interface LogEvent {
+    data class Added(val entry: LogEntry) : LogEvent
+    data object Cleared : LogEvent
+}
+
 object AppLogger {
     private const val MAX_LOGS = 250
     private val logQueue = ArrayDeque<LogEntry>(MAX_LOGS)
+
+    private val _logEvents = MutableSharedFlow<LogEvent>(
+        extraBufferCapacity = 128,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val logEvents: SharedFlow<LogEvent> = _logEvents.asSharedFlow()
+
     private val _logsFlow = MutableStateFlow<List<LogEntry>>(emptyList())
+    @Deprecated("Use logEvents and getLogs() instead", ReplaceWith("getLogs()"))
     val logsFlow: StateFlow<List<LogEntry>> = _logsFlow.asStateFlow()
 
     @Volatile
     private var isLogcatReaderStarted = false
     private var logcatProcess: Process? = null
-    private var lastFlowUpdateMs = 0L
+    private val loggerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var logcatJob: Job? = null
+
+    @Synchronized
+    fun getLogs(): List<LogEntry> {
+        return logQueue.toList()
+    }
 
     @Synchronized
     fun log(level: LogLevel, tag: String, message: String) {
@@ -49,12 +84,7 @@ object AppLogger {
             logQueue.removeFirst()
         }
 
-        // Throttle: update the flow at most once per 400ms to prevent CPU & recomposition overload
-        val now = System.currentTimeMillis()
-        if (now - lastFlowUpdateMs >= 400L) {
-            lastFlowUpdateMs = now
-            _logsFlow.value = logQueue.toList()
-        }
+        _logEvents.tryEmit(LogEvent.Added(entry))
     }
 
     fun i(tag: String, message: String) = log(LogLevel.INFO, tag, message)
@@ -65,7 +95,7 @@ object AppLogger {
         if (isLogcatReaderStarted) return
         isLogcatReaderStarted = true
 
-        Thread({
+        logcatJob = loggerScope.launch {
             try {
                 // Filter logcat strictly to relevant app/proxy tags to stop framework log flooding
                 val tagsFilter = "LocalProxyServer:V ProxyForegroundService:V TgProxy:V BootReceiver:V AppLogger:V *:S"
@@ -73,15 +103,12 @@ object AppLogger {
                 val process = Runtime.getRuntime().exec(cmd)
                 logcatProcess = process
                 val reader = process.inputStream.bufferedReader()
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
+                var line: String? = null
+                while (isActive && reader.readLine().also { line = it } != null) {
                     val currentLine = line ?: continue
                     parseAndAddLogcatLine(currentLine)
                 }
             } catch (_: Exception) {}
-        }, "LogcatReader").apply {
-            isDaemon = true
-            start()
         }
     }
 
@@ -91,6 +118,8 @@ object AppLogger {
             logcatProcess?.destroy()
         } catch (_: Exception) {}
         logcatProcess = null
+        logcatJob?.cancel()
+        logcatJob = null
         isLogcatReaderStarted = false
     }
 
@@ -125,7 +154,7 @@ object AppLogger {
     @Synchronized
     fun clear() {
         logQueue.clear()
-        lastFlowUpdateMs = 0L
         _logsFlow.value = emptyList()
+        _logEvents.tryEmit(LogEvent.Cleared)
     }
 }

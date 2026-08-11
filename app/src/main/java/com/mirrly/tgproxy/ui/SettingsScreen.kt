@@ -164,12 +164,12 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
         )
     ) {
         val view = LocalView.current
-        SideEffect {
+        LaunchedEffect(Unit) {
             val window = (view.parent as? DialogWindowProvider)?.window
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                 window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 70
+                    blurBehindRadius = 50
                 }
             }
         }
@@ -184,14 +184,16 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                 ) { onDismiss() }
                 .padding(horizontal = 24.dp)
         ) {
-            // Detailed Info Content (Centered)
+            // Scrollable Detailed Info Content with Smooth Fading Edges into background blur
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth()
-                    .padding(bottom = 70.dp)
+                    .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
+                    .padding(bottom = 110.dp, top = 24.dp)
+                    .verticalScroll(rememberScrollState())
                     .clickable(enabled = false) {}
             ) {
                 // Category Pill
@@ -213,25 +215,18 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                 // Title
                 Text(
                     text = title,
-                    fontSize = 21.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,
                     textAlign = TextAlign.Center,
                     letterSpacing = 0.3.sp
                 )
 
-                // Body text
-                Text(
-                    text = body,
-                    fontSize = 13.5.sp,
-                    color = TextWhite.copy(alpha = 0.88f),
-                    textAlign = TextAlign.Center,
-                    lineHeight = 20.sp,
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                )
+                // Formatted body content with transparent glass cards & left-aligned text
+                FormattedInfoBody(body = body)
             }
 
-            // Bottom Floating Action Button
+            // Bottom Floating Action Button (Seamless over blurred background)
             Button(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -245,9 +240,10 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 36.dp)
+                    .padding(bottom = 32.dp)
                     .fillMaxWidth(0.90f)
                     .height(48.dp)
+                    .springPress()
             ) {
                 Text("Понятно", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
@@ -255,11 +251,150 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
     }
 }
 
+@Composable
+private fun FormattedInfoBody(body: String) {
+    val blocks = remember(body) { body.split("\n\n") }
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        blocks.forEach { block ->
+            val trimmed = block.trim()
+            if (trimmed.isEmpty()) return@forEach
+
+            val lines = trimmed.lines()
+            val firstLine = lines.firstOrNull() ?: ""
+            val isHeaderBlock = firstLine.endsWith(":") ||
+                                firstLine.contains("БЕЗОПАСНОСТЬ") ||
+                                firstLine.contains("КАК РАБОТАЕТ") ||
+                                firstLine.contains("ПОЧЕМУ СВОЙ ВОРКЕР")
+
+            if (isHeaderBlock && lines.size > 1) {
+                // Render section block in a transparent glass container
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White.copy(alpha = 0.04f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val headerColor = when {
+                            firstLine.contains("БЕЗОПАСНОСТЬ") -> Color(0xFF00F0FF)
+                            firstLine.contains("РАБОТАЕТ") -> Color(0xFF38BDF8)
+                            firstLine.contains("ЛУЧШЕ") || firstLine.contains("ПОЧЕМУ") -> Color(0xFFFFC107)
+                            else -> Color(0xFF00F0FF)
+                        }
+                        Text(
+                            text = firstLine,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = headerColor,
+                            letterSpacing = 0.5.sp,
+                            textAlign = TextAlign.Start
+                        )
+
+                        val contentLines = lines.drop(1)
+                        contentLines.forEach { line ->
+                            val lineTrimmed = line.trim()
+                            if (lineTrimmed.startsWith("• ")) {
+                                InfoBulletItem(text = lineTrimmed.removePrefix("• ").trim())
+                            } else if (lineTrimmed.isNotEmpty()) {
+                                Text(
+                                    text = lineTrimmed,
+                                    fontSize = 13.sp,
+                                    color = TextWhite.copy(alpha = 0.88f),
+                                    lineHeight = 19.sp,
+                                    textAlign = TextAlign.Start
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (trimmed.contains("\n• ") || trimmed.startsWith("• ")) {
+                // Bullet items block in transparent glass container
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White.copy(alpha = 0.04f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        lines.forEach { line ->
+                            val lineTrimmed = line.trim()
+                            if (lineTrimmed.startsWith("• ")) {
+                                InfoBulletItem(text = lineTrimmed.removePrefix("• ").trim())
+                            } else if (lineTrimmed.isNotEmpty()) {
+                                Text(
+                                    text = lineTrimmed,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = TextWhite.copy(alpha = 0.92f),
+                                    lineHeight = 19.sp,
+                                    textAlign = TextAlign.Start
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                // General text paragraph in transparent glass card
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White.copy(alpha = 0.04f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = trimmed,
+                        fontSize = 13.sp,
+                        color = TextWhite.copy(alpha = 0.88f),
+                        lineHeight = 19.sp,
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier.padding(14.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoBulletItem(text: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(top = 7.dp)
+                .size(5.dp)
+                .background(Color(0xFF00F0FF), CircleShape)
+        )
+        Text(
+            text = text,
+            fontSize = 13.sp,
+            color = TextWhite.copy(alpha = 0.88f),
+            lineHeight = 18.5.sp,
+            textAlign = TextAlign.Start,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    onOpenAbout: () -> Unit = {}
+    onOpenAbout: () -> Unit = {},
+    onOpenUpdate: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -294,7 +429,6 @@ fun SettingsScreen(
     var autostart by remember { mutableStateOf(config.autostartOnBoot) }
     // Key of the setting whose info dialog is currently open (null = closed)
     var infoKey by remember { mutableStateOf<String?>(null) }
-    var pendingUpdateRelease by remember { mutableStateOf<com.mirrly.tgproxy.core.ReleaseInfo?>(null) }
     var pendingIssueRedirectUrl by remember { mutableStateOf<String?>(null) }
     val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
     var showSleepTimerDialog by remember { mutableStateOf(false) }
@@ -347,9 +481,12 @@ fun SettingsScreen(
 
     LaunchedEffect(customDomainText) {
         delay(600)
-        val trimmed = customDomainText.trim()
-        if (trimmed != config.customCfDomain) {
-            config.customCfDomain = trimmed
+        val sanitized = com.mirrly.tgproxy.core.ProxyConfig.sanitizeDomain(customDomainText)
+        if (sanitized != customDomainText && customDomainText.isNotBlank()) {
+            customDomainText = sanitized
+        }
+        if (sanitized != config.customCfDomain) {
+            config.customCfDomain = sanitized
             restartProxyIfNeeded()
         }
     }
@@ -362,16 +499,16 @@ fun SettingsScreen(
             "port" -> "Порт подключения" to
                 "Локальный TCP-порт, на котором прокси принимает подключения от Telegram.\n\nРекомендованное значение: 1443. Этот порт не требует прав root и обычно не занят другими приложениями.\n\nДопустимый диапазон: 1–65535. Если порт занят — прокси не запустится. После смены порта обновите настройки прокси в Telegram."
             "secret" -> "Секретный ключ (MTProto)" to
-                "32-символьный hex-ключ протокола MTProto. Его необходимо указать в настройках прокси Telegram — без него подключение невозможно.\n\nПрефикс dd означает режим Fake TLS: трафик маскируется под обычный HTTPS, что позволяет обходить DPI-фильтрацию.\n\nНажмите 🔄 для генерации нового случайного ключа. После смены обновите ссылку-приглашение в Telegram."
+                "32-символьный hex-ключ протокола MTProto. Его необходимо указать в настройках прокси Telegram — без него подключение невозможно.\n\nПрефикс dd означает режим Fake TLS: трафик маскируется под обычный HTTPS, что позволяет обходить DPI-фильтрацию.\n\nНажмите кнопку генерации для создания нового случайного ключа. После смены обновите ссылку-приглашение в Telegram."
             "cf_domain" -> "Безопасность & Принцип работы Cloudflare Worker" to
-                "🔒 БЕЗОПАСНОСТЬ ЛИЧНЫХ ДАННЫХ:\n" +
+                "БЕЗОПАСНОСТЬ ЛИЧНЫХ ДАННЫХ:\n" +
                 "Для 100% защиты вашей конфиденциальности и анонимности мы НАСТОЯТЕЛЬНО рекомендуем НЕ использовать тестовые воркеры разработчика на постоянной основе, а развернуть свой личный воркер по инструкции ниже.\n\n" +
                 "При использовании чужого воркера ваш трафик проходит через посторонний узел. Разворачивая собственный бесплатный воркер, вы гарантируете, что логи и ключи доступа принадлежат ТОЛЬКО вам.\n\n" +
-                "⚙️ КАК РАБОТАЕТ CLOUDFLARE WORKER:\n" +
+                "КАК РАБОТАЕТ CLOUDFLARE WORKER:\n" +
                 "• Cloudflare Worker — это бессерверный V8-скрипт на глобальной сети Cloudflare Edge (300+ городов по всему миру).\n" +
                 "• Он принимает трафик Telegram через зашифрованные WebSockets (wss://) и создает прямое TCP-подключение к дата-центрам Telegram через серверные каналы Cloudflare.\n" +
                 "• Для провайдеров и систем DPI/ТСПУ этот трафик выглядит как абсолютно обычное безопасное посещение любого сайта на Cloudflare, что полностью сводит на нет попытки блокировки.\n\n" +
-                "💡 ПОЧЕМУ СВОЙ ВОРКЕР ЛУЧШЕ:\n" +
+                "ПОЧЕМУ СВОЙ ВОРКЕР ЛУЧШЕ:\n" +
                 "• Бесплатный тариф Cloudflare даёт 100 000 запросов в день лично вам.\n" +
                 "• Отсутствие зависимости от сторонних серверов и чужих лимитов.\n" +
                 "• Максимальная скорость для звонков, скачивания тяжёлых файлов и видео."
@@ -392,14 +529,6 @@ fun SettingsScreen(
             else -> return@let
         }
         InfoDialog(title = dlgTitle, body = dlgBody, onDismiss = { infoKey = null })
-    }
-
-    // Update Dialog display when release update is found
-    pendingUpdateRelease?.let { release ->
-        UpdateDialog(
-            releaseInfo = release,
-            onDismiss = { pendingUpdateRelease = null }
-        )
     }
 
     // Confirmation dialog before opening external Issue link
@@ -429,8 +558,9 @@ fun SettingsScreen(
 
             // Top Section: Official Source & Verification (Seamless without background panel)
             OfficialSourceCard(
-                onUpdateReleaseFound = { release ->
-                    pendingUpdateRelease = release
+                onOpenUpdate = onOpenUpdate,
+                onUpdateReleaseFound = { _ ->
+                    onOpenUpdate()
                 }
             )
 
@@ -492,7 +622,7 @@ fun SettingsScreen(
                                     indication = null
                                 ) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (mode == ProxyMode.SOCKS5 && config.customCfDomain.trim().isEmpty()) {
+                                    if (mode == ProxyMode.SOCKS5 && config.customCfDomain.trim().isEmpty() && !useDefaultWorkerSocks5) {
                                         showSocks5WarningDialog = true
                                     } else {
                                         selectedMode = mode
@@ -1274,7 +1404,7 @@ fun SettingsScreen(
                                 indication = null
                             ) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                pendingIssueRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues/new"
+                                onOpenUpdate()
                             }
                             .padding(horizontal = 14.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1347,7 +1477,10 @@ fun SettingsScreen(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                if (!isCheckingUpdate) {
+                                if (isUpdateAvailable) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onOpenUpdate()
+                                } else if (!isCheckingUpdate) {
                                     isCheckingUpdate = true
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     coroutineScope.launch {
@@ -1356,7 +1489,7 @@ fun SettingsScreen(
                                         result.fold(
                                             onSuccess = { info ->
                                                 if (info.isUpdateAvailable) {
-                                                    pendingUpdateRelease = info
+                                                    onOpenUpdate()
                                                 } else {
                                                     Toast.makeText(
                                                         context,

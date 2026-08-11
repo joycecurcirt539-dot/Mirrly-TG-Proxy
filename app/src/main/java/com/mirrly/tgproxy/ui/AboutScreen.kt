@@ -72,7 +72,8 @@ import com.mirrly.tgproxy.util.shareApp
 fun AboutScreen(
     onBack: () -> Unit,
     onOpenLicense: () -> Unit = {},
-    onOpenTerms: () -> Unit = {}
+    onOpenTerms: () -> Unit = {},
+    onOpenUpdate: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -269,7 +270,12 @@ fun AboutScreen(
             }
 
             // OFFICIAL SOURCE & VERIFICATION CARD
-            OfficialSourceCard()
+            OfficialSourceCard(
+                onOpenUpdate = onOpenUpdate,
+                onUpdateReleaseFound = { _ ->
+                    onOpenUpdate()
+                }
+            )
 
             // GITHUB TOTAL DOWNLOADS STATS CARD
             DownloadStatsCard()
@@ -733,7 +739,7 @@ fun DownloadStatsCard(
         coroutineScope.launch {
             isLoading = true
             isError = false
-            val result = com.mirrly.tgproxy.core.UpdateChecker.fetchTotalDownloads()
+            val result = com.mirrly.tgproxy.core.UpdateChecker.fetchTotalDownloads(com.mirrly.tgproxy.BuildConfig.VERSION_NAME)
             result.onSuccess { count ->
                 totalDownloads = count
                 isLoading = false

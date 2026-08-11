@@ -167,15 +167,22 @@ class ProxyForegroundService : Service() {
 
         val server = app.proxyServer
         if (!server.isRunning) {
-            val started = server.start(cacheDir)
-            if (started) {
-                SessionHistoryManager.onSessionStarted(getPresetShortName(app.config.speedPreset))
+            serviceScope.launch(Dispatchers.IO) {
+                val started = server.start(cacheDir)
+                if (started) {
+                    SessionHistoryManager.onSessionStarted(getPresetShortName(app.config.speedPreset))
+                }
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    ProxyTileService.requestSync(this@ProxyForegroundService)
+                    startNotificationUpdates()
+                    startWakeLockRefresh()
+                }
             }
+        } else {
+            ProxyTileService.requestSync(this)
+            startNotificationUpdates()
+            startWakeLockRefresh()
         }
-
-        ProxyTileService.requestSync(this)
-        startNotificationUpdates()
-        startWakeLockRefresh()
         return START_REDELIVER_INTENT
     }
 
@@ -378,7 +385,13 @@ class ProxyForegroundService : Service() {
         notificationManager.notify(NotificationHelper.NOTIFICATION_ID, updatedNotification)
     }
 
+    @Volatile
+    private var isStopping = false
+
     private fun stopProxyService() {
+        if (isStopping) return
+        isStopping = true
+
         SleepTimerManager.cancelTimer(this)
         networkObserver?.stop()
         networkObserver = null
@@ -386,46 +399,52 @@ class ProxyForegroundService : Service() {
         wakeLockJob = null
         releaseWakeLock()
 
-        val server = MirrlyApplication.instance.proxyServer
-        val appContext = applicationContext
+        CoroutineScope(Dispatchers.IO).launch {
+            val server = MirrlyApplication.instance.proxyServer
+            val appContext = applicationContext
 
-        if (server.isRunning) {
-            val stats = server.stats
-            val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
-            val durationSec = server.uptimeSeconds
-            val peakSpeedBps = maxOf(stats.peakDownloadSpeedBps, stats.peakUploadSpeedBps)
-            val activeConns = stats.activeConnections.get()
+            if (server.isRunning) {
+                val stats = server.stats
+                val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
+                val durationSec = server.uptimeSeconds
+                val peakSpeedBps = maxOf(stats.peakDownloadSpeedBps, stats.peakUploadSpeedBps)
+                val activeConns = stats.activeConnections.get()
 
-            SessionHistoryManager.onSessionEnded(
-                bytesReceived = stats.totalBytesReceived.get(),
-                bytesSent = stats.totalBytesSent.get(),
-                peakSpeedBps = peakSpeedBps,
-                maxConnections = activeConns
-            )
+                SessionHistoryManager.onSessionEnded(
+                    bytesReceived = stats.totalBytesReceived.get(),
+                    bytesSent = stats.totalBytesSent.get(),
+                    peakSpeedBps = peakSpeedBps,
+                    maxConnections = activeConns
+                )
 
-            val transferredStr = humanBytes(totalBytes)
-            val durationStr = formatDuration(durationSec)
-            val peakSpeedStr = "${humanBytes(peakSpeedBps)}/с"
+                val transferredStr = humanBytes(totalBytes)
+                val durationStr = formatDuration(durationSec)
+                val peakSpeedStr = "${humanBytes(peakSpeedBps)}/с"
 
-            NotificationHelper.showSessionSummaryNotification(
-                appContext,
-                transferredStr,
-                durationStr,
-                peakSpeedStr
-            )
+                NotificationHelper.showSessionSummaryNotification(
+                    appContext,
+                    transferredStr,
+                    durationStr,
+                    peakSpeedStr
+                )
 
-            // Auto-dismiss summary notification after 5 seconds
-            CoroutineScope(Dispatchers.IO).launch {
-                delay(5000)
-                NotificationHelper.cancelSummaryNotification(appContext)
+                // Auto-dismiss summary notification after 5 seconds
+                CoroutineScope(Dispatchers.IO).launch {
+                    delay(5000)
+                    NotificationHelper.cancelSummaryNotification(appContext)
+                }
+            }
+
+            server.stop()
+            updateJob?.cancel()
+
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                ProxyTileService.requestSync(this@ProxyForegroundService)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                try { serviceScope.cancel() } catch (_: Exception) {}
             }
         }
-
-        server.stop()
-        updateJob?.cancel()
-        ProxyTileService.requestSync(this)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
     }
 
     private fun formatDuration(seconds: Long): String {
@@ -442,7 +461,6 @@ class ProxyForegroundService : Service() {
 
     override fun onDestroy() {
         stopProxyService()
-        serviceScope.cancel()
         super.onDestroy()
     }
 

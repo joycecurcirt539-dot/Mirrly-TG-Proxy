@@ -44,4 +44,33 @@ class Socks5ProtocolTest {
         assertNull(TgConstants.findDcByTarget("1.1.1.1"))
         assertNull(TgConstants.findDcByTarget("example.com"))
     }
+
+    @Test
+    fun testNativeRunningFlagInSocks5Mode() {
+        val config = ProxyConfig(bindHost = "127.0.0.1", socks5Port = 19876, proxyModeName = ProxyMode.SOCKS5.name)
+        val server = LocalProxyServer(config)
+        assertFalse(server.isNativeRunning)
+        assertFalse(server.isRunning)
+
+        val ok = server.start()
+        assertTrue(ok)
+        assertTrue(server.isRunning)
+        assertFalse(server.isNativeRunning)
+
+        server.stop()
+        assertFalse(server.isRunning)
+        assertFalse(server.isNativeRunning)
+    }
+
+    @Test
+    fun testUnstartedNativeProxyStopSafety() {
+        assertFalse(NativeProxy.isStarted)
+        // Calling stopProxy, getStats, setPoolSize on unstarted NativeProxy must be safe no-ops
+        assertEquals(0, NativeProxy.stopProxy())
+        assertNull(NativeProxy.getStats())
+        assertNull(NativeProxy.getSecretWithPrefix())
+        assertDoesNotThrow { NativeProxy.setPoolSize(4) }
+        assertDoesNotThrow { NativeProxy.setSecret("testsecret") }
+        assertFalse(NativeProxy.isStarted)
+    }
 }
