@@ -19,6 +19,7 @@
 [![Worker Script](https://img.shields.io/badge/Код_Воркера-cloudflare__worker.js-F38020?style=for-the-badge&logo=javascript&logoColor=white)](docs/cloudflare_worker.js)
 [![Issues](https://img.shields.io/github/issues/joycecurcirt539-dot/Mirrly-TG-Proxy?style=for-the-badge&logo=github&logoColor=white&color=E53935&label=Вопросы%20и%20баги)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues)
 [![Changelog](https://img.shields.io/badge/История_изменений-CHANGELOG-blue?style=for-the-badge)](CHANGELOG.md)
+[![Terms](https://img.shields.io/badge/Условия_использования-TERMS-informational?style=for-the-badge)](TERMS_OF_USE.md)
 [![License](https://img.shields.io/badge/Лицензия-GPLv3-lightgrey?style=for-the-badge)](LICENSE)
 
 *Оптимизация маршрутизации трафика Telegram через зашифрованные WebSocket-сессии Cloudflare и личные Cloudflare Worker. Работает локально в фоновом режиме без прав администратора и создания VPN-профиля.*
