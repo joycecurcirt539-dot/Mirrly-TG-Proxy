@@ -16,7 +16,7 @@
 <a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"><img src="https://img.shields.io/badge/Скачиваний-Релизы_GitHub-2563EB?logo=github&logoColor=white" height="26" /></a>
 <a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers"><img src="https://img.shields.io/badge/Звёзд-GitHub_Stars-2563EB?logo=github&logoColor=white" height="26" /></a>
 <a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues"><img src="https://img.shields.io/badge/Вопросы_и_баги-GitHub_Issues-2563EB?logo=github&logoColor=white" height="26" /></a>
-<a href="https://visitorbadge.io/status?path=joycecurcirt539-dot%2FMirrly-TG-Proxy"><img src="https://api.visitorbadge.io/api/visitors?path=joycecurcirt539-dot%2FMirrly-TG-Proxy&countColor=%232563EB&label=Просмотров" height="26" /></a>
+<a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy"><img src="https://komarev.com/ghpvc/?username=joycecurcirt539-dot-Mirrly-TG-Proxy&color=2563eb&label=Просмотров" height="26" /></a>
 <br/>
 <a href="https://t.me/WhyOkyHb"><img src="https://img.shields.io/badge/Telegram-Канал_сообщества-2563EB?logo=telegram&logoColor=white" height="26" /></a>
 <a href="#10-безопасность-и-условия-использования"><img src="https://img.shields.io/badge/Приватность-No_VPN_%7C_No_Logs-0F766E?logo=shield&logoColor=white" height="26" /></a>
