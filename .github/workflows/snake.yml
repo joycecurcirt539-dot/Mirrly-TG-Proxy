@@ -24,6 +24,21 @@ jobs:
             dist/github-contribution-grid-snake.svg
             dist/github-contribution-grid-snake-dark.svg?palette=github-dark
 
+      - name: Remove progress bar from SVG files
+        run: |
+          node -e '
+            const fs = require("fs");
+            ["dist/github-contribution-grid-snake.svg", "dist/github-contribution-grid-snake-dark.svg"].forEach(file => {
+              if (fs.existsSync(file)) {
+                let content = fs.readFileSync(file, "utf8");
+                content = content.replace(/<rect class="u[^>]*\/>/g, "");
+                content = content.replace(/height="156"/g, "height=\"120\"").replace(/height="160"/g, "height=\"120\"");
+                content = content.replace(/viewBox="0 0 (\d+) (156|160)"/g, "viewBox=\"0 0 $1 120\"");
+                fs.writeFileSync(file, content, "utf8");
+              }
+            });
+          '
+
       - name: Push github-contribution-grid-snake.svg to output branch
         uses: crazy-max/ghaction-github-pages@v3.1.0
         with:
