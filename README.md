@@ -6,24 +6,24 @@
 
 **Локальный MTProto & SOCKS5 прокси-сервер с поддержкой личных Cloudflare Worker для подключения Telegram без VPN**
 
-[![Android](https://img.shields.io/badge/Android-8.0%2B-2563EB?logo=android&logoColor=white)](https://developer.android.com)
-[![Kotlin](https://img.shields.io/badge/Kotlin-1.9%2B-2563EB?logo=kotlin&logoColor=white)](https://kotlinlang.org)
-[![Compose](https://img.shields.io/badge/UI-Jetpack_Compose-2563EB?logo=android&logoColor=white)](https://developer.android.com/jetpack/compose)
-[![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_V8-D97706?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com)
-[![NDK](https://img.shields.io/badge/C%2B%2B-NDK_Native-D97706?logo=cplusplus&logoColor=white)](https://developer.android.com/ndk)
+<a href="https://developer.android.com"><img src="https://img.shields.io/badge/Android-8.0%2B-2563EB?logo=android&logoColor=white" height="26" /></a>
+<a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-1.9%2B-2563EB?logo=kotlin&logoColor=white" height="26" /></a>
+<a href="https://developer.android.com/jetpack/compose"><img src="https://img.shields.io/badge/UI-Jetpack_Compose-2563EB?logo=android&logoColor=white" height="26" /></a>
+<a href="https://workers.cloudflare.com"><img src="https://img.shields.io/badge/Cloudflare-Workers_V8-D97706?logo=cloudflare&logoColor=white" height="26" /></a>
+<a href="https://developer.android.com/ndk"><img src="https://img.shields.io/badge/C%2B%2B-NDK_Native-D97706?logo=cplusplus&logoColor=white" height="26" /></a>
 <br/>
-[![Version](https://img.shields.io/badge/Релиз-v1.1.0-0F766E)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
-[![Downloads](https://img.shields.io/badge/Скачиваний-Релизы_GitHub-2563EB?logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
-[![Stars](https://img.shields.io/badge/Звёзд-GitHub_Stars-2563EB?logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
-[![Issues](https://img.shields.io/badge/Вопросы_и_баги-GitHub_Issues-2563EB?logo=github&logoColor=white)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues)
+<a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"><img src="https://img.shields.io/badge/Релиз-v1.1.0-0F766E" height="26" /></a>
+<a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"><img src="https://img.shields.io/badge/Скачиваний-Релизы_GitHub-2563EB?logo=github&logoColor=white" height="26" /></a>
+<a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers"><img src="https://img.shields.io/badge/Звёзд-GitHub_Stars-2563EB?logo=github&logoColor=white" height="26" /></a>
+<a href="https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues"><img src="https://img.shields.io/badge/Вопросы_и_баги-GitHub_Issues-2563EB?logo=github&logoColor=white" height="26" /></a>
 <br/>
-[![Telegram](https://img.shields.io/badge/Telegram-Канал_сообщества-2563EB?logo=telegram&logoColor=white)](https://t.me/WhyOkyHb)
-[![Privacy](https://img.shields.io/badge/Приватность-No_VPN_%7C_No_Logs-0F766E?logo=shield&logoColor=white)](#10-безопасность-и-условия-использования)
-[![Worker Script](https://img.shields.io/badge/Код_Воркера-cloudflare__worker.js-D97706?logo=javascript&logoColor=white)](docs/cloudflare_worker.js)
+<a href="https://t.me/WhyOkyHb"><img src="https://img.shields.io/badge/Telegram-Канал_сообщества-2563EB?logo=telegram&logoColor=white" height="26" /></a>
+<a href="#10-безопасность-и-условия-использования"><img src="https://img.shields.io/badge/Приватность-No_VPN_%7C_No_Logs-0F766E?logo=shield&logoColor=white" height="26" /></a>
+<a href="docs/cloudflare_worker.js"><img src="https://img.shields.io/badge/Код_Воркера-cloudflare__worker.js-D97706?logo=javascript&logoColor=white" height="26" /></a>
 <br/>
-[![Changelog](https://img.shields.io/badge/История-CHANGELOG-2563EB)](CHANGELOG.md)
-[![Terms](https://img.shields.io/badge/Условия-TERMS-2563EB)](TERMS_OF_USE.md)
-[![License](https://img.shields.io/badge/Лицензия-GPLv3-2563EB)](LICENSE)
+<a href="CHANGELOG.md"><img src="https://img.shields.io/badge/История-CHANGELOG-2563EB" height="26" /></a>
+<a href="TERMS_OF_USE.md"><img src="https://img.shields.io/badge/Условия-TERMS-2563EB" height="26" /></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/Лицензия-GPLv3-2563EB" height="26" /></a>
 
 *Оптимизация маршрутизации трафика Telegram через зашифрованные WebSocket-сессии Cloudflare и личные Cloudflare Worker. Работает локально в фоновом режиме без прав администратора и создания VPN-профиля.*
 
