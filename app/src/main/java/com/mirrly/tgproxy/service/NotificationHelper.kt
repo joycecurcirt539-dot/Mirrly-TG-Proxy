@@ -186,6 +186,11 @@ object NotificationHelper {
         manager.notify(UPDATE_NOTIFICATION_ID, notification)
     }
 
+    fun cancelUpdateNotification(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(UPDATE_NOTIFICATION_ID)
+    }
+
     fun showSessionSummaryNotification(
         context: Context,
         transferredStr: String,

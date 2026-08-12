@@ -39,10 +39,24 @@ object UpdateManager {
         forceRefresh: Boolean = false
     ): Result<ReleaseInfo> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val currentAppVersion = com.mirrly.tgproxy.BuildConfig.VERSION_NAME
+
+        val lastAppVersion = prefs.getString("last_installed_app_version", null)
+        if (lastAppVersion != currentAppVersion) {
+            prefs.edit()
+                .putString("last_installed_app_version", currentAppVersion)
+                .remove(KEY_CACHED_ETAG)
+                .remove(KEY_CACHED_VERSION)
+                .remove(KEY_LAST_NOTIFIED_VERSION)
+                .remove(KEY_LAST_NOTIFIED_TIME)
+                .apply()
+            NotificationHelper.cancelUpdateNotification(context)
+        }
+
         val cachedEtag = if (forceRefresh) null else prefs.getString(KEY_CACHED_ETAG, null)
 
         val result = UpdateChecker.checkForUpdates(
-            currentVersion = com.mirrly.tgproxy.BuildConfig.VERSION_NAME,
+            currentVersion = currentAppVersion,
             cachedEtag = cachedEtag
         )
         result.onSuccess { info ->
@@ -51,13 +65,14 @@ object UpdateManager {
             }
 
             if (info.isNotModified) {
-                val cachedVersion = prefs.getString(KEY_CACHED_VERSION, null)
+                val rawCachedVersion = prefs.getString(KEY_CACHED_VERSION, null)
                     ?: _updateState.value?.versionName
 
-                if (!cachedVersion.isNullOrBlank()) {
+                if (!rawCachedVersion.isNullOrBlank()) {
+                    val cleanCachedVersion = UpdateChecker.cleanVersionString(rawCachedVersion)
                     val isStillAvailable = UpdateChecker.isVersionNewer(
-                        cachedVersion,
-                        com.mirrly.tgproxy.BuildConfig.VERSION_NAME
+                        cleanCachedVersion,
+                        currentAppVersion
                     )
                     if (isStillAvailable) {
                         val cachedHtmlUrl = prefs.getString(KEY_CACHED_HTML_URL, "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases") ?: ""
@@ -67,8 +82,8 @@ object UpdateManager {
                         val cachedPreview = prefs.getString(KEY_CACHED_CHANGELOG_PREVIEW, "") ?: ""
 
                         val reconstructedInfo = ReleaseInfo(
-                            tagName = cachedVersion,
-                            versionName = cachedVersion,
+                            tagName = cleanCachedVersion,
+                            versionName = cleanCachedVersion,
                             htmlUrl = cachedHtmlUrl,
                             releaseNotes = cachedNotes,
                             isUpdateAvailable = true,
@@ -83,15 +98,18 @@ object UpdateManager {
                     } else {
                         _updateState.value = null
                         prefs.edit()
+                            .remove(KEY_CACHED_VERSION)
                             .remove(KEY_LAST_NOTIFIED_VERSION)
                             .remove(KEY_LAST_NOTIFIED_TIME)
                             .apply()
+                        NotificationHelper.cancelUpdateNotification(context)
                     }
                 } else {
                     if (!forceRefresh) {
                         return checkForUpdates(context, notifyIfFound = notifyIfFound, forceRefresh = true)
                     } else {
                         _updateState.value = null
+                        NotificationHelper.cancelUpdateNotification(context)
                     }
                 }
             } else {
@@ -123,11 +141,11 @@ object UpdateManager {
                     }
                 } else {
                     _updateState.value = null
-                    // Clear notification state if user is now on latest version or no update is available
                     prefs.edit()
                         .remove(KEY_LAST_NOTIFIED_VERSION)
                         .remove(KEY_LAST_NOTIFIED_TIME)
                         .apply()
+                    NotificationHelper.cancelUpdateNotification(context)
                 }
             }
         }

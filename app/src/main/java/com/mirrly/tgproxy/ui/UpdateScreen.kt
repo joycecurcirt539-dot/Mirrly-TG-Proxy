@@ -136,8 +136,12 @@ fun UpdateScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
+                        val currentAppVer = com.mirrly.tgproxy.BuildConfig.VERSION_NAME
+                        val isUpdateAvail = releaseInfo?.isUpdateAvailable == true
+                        val displayVer = if (isUpdateAvail) releaseInfo?.versionName ?: currentAppVer else currentAppVer
+
                         Text(
-                            text = "Версия v${releaseInfo?.versionName ?: com.mirrly.tgproxy.BuildConfig.VERSION_NAME}",
+                            text = "Версия v$displayVer",
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Black,
                             color = TextWhite,
@@ -145,24 +149,27 @@ fun UpdateScreen(
                         )
 
                         // Release Tag Badge
+                        val badgeText = if (isUpdateAvail) "ДОСТУПНО ОБНОВЛЕНИЕ v$displayVer" else "УСТАНОВЛЕНА АКТУАЛЬНАЯ ВЕРСИЯ v$currentAppVer"
+                        val badgeColor = if (isUpdateAvail) Color(0xFFFFB703) else ActiveGreenLed
+
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(Color.Transparent)
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .border(1.dp, badgeColor.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
-                                text = "ОФИЦИАЛЬНЫЙ РЕЛИЗ GITHUB",
+                                text = badgeText,
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Black,
-                                color = ActiveGreenLed,
+                                color = badgeColor,
                                 letterSpacing = 0.8.sp
                             )
                         }
 
                         Text(
-                            text = "Официальная проверенная сборка Mirrly TG Proxy",
+                            text = if (isUpdateAvail) "Доступна новая официальная сборка на GitHub" else "У вас установлена последняя официальная версия Mirrly TG Proxy",
                             fontSize = 12.sp,
                             color = TextMuted,
                             textAlign = TextAlign.Center,
@@ -435,58 +442,134 @@ fun UpdateScreen(
                         }
 
                         // ── Main Action Buttons (All Transparent, No Backgrounds) ──
+                        var isManualChecking by remember { mutableStateOf(false) }
+
                         Column(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             when (val status = downloadStatus) {
                                 DownloadStatus.Idle -> {
-                                    // Primary Button: Download & Install (Transparent with neon outline)
-                                    Button(
-                                        onClick = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            val info = releaseInfo
-                                            val rawUrl = info?.downloadUrl
-                                            if (info != null && !rawUrl.isNullOrBlank()) {
-                                                val validUrl = rawUrl
+                                    val isAvail = releaseInfo?.isUpdateAvailable == true
+
+                                    if (isAvail) {
+                                        // Primary Button: Download & Install (Transparent with neon outline)
+                                        Button(
+                                            onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                val info = releaseInfo
+                                                val rawUrl = info?.downloadUrl
+                                                if (!rawUrl.isNullOrBlank() && info != null) {
+                                                    val validUrl = rawUrl
+                                                    coroutineScope.launch {
+                                                        UpdateDownloader.downloadAndVerifyApk(
+                                                            context = context,
+                                                            downloadUrl = validUrl,
+                                                            expectedSha256List = info.expectedSha256List,
+                                                            versionName = info.versionName
+                                                        )
+                                                    }
+                                                } else {
+                                                    pendingRedirectUrl = info?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color.Transparent,
+                                                contentColor = Color(0xFFFFB703)
+                                            ),
+                                            border = BorderStroke(1.5.dp, Color(0xFFFFB703)),
+                                            shape = RoundedCornerShape(14.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(48.dp)
+                                                .springPress()
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.ic_arrow_down),
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFFFB703),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Text(
+                                                    text = "Скачать и установить v${releaseInfo?.versionName ?: ""}",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        // Primary Button for Up-to-Date state: Check for Updates
+                                        Button(
+                                            onClick = {
+                                                if (isManualChecking) return@Button
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                isManualChecking = true
                                                 coroutineScope.launch {
-                                                    UpdateDownloader.downloadAndVerifyApk(
-                                                        context = context,
-                                                        downloadUrl = validUrl,
-                                                        expectedSha256List = info.expectedSha256List,
-                                                        versionName = info.versionName
+                                                    val res = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(
+                                                        context,
+                                                        notifyIfFound = false,
+                                                        forceRefresh = true
+                                                    )
+                                                    isManualChecking = false
+                                                    res.fold(
+                                                        onSuccess = { info ->
+                                                            if (!info.isUpdateAvailable) {
+                                                                Toast.makeText(
+                                                                    context,
+                                                                    "У вас установлена актуальная версия v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME}",
+                                                                    Toast.LENGTH_SHORT
+                                                                ).show()
+                                                            }
+                                                        },
+                                                        onFailure = { err ->
+                                                            Toast.makeText(
+                                                                context,
+                                                                "Ошибка проверки: ${err.localizedMessage}",
+                                                                Toast.LENGTH_SHORT
+                                                            ).show()
+                                                        }
                                                     )
                                                 }
-                                            } else {
-                                                pendingRedirectUrl = info?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
-                                            }
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color.Transparent,
-                                            contentColor = ActiveGreenLed
-                                        ),
-                                        border = BorderStroke(1.5.dp, ActiveGreenLed),
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(48.dp)
-                                            .springPress()
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color.Transparent,
+                                                contentColor = ActiveGreenLed
+                                            ),
+                                            border = BorderStroke(1.5.dp, ActiveGreenLed),
+                                            shape = RoundedCornerShape(14.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(48.dp)
+                                                .springPress()
                                         ) {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_arrow_down),
-                                                contentDescription = null,
-                                                tint = ActiveGreenLed,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Text(
-                                                text = "Скачать и установить",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp
-                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                if (isManualChecking) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(18.dp),
+                                                        color = ActiveGreenLed,
+                                                        strokeWidth = 2.dp
+                                                    )
+                                                } else {
+                                                    Icon(
+                                                        painter = painterResource(id = R.drawable.ic_refresh),
+                                                        contentDescription = null,
+                                                        tint = ActiveGreenLed,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                                Text(
+                                                    text = if (isManualChecking) "Проверка..." else "Проверить обновления",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp
+                                                )
+                                            }
                                         }
                                     }
 
