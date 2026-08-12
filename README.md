@@ -27,6 +27,14 @@
 
 *Оптимизация маршрутизации трафика Telegram через зашифрованные WebSocket-сессии Cloudflare и личные Cloudflare Worker. Работает локально в фоновом режиме без прав администратора и создания VPN-профиля.*
 
+<br/>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/output/github-contribution-grid-snake-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/output/github-contribution-grid-snake.svg">
+  <img alt="github contribution grid snake animation" src="https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/output/github-contribution-grid-snake.svg">
+</picture>
+
 ---
 
 </div>
