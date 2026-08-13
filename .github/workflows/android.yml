@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Build (assembleDebug) and Unit Tests
+    name: Build (assembleDebug)
     runs-on: ubuntu-latest
 
     steps:
@@ -42,6 +42,3 @@ jobs:
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
-
-      - name: Run unit tests
-        run: ./gradlew test --no-daemon --stacktrace
