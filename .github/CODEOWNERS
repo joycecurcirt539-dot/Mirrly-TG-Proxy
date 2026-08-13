@@ -1,0 +1,22 @@
+# CODEOWNERS for Mirrly TG Proxy
+# Файл указывает автоматически назначаемых ревьюверов для разных частей репозитория.
+# Формат: <path> <owner1> <owner2> ... (используйте GitHub-имена, например @username)
+
+# Более специфичные правила должны идти раньше общих.
+
+# Нативный код и низкоуровневые модули
+/core/src/main/cpp/ @joycecurcirt539-dot
+/core/src/main/ @joycecurcirt539-dot
+
+# Kotlin / Android приложение
+/app/ @joycecurcirt539-dot
+
+# Ядро (логика прокси, криптография)
+/core/ @joycecurcirt539-dot
+
+# Документация и конфигурация
+/docs/ @joycecurcirt539-dot
+/.github/ @joycecurcirt539-dot
+
+# По умолчанию — назначать владельца на все остальные файлы
+* @joycecurcirt539-dot
