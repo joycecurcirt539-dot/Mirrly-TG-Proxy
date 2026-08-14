@@ -167,7 +167,7 @@ fun LogsScreen(
             ) {
                 items(
                     items = filteredLogs,
-                    key = { "${it.timestamp}_${it.tag}_${it.humanMessage.hashCode()}" }
+                    key = { it.id }
                 ) { entry ->
                     HumanLogCard(entry)
                 }

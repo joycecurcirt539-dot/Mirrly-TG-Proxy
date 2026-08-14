@@ -36,7 +36,7 @@ class TgWsBridge(
     private val stats: ProxyStats,
     private val wsPool: WsPool? = null
 ) {
-    private val bridgeScope = CoroutineScope(Dispatchers.IO + Job())
+    private val bridgeScope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
     suspend fun handleConnection() = withContext(Dispatchers.IO) {
         stats.activeConnections.incrementAndGet()

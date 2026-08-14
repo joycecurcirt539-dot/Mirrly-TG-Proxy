@@ -9,13 +9,25 @@ import java.util.concurrent.ConcurrentLinkedQueue
 
 data class PoolKey(val dcId: Int, val isMedia: Boolean)
 
-class WsPool(private val poolSize: Int = 4) {
+class WsPool(@Volatile var poolSize: Int = 4) {
 
     private class PooledSocket(val client: RawWebSocketClient, val createdAt: Long)
 
     private val idlePool = ConcurrentHashMap<PoolKey, ConcurrentLinkedQueue<PooledSocket>>()
     private val refillingSet = ConcurrentHashMap<PoolKey, Boolean>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    fun updatePoolSize(newSize: Int, isTestEnv: Boolean = false) {
+        val clamped = newSize.coerceIn(2, 16)
+        poolSize = clamped
+        for (queue in idlePool.values) {
+            while (queue.size > clamped) {
+                val item = queue.poll() ?: break
+                item.client.close()
+            }
+        }
+        warmUpPrimaryDCs(isTestEnv)
+    }
 
     fun get(dcId: Int, isMedia: Boolean, isTestEnv: Boolean): RawWebSocketClient? {
         val key = PoolKey(dcId, isMedia)

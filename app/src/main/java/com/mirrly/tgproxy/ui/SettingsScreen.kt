@@ -1139,6 +1139,14 @@ fun SettingsScreen(
                                         poolSize = option
                                         val newSize = option.toInt()
                                         if (newSize != config.poolSize) {
+                                            config.poolSize = newSize
+                                            val matchingPreset = com.mirrly.tgproxy.core.SpeedPreset.values().firstOrNull { it.defaultPoolSize == newSize }
+                                            if (matchingPreset != null) {
+                                                config.speedPresetName = matchingPreset.name
+                                                config.bufferSizeBytes = matchingPreset.defaultBufferSizeBytes
+                                            } else {
+                                                config.speedPresetName = "CUSTOM"
+                                            }
                                             server.applyPoolSize(newSize)
                                             app.saveConfig()
                                         }

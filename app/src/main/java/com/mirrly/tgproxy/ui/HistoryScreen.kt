@@ -401,9 +401,11 @@ private fun SessionCard(session: SessionRecord) {
     val borderColor = if (isActive) ActiveGreenLed.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.10f)
 
     val dateFormat = remember { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()) }
-    val startTimeStr = remember(session.startTimeMs) { dateFormat.format(Date(session.startTimeMs)) }
+    val startTimeStr = remember(session.startTimeMs) {
+        if (session.startTimeMs > 0L) dateFormat.format(Date(session.startTimeMs)) else "—"
+    }
     val endTimeStr = remember(session.endTimeMs, isActive) {
-        if (isActive) "сейчас" else dateFormat.format(Date(session.endTimeMs))
+        if (isActive) "сейчас" else if (session.endTimeMs > 0L) dateFormat.format(Date(session.endTimeMs)) else "—"
     }
 
     // Glowing dot animation for active session

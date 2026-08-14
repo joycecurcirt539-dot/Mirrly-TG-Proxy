@@ -73,4 +73,46 @@ class Socks5ProtocolTest {
         assertDoesNotThrow { NativeProxy.setSecret("testsecret") }
         assertFalse(NativeProxy.isStarted)
     }
+
+    @Test
+    fun testLogEntryMonotonicUniqueIds() {
+        val entry1 = LogEntry(level = LogLevel.INFO, tag = "TestTag", rawMessage = "Message 1")
+        val entry2 = LogEntry(level = LogLevel.INFO, tag = "TestTag", rawMessage = "Message 1")
+        assertNotEquals(entry1.id, entry2.id)
+        assertTrue(entry2.id > entry1.id)
+    }
+
+    @Test
+    fun testWsPoolDynamicUpdate() {
+        val pool = WsPool(4)
+        assertEquals(4, pool.poolSize)
+
+        pool.updatePoolSize(8)
+        assertEquals(8, pool.poolSize)
+
+        pool.updatePoolSize(2)
+        assertEquals(2, pool.poolSize)
+
+        // Out-of-range values must be clamped to 2..16
+        pool.updatePoolSize(1)
+        assertEquals(2, pool.poolSize)
+
+        pool.updatePoolSize(32)
+        assertEquals(16, pool.poolSize)
+
+        pool.clear()
+    }
+
+    @Test
+    fun testLocalProxyServerApplyPoolSize() {
+        val config = ProxyConfig()
+        val server = LocalProxyServer(config)
+        assertEquals(8, config.poolSize)
+
+        server.applyPoolSize(16)
+        assertEquals(16, config.poolSize)
+
+        server.applyPoolSize(2)
+        assertEquals(2, config.poolSize)
+    }
 }

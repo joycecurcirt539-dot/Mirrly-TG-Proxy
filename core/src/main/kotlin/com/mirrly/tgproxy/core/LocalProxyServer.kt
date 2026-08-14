@@ -37,7 +37,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     private var socks5Job: Job? = null
     private var socks5ServerSocket: ServerSocket? = null
     private var wsPool: WsPool? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
     val stats = ProxyStats()
 
@@ -239,8 +239,12 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 try {
                     val client = socket.accept()
                     launch {
-                        val bridge = TgWsBridge(client, config, stats, wsPool)
-                        bridge.handleConnection()
+                        try {
+                            val bridge = TgWsBridge(client, config, stats, wsPool)
+                            bridge.handleConnection()
+                        } catch (t: Throwable) {
+                            AppLogger.w("LocalProxyServer", "Ошибка обработки MTProto-соединения: ${t.message}")
+                        }
                     }
                 } catch (_: Exception) {
                     break
@@ -285,8 +289,12 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 try {
                     val client = socket.accept()
                     launch {
-                        val bridge = Socks5WsBridge(client, config, stats, wsPool)
-                        bridge.handleConnection()
+                        try {
+                            val bridge = Socks5WsBridge(client, config, stats, wsPool)
+                            bridge.handleConnection()
+                        } catch (t: Throwable) {
+                            AppLogger.w("LocalProxyServer", "Ошибка обработки SOCKS5-соединения: ${t.message}")
+                        }
                     }
                 } catch (_: Exception) {
                     break
@@ -361,13 +369,14 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     }
 
     /**
-     * Applies a new pool size immediately via NativeProxy without requiring a full restart.
+     * Applies a new pool size immediately via NativeProxy and WsPool without requiring a full restart.
      * Also updates config.poolSize so the value is consistent everywhere.
      */
     fun applyPoolSize(newSize: Int, cacheDir: File? = null) {
         val clamped = newSize.coerceIn(2, 16)
         config.poolSize = clamped
         AppLogger.i("LocalProxyServer", "Изменение пула сокетов → $clamped")
+        wsPool?.updatePoolSize(clamped, config.isTestEnvironment)
         if (isNativeRunning) {
             try {
                 NativeProxy.setPoolSize(clamped)

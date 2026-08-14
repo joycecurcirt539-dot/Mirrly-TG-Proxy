@@ -18,6 +18,7 @@ import java.util.Date
 import java.util.Locale
 
 data class LogEntry(
+    val id: Long = nextId.getAndIncrement(),
     val timestamp: Long = System.currentTimeMillis(),
     val level: LogLevel,
     val tag: String,
@@ -32,6 +33,7 @@ data class LogEntry(
     }
 
     companion object {
+        private val nextId = java.util.concurrent.atomic.AtomicLong(1L)
         private val timeFormatter = object : ThreadLocal<SimpleDateFormat>() {
             override fun initialValue(): SimpleDateFormat {
                 return SimpleDateFormat("HH:mm:ss", Locale.getDefault())
@@ -140,6 +142,9 @@ object AppLogger {
                 line.substring(slashIdx + 1, colonIdx).trim()
             } else "System"
         } catch (_: Exception) { "System" }
+
+        // Ignore internal AppLogger logcat lines to avoid duplicate entries
+        if (tag == "AppLogger") return
 
         val msg = try {
             val colonIdx = line.indexOf(":")

@@ -48,5 +48,6 @@ app/.cxx/
 
 # Verification and temporary tool directories
 .verify_check/
+.vscode/
 
 

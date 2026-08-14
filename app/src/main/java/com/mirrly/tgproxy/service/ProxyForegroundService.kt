@@ -19,14 +19,16 @@ import com.mirrly.tgproxy.core.SpeedPreset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ProxyForegroundService : Service() {
 
-    private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var updateJob: Job? = null
     private var wakeLockJob: Job? = null
     private var networkObserver: NetworkChangeObserver? = null
@@ -83,9 +85,15 @@ class ProxyForegroundService : Service() {
                             delay(500)
                             if (app.proxyServer.isRunning) {
                                 app.proxyServer.stop()
-                                delay(300)
-                                app.proxyServer.start(cacheDir)
-                                app.proxyServer.onNetworkRestored()
+                                delay(350)
+                                val started = app.proxyServer.start(cacheDir)
+                                if (started) {
+                                    app.proxyServer.onNetworkRestored()
+                                    withContext(Dispatchers.Main) {
+                                        startNotificationUpdates()
+                                        startWakeLockRefresh()
+                                    }
+                                }
                             }
                         } catch (_: Exception) {
                         } finally {
@@ -113,11 +121,19 @@ class ProxyForegroundService : Service() {
                     try {
                         val server = app.proxyServer
                         server.stop()
-                        delay(300)
-                        server.start(cacheDir)
-                    } catch (_: Exception) {
+                        delay(350)
+                        val started = server.start(cacheDir)
+                        if (started) {
+                            withContext(Dispatchers.Main) {
+                                ProxyTileService.requestSync(this@ProxyForegroundService)
+                                startNotificationUpdates()
+                                startWakeLockRefresh()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "Ошибка при перезапуске прокси: ${e.message}")
                     } finally {
-                        delay(1500)
+                        delay(1000)
                         isReconnectingNetwork = false
                     }
                 }
