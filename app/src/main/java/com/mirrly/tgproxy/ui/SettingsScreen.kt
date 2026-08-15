@@ -20,6 +20,7 @@ package com.mirrly.tgproxy.ui
 
 import android.content.Intent
 import android.os.Build
+import com.mirrly.tgproxy.core.AppLogger
 import android.view.WindowManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.Dialog
@@ -74,6 +75,7 @@ import kotlin.math.abs
 fun InertialSpringSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    activeColor: Color = ActiveGreenLed,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -88,7 +90,7 @@ fun InertialSpringSwitch(
     )
 
     val trackColor by animateColorAsState(
-        targetValue = if (checked) ActiveGreenLed else Color(0xFF181C28),
+        targetValue = if (checked) activeColor else Color(0xFF181C28),
         animationSpec = tween(180),
         label = "switchTrackColor"
     )
@@ -165,14 +167,17 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
     ) {
         val view = LocalView.current
         LaunchedEffect(Unit) {
-            val window = (view.parent as? DialogWindowProvider)?.window
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 50
+            try {
+                val window = (view.parent as? DialogWindowProvider)?.window
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window?.attributes = window?.attributes?.apply {
+                        blurBehindRadius = 50
+                    }
                 }
-            }
+            } catch (_: Exception) {}
         }
+
 
         Box(
             modifier = Modifier
@@ -199,14 +204,14 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                 // Category Pill
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFF00F0FF).copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.35f))
+                    color = ActiveGreenLed.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
                 ) {
                     Text(
                         text = "СПРАВКА И НАСТРОЙКИ",
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF00F0FF),
+                        color = ActiveGreenLed,
                         letterSpacing = 1.sp,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                     )
@@ -283,10 +288,10 @@ private fun FormattedInfoBody(body: String) {
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val headerColor = when {
-                            firstLine.contains("БЕЗОПАСНОСТЬ") -> Color(0xFF00F0FF)
+                            firstLine.contains("БЕЗОПАСНОСТЬ") -> ActiveGreenLed
                             firstLine.contains("РАБОТАЕТ") -> Color(0xFF38BDF8)
                             firstLine.contains("ЛУЧШЕ") || firstLine.contains("ПОЧЕМУ") -> Color(0xFFFFC107)
-                            else -> Color(0xFF00F0FF)
+                            else -> ActiveGreenLed
                         }
                         Text(
                             text = firstLine,
@@ -376,7 +381,7 @@ private fun InfoBulletItem(text: String) {
             modifier = Modifier
                 .padding(top = 7.dp)
                 .size(5.dp)
-                .background(Color(0xFF00F0FF), CircleShape)
+                .background(ActiveGreenLed, CircleShape)
         )
         Text(
             text = text,
@@ -432,6 +437,7 @@ fun SettingsScreen(
     var pendingIssueRedirectUrl by remember { mutableStateOf<String?>(null) }
     val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
     var showSleepTimerDialog by remember { mutableStateOf(false) }
+    var showDonateConfirmDialog by remember { mutableStateOf(false) }
 
     fun snapToNearestPool(valIn: Float): Float {
         return poolOptions.minByOrNull { abs(it - valIn) } ?: valIn
@@ -443,10 +449,14 @@ fun SettingsScreen(
             val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
                 action = ProxyForegroundService.ACTION_RESTART
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+            } catch (e: Exception) {
+                AppLogger.e("SettingsScreen", "Не удалось перезапустить службу прокси: ${e.message}")
             }
         }
     }
@@ -502,7 +512,7 @@ fun SettingsScreen(
                 "32-символьный hex-ключ протокола MTProto. Его необходимо указать в настройках прокси Telegram — без него подключение невозможно.\n\nПрефикс dd означает режим Fake TLS: трафик маскируется под обычный HTTPS, что позволяет обходить DPI-фильтрацию.\n\nНажмите кнопку генерации для создания нового случайного ключа. После смены обновите ссылку-приглашение в Telegram."
             "cf_domain" -> "Безопасность & Принцип работы Cloudflare Worker" to
                 "БЕЗОПАСНОСТЬ ЛИЧНЫХ ДАННЫХ:\n" +
-                "Для 100% защиты вашей конфиденциальности и анонимности мы НАСТОЯТЕЛЬНО рекомендуем НЕ использовать тестовые воркеры разработчика на постоянной основе, а развернуть свой личный воркер по инструкции ниже.\n\n" +
+                "Для 100% защиты вашей конфиденциальности и анонимности мы НАСТОЯТЕЛЬНО рекомендуем НЕ использовать дефолтные воркеры разработчика на постоянной основе, а развернуть свой личный воркер по инструкции ниже.\n\n" +
                 "При использовании чужого воркера ваш трафик проходит через посторонний узел. Разворачивая собственный бесплатный воркер, вы гарантируете, что логи и ключи доступа принадлежат ТОЛЬКО вам.\n\n" +
                 "КАК РАБОТАЕТ CLOUDFLARE WORKER:\n" +
                 "• Cloudflare Worker — это бессерверный V8-скрипт на глобальной сети Cloudflare Edge (300+ городов по всему миру).\n" +
@@ -556,14 +566,6 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
 
-            // Top Section: Official Source & Verification (Seamless without background panel)
-            OfficialSourceCard(
-                onOpenUpdate = onOpenUpdate,
-                onUpdateReleaseFound = { _ ->
-                    onOpenUpdate()
-                }
-            )
-
             // SECTION 0: Протокол
             Column(
                 modifier = Modifier.staggeredEntrance(index = 0),
@@ -590,18 +592,19 @@ fun SettingsScreen(
                 ) {
                     listOf(ProxyMode.MTPROTO, ProxyMode.SOCKS5).forEach { mode ->
                         val isSelected = selectedMode == mode
+                        val modeAccent = if (mode == ProxyMode.SOCKS5) Color(0xFFB388FF) else ActiveGreenLed
                         val chipBorder by animateColorAsState(
-                            targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
+                            targetValue = if (isSelected) modeAccent else Color(0xFF1E2333),
                             animationSpec = tween(200),
                             label = "modeBorder_${mode.name}"
                         )
                         val chipTextColor by animateColorAsState(
-                            targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                            targetValue = if (isSelected) modeAccent else TextWhite,
                             animationSpec = tween(200),
                             label = "modeText_${mode.name}"
                         )
                         val chipBgColor by animateColorAsState(
-                            targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
+                            targetValue = if (isSelected) modeAccent.copy(alpha = 0.08f) else Color.Transparent,
                             animationSpec = tween(200),
                             label = "modeBg_${mode.name}"
                         )
@@ -793,75 +796,9 @@ fun SettingsScreen(
                         )
                     }
                 }
-            }
 
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
-
-            // SECTION 2: Cloudflare (Always Enabled)
-            Column(
-                modifier = Modifier.staggeredEntrance(index = 2),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "CLOUDFLARE TUNNEL",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.3.sp,
-                        color = TextMuted
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = ActiveGreenLed.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
-                        modifier = Modifier.clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showWorkerGuideDialog = true
-                        }
-                    ) {
-                        Text(
-                            text = "ИНСТРУКЦИЯ ВОРКЕРА",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ActiveGreenLed,
-                            letterSpacing = 0.8.sp,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("Кастомный домен воркера", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        InfoButton { infoKey = "cf_domain" }
-                    }
-                    OutlinedTextField(
-                        value = customDomainText,
-                        onValueChange = { customDomainText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("worker.mydomain.workers.dev (свой воркер)", color = TextMuted, fontSize = 13.sp) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedBorderColor = ActiveGreenLed,
-                            unfocusedBorderColor = Color(0xFF1E2333),
-                            focusedTextColor = TextWhite,
-                            unfocusedTextColor = TextWhite
-                        )
-                    )
-                }
-
-                // Тестовый Cloudflare Worker Mirrly для SOCKS5
+                // Auto Reconnect Switch with Inertia Bounce Physics & Haptics
+                var autoReconnect by remember { mutableStateOf(app.prefsManager.isAutoReconnectEnabled()) }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -872,45 +809,16 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("Тестовый Cloudflare Worker Mirrly (SOCKS5)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "cf_domain" }
+                            Text("Авто-переподключение (Wi-Fi / LTE)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "reconnect" }
                         }
-                        Text("Использовать личный тестовый воркер разработчика для SOCKS5, если не развёрнут свой", color = TextMuted, fontSize = 11.5.sp)
+                        Text("Автоматический перезапуск сокетов при смене сети без зависания Telegram", color = TextMuted, fontSize = 11.5.sp)
                     }
                     InertialSpringSwitch(
-                        checked = useDefaultWorkerSocks5,
+                        checked = autoReconnect,
                         onCheckedChange = { newValue ->
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            useDefaultWorkerSocks5 = newValue
-                            config.useDefaultWorkerSocks5 = newValue
-                            restartProxyIfNeeded()
-                        }
-                    )
-                }
-
-                // Тестовый Cloudflare Worker Mirrly для MTProto
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Тестовый Cloudflare Worker Mirrly (MTProto)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "cf_domain" }
-                        }
-                        Text("Использовать личный тестовый воркер разработчика для MTProto, если не развёрнут свой", color = TextMuted, fontSize = 11.5.sp)
-                    }
-                    InertialSpringSwitch(
-                        checked = useDefaultWorkerMtproto,
-                        onCheckedChange = { newValue ->
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            useDefaultWorkerMtproto = newValue
-                            config.useDefaultWorkerMtproto = newValue
-                            restartProxyIfNeeded()
+                            autoReconnect = newValue
+                            app.prefsManager.setAutoReconnectEnabled(newValue)
                         }
                     )
                 }
@@ -918,13 +826,13 @@ fun SettingsScreen(
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
-            // SECTION 3: Система & Оптимизация
+            // SECTION 2: ПРОИЗВОДИТЕЛЬНОСТЬ
             Column(
                 modifier = Modifier.staggeredEntrance(index = 2),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    text = "СКОРОСТЬ И ПРОИЗВОДИТЕЛЬНОСТЬ",
+                    text = "ПРОИЗВОДИТЕЛЬНОСТЬ",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -937,7 +845,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("Режим скорости и пропускной способности", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Режимы пропускной способности", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         InfoButton { infoKey = "preset" }
                     }
 
@@ -1008,30 +916,6 @@ fun SettingsScreen(
                     }
                 }
 
-                // TCP_NODELAY Switch
-                var tcpNoDelayState by remember { mutableStateOf(config.tcpNoDelay) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("Мгновенная отдача (TCP_NODELAY)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        InfoButton { infoKey = "tcp_nodelay" }
-                    }
-                    InertialSpringSwitch(
-                        checked = tcpNoDelayState,
-                        onCheckedChange = { newValue ->
-                            tcpNoDelayState = newValue
-                            config.tcpNoDelay = newValue
-                            app.saveConfig()
-                        }
-                    )
-                }
-
                 // Ultra-Smooth Dragging Socket Pool Slider with Snap-on-Release & Haptics
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
@@ -1043,7 +927,7 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("Размер пула сокетов", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Размер пула сокетов (WsPool)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                             InfoButton { infoKey = "pool" }
                         }
 
@@ -1093,12 +977,7 @@ fun SettingsScreen(
                     )
 
                     // Pool step labels — positioned exactly under each slider thumb stop
-                    // Values [2,4,8,16] are NOT equally spaced on 2..16 scale:
-                    //   2→0%, 4→14.3%, 8→42.9%, 16→100%
-                    // BoxWithConstraints + layout modifier centers each label at its exact position.
                     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                        // Material3 Slider thumb diameter = 20.dp → half = 10.dp
-                        // Thumb center travels from 10.dp to (sliderWidth - 10.dp)
                         val thumbHalfWidth = 10.dp
                         val usableWidth = maxWidth - thumbHalfWidth * 2
 
@@ -1122,7 +1001,6 @@ fun SettingsScreen(
                                         val placeable = measurable.measure(
                                             constraints.copy(minWidth = 0, minHeight = 0)
                                         )
-                                        // Center the label under its thumb position in pixels
                                         val centerXPx = (thumbHalfWidth + usableWidth * fraction).toPx()
                                         layout(placeable.width, placeable.height) {
                                             placeable.place(
@@ -1156,54 +1034,8 @@ fun SettingsScreen(
                     }
                 }
 
-                // Autostart Switch with Inertia Bounce Physics & Haptics
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("Автозапуск при загрузке", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        InfoButton { infoKey = "autostart" }
-                    }
-                    InertialSpringSwitch(
-                        checked = autostart,
-                        onCheckedChange = { newValue ->
-                            autostart = newValue
-                            config.autostartOnBoot = newValue
-                            app.saveConfig()
-                        }
-                    )
-                }
-
-                // Auto Reconnect Switch with Inertia Bounce Physics & Haptics
-                var autoReconnect by remember { mutableStateOf(app.prefsManager.isAutoReconnectEnabled()) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("Авто-переподключение (Wi-Fi / LTE)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        InfoButton { infoKey = "reconnect" }
-                    }
-                    InertialSpringSwitch(
-                        checked = autoReconnect,
-                        onCheckedChange = { newValue ->
-                            autoReconnect = newValue
-                            app.prefsManager.setAutoReconnectEnabled(newValue)
-                        }
-                    )
-                }
-
-                // Disable Animations & Background Particles Switch (Performance Optimization)
-                var disableAnimations by remember { mutableStateOf(app.prefsManager.areAnimationsDisabled()) }
+                // TCP_NODELAY Switch
+                var tcpNoDelayState by remember { mutableStateOf(config.tcpNoDelay) }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1214,16 +1046,218 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("Отключить анимации и частицы", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "disable_animations" }
+                            Text("Мгновенная отдача (TCP_NODELAY)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "tcp_nodelay" }
                         }
-                        Text("Выключает живой фон для экономии процессора и батареи", color = TextMuted, fontSize = 11.5.sp)
+                        Text("Отключение буферизации Нагла для минимальных сетевых задержек", color = TextMuted, fontSize = 11.5.sp)
                     }
                     InertialSpringSwitch(
-                        checked = disableAnimations,
+                        checked = tcpNoDelayState,
                         onCheckedChange = { newValue ->
-                            disableAnimations = newValue
-                            app.prefsManager.setAnimationsDisabled(newValue)
+                            tcpNoDelayState = newValue
+                            config.tcpNoDelay = newValue
+                            app.saveConfig()
+                        }
+                    )
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
+
+            // SECTION 3: ТУННЕЛИРОВАНИЕ CLOUDFLARE
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 3),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "ТУННЕЛИРОВАНИЕ CLOUDFLARE",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.3.sp,
+                        color = TextMuted
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = ActiveGreenLed.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
+                        modifier = Modifier.clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showWorkerGuideDialog = true
+                        }
+                    ) {
+                        Text(
+                            text = "ИНСТРУКЦИЯ ВОРКЕРА",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ActiveGreenLed,
+                            letterSpacing = 0.8.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("Кастомный домен воркера", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        InfoButton { infoKey = "cf_domain" }
+                    }
+                    OutlinedTextField(
+                        value = customDomainText,
+                        onValueChange = { customDomainText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("worker.mydomain.workers.dev (свой воркер)", color = TextMuted, fontSize = 13.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedBorderColor = ActiveGreenLed,
+                            unfocusedBorderColor = Color(0xFF1E2333),
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite
+                        )
+                    )
+                }
+
+                // Cloudflare Worker Mirrly для SOCKS5
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Cloudflare Worker Mirrly", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFFB388FF).copy(alpha = 0.12f))
+                                    .border(1.dp, Color(0xFFB388FF).copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                            ) {
+                                Text(
+                                    text = "SOCKS5",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB388FF),
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                            InfoButton { infoKey = "cf_domain" }
+                        }
+                        Text("Обязательно для SOCKS5. Необходим для туннелирования трафика через Cloudflare, если не развёрнут свой воркер", color = TextMuted, fontSize = 11.5.sp)
+                    }
+                    InertialSpringSwitch(
+                        checked = useDefaultWorkerSocks5,
+                        activeColor = Color(0xFFB388FF),
+                        onCheckedChange = { newValue ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            useDefaultWorkerSocks5 = newValue
+                            config.useDefaultWorkerSocks5 = newValue
+                            app.saveConfig()
+                            if (config.proxyMode == ProxyMode.SOCKS5) {
+                                restartProxyIfNeeded()
+                            }
+                        }
+                    )
+                }
+
+                // Cloudflare Worker Mirrly для MTProto
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Cloudflare Worker Mirrly", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(ActiveGreenLed.copy(alpha = 0.12f))
+                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                            ) {
+                                Text(
+                                    text = "MTProto",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ActiveGreenLed,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                            InfoButton { infoKey = "cf_domain" }
+                        }
+                        Text("Необязательно для MTProto. Используется для туннелирования через Cloudflare при блокировках прямого подключения", color = TextMuted, fontSize = 11.5.sp)
+                    }
+                    InertialSpringSwitch(
+                        checked = useDefaultWorkerMtproto,
+                        activeColor = ActiveGreenLed,
+                        onCheckedChange = { newValue ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            useDefaultWorkerMtproto = newValue
+                            config.useDefaultWorkerMtproto = newValue
+                            app.saveConfig()
+                            if (config.proxyMode == ProxyMode.MTPROTO) {
+                                restartProxyIfNeeded()
+                            }
+                        }
+                    )
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
+
+            // SECTION 4: СИСТЕМА
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 4),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "СИСТЕМА И ЭНЕРГОСБЕРЕЖЕНИЕ",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted
+                )
+
+                // Autostart Switch with Inertia Bounce Physics & Haptics
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Автозапуск при загрузке", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "autostart" }
+                        }
+                        Text("Автоматический запуск службы прокси после перезагрузки устройства", color = TextMuted, fontSize = 11.5.sp)
+                    }
+                    InertialSpringSwitch(
+                        checked = autostart,
+                        onCheckedChange = { newValue ->
+                            autostart = newValue
+                            config.autostartOnBoot = newValue
+                            app.saveConfig()
                         }
                     )
                 }
@@ -1256,13 +1290,39 @@ fun SettingsScreen(
                         modifier = Modifier.size(20.dp)
                     )
                 }
+
+                // Disable Animations & Background Particles Switch (Performance Optimization)
+                var disableAnimations by remember { mutableStateOf(app.prefsManager.areAnimationsDisabled()) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Режим энергосбережения", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "disable_animations" }
+                        }
+                        Text("Отключение фоновых анимаций и частиц для экономии заряда батареи", color = TextMuted, fontSize = 11.5.sp)
+                    }
+                    InertialSpringSwitch(
+                        checked = disableAnimations,
+                        onCheckedChange = { newValue ->
+                            disableAnimations = newValue
+                            app.prefsManager.setAnimationsDisabled(newValue)
+                        }
+                    )
+                }
             }
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
             // SECTION 5: О ПРИЛОЖЕНИИ (Compact Grouped Container)
             Column(
-                modifier = Modifier.staggeredEntrance(index = 4),
+                modifier = Modifier.staggeredEntrance(index = 5),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -1325,7 +1385,7 @@ fun SettingsScreen(
                                     color = TextWhite
                                 )
                                 Text(
-                                    text = "R1Xern • Информация, соцсети и поддержка",
+                                    text = "R1Xern • Информация, соцсети и статус сборки",
                                     fontSize = 11.5.sp,
                                     color = TextMuted
                                 )
@@ -1342,7 +1402,7 @@ fun SettingsScreen(
 
                     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
 
-                    // Item 2: Share App with Friends
+                    // Item 2: Support Developer (Donation DaLink)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1351,7 +1411,7 @@ fun SettingsScreen(
                                 indication = null
                             ) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                context.shareApp()
+                                showDonateConfirmDialog = true
                             }
                             .padding(horizontal = 14.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1371,7 +1431,7 @@ fun SettingsScreen(
                                     .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
                             ) {
                                 Icon(
-                                    painter = painterResource(id = R.drawable.ic_send),
+                                    painter = painterResource(id = R.drawable.ic_donate),
                                     contentDescription = null,
                                     tint = ActiveGreenLed,
                                     modifier = Modifier.size(16.dp)
@@ -1380,13 +1440,13 @@ fun SettingsScreen(
 
                             Column {
                                 Text(
-                                    text = "Рассказать друзьям",
+                                    text = "Поддержать разработчика",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = TextWhite
                                 )
                                 Text(
-                                    text = "Поделиться ссылкой на Mirrly TG Proxy",
+                                    text = "Добровольный донат на развитие проекта (DaLink)",
                                     fontSize = 11.5.sp,
                                     color = TextMuted
                                 )
@@ -1403,68 +1463,7 @@ fun SettingsScreen(
 
                     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
 
-                    // Item 3: Report Bug / Idea
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onOpenUpdate()
-                            }
-                            .padding(horizontal = 14.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color(0xFFFF9E00).copy(alpha = 0.12f))
-                                    .border(1.dp, Color(0xFFFF9E00).copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_bug),
-                                    contentDescription = null,
-                                    tint = Color(0xFFFF9E00),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-
-                            Column {
-                                Text(
-                                    text = "Нашли баг или есть идея?",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextWhite
-                                )
-                                Text(
-                                    text = "Создайте Issue на GitHub — отвечу лично",
-                                    fontSize = 11.5.sp,
-                                    color = TextMuted
-                                )
-                            }
-                        }
-
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_chevron_right),
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
-
-                    // Item 4: Check for Updates
+                    // Item 3: Check for Updates
                     var isCheckingUpdate by remember { mutableStateOf(false) }
                     val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
                     val coroutineScope = rememberCoroutineScope()
@@ -1501,7 +1500,7 @@ fun SettingsScreen(
                                                 } else {
                                                     Toast.makeText(
                                                         context,
-                                                        "У вас установлена актуальная версия v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME}",
+                                                        "У вас установлена актуальная версия",
                                                         Toast.LENGTH_SHORT
                                                     ).show()
                                                 }
@@ -1544,7 +1543,7 @@ fun SettingsScreen(
 
                             Column {
                                 Text(
-                                    text = if (isUpdateAvailable) "Найдено обновление v${currentUpdateInfo?.versionName}!" else "Проверить обновления",
+                                    text = if (isUpdateAvailable) "Найдено обновление!" else "Проверить обновления",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = titleColor
@@ -1553,7 +1552,7 @@ fun SettingsScreen(
                                     text = when {
                                         isCheckingUpdate -> "Проверка GitHub Releases..."
                                         isUpdateAvailable -> "Доступна новая версия • Нажмите для установки"
-                                        else -> "Текущая версия v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME}"
+                                        else -> "Поиск новых версий на GitHub"
                                     },
                                     fontSize = 11.5.sp,
                                     color = if (isUpdateAvailable) TextWhite.copy(alpha = 0.9f) else TextMuted
@@ -1579,10 +1578,7 @@ fun SettingsScreen(
                 }
             }
 
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
-
-            StarGithubCard(modifier = Modifier.staggeredEntrance(index = 5))
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
         }
 
         // 2. FROSTED GLASS HEADER PANEL (Pinned at Top over scrolling items!)
@@ -1629,6 +1625,15 @@ fun SettingsScreen(
             )
         }
 
+        if (showDonateConfirmDialog) {
+            ExternalLinkConfirmDialog(
+                url = "https://dalink.to/cartneyzix",
+                title = "Поддержать разработчика",
+                description = "Ссылка ведет на страницу сервиса DaLink для добровольной поддержки автора R1Xern. Mirrly TG Proxy — полностью бесплатный проект с открытым исходным кодом.",
+                onDismiss = { showDonateConfirmDialog = false }
+            )
+        }
+
         if (showSleepTimerDialog) {
             SleepTimerDialog(
                 onDismiss = { showSleepTimerDialog = false }
@@ -1660,178 +1665,6 @@ fun SettingsScreen(
             CloudflareWorkerGuideDialog(
                 onDismiss = { showWorkerGuideDialog = false }
             )
-        }
-    }
-}
-
-@Composable
-fun StarGithubCard(
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val haptic = LocalHapticFeedback.current
-    val githubUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy"
-    var showConfirmDialog by remember { mutableStateOf(false) }
-
-    if (showConfirmDialog) {
-        ExternalLinkConfirmDialog(
-            url = githubUrl,
-            title = "Оценить проект звёздочкой на GitHub",
-            description = "Ссылка ведет на официальную страницу открытого репозитория Mirrly TG Proxy на GitHub. Оценка звёздочкой (⭐ Star) — это совершенно бесплатный способ поддержать автора R1Xern и помочь продвижению проекта!",
-            onDismiss = { showConfirmDialog = false }
-        )
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        // Section Header Label
-        Text(
-            text = "ПОДДЕРЖКА ПРОЕКТА",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 1.3.sp,
-            color = TextMuted
-        )
-
-        // Header Row: Star Icon Box + Badge Tag
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.weight(1f, fill = false)
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(ActiveGreenLed.copy(alpha = 0.12f))
-                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), CircleShape)
-                ) {
-                    Text(text = "⭐", fontSize = 20.sp)
-                }
-
-                Column {
-                    Text(
-                        text = "Понравился Mirrly TG Proxy?",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = TextWhite
-                    )
-                    Text(
-                        text = "Поддержите проект на GitHub",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = ActiveGreenLed
-                    )
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(ActiveGreenLed.copy(alpha = 0.12f))
-                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = "OPEN SOURCE",
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Black,
-                    color = ActiveGreenLed,
-                    letterSpacing = 0.8.sp
-                )
-            }
-        }
-
-        // Description
-        Text(
-            text = "Ваша звёздочка на GitHub помогает проекту развиваться, привлекает новых пользователей и вдохновляет на выпуск регулярных обновлений!",
-            fontSize = 12.5.sp,
-            color = TextWhite.copy(alpha = 0.85f),
-            lineHeight = 18.sp
-        )
-
-        // Badges row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(text = "⚡", fontSize = 11.sp)
-                Text(text = "100% Бесплатно", fontSize = 11.sp, color = TextMuted, fontWeight = FontWeight.Medium)
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(text = "🛡️", fontSize = 11.sp)
-                Text(text = "Без рекламы", fontSize = 11.sp, color = TextMuted, fontWeight = FontWeight.Medium)
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(text = "💎", fontSize = 11.sp)
-                Text(text = "Открытый код", fontSize = 11.sp, color = TextMuted, fontWeight = FontWeight.Medium)
-            }
-        }
-
-        // Action Button
-        Button(
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                showConfirmDialog = true
-            },
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color.Transparent,
-                contentColor = Color.Black
-            ),
-            contentPadding = PaddingValues(0.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(46.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            ActiveGreenLed,
-                            Color(0xFF00F0FF)
-                        )
-                    )
-                )
-                .springPress()
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_github),
-                    contentDescription = null,
-                    tint = Color.Black,
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    text = "Поставить ⭐ Star на GitHub",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Black
-                )
-            }
         }
     }
 }

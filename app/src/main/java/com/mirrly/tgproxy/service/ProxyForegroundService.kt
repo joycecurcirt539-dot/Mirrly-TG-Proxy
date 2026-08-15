@@ -53,7 +53,9 @@ class ProxyForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isStopping = false
         NotificationHelper.createNotificationChannel(this)
+        NotificationHelper.cancelProxyNotifications(this)
 
         networkObserver = NetworkChangeObserver(this) { newType, oldType ->
             val app = MirrlyApplication.instance
@@ -72,9 +74,9 @@ class ProxyForegroundService : Service() {
                     val stats = app.proxyServer.stats
                     val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
                     if (totalBytes > 100_000L) {
-                        showToastOnMainThread("⚠️ Переключено на мобильную сеть. Прокси активен (${humanBytes(totalBytes)} за сессию)")
+                        showToastOnMainThread("Переключено на мобильную сеть. Прокси активен (${humanBytes(totalBytes)} за сессию)")
                     } else {
-                        showToastOnMainThread("⚠️ Переключено на мобильную сеть. Прокси активен")
+                        showToastOnMainThread("Переключено на мобильную сеть. Прокси активен")
                     }
                 }
 
@@ -150,13 +152,13 @@ class ProxyForegroundService : Service() {
             ACTION_EXTEND_TIMER -> {
                 val extraMin = intent.getIntExtra("extra_minutes", 15)
                 SleepTimerManager.extendTimer(this, extraMin)
-                showToastOnMainThread("⏳ Таймер продлен на +$extraMin мин")
+                showToastOnMainThread("Таймер продлен на +$extraMin мин")
                 updateNotificationImmediately()
                 return START_REDELIVER_INTENT
             }
             ACTION_CANCEL_TIMER -> {
                 SleepTimerManager.cancelTimer(this)
-                showToastOnMainThread("⏳ Таймер автоотключения отменен")
+                showToastOnMainThread("Таймер автоотключения отменен")
                 updateNotificationImmediately()
                 return START_REDELIVER_INTENT
             }
@@ -164,20 +166,25 @@ class ProxyForegroundService : Service() {
 
         val notification = NotificationHelper.buildNotification(
             context = this,
-            statusText = "Mirrly TG Proxy работает",
-            speedText = "Порт: ${app.config.activePort} | Скорость: 0 Б/с",
-            presetName = getPresetShortName(app.config.speedPreset)
+            statusText = if (app.config.isSocks5Mode) "SOCKS5 прокси активен" else "Обход Telegram активен",
+            speedText = "Порт: ${app.config.activePort} | Инициализация...",
+            statusIndicator = ProxyStatusIndicator.GREEN
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NotificationHelper.NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            startForeground(NotificationHelper.NOTIFICATION_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NotificationHelper.NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(NotificationHelper.NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            AppLogger.e("ProxyForegroundService", "Не удалось запустить ForegroundService: ${e.message}")
         }
+
 
         acquireWakeLock()
 
@@ -186,7 +193,11 @@ class ProxyForegroundService : Service() {
             serviceScope.launch(Dispatchers.IO) {
                 val started = server.start(cacheDir)
                 if (started) {
-                    SessionHistoryManager.onSessionStarted(getPresetShortName(app.config.speedPreset))
+                    SessionHistoryManager.onSessionStarted(
+                        presetName = getPresetShortName(app.config.speedPreset),
+                        proxyMode = app.config.proxyMode.name
+                    )
+                    DonationManager.recordSuccessfulConnection(this@ProxyForegroundService)
                 }
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     ProxyTileService.requestSync(this@ProxyForegroundService)
@@ -310,22 +321,29 @@ class ProxyForegroundService : Service() {
         updateJob = serviceScope.launch {
             val server = MirrlyApplication.instance.proxyServer
             var secondsCounter = 0
-            var zeroSpeedStallSeconds = 0
+            var pingCounter = 0
+
+            server.measurePingAsync()
 
             while (isActive && server.isRunning) {
                 delay(1000)
                 secondsCounter++
+                pingCounter++
+
                 if (secondsCounter >= 10) {
                     ValueTriggerManager.addActiveSeconds(this@ProxyForegroundService, secondsCounter)
                     secondsCounter = 0
+                }
+
+                if (pingCounter >= 8) {
+                    server.measurePingAsync()
+                    pingCounter = 0
                 }
 
                 val stats = server.stats
                 stats.updateSpeed()
 
                 val activeConns = stats.activeConnections.get()
-                val dlSpeedBps = stats.downloadSpeedBps
-                val ulSpeedBps = stats.uploadSpeedBps
 
                 SessionHistoryManager.onSessionUpdate(
                     bytesReceived = stats.totalBytesReceived.get(),
@@ -334,26 +352,21 @@ class ProxyForegroundService : Service() {
                     activeConnections = activeConns
                 )
 
-                if (activeConns > 0 && dlSpeedBps == 0L && ulSpeedBps == 0L) {
-                    zeroSpeedStallSeconds++
-                } else {
-                    zeroSpeedStallSeconds = 0
-                }
-
-                updateNotificationInternal(zeroSpeedStallSeconds >= 15)
+                updateNotificationInternal()
             }
         }
     }
 
     private fun updateNotificationImmediately() {
         serviceScope.launch {
-            updateNotificationInternal(false)
+            updateNotificationInternal()
         }
     }
 
-    private fun updateNotificationInternal(isStalled: Boolean) {
+    private fun updateNotificationInternal() {
         val app = MirrlyApplication.instance
         val server = app.proxyServer
+        if (isStopping || !server.isRunning) return
         val stats = server.stats
 
         val activeConns = stats.activeConnections.get()
@@ -361,45 +374,91 @@ class ProxyForegroundService : Service() {
         val ulSpeed = humanBytes(stats.uploadSpeedBps)
         val pingMs = server.currentPingMs
 
-        val netName = when (networkObserver?.getCurrentNetworkTypeName()) {
+        val netTypeName = networkObserver?.getCurrentNetworkTypeName() ?: "UNKNOWN"
+        val isNetworkLost = netTypeName == "DISCONNECTED"
+
+        val netName = when (netTypeName) {
             "Wi-Fi" -> "Wi-Fi"
-            "Cellular" -> "Мобильная сеть"
+            "Mobile LTE/5G", "Cellular" -> "Мобильная сеть"
+            "Ethernet" -> "Ethernet"
+            "DISCONNECTED" -> "Нет сети"
             else -> "Сеть активна"
         }
 
-        val tgStatus = when {
-            pingMs > 0 -> "Telegram: Доступен (${pingMs}мс)"
-            pingMs == -1L -> "Telegram: Недоступен"
-            else -> "Telegram: Проверка..."
-        }
-
-        val title = when {
-            isReconnectingNetwork -> "Переподключение к сети..."
-            isStalled -> "Затор сети | Возможна задержка"
-            else -> "Обход Telegram активен"
-        }
-
         val timerState = SleepTimerManager.timerState.value
-        val timerSuffix = if (timerState.isActive) " | ⏳ ${timerState.formatRemainingTime()}" else ""
+        val timerSuffix = if (timerState.isActive) " | Таймер: ${timerState.formatRemainingTime()}" else ""
 
-        val text = if (isStalled) {
-            "$tgStatus | ↓ 0.0 B/s | $netName$timerSuffix (Нажмите 'Перезапустить')"
-        } else {
-            "$tgStatus | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+        val isCf = app.config.cfProxyEnabled && app.config.getEffectiveCfDomain().isNotBlank()
+        val protoLabel = if (app.config.isSocks5Mode) "SOCKS5" else "MTProto"
+
+        val (statusIndicator, title, text) = when {
+            !server.isRunning || isNetworkLost -> {
+                Triple(
+                    ProxyStatusIndicator.RED,
+                    "Mirrly TG Proxy [$protoLabel] • Нет сети",
+                    "Сеть: Отключена | ↓ 0 Б/с  ↑ 0 Б/с | Нет сети"
+                )
+            }
+            isReconnectingNetwork -> {
+                Triple(
+                    ProxyStatusIndicator.YELLOW,
+                    "Mirrly TG Proxy [$protoLabel] • Переподключение...",
+                    "Восстановление связи... | $netName"
+                )
+            }
+            isCf -> {
+                if (pingMs > 0) {
+                    val indicator = if (pingMs > 1200L) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
+                    Triple(
+                        indicator,
+                        "Mirrly TG Proxy [$protoLabel] • Активен",
+                        "Cloudflare: ${pingMs}мс | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                    )
+                } else if (activeConns > 0) {
+                    Triple(
+                        ProxyStatusIndicator.GREEN,
+                        "Mirrly TG Proxy [$protoLabel] • Активен",
+                        "Туннель активен | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                    )
+                } else {
+                    Triple(
+                        ProxyStatusIndicator.YELLOW,
+                        "Mirrly TG Proxy [$protoLabel] • Cloudflare недоступен",
+                        "Проверка шлюза... | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                    )
+                }
+            }
+            else -> {
+                if (pingMs > 0) {
+                    val indicator = if (pingMs > 1200L) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
+                    Triple(
+                        indicator,
+                        "Mirrly TG Proxy [$protoLabel] • Активен",
+                        "Пинг: ${pingMs}мс | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                    )
+                } else {
+                    Triple(
+                        ProxyStatusIndicator.GREEN,
+                        "Mirrly TG Proxy [$protoLabel] • Активен",
+                        "↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                    )
+                }
+            }
         }
 
         val updatedNotification = NotificationHelper.buildNotification(
             context = this@ProxyForegroundService,
             statusText = title,
             speedText = text,
-            presetName = getPresetShortName(app.config.speedPreset),
-            isStalled = isStalled,
-            isReconnecting = isReconnectingNetwork
+            statusIndicator = statusIndicator
         )
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(NotificationHelper.NOTIFICATION_ID, updatedNotification)
+        try {
+            notificationManager.notify(NotificationHelper.NOTIFICATION_ID, updatedNotification)
+        } catch (_: Exception) {}
     }
+
 
     @Volatile
     private var isStopping = false
@@ -408,6 +467,9 @@ class ProxyForegroundService : Service() {
         if (isStopping) return
         isStopping = true
 
+        updateJob?.cancel()
+        updateJob = null
+
         SleepTimerManager.cancelTimer(this)
         networkObserver?.stop()
         networkObserver = null
@@ -415,50 +477,47 @@ class ProxyForegroundService : Service() {
         wakeLockJob = null
         releaseWakeLock()
 
-        CoroutineScope(Dispatchers.IO).launch {
-            val server = MirrlyApplication.instance.proxyServer
-            val appContext = applicationContext
-
-            if (server.isRunning) {
-                val stats = server.stats
-                val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
-                val durationSec = server.uptimeSeconds
-                val peakSpeedBps = maxOf(stats.peakDownloadSpeedBps, stats.peakUploadSpeedBps)
-                val activeConns = stats.activeConnections.get()
-
-                SessionHistoryManager.onSessionEnded(
-                    bytesReceived = stats.totalBytesReceived.get(),
-                    bytesSent = stats.totalBytesSent.get(),
-                    peakSpeedBps = peakSpeedBps,
-                    maxConnections = activeConns
-                )
-
-                val transferredStr = humanBytes(totalBytes)
-                val durationStr = formatDuration(durationSec)
-                val peakSpeedStr = "${humanBytes(peakSpeedBps)}/с"
-
-                NotificationHelper.showSessionSummaryNotification(
-                    appContext,
-                    transferredStr,
-                    durationStr,
-                    peakSpeedStr
-                )
-
-                // Auto-dismiss summary notification after 5 seconds
-                CoroutineScope(Dispatchers.IO).launch {
-                    delay(5000)
-                    NotificationHelper.cancelSummaryNotification(appContext)
-                }
-            }
-
-            server.stop()
-            updateJob?.cancel()
-
-            kotlinx.coroutines.withContext(Dispatchers.Main) {
-                ProxyTileService.requestSync(this@ProxyForegroundService)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-                try { serviceScope.cancel() } catch (_: Exception) {}
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        } catch (_: Exception) {}
+        NotificationHelper.cancelProxyNotifications(this)
+
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            try {
+                val server = MirrlyApplication.instance.proxyServer
+
+                if (server.isRunning) {
+                    val stats = server.stats
+                    val peakSpeedBps = maxOf(stats.peakDownloadSpeedBps, stats.peakUploadSpeedBps)
+                    val activeConns = stats.activeConnections.get()
+
+                    SessionHistoryManager.onSessionEnded(
+                        bytesReceived = stats.totalBytesReceived.get(),
+                        bytesSent = stats.totalBytesSent.get(),
+                        peakSpeedBps = peakSpeedBps,
+                        maxConnections = activeConns
+                    )
+                }
+
+                server.stop()
+
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    ProxyTileService.requestSync(this@ProxyForegroundService)
+                    NotificationHelper.cancelProxyNotifications(this@ProxyForegroundService)
+                    stopSelf()
+                    try { serviceScope.cancel() } catch (_: Exception) {}
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Ошибка при остановке службы: ${e.message}")
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    NotificationHelper.cancelProxyNotifications(this@ProxyForegroundService)
+                    stopSelf()
+                }
             }
         }
     }
@@ -477,6 +536,7 @@ class ProxyForegroundService : Service() {
 
     override fun onDestroy() {
         stopProxyService()
+        NotificationHelper.cancelProxyNotifications(this)
         super.onDestroy()
     }
 

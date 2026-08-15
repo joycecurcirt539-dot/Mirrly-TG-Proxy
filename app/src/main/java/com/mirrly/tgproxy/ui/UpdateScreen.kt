@@ -149,7 +149,7 @@ fun UpdateScreen(
                         )
 
                         // Release Tag Badge
-                        val badgeText = if (isUpdateAvail) "ДОСТУПНО ОБНОВЛЕНИЕ v$displayVer" else "УСТАНОВЛЕНА АКТУАЛЬНАЯ ВЕРСИЯ v$currentAppVer"
+                        val badgeText = if (isUpdateAvail) "ДОСТУПНО ОБНОВЛЕНИЕ" else "УСТАНОВЛЕНА АКТУАЛЬНАЯ ВЕРСИЯ"
                         val badgeColor = if (isUpdateAvail) Color(0xFFFFB703) else ActiveGreenLed
 
                         Box(
@@ -520,7 +520,7 @@ fun UpdateScreen(
                                                             if (!info.isUpdateAvailable) {
                                                                 Toast.makeText(
                                                                     context,
-                                                                    "У вас установлена актуальная версия v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME}",
+                                                                    "У вас установлена актуальная версия",
                                                                     Toast.LENGTH_SHORT
                                                                 ).show()
                                                             }

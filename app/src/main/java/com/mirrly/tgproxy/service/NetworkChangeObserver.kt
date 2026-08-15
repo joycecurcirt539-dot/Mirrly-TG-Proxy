@@ -41,8 +41,9 @@ class NetworkChangeObserver(
             }
         }
 
+        val cb = networkCallback ?: return
         try {
-            connectivityManager.registerNetworkCallback(request, networkCallback!!)
+            connectivityManager.registerNetworkCallback(request, cb)
         } catch (_: Exception) {}
     }
 

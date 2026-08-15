@@ -45,13 +45,10 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun OfficialSourceCard(
-    modifier: Modifier = Modifier,
-    onOpenUpdate: (() -> Unit)? = null,
-    onUpdateReleaseFound: ((com.mirrly.tgproxy.core.ReleaseInfo) -> Unit)? = null
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val coroutineScope = rememberCoroutineScope()
     val repoUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy"
 
     val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
@@ -59,7 +56,6 @@ fun OfficialSourceCard(
     val isUnofficial = signatureStatus == SignatureStatus.UNOFFICIAL_MODIFIED
     val statusColor = if (isUnofficial) Color(0xFFFF9E00) else ActiveGreenLed
 
-    var isCheckingUpdate by remember { mutableStateOf(false) }
     var showUnofficialWarningDialog by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showRepoConfirmDialog by remember { mutableStateOf(false) }
@@ -91,7 +87,12 @@ fun OfficialSourceCard(
                     .border(1.dp, statusColor.copy(alpha = 0.3f), CircleShape)
             ) {
                 if (isUnofficial) {
-                    Text(text = "⚠️", fontSize = 18.sp)
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_stat_proxy_warning),
+                        contentDescription = null,
+                        tint = statusColor,
+                        modifier = Modifier.size(20.dp)
+                    )
                 } else {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_shield),
@@ -128,9 +129,9 @@ fun OfficialSourceCard(
             }
         }
 
-        // 3 Compact Action Buttons Row
+        // 2 Compact Action Buttons Row
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             // Button 1: Repository (GitHub)
@@ -145,99 +146,30 @@ fun OfficialSourceCard(
                     contentColor = ActiveGreenLed
                 ),
                 border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.4f)),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 modifier = Modifier
                     .weight(1f)
-                    .height(36.dp)
+                    .height(38.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_github),
                         contentDescription = null,
                         tint = ActiveGreenLed,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                     Text(
                         text = "Репозиторий",
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            // Button 2: Check Release / Open Update Screen directly
-            OutlinedButton(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val isUpdateAvailable = currentUpdateInfo?.isUpdateAvailable == true
-                    if (isUpdateAvailable) {
-                        onOpenUpdate?.invoke() ?: currentUpdateInfo?.let { onUpdateReleaseFound?.invoke(it) }
-                    } else if (!isCheckingUpdate) {
-                        isCheckingUpdate = true
-                        coroutineScope.launch {
-                            val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false, forceRefresh = true)
-                            isCheckingUpdate = false
-                            result.fold(
-                                onSuccess = { info ->
-                                    if (info.isUpdateAvailable) {
-                                        onOpenUpdate?.invoke() ?: onUpdateReleaseFound?.invoke(info)
-                                    } else {
-                                        Toast.makeText(
-                                            context,
-                                            "У вас установлена актуальная версия v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME}",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                },
-                                onFailure = { err ->
-                                    Toast.makeText(
-                                        context,
-                                        "Ошибка проверки релиза: ${err.localizedMessage}",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            )
-                        }
-                    }
-                },
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, AmoledBorder),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(36.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (isCheckingUpdate) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
-                            color = TextWhite,
-                            strokeWidth = 1.5.dp
-                        )
-                    } else {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_refresh),
-                            contentDescription = null,
-                            tint = TextWhite,
-                            modifier = Modifier.size(13.dp)
-                        )
-                    }
-                    Text(
-                        text = if (isCheckingUpdate) "Проверка..." else "Проверить релиз",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextWhite
-                    )
-                }
-            }
-
-            // Button 3: Check Build Authenticity via Hashcode
+            // Button 2: Check Build Authenticity via Hashcode
             OutlinedButton(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -249,14 +181,14 @@ fun OfficialSourceCard(
                 },
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, statusColor.copy(alpha = 0.5f)),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 modifier = Modifier
                     .weight(1f)
-                    .height(36.dp)
+                    .height(38.dp)
             ) {
                 Text(
                     text = "Проверить хеш",
-                    fontSize = 10.5.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = statusColor
                 )
@@ -275,7 +207,7 @@ fun OfficialSourceCard(
     if (showSecurityDialog) {
         val currentSha256 = remember { SignatureVerifier.getSignatureSha256(context) }
         val isOfficial = signatureStatus == SignatureStatus.OFFICIAL_RELEASE || signatureStatus == SignatureStatus.DEBUG_BUILD
-        val themeColor = if (isOfficial) Color(0xFF00F0FF) else Color(0xFFFF9E00)
+        val themeColor = if (isOfficial) ActiveGreenLed else Color(0xFFFF9E00)
 
         Dialog(
             onDismissRequest = { showSecurityDialog = false },
@@ -287,14 +219,17 @@ fun OfficialSourceCard(
         ) {
             val view = LocalView.current
             LaunchedEffect(Unit) {
-                val window = (view.parent as? DialogWindowProvider)?.window
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                    window?.attributes = window?.attributes?.apply {
-                        blurBehindRadius = 50
+                try {
+                    val window = (view.parent as? DialogWindowProvider)?.window
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                        window?.attributes = window?.attributes?.apply {
+                            blurBehindRadius = 50
+                        }
                     }
-                }
+                } catch (_: Exception) {}
             }
+
 
             Box(
                 modifier = Modifier

@@ -220,7 +220,8 @@ private fun CodeBlockCard(codeText: String) {
  * Custom inline Markdown parser supporting **bold**, *italic*, `inline code`,
  * and highlighting SHA-256 fingerprint strings in glowing green!
  */
-fun parseInlineMarkdown(text: String): AnnotatedString {
+@Composable
+fun parseInlineMarkdown(text: String, accentColor: Color = ActiveGreenLed): AnnotatedString {
     return buildAnnotatedString {
         var i = 0
         val n = text.length
@@ -235,7 +236,7 @@ fun parseInlineMarkdown(text: String): AnnotatedString {
                         withStyle(
                             style = SpanStyle(
                                 fontFamily = FontFamily.Monospace,
-                                color = ActiveGreenLed,
+                                color = accentColor,
                                 background = Color.Transparent
                             )
                         ) {
@@ -289,7 +290,7 @@ fun parseInlineMarkdown(text: String): AnnotatedString {
                         withStyle(
                             style = SpanStyle(
                                 fontFamily = FontFamily.Monospace,
-                                color = ActiveGreenLed,
+                                color = accentColor,
                                 fontWeight = FontWeight.SemiBold
                             )
                         ) {

@@ -75,14 +75,17 @@ fun UnofficialBuildDialog(
     ) {
         val view = LocalView.current
         LaunchedEffect(Unit) {
-            val window = (view.parent as? DialogWindowProvider)?.window
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 50
+            try {
+                val window = (view.parent as? DialogWindowProvider)?.window
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window?.attributes = window?.attributes?.apply {
+                        blurBehindRadius = 50
+                    }
                 }
-            }
+            } catch (_: Exception) {}
         }
+
 
         Box(
             modifier = Modifier
@@ -167,10 +170,10 @@ fun UnofficialBuildDialog(
                     },
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF00F0FF).copy(alpha = 0.20f),
-                        contentColor = Color(0xFF00F0FF)
+                        containerColor = ActiveGreenLed.copy(alpha = 0.20f),
+                        contentColor = ActiveGreenLed
                     ),
-                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.50f)),
+                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.50f)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)

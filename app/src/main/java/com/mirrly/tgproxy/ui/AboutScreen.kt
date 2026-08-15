@@ -270,12 +270,7 @@ fun AboutScreen(
             }
 
             // OFFICIAL SOURCE & VERIFICATION CARD
-            OfficialSourceCard(
-                onOpenUpdate = onOpenUpdate,
-                onUpdateReleaseFound = { _ ->
-                    onOpenUpdate()
-                }
-            )
+            OfficialSourceCard()
 
             // GITHUB TOTAL DOWNLOADS STATS CARD
             DownloadStatsCard()
@@ -406,9 +401,78 @@ fun AboutScreen(
                 }
             }
 
-            // 4. SUPPORT AUTHOR & DONATION CARD
+            // 4. STAR ON GITHUB SUPPORT CARD
             Column(
                 modifier = Modifier.staggeredEntrance(index = 3),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "ПОДДЕРЖАТЬ ЗВЁЗДОЙ НА GITHUB",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, Color(0xFFFFB703).copy(alpha = 0.5f), RoundedCornerShape(22.dp))
+                        .padding(18.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Column {
+                            Text(
+                                text = "Понравился Mirrly TG Proxy?",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Ваша звезда на GitHub помогает проекту развиваться, привлекает новых пользователей и мотивирует на новые обновления.",
+                                fontSize = 12.sp,
+                                color = TextMuted
+                            )
+                        }
+
+                        // Star Button
+                        Button(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy"
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.Transparent,
+                                contentColor = Color(0xFFFFB703)
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFFB703)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                        ) {
+                            Text(
+                                text = "⭐",
+                                fontSize = 16.sp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Поставить Star на GitHub",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color(0xFFFFB703)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 5. SUPPORT AUTHOR & DONATION CARD
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 4),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -472,7 +536,7 @@ fun AboutScreen(
                 }
             }
 
-            // 5. CREDITS & ACKNOWLEDGEMENTS
+            // 6. CREDITS & ACKNOWLEDGEMENTS
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     text = "ОСОБАЯ БЛАГОДАРНОСТЬ (CREDITS)",
@@ -528,7 +592,7 @@ fun AboutScreen(
                 }
             }
 
-            // 6. TECH STACK BADGES
+            // 7. TECH STACK BADGES
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     text = "ТЕХНОЛОГИЧЕСКИЙ СТЕК",
@@ -556,7 +620,7 @@ fun AboutScreen(
                 }
             }
 
-            // 7. FOOTER COPYRIGHT
+            // 8. FOOTER COPYRIGHT
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -565,7 +629,7 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = "Сделано с ❤️ разработчиком R1Xern",
+                    text = "Разработано с ❤️ R1Xern",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextMuted
@@ -762,7 +826,7 @@ fun DownloadStatsCard(
             .clip(RoundedCornerShape(16.dp))
             .background(Color.Transparent)
             .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(16.dp))
-            .lightSweep(isEnabled = true, shape = RoundedCornerShape(16.dp))
+            .lightSweep(isEnabled = true, shape = RoundedCornerShape(16.dp), sweepColor = cyanGlow)
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
         Row(
@@ -795,7 +859,7 @@ fun DownloadStatsCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "СКАЧИВАНИЙ С GITHUB",
+                        text = "ВСЕГО СКАЧИВАНИЙ",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.1.sp,
@@ -849,7 +913,7 @@ fun DownloadStatsCard(
                             color = TextWhite
                         )
                         Text(
-                            text = "скачиваний (v1.0.0 — v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME})",
+                            text = "скачиваний",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium,
                             color = cyanGlow

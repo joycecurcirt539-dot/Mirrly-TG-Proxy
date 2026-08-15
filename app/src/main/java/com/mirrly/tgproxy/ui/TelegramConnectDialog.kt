@@ -76,14 +76,17 @@ fun TelegramConnectDialog(
     ) {
         val view = LocalView.current
         SideEffect {
-            val window = (view.parent as? DialogWindowProvider)?.window
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 70
+            try {
+                val window = (view.parent as? DialogWindowProvider)?.window
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window?.attributes = window?.attributes?.apply {
+                        blurBehindRadius = 70
+                    }
                 }
-            }
+            } catch (_: Exception) {}
         }
+
 
         Box(
             modifier = Modifier
@@ -108,14 +111,14 @@ fun TelegramConnectDialog(
                 // Category Pill
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFF00F0FF).copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.35f))
+                    color = ActiveGreenLed.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
                 ) {
                     Text(
                         text = "ВЫБОР ПРОТОКОЛА ДЛЯ TELEGRAM",
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF00F0FF),
+                        color = ActiveGreenLed,
                         letterSpacing = 1.sp,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                     )
@@ -138,10 +141,11 @@ fun TelegramConnectDialog(
                 )
 
                 // ─── CARD 1: MTProto Proxy (Рекомендуется для чатов) ───
+                val isMtActive = !app.config.isSocks5Mode
                 Surface(
                     shape = RoundedCornerShape(18.dp),
-                    color = if (!app.config.isSocks5Mode) ActiveGreenLed.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.04f),
-                    border = BorderStroke(1.dp, if (!app.config.isSocks5Mode) ActiveGreenLed.copy(alpha = 0.7f) else Color(0xFF1E2433)),
+                    color = if (isMtActive) MtprotoAccent.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.04f),
+                    border = BorderStroke(1.dp, if (isMtActive) MtprotoAccent.copy(alpha = 0.7f) else Color(0xFF1E2433)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -159,7 +163,7 @@ fun TelegramConnectDialog(
                             ) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = ActiveGreenLed,
+                                    color = MtprotoAccent,
                                     modifier = Modifier.size(8.dp)
                                 ) {}
                                 Text(
@@ -172,14 +176,14 @@ fun TelegramConnectDialog(
 
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = ActiveGreenLed.copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.4f))
+                                color = MtprotoAccent.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, MtprotoAccent.copy(alpha = 0.4f))
                             ) {
                                 Text(
-                                    text = if (!app.config.isSocks5Mode) "АКТИВЕН • РЕКОМЕНДУЕТСЯ" else "РЕКОМЕНДУЕТСЯ",
+                                    text = if (isMtActive) "АКТИВЕН • РЕКОМЕНДУЕТСЯ" else "РЕКОМЕНДУЕТСЯ",
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Black,
-                                    color = ActiveGreenLed,
+                                    color = MtprotoAccent,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
@@ -204,10 +208,10 @@ fun TelegramConnectDialog(
                                 },
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = ActiveGreenLed.copy(alpha = 0.22f),
-                                    contentColor = ActiveGreenLed
+                                    containerColor = MtprotoAccent.copy(alpha = 0.22f),
+                                    contentColor = MtprotoAccent
                                 ),
-                                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.6f)),
+                                border = BorderStroke(1.dp, MtprotoAccent.copy(alpha = 0.6f)),
                                 modifier = Modifier.weight(1.3f).height(42.dp)
                             ) {
                                 Text("В Telegram", fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -231,10 +235,11 @@ fun TelegramConnectDialog(
                 }
 
                 // ─── CARD 2: SOCKS5 Proxy (Для звонков) ───
+                val isSocks5Active = app.config.isSocks5Mode
                 Surface(
                     shape = RoundedCornerShape(18.dp),
-                    color = if (app.config.isSocks5Mode) Color(0xFF00F0FF).copy(alpha = 0.06f) else Color.White.copy(alpha = 0.04f),
-                    border = BorderStroke(1.dp, if (app.config.isSocks5Mode) Color(0xFF00F0FF).copy(alpha = 0.7f) else Color(0xFF1E2433)),
+                    color = if (isSocks5Active) Socks5Accent.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.04f),
+                    border = BorderStroke(1.dp, if (isSocks5Active) Socks5Accent.copy(alpha = 0.7f) else Color(0xFF1E2433)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -252,7 +257,7 @@ fun TelegramConnectDialog(
                             ) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = Color(0xFF00F0FF),
+                                    color = Socks5Accent,
                                     modifier = Modifier.size(8.dp)
                                 ) {}
                                 Text(
@@ -265,14 +270,14 @@ fun TelegramConnectDialog(
 
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFFF3D00).copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, Color(0xFFFF3D00).copy(alpha = 0.5f))
+                                color = Socks5Accent.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.5f))
                             ) {
                                 Text(
-                                    text = if (app.config.isSocks5Mode) "АКТИВЕН • БЕТА" else "БЕТА • ДЛЯ ЗВОНКОВ",
+                                    text = if (isSocks5Active) "АКТИВЕН • БЕТА" else "БЕТА • ДЛЯ ЗВОНКОВ",
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Black,
-                                    color = Color(0xFFFF3D00),
+                                    color = Socks5Accent,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
@@ -297,10 +302,10 @@ fun TelegramConnectDialog(
                                 },
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF00F0FF).copy(alpha = 0.22f),
-                                    contentColor = Color(0xFF00F0FF)
+                                    containerColor = Socks5Accent.copy(alpha = 0.22f),
+                                    contentColor = Socks5Accent
                                 ),
-                                border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.6f)),
+                                border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.6f)),
                                 modifier = Modifier.weight(1.3f).height(42.dp)
                             ) {
                                 Text("В Telegram", fontWeight = FontWeight.Bold, fontSize = 13.sp)

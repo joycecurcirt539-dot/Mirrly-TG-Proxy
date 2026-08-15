@@ -166,7 +166,7 @@ class TgWsBridge(
                                             if (len < 0) break
                                             outputStream.write(buf, 0, len)
                                             outputStream.flush()
-                                            stats.addSent(len.toLong())
+                                            stats.addReceived(len.toLong())
                                         }
                                     } catch (_: Throwable) {}
                                     finally {
@@ -180,7 +180,7 @@ class TgWsBridge(
                                         if (len < 0) break
                                         directSocket.getOutputStream().write(buf, 0, len)
                                         directSocket.getOutputStream().flush()
-                                        stats.addReceived(len.toLong())
+                                        stats.addSent(len.toLong())
                                     }
                                 } catch (_: Throwable) {}
                                 finally {
@@ -206,14 +206,19 @@ class TgWsBridge(
                     }
                 } catch (_: Exception) {
                 } finally {
-                    clientSocket.close()
+                    try { clientSocket.close() } catch (_: Exception) {}
                 }
             }
 
+
             // Coroutine 2: Close monitor
             bridgeScope.launch {
-                activeWs.closeChannel.receive()
-                clientSocket.close()
+                try {
+                    activeWs.closeChannel.receive()
+                } catch (_: Throwable) {
+                } finally {
+                    try { clientSocket.close() } catch (_: Exception) {}
+                }
             }
 
             // Main loop: Client Socket -> WS (Upload / Исходящий трафик)

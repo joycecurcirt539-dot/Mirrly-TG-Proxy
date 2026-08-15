@@ -69,14 +69,17 @@ fun Socks5WarningDialog(
     ) {
         val view = LocalView.current
         LaunchedEffect(Unit) {
-            val window = (view.parent as? DialogWindowProvider)?.window
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 50
+            try {
+                val window = (view.parent as? DialogWindowProvider)?.window
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window?.attributes = window?.attributes?.apply {
+                        blurBehindRadius = 50
+                    }
                 }
-            }
+            } catch (_: Exception) {}
         }
+
 
         Box(
             modifier = Modifier
@@ -195,8 +198,8 @@ fun Socks5WarningDialog(
                 // Card 3: Recommendation Card (Cyan Glass)
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF00F0FF).copy(alpha = 0.06f),
-                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.25f)),
+                    color = MtprotoAccent.copy(alpha = 0.06f),
+                    border = BorderStroke(1.dp, MtprotoAccent.copy(alpha = 0.25f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -207,7 +210,7 @@ fun Socks5WarningDialog(
                             text = "РЕКОМЕНДАЦИЯ",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00F0FF),
+                            color = MtprotoAccent,
                             letterSpacing = 0.6.sp
                         )
                         Text(
@@ -239,10 +242,10 @@ fun Socks5WarningDialog(
                     },
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF00F0FF).copy(alpha = 0.20f),
-                        contentColor = Color(0xFF00F0FF)
+                        containerColor = ActiveGreenLed.copy(alpha = 0.20f),
+                        contentColor = ActiveGreenLed
                     ),
-                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.50f)),
+                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.50f)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
@@ -255,7 +258,7 @@ fun Socks5WarningDialog(
                         Icon(
                             painter = painterResource(id = R.drawable.ic_settings),
                             contentDescription = null,
-                            tint = Color(0xFF00F0FF),
+                            tint = ActiveGreenLed,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(

@@ -178,14 +178,17 @@ fun ExternalLinkConfirmDialog(
     ) {
         val view = LocalView.current
         SideEffect {
-            val window = (view.parent as? DialogWindowProvider)?.window
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 70
+            try {
+                val window = (view.parent as? DialogWindowProvider)?.window
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window?.attributes = window?.attributes?.apply {
+                        blurBehindRadius = 70
+                    }
                 }
-            }
+            } catch (_: Exception) {}
         }
+
 
         Box(
             modifier = Modifier
@@ -210,14 +213,14 @@ fun ExternalLinkConfirmDialog(
                 // Category Pill
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFF00F0FF).copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.35f))
+                    color = ActiveGreenLed.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
                 ) {
                     Text(
                         text = details.category,
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF00F0FF),
+                        color = ActiveGreenLed,
                         letterSpacing = 1.sp,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                     )

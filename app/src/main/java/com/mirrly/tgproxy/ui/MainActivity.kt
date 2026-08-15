@@ -192,6 +192,8 @@ class MainActivity : ComponentActivity() {
                                         radiusPx,
                                         Shader.TileMode.CLAMP
                                     ).asComposeRenderEffect()
+                                } else {
+                                    renderEffect = null
                                 }
                             }
                             .then(

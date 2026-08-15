@@ -22,6 +22,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import com.mirrly.tgproxy.core.AppLogger
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
@@ -102,6 +103,9 @@ fun HomeScreen(
     val haptic = LocalHapticFeedback.current
     val app = MirrlyApplication.instance
     val server = app.proxyServer
+
+    val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
+    val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
 
     // ── Stealth Mode State ────────────────────────────────────────────────
     var isUiHidden by remember { mutableStateOf(false) }
@@ -234,150 +238,165 @@ fun HomeScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 modifier = Modifier.graphicsLayer {
                     translationY = -120.dp.toPx() * uiAnimProgress
                     alpha = (1f - uiAnimProgress * 2f).coerceIn(0f, 1f)
                 },
                 title = {
-                    Text(
-                        text = "Mirrly - TG Proxy",
-                        color = TextWhite,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        letterSpacing = 0.4.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Mirrly",
+                            color = TextWhite,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 15.sp,
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (isSocks5) "SOCKS5" else "MTProto",
+                            color = protoColors.primary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.5.sp,
+                            letterSpacing = 0.2.sp
+                        )
+                    }
                 },
                 navigationIcon = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(1.dp),
                         modifier = Modifier.padding(start = 4.dp)
                     ) {
+                        // 1. Logs (Диагностика)
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onOpenLogs()
                             },
-                            modifier = Modifier.size(38.dp)
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_logs),
                                 contentDescription = "Логи",
                                 tint = TextWhite,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
+
+                        // 2. Session History (Статистика сессий)
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onOpenHistory()
                             },
-                            modifier = Modifier.size(38.dp)
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_history),
                                 contentDescription = "История сессий",
                                 tint = TextWhite,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
-                    }
-                },
-                actions = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        modifier = Modifier.padding(end = 4.dp)
-                    ) {
-                        // Update Tab Button — always available for quick access to UpdateScreen
-                        val hasUpdate = updateInfo?.isUpdateAvailable == true
-                        IconButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onOpenUpdate()
-                            },
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.TopEnd) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_refresh),
-                                    contentDescription = "Обновления",
-                                    tint = if (hasUpdate) Color(0xFFFFB703) else TextWhite,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                if (hasUpdate) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(7.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFFFB703))
-                                    )
-                                }
-                            }
-                        }
-                        // Sleep Timer button
+
+                        // 3. Sleep Timer (Управление временем сессии)
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 showSleepTimerDialog = true
                             },
-                            modifier = Modifier.size(38.dp)
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Box(contentAlignment = Alignment.TopEnd) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_timer),
                                     contentDescription = "Таймер сна",
-                                    tint = if (timerState.isActive) ActiveGreenLed else TextWhite,
-                                    modifier = Modifier.size(20.dp)
+                                    tint = if (timerState.isActive) protoColors.primary else TextWhite,
+                                    modifier = Modifier.size(19.dp)
                                 )
                                 if (timerState.isActive) {
                                     Box(
                                         modifier = Modifier
                                             .size(6.dp)
                                             .clip(CircleShape)
-                                            .background(ActiveGreenLed)
+                                            .background(protoColors.primary)
                                     )
                                 }
                             }
                         }
-                        // Eye toggle button — hides UI into stealth mode
+                    }
+                },
+                actions = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(1.dp),
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        // 4. Stealth Mode / Eye (Скрытие интерфейса)
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 isUiHidden = true
                             },
-                            modifier = Modifier.size(38.dp)
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_eye),
                                 contentDescription = "Скрыть интерфейс",
                                 tint = TextWhite,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
+
+                        // 5. Update Center (Обновления приложения)
+                        val hasUpdate = updateInfo?.isUpdateAvailable == true
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onOpenUpdate()
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.TopEnd) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                    contentDescription = "Обновления",
+                                    tint = if (hasUpdate) Color(0xFFFFB703) else TextWhite,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                                if (hasUpdate) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.5.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFFFB703))
+                                    )
+                                }
+                            }
+                        }
+
+                        // 6. Settings (Настройки)
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onOpenSettings()
                             },
-                            modifier = Modifier.size(38.dp)
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_settings),
                                 contentDescription = "Настройки",
                                 tint = TextWhite,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
         },
         containerColor = Color.Transparent
@@ -413,12 +432,18 @@ fun HomeScreen(
             }
             val powerIconSize = ringSize * (170f / 240f)
 
+            var showDonationBanner by remember {
+                mutableStateOf(com.mirrly.tgproxy.service.DonationManager.shouldShowDonationBanner(context))
+            }
             var showValueBanner by remember {
                 mutableStateOf(com.mirrly.tgproxy.service.ValueTriggerManager.shouldShowValueBanner(context))
             }
 
             LaunchedEffect(Unit) {
                 while (isActive) {
+                    if (!showDonationBanner && com.mirrly.tgproxy.service.DonationManager.shouldShowDonationBanner(context)) {
+                        showDonationBanner = true
+                    }
                     if (!showValueBanner && com.mirrly.tgproxy.service.ValueTriggerManager.shouldShowValueBanner(context)) {
                         showValueBanner = true
                     }
@@ -498,7 +523,7 @@ fun HomeScreen(
 
                                     Column {
                                         Text(
-                                            text = "Найдено обновление v${info.versionName}!",
+                                            text = "Найдено обновление!",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 13.sp,
                                             color = updateYellow
@@ -550,30 +575,36 @@ fun HomeScreen(
 
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 val serviceIntent = Intent(context, ProxyForegroundService::class.java)
-                                if (currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING) {
-                                    pendingState = ProxyUiState.DISCONNECTING
-                                    serviceIntent.action = ProxyForegroundService.ACTION_STOP
-                                    context.startService(serviceIntent)
-                                } else {
-                                    pendingState = ProxyUiState.CONNECTING
-                                    serviceIntent.action = ProxyForegroundService.ACTION_START
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                        context.startForegroundService(serviceIntent)
-                                    } else {
+                                try {
+                                    if (currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING) {
+                                        pendingState = ProxyUiState.DISCONNECTING
+                                        serviceIntent.action = ProxyForegroundService.ACTION_STOP
                                         context.startService(serviceIntent)
+                                    } else {
+                                        pendingState = ProxyUiState.CONNECTING
+                                        serviceIntent.action = ProxyForegroundService.ACTION_START
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                            context.startForegroundService(serviceIntent)
+                                        } else {
+                                            context.startService(serviceIntent)
+                                        }
                                     }
+                                } catch (e: Exception) {
+                                    pendingState = null
+                                    AppLogger.e("HomeScreen", "Ошибка переключения службы прокси: ${e.message}")
                                 }
                             },
                         contentAlignment = Alignment.Center
                     ) {
                         RotatingProxyRing(
                             state = currentState,
+                            isSocks5 = isSocks5,
                             modifier = Modifier.size(ringSize)
                         )
 
                         val iconTint = when (currentState) {
-                            ProxyUiState.CONNECTED -> ActiveGreenLed
-                            ProxyUiState.CONNECTING -> ActiveGreenLed
+                            ProxyUiState.CONNECTED -> protoColors.primary
+                            ProxyUiState.CONNECTING -> protoColors.primary
                             ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
                             ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)
                         }
@@ -625,8 +656,8 @@ fun HomeScreen(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             val dotColor = when (currentState) {
-                                ProxyUiState.CONNECTED -> ActiveGreenLed
-                                ProxyUiState.CONNECTING -> ActiveGreenLed
+                                ProxyUiState.CONNECTED -> protoColors.primary
+                                ProxyUiState.CONNECTING -> protoColors.primary
                                 ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
                                 ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)
                             }
@@ -652,7 +683,7 @@ fun HomeScreen(
                             }
                             RollingNumberText(
                                 text = statusText,
-                                color = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else if (currentState == ProxyUiState.DISCONNECTING) Color(0xFFFF9E00) else TextMuted,
+                                color = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else if (currentState == ProxyUiState.DISCONNECTING) Color(0xFFFF9E00) else TextMuted,
                                 fontSize = if (isCompactHeight) 14.sp else 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.1.sp
@@ -710,7 +741,7 @@ fun HomeScreen(
 
                     Text(
                         text = statusSubtitle,
-                        color = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed.copy(alpha = 0.9f) else TextMuted,
+                        color = if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.9f) else TextMuted,
                         fontSize = if (isCompactHeight) 11.5.sp else 12.sp,
                         fontWeight = if (currentState == ProxyUiState.CONNECTED) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
@@ -734,7 +765,7 @@ fun HomeScreen(
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_arrow_down),
                                     contentDescription = null,
-                                    tint = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else TextMuted,
+                                    tint = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else TextMuted,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -801,6 +832,7 @@ fun HomeScreen(
                         isProxyActive = currentState == ProxyUiState.CONNECTED,
                         activeConns = activeConns,
                         maxPoolSize = app.config.poolSize,
+                        accentColor = protoColors.primary,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(if (isCompactHeight) 48.dp else 58.dp)
@@ -819,7 +851,7 @@ fun HomeScreen(
                             onClick = {
                                 if (currentState != ProxyUiState.CONNECTED) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    Toast.makeText(context, "⚠️ Включите прокси сначала!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Включите прокси сначала!", Toast.LENGTH_SHORT).show()
                                 } else {
                                     val tgUrl = if (app.config.isSocks5Mode) server.getTelegramSocks5Url() else server.getTelegramProxyUrl()
                                     val label = if (app.config.isSocks5Mode) "SOCKS5" else "MTProto"
@@ -867,7 +899,7 @@ fun HomeScreen(
                             onClick = {
                                 if (currentState != ProxyUiState.CONNECTED) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    Toast.makeText(context, "⚠️ Включите прокси сначала!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Включите прокси сначала!", Toast.LENGTH_SHORT).show()
                                 } else {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     val tgUrl = if (app.config.isSocks5Mode) server.getTelegramSocks5Url() else server.getTelegramProxyUrl()
@@ -893,7 +925,7 @@ fun HomeScreen(
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_send),
                                     contentDescription = "В Telegram",
-                                    tint = if (currentState == ProxyUiState.CONNECTED) ActiveGreenLed else TextMuted.copy(alpha = 0.5f),
+                                    tint = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else TextMuted.copy(alpha = 0.5f),
                                     modifier = Modifier.size(if (isCompactHeight) 17.dp else 19.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -909,7 +941,32 @@ fun HomeScreen(
                 }
             }
 
-            if (showValueBanner) {
+            if (showDonationBanner) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = padding.calculateBottomPadding() + 8.dp)
+                ) {
+                    DonationBanner(
+                        onSupportClicked = {
+                            com.mirrly.tgproxy.service.DonationManager.setDismissedForever(context, true)
+                            showDonationBanner = false
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://dalink.to/cartneyzix"))
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
+                        },
+                        onPostponeClicked = {
+                            com.mirrly.tgproxy.service.DonationManager.postpone3Days(context)
+                            showDonationBanner = false
+                        },
+                        onDismissForeverClicked = {
+                            com.mirrly.tgproxy.service.DonationManager.setDismissedForever(context, true)
+                            showDonationBanner = false
+                        }
+                    )
+                }
+            } else if (showValueBanner) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -981,6 +1038,7 @@ fun HomeScreen(
 @Composable
 fun RotatingProxyRing(
     state: ProxyUiState,
+    isSocks5: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1048,9 +1106,11 @@ fun RotatingProxyRing(
         label = "ringAlpha"
     )
 
+    val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+
     val headColor = when (state) {
-        ProxyUiState.CONNECTING -> Color(0xFF00F5D4)     // Bright Neon Cyan
-        ProxyUiState.CONNECTED -> ActiveGreenLed          // Emerald Accent
+        ProxyUiState.CONNECTING -> protoColors.light
+        ProxyUiState.CONNECTED -> protoColors.primary
         ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)  // Glowing Amber / Orange
         ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)   // Sleek Dark Gray
     }
@@ -1061,8 +1121,8 @@ fun RotatingProxyRing(
     )
 
     val tailColor = when (state) {
-        ProxyUiState.CONNECTING -> Color(0xFF0077B6).copy(alpha = 0.15f)
-        ProxyUiState.CONNECTED -> Color(0xFF00B4D8).copy(alpha = 0.25f)
+        ProxyUiState.CONNECTING -> protoColors.secondary.copy(alpha = 0.18f)
+        ProxyUiState.CONNECTED -> protoColors.glow.copy(alpha = 0.28f)
         ProxyUiState.DISCONNECTING -> Color(0xFFFF5400).copy(alpha = 0.15f)
         ProxyUiState.DISCONNECTED -> Color.Transparent
     }
@@ -1369,14 +1429,20 @@ fun WsPoolStabilityGraph(
     isProxyActive: Boolean,
     activeConns: Int,
     maxPoolSize: Int,
+    accentColor: Color = ActiveGreenLed,
     modifier: Modifier = Modifier
 ) {
+    // ── PERFORMANCE GUARD: CHECK IF USER DISABLED ANIMATIONS ──
+    val app = MirrlyApplication.instance
+    val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
+
     // Continuous nanosecond frame clock for 60Hz/120Hz smooth rendering
     var timeSeconds by remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(Unit) {
-        val startTime = System.nanoTime()
-        while (true) {
+    LaunchedEffect(isProxyActive, isAnimationsDisabled) {
+        if (!isProxyActive || isAnimationsDisabled) return@LaunchedEffect
+        val startTime = System.nanoTime() - (timeSeconds * 1_000_000_000f).toLong()
+        while (isProxyActive && !isAnimationsDisabled) {
             withFrameNanos { frameTimeNanos ->
                 timeSeconds = (frameTimeNanos - startTime) / 1_000_000_000f
             }
@@ -1423,7 +1489,7 @@ fun WsPoolStabilityGraph(
     val dp3Px = remember(density) { with(density) { 3.dp.toPx() } }
     val densityPxRatio = density.density
 
-    val neonColor = if (isProxyActive) ActiveGreenLed else InactiveGrayLed
+    val neonColor = if (isProxyActive) accentColor else InactiveGrayLed
 
     val fillBrush = remember(neonColor, isProxyActive) {
         Brush.verticalGradient(
@@ -1547,12 +1613,12 @@ fun WsPoolStabilityGraph(
                 val headPoint = Offset(width, yArray[steps])
                 val pulseRadius = headPulseScale * densityPxRatio
                 drawCircle(
-                    color = ActiveGreenLed.copy(alpha = 0.35f),
+                    color = accentColor.copy(alpha = 0.35f),
                     radius = pulseRadius,
                     center = headPoint
                 )
                 drawCircle(
-                    color = ActiveGreenLed,
+                    color = accentColor,
                     radius = dp3Px,
                     center = headPoint
                 )

@@ -390,15 +390,27 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     fun measurePingAsync(dcId: Int = 2) {
         scope.launch {
-            val dcIp = TgConstants.DC_DEFAULT_IPS[dcId] ?: "149.154.167.51"
-            val start = System.currentTimeMillis()
-            val ping = try {
-                Socket().use { s ->
-                    s.connect(java.net.InetSocketAddress(dcIp, 443), 2000)
-                    System.currentTimeMillis() - start
+            val cfDomain = config.getEffectiveCfDomain()
+            val ping = if (config.cfProxyEnabled && cfDomain.isNotBlank()) {
+                val start = System.currentTimeMillis()
+                try {
+                    Socket().use { s ->
+                        s.connect(java.net.InetSocketAddress(cfDomain, 443), 2500)
+                        System.currentTimeMillis() - start
+                    }
+                } catch (_: Exception) {
+                    -1L
                 }
-            } catch (_: Exception) {
-                -1L
+            } else {
+                val start = System.currentTimeMillis()
+                try {
+                    Socket().use { s ->
+                        s.connect(java.net.InetSocketAddress("web.telegram.org", 443), 2500)
+                        System.currentTimeMillis() - start
+                    }
+                } catch (_: Exception) {
+                    -1L
+                }
             }
             currentPingMs = ping
         }
@@ -419,6 +431,8 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             wsPool?.clear()
         } catch (_: Exception) {}
     }
+
+    fun getPoolSocketCount(): Int = wsPool?.availableSockets ?: 0
 
     fun getTelegramProxyUrl(): String {
         val cleanSecret = config.rawSecret32

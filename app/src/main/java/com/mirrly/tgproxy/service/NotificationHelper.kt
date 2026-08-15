@@ -9,8 +9,15 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.ReleaseInfo
 import com.mirrly.tgproxy.ui.MainActivity
+
+enum class ProxyStatusIndicator(val iconRes: Int, val color: Int) {
+    GREEN(R.drawable.ic_stat_proxy_connected, 0xFF10B981.toInt()),
+    YELLOW(R.drawable.ic_stat_proxy_warning, 0xFFF59E0B.toInt()),
+    RED(R.drawable.ic_stat_proxy_error, 0xFFEF4444.toInt())
+}
 
 object NotificationHelper {
     const val CHANNEL_ID = "mirrly_proxy_channel"
@@ -43,7 +50,7 @@ object NotificationHelper {
                 "Обновления Mirrly TG Proxy",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Уведомления о выходе новых версий приложения"
+                description = "Уведомления о доступных обновлениях приложения"
                 enableVibration(true)
             }
             manager.createNotificationChannel(updateChannel)
@@ -64,9 +71,7 @@ object NotificationHelper {
         context: Context,
         statusText: String,
         speedText: String,
-        presetName: String = "Турбо",
-        isStalled: Boolean = false,
-        isReconnecting: Boolean = false
+        statusIndicator: ProxyStatusIndicator = ProxyStatusIndicator.GREEN
     ): Notification {
         val intent = Intent(context, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
@@ -82,51 +87,17 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val restartIntent = Intent(context, ProxyForegroundService::class.java).apply {
-            action = ProxyForegroundService.ACTION_RESTART
-        }
-        val restartPendingIntent = PendingIntent.getService(
-            context, 2, restartIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val cyclePresetIntent = Intent(context, ProxyForegroundService::class.java).apply {
-            action = ProxyForegroundService.ACTION_CYCLE_PRESET
-        }
-        val cyclePresetPendingIntent = PendingIntent.getService(
-            context, 3, cyclePresetIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val copyLinkIntent = Intent(context, ProxyForegroundService::class.java).apply {
-            action = ProxyForegroundService.ACTION_COPY_LINK
-        }
-        val copyLinkPendingIntent = PendingIntent.getService(
-            context, 4, copyLinkIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(statusText)
             .setContentText(speedText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(speedText))
-            .setSmallIcon(
-                if (isStalled) android.R.drawable.stat_sys_warning
-                else if (isReconnecting) android.R.drawable.stat_sys_upload
-                else android.R.drawable.stat_sys_download
-            )
+            .setSmallIcon(statusIndicator.iconRes)
+            .setColor(statusIndicator.color)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
-        builder.addAction(android.R.drawable.ic_menu_preferences, "$presetName", cyclePresetPendingIntent)
-        builder.addAction(android.R.drawable.ic_menu_share, "Ссылка", copyLinkPendingIntent)
-
-        if (isStalled || isReconnecting) {
-            builder.addAction(android.R.drawable.ic_menu_rotate, "Перезапустить", restartPendingIntent)
-        }
-
-        builder.addAction(android.R.drawable.ic_media_pause, "Остановить", stopPendingIntent)
+        builder.addAction(R.drawable.ic_notif_stop, "Остановить", stopPendingIntent)
 
         return builder.build()
     }
@@ -173,22 +144,26 @@ object NotificationHelper {
             .setContentTitle("Доступно новое обновление v${releaseInfo.versionName}")
             .setContentText(previewText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(previewText))
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_stat_update)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .addAction(android.R.drawable.stat_sys_download, "Скачать APK", downloadPendingIntent)
-            .addAction(android.R.drawable.ic_menu_info_details, "Что нового", notesPendingIntent)
+            .addAction(R.drawable.ic_stat_update, "Скачать APK", downloadPendingIntent)
+            .addAction(R.drawable.ic_eye, "Что нового", notesPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(UPDATE_NOTIFICATION_ID, notification)
+        try {
+            manager.notify(UPDATE_NOTIFICATION_ID, notification)
+        } catch (_: Exception) {}
     }
 
     fun cancelUpdateNotification(context: Context) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.cancel(UPDATE_NOTIFICATION_ID)
+        try {
+            manager.cancel(UPDATE_NOTIFICATION_ID)
+        } catch (_: Exception) {}
     }
 
     fun showSessionSummaryNotification(
@@ -215,19 +190,31 @@ object NotificationHelper {
             .setContentTitle("Прокси остановлен")
             .setContentText(summaryText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(summaryText))
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_stat_proxy_connected)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(SUMMARY_NOTIFICATION_ID, notification)
+        try {
+            manager.notify(SUMMARY_NOTIFICATION_ID, notification)
+        } catch (_: Exception) {}
     }
 
     fun cancelSummaryNotification(context: Context) {
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.cancel(SUMMARY_NOTIFICATION_ID)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        try {
+            manager?.cancel(SUMMARY_NOTIFICATION_ID)
+        } catch (_: Exception) {}
+    }
+
+    fun cancelProxyNotifications(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        try {
+            manager?.cancel(NOTIFICATION_ID)
+            manager?.cancel(SUMMARY_NOTIFICATION_ID)
+        } catch (_: Exception) {}
     }
 
     fun showTimerWarningNotification(context: Context, remainingMinutes: Int) {
@@ -267,19 +254,21 @@ object NotificationHelper {
         val text = "До автоматического отключения прокси осталось $remainingMinutes мин."
 
         val notification = NotificationCompat.Builder(context, TIMER_CHANNEL_ID)
-            .setContentTitle("⏳ Таймер автоотключения")
+            .setContentTitle("Таймер автоотключения")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setSmallIcon(R.drawable.ic_stat_timer)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .addAction(android.R.drawable.ic_input_add, "+15 минут", extendPendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Отменить", cancelTimerPendingIntent)
+            .addAction(R.drawable.ic_stat_timer, "+15 минут", extendPendingIntent)
+            .addAction(R.drawable.ic_notif_stop, "Отменить", cancelTimerPendingIntent)
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(TIMER_WARNING_NOTIFICATION_ID, notification)
+        try {
+            manager.notify(TIMER_WARNING_NOTIFICATION_ID, notification)
+        } catch (_: Exception) {}
     }
 
     fun showTimerExpiredNotification(context: Context) {
@@ -298,32 +287,46 @@ object NotificationHelper {
         val restartIntent = Intent(context, ProxyForegroundService::class.java).apply {
             action = ProxyForegroundService.ACTION_START
         }
-        val restartPendingIntent = PendingIntent.getService(
-            context,
-            4008,
-            restartIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val restartPendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            PendingIntent.getForegroundService(
+                context,
+                4008,
+                restartIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else {
+            PendingIntent.getService(
+                context,
+                4008,
+                restartIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
 
         val text = "Прокси-сервер автоматически отключен по таймеру сна."
 
         val notification = NotificationCompat.Builder(context, TIMER_CHANNEL_ID)
-            .setContentTitle("💤 Прокси отключен по таймеру")
+            .setContentTitle("Прокси отключен по таймеру")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_stat_timer)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .addAction(android.R.drawable.ic_media_play, "Включить снова", restartPendingIntent)
+            .addAction(R.drawable.ic_power, "Включить снова", restartPendingIntent)
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(TIMER_EXPIRED_NOTIFICATION_ID, notification)
+        try {
+            manager.notify(TIMER_EXPIRED_NOTIFICATION_ID, notification)
+        } catch (_: Exception) {}
     }
 
     fun cancelTimerWarningNotification(context: Context) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.cancel(TIMER_WARNING_NOTIFICATION_ID)
+        try {
+            manager.cancel(TIMER_WARNING_NOTIFICATION_ID)
+        } catch (_: Exception) {}
     }
 }
+

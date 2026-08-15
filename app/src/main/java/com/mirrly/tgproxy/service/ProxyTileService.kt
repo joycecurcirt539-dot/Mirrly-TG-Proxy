@@ -10,6 +10,7 @@ import android.service.quicksettings.TileService
 import androidx.annotation.RequiresApi
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.core.AppLogger
 
 @RequiresApi(Build.VERSION_CODES.N)
 class ProxyTileService : TileService() {
@@ -25,18 +26,23 @@ class ProxyTileService : TileService() {
         val serviceIntent = Intent(this, ProxyForegroundService::class.java)
 
         val willBeRunning = !server.isRunning
-        if (server.isRunning) {
-            serviceIntent.action = ProxyForegroundService.ACTION_STOP
-            startService(serviceIntent)
-        } else {
-            serviceIntent.action = ProxyForegroundService.ACTION_START
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
+        try {
+            if (server.isRunning) {
+                serviceIntent.action = ProxyForegroundService.ACTION_STOP
                 startService(serviceIntent)
+            } else {
+                serviceIntent.action = ProxyForegroundService.ACTION_START
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
             }
+            updateTileState(willBeRunning)
+        } catch (e: Exception) {
+            AppLogger.e("ProxyTileService", "Не удалось запустить/остановить службу из быстрых настроек: ${e.message}")
+            updateTileState()
         }
-        updateTileState(willBeRunning)
     }
 
     private fun updateTileState(forcedState: Boolean? = null) {

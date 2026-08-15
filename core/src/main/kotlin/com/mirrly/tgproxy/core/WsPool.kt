@@ -17,6 +17,20 @@ class WsPool(@Volatile var poolSize: Int = 4) {
     private val refillingSet = ConcurrentHashMap<PoolKey, Boolean>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    val availableSockets: Int
+        get() {
+            val now = System.currentTimeMillis()
+            var count = 0
+            for (queue in idlePool.values) {
+                for (item in queue) {
+                    if (item.client.isAlive && (now - item.createdAt) <= 60_000) {
+                        count++
+                    }
+                }
+            }
+            return count
+        }
+
     fun updatePoolSize(newSize: Int, isTestEnv: Boolean = false) {
         val clamped = newSize.coerceIn(2, 16)
         poolSize = clamped
@@ -67,7 +81,7 @@ class WsPool(@Volatile var poolSize: Int = 4) {
         }
     }
 
-    private fun refill(key: PoolKey, isTestEnv: Boolean) {
+    private suspend fun refill(key: PoolKey, isTestEnv: Boolean) {
         val queue = idlePool.computeIfAbsent(key) { ConcurrentLinkedQueue() }
         val needed = poolSize - queue.size
         if (needed <= 0) return
@@ -80,13 +94,18 @@ class WsPool(@Volatile var poolSize: Int = 4) {
                 val url = "wss://$domain$wsPath"
                 try {
                     val client = RawWebSocketClient(url)
-                    client.connect()
-                    queue.add(PooledSocket(client, System.currentTimeMillis()))
-                    break
+                    val connected = client.connectAndAwait(3000)
+                    if (connected && client.isAlive) {
+                        queue.add(PooledSocket(client, System.currentTimeMillis()))
+                        break
+                    } else {
+                        client.close()
+                    }
                 } catch (_: Exception) {}
             }
         }
     }
+
 
     fun clear() {
         for (queue in idlePool.values) {

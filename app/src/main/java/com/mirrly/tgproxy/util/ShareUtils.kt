@@ -8,7 +8,7 @@ import android.content.Intent
  */
 fun Context.shareApp() {
     val shareText = """
-        Попробуй Mirrly TG Proxy для Android — быстрый обход замедлений Telegram без системного VPN! 🚀
+        Попробуй Mirrly TG Proxy для Android — быстрый обход замедлений Telegram без системного VPN!
         Скачать бесплатно с GitHub: https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy
     """.trimIndent()
 
@@ -17,7 +17,11 @@ fun Context.shareApp() {
         putExtra(Intent.EXTRA_TEXT, shareText)
     }
 
-    val chooser = Intent.createChooser(intent, "Рассказать друзьям о Mirrly TG Proxy")
-    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    startActivity(chooser)
+    try {
+        val chooser = Intent.createChooser(intent, "Рассказать друзьям о Mirrly TG Proxy")
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(chooser)
+    } catch (_: Exception) {
+    }
 }
+

@@ -26,7 +26,7 @@ object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_API_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
     private const val GITHUB_API_ALL_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
-    const val CURRENT_VERSION_NAME = "1.1.0"
+    const val CURRENT_VERSION_NAME = "1.1.1"
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -46,8 +46,9 @@ object UpdateChecker {
                     .header("User-Agent", "Mirrly-TG-Proxy-AndroidApp/$currentVersion")
                     .header("Accept", "application/vnd.github.v3+json")
 
-                if (!cachedEtag.isNullOrBlank()) {
-                    requestBuilder.header("If-None-Match", cachedEtag!!)
+                val etag = cachedEtag
+                if (etag != null && etag.isNotBlank()) {
+                    requestBuilder.header("If-None-Match", etag)
                 }
 
                 val request = requestBuilder.build()

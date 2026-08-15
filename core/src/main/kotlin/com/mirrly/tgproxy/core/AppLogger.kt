@@ -24,11 +24,11 @@ data class LogEntry(
     val tag: String,
     val rawMessage: String
 ) {
-    val humanMessage: String by lazy(LazyThreadSafetyMode.NONE) {
+    val humanMessage: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
         HumanLogTranslator.translateToHumanRussian(tag, rawMessage)
     }
 
-    val formattedTime: String by lazy(LazyThreadSafetyMode.NONE) {
+    val formattedTime: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
         timeFormatter.get()?.format(Date(timestamp)) ?: ""
     }
 

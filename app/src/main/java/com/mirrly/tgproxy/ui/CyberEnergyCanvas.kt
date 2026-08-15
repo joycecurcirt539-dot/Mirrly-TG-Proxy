@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.mirrly.tgproxy.ui.theme.ActiveGreenLed
+import com.mirrly.tgproxy.ui.theme.rememberAnimatedProtocolColors
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -77,6 +78,7 @@ private class CanvasMetrics(
 @Composable
 fun CyberEnergyCanvas(
     state: ProxyUiState,
+    isSocks5: Boolean = com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.isSocks5Flow.collectAsState().value,
     isUiHidden: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -161,26 +163,29 @@ fun CyberEnergyCanvas(
         label = "energyTransition"
     )
 
+    // Dynamic Protocol Colors (MTProto = Emerald/Cyan, SOCKS5 = Violet/Purple)
+    val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+
     // Animated colors for glowing spheres
     val orb1CenterColor by animateColorAsState(
-        targetValue = if (isConnected) Color(0xFF00F5D4).copy(alpha = 0.30f) else Color(0xFF1E2838).copy(alpha = 0.34f),
+        targetValue = if (isConnected) protoColors.orb1.copy(alpha = 0.30f) else Color(0xFF1E2838).copy(alpha = 0.34f),
         animationSpec = tween(800), label = "orb1Center"
     )
     val orb2CenterColor by animateColorAsState(
-        targetValue = if (isConnected) Color(0xFF00FF87).copy(alpha = 0.26f) else Color(0xFF141C26).copy(alpha = 0.28f),
+        targetValue = if (isConnected) protoColors.orb2.copy(alpha = 0.26f) else Color(0xFF141C26).copy(alpha = 0.28f),
         animationSpec = tween(800), label = "orb2Center"
     )
     val orb3CenterColor by animateColorAsState(
-        targetValue = if (isConnected) Color(0xFF00E676).copy(alpha = 0.22f) else Color(0xFF0F1620).copy(alpha = 0.24f),
+        targetValue = if (isConnected) protoColors.orb3.copy(alpha = 0.22f) else Color(0xFF0F1620).copy(alpha = 0.24f),
         animationSpec = tween(800), label = "orb3Center"
     )
     val orb4CenterColor by animateColorAsState(
-        targetValue = if (isConnected) Color(0xFF00B4D8).copy(alpha = 0.20f) else Color(0xFF161E2C).copy(alpha = 0.26f),
+        targetValue = if (isConnected) protoColors.orb4.copy(alpha = 0.20f) else Color(0xFF161E2C).copy(alpha = 0.26f),
         animationSpec = tween(800), label = "orb4Center"
     )
 
     val particleColor by animateColorAsState(
-        targetValue = if (isConnected) ActiveGreenLed else Color(0xFF4A5568),
+        targetValue = if (isConnected) protoColors.primary else Color(0xFF4A5568),
         animationSpec = tween(800), label = "particleColor"
     )
 

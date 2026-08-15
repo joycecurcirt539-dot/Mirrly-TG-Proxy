@@ -57,7 +57,7 @@ fun SleepTimerDialog(
     val haptic = LocalHapticFeedback.current
     val timerState by SleepTimerManager.timerState.collectAsState()
 
-    var customMinutes by remember { mutableStateOf(45f) }
+    var customMinutes by remember { mutableFloatStateOf(45f) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -69,14 +69,17 @@ fun SleepTimerDialog(
     ) {
         val view = LocalView.current
         SideEffect {
-            val window = (view.parent as? DialogWindowProvider)?.window
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 70
+            try {
+                val window = (view.parent as? DialogWindowProvider)?.window
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window?.attributes = window?.attributes?.apply {
+                        blurBehindRadius = 70
+                    }
                 }
-            }
+            } catch (_: Exception) {}
         }
+
 
         Box(
             modifier = Modifier
@@ -102,17 +105,17 @@ fun SleepTimerDialog(
                 // Category Pill
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = if (timerState.isActive) ActiveGreenLed.copy(alpha = 0.12f) else Color(0xFF00F0FF).copy(alpha = 0.12f),
+                    color = ActiveGreenLed.copy(alpha = 0.12f),
                     border = BorderStroke(
                         1.dp,
-                        if (timerState.isActive) ActiveGreenLed.copy(alpha = 0.35f) else Color(0xFF00F0FF).copy(alpha = 0.35f)
+                        ActiveGreenLed.copy(alpha = 0.35f)
                     )
                 ) {
                     Text(
                         text = if (timerState.isActive) "ТАЙМЕР АКТИВЕН" else "ТАЙМЕР СНА И АВТООТКЛЮЧЕНИЯ",
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (timerState.isActive) ActiveGreenLed else Color(0xFF00F0FF),
+                        color = ActiveGreenLed,
                         letterSpacing = 1.sp,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                     )
@@ -283,7 +286,7 @@ fun SleepTimerDialog(
                                     text = formatMinutes(customMinutes.toInt()),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF00F0FF)
+                                    color = ActiveGreenLed
                                 )
                             }
 
@@ -293,8 +296,8 @@ fun SleepTimerDialog(
                                 valueRange = 5f..360f,
                                 steps = 70, // 5 min increments
                                 colors = SliderDefaults.colors(
-                                    thumbColor = Color(0xFF00F0FF),
-                                    activeTrackColor = Color(0xFF00F0FF),
+                                    thumbColor = ActiveGreenLed,
+                                    activeTrackColor = ActiveGreenLed,
                                     inactiveTrackColor = Color.White.copy(alpha = 0.12f)
                                 )
                             )
@@ -374,10 +377,10 @@ fun SleepTimerDialog(
                         },
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White.copy(alpha = 0.20f),
-                            contentColor = TextWhite
+                            containerColor = ActiveGreenLed.copy(alpha = 0.22f),
+                            contentColor = ActiveGreenLed
                         ),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.60f)),
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
@@ -401,10 +404,10 @@ private fun PresetChip(
         onClick = onClick,
         modifier = modifier.height(42.dp),
         shape = RoundedCornerShape(12.dp),
-        color = if (isSelected) Color(0xFF00F0FF).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.06f),
+        color = if (isSelected) ActiveGreenLed.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.06f),
         border = BorderStroke(
             1.dp,
-            if (isSelected) Color(0xFF00F0FF).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.18f)
+            if (isSelected) ActiveGreenLed.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.18f)
         )
     ) {
         Box(contentAlignment = Alignment.Center) {
@@ -412,7 +415,7 @@ private fun PresetChip(
                 text = title,
                 fontSize = 13.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                color = if (isSelected) Color(0xFF00F0FF) else TextWhite.copy(alpha = 0.90f)
+                color = if (isSelected) ActiveGreenLed else TextWhite.copy(alpha = 0.90f)
             )
         }
     }

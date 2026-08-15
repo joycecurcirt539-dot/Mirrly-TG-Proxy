@@ -240,13 +240,19 @@ object UpdateDownloader {
                 }
 
                 // Step 3: Sanity check that the downloaded file is a valid Android APK archive
-                val archiveInfo = context.packageManager.getPackageArchiveInfo(destFile.absolutePath, 0)
+                val archiveInfo = try {
+                    context.packageManager.getPackageArchiveInfo(destFile.absolutePath, 0)
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "Error checking package archive info: ${e.message}")
+                    null
+                }
                 if (archiveInfo == null) {
                     AppLogger.e(TAG, "Downloaded file is not a valid Android APK archive.")
                     destFile.delete()
                     _status.value = DownloadStatus.Error("Повреждённый файл: архив не является корректным Android APK")
                     return@withContext false
                 }
+
 
                 // Step 4: Cryptographic signature verification of the downloaded APK BEFORE installation
                 val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile, expectedSha256List)
@@ -307,12 +313,17 @@ object UpdateDownloader {
     }
 
     fun canInstallPackages(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.packageManager.canRequestPackageInstalls()
-        } else {
-            true
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.packageManager.canRequestPackageInstalls()
+            } else {
+                true
+            }
+        } catch (_: Throwable) {
+            false
         }
     }
+
 
     fun openInstallPermissionSettings(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

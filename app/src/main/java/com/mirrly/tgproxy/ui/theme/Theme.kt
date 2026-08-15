@@ -9,6 +9,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,17 +42,100 @@ val AmoledSurface = Color(0xFF101012)
 val AmoledSurfaceHigh = Color(0xFF18181C)
 val AmoledBorder = Color(0xFF222226)
 
-val ActiveGreenLed = Color(0xFF00F5D4) // Neon Cyan / Emerald Accent
-val ActiveGreenGlow = Color(0x3D00F5D4) // Neon Cyan Glow
+val ActiveGreenLed: Color
+    @Composable
+    get() = LocalProtocolColors.current.primary
+
+val ActiveGreenGlow: Color
+    @Composable
+    get() = LocalProtocolColors.current.glow
+
 val InactiveGrayLed = Color(0xFF383840)
 val TextWhite = Color(0xFFFFFFFF)
 val TextMuted = Color(0xFF888894)
 val MinimalAccent = Color(0xFF00F5D4)
 
+// MTProto Protocol Theme (Signature Neon Cyan / Emerald)
+val MtprotoAccent = Color(0xFF00F5D4)
+val MtprotoGlow = Color(0x3D00F5D4)
+val MtprotoSecondary = Color(0xFF00B4D8)
+val MtprotoLight = Color(0xFF00FF87)
+val MtprotoEmerald = Color(0xFF00E676)
+
+// SOCKS5 Protocol Theme (Neon Violet / Purple)
+val Socks5Accent = Color(0xFFB388FF)
+val Socks5Glow = Color(0x3DB388FF)
+val Socks5Secondary = Color(0xFF7C4DFF)
+val Socks5Light = Color(0xFFC084FC)
+val Socks5Indigo = Color(0xFF818CF8)
+
+data class ProtocolColors(
+    val primary: Color,
+    val glow: Color,
+    val secondary: Color,
+    val light: Color,
+    val orb1: Color,
+    val orb2: Color,
+    val orb3: Color,
+    val orb4: Color
+)
+
+val MtprotoPalette = ProtocolColors(
+    primary = MtprotoAccent,
+    glow = MtprotoGlow,
+    secondary = MtprotoSecondary,
+    light = MtprotoLight,
+    orb1 = Color(0xFF00F5D4),
+    orb2 = Color(0xFF00FF87),
+    orb3 = Color(0xFF00E676),
+    orb4 = Color(0xFF00B4D8)
+)
+
+val Socks5Palette = ProtocolColors(
+    primary = Socks5Accent,
+    glow = Socks5Glow,
+    secondary = Socks5Secondary,
+    light = Socks5Light,
+    orb1 = Color(0xFFB388FF),
+    orb2 = Color(0xFFC084FC),
+    orb3 = Color(0xFF7C4DFF),
+    orb4 = Color(0xFF818CF8)
+)
+
+@Composable
+fun rememberAnimatedProtocolColors(isSocks5: Boolean): ProtocolColors {
+    val target = if (isSocks5) Socks5Palette else MtprotoPalette
+    val spec = tween<Color>(durationMillis = 650, easing = FastOutSlowInEasing)
+
+    val primary by androidx.compose.animation.animateColorAsState(target.primary, spec, label = "protoPrimary")
+    val glow by androidx.compose.animation.animateColorAsState(target.glow, spec, label = "protoGlow")
+    val secondary by androidx.compose.animation.animateColorAsState(target.secondary, spec, label = "protoSecondary")
+    val light by androidx.compose.animation.animateColorAsState(target.light, spec, label = "protoLight")
+    val orb1 by androidx.compose.animation.animateColorAsState(target.orb1, spec, label = "protoOrb1")
+    val orb2 by androidx.compose.animation.animateColorAsState(target.orb2, spec, label = "protoOrb2")
+    val orb3 by androidx.compose.animation.animateColorAsState(target.orb3, spec, label = "protoOrb3")
+    val orb4 by androidx.compose.animation.animateColorAsState(target.orb4, spec, label = "protoOrb4")
+
+    return remember(primary, glow, secondary, light, orb1, orb2, orb3, orb4) {
+        ProtocolColors(
+            primary = primary,
+            glow = glow,
+            secondary = secondary,
+            light = light,
+            orb1 = orb1,
+            orb2 = orb2,
+            orb3 = orb3,
+            orb4 = orb4
+        )
+    }
+}
+
+val LocalProtocolColors = androidx.compose.runtime.compositionLocalOf { MtprotoPalette }
+
 private val AmoledDarkColorScheme = darkColorScheme(
     primary = TextWhite,
     secondary = TextMuted,
-    tertiary = ActiveGreenLed,
+    tertiary = MtprotoAccent,
     background = AmoledBackground,
     surface = AmoledBackground,
     surfaceContainerLow = AmoledSurfaceLow,
@@ -83,10 +167,15 @@ fun MirrlyTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = AmoledDarkColorScheme,
-        content = content
-    )
+    val isSocks5 by com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.isSocks5Flow.collectAsState(initial = false)
+    val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+
+    androidx.compose.runtime.CompositionLocalProvider(LocalProtocolColors provides protoColors) {
+        MaterialTheme(
+            colorScheme = AmoledDarkColorScheme.copy(tertiary = protoColors.primary),
+            content = content
+        )
+    }
 }
 
 private val TopFadeColors = listOf(Color.Transparent, Color.Black)
@@ -211,16 +300,17 @@ fun Modifier.lightSweep(
     isEnabled: Boolean = true,
     shape: Shape = RoundedCornerShape(20.dp),
     borderWidth: Dp = 1.dp,
-    sweepColor: Color = Color(0xFF00F5D4)
+    sweepColor: Color? = null
 ): Modifier = composed {
     if (!isEnabled) return@composed this
 
+    val effectiveSweepColor = sweepColor ?: LocalProtocolColors.current.primary
     val infiniteTransition = rememberInfiniteTransition(label = "lightSweepTransition")
     val progress by infiniteTransition.animateFloat(
-        initialValue = -0.4f,
-        targetValue = 1.4f,
+        initialValue = 0.0f,
+        targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3200, easing = LinearEasing),
+            animation = tween(durationMillis = 3200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "lightSweepProgress"
@@ -229,12 +319,18 @@ fun Modifier.lightSweep(
     this.drawWithContent {
         drawContent()
         val strokeWidthPx = borderWidth.toPx()
+        val beamWidthPx = size.width * 0.45f + 100.dp.toPx()
+        val totalTravel = size.width + beamWidthPx * 2
+        val currentCenterX = -beamWidthPx + totalTravel * progress
+
         val brush = Brush.linearGradient(
-            0.0f to Color.Transparent,
-            (progress - 0.12f).coerceIn(0f, 1f) to Color.Transparent,
-            progress.coerceIn(0f, 1f) to sweepColor.copy(alpha = 0.85f),
-            (progress + 0.12f).coerceIn(0f, 1f) to Color.Transparent,
-            1.0f to Color.Transparent
+            colors = listOf(
+                Color.Transparent,
+                effectiveSweepColor.copy(alpha = 0.85f),
+                Color.Transparent
+            ),
+            start = Offset(currentCenterX - beamWidthPx * 0.5f, 0f),
+            end = Offset(currentCenterX + beamWidthPx * 0.5f, size.height)
         )
 
         when (val outline = shape.createOutline(size, layoutDirection, this)) {

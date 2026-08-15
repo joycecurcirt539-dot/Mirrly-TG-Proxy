@@ -25,7 +25,8 @@ data class SessionRecord(
     val peakSpeedBps: Long = 0L,
     val maxConnections: Int = 0,
     val presetName: String = "Баланс",
-    val status: SessionStatus = SessionStatus.ACTIVE
+    val status: SessionStatus = SessionStatus.ACTIVE,
+    val proxyMode: String = "MTPROTO"
 ) {
     val totalBytes: Long
         get() = bytesReceived + bytesSent
@@ -50,6 +51,7 @@ data class SessionRecord(
         json.put("maxConnections", maxConnections)
         json.put("presetName", presetName)
         json.put("status", status.name)
+        json.put("proxyMode", proxyMode)
         return json
     }
 
@@ -71,7 +73,8 @@ data class SessionRecord(
                 peakSpeedBps = json.optLong("peakSpeedBps", 0L),
                 maxConnections = json.optInt("maxConnections", 0),
                 presetName = json.optString("presetName", "Баланс"),
-                status = statusEnum
+                status = statusEnum,
+                proxyMode = json.optString("proxyMode", "MTPROTO")
             )
         }
     }
@@ -146,7 +149,7 @@ object SessionHistoryManager {
     }
 
     @Synchronized
-    fun onSessionStarted(presetName: String): SessionRecord {
+    fun onSessionStarted(presetName: String, proxyMode: String = "MTPROTO"): SessionRecord {
         // If there's an existing active session, mark it as completed first
         val now = System.currentTimeMillis()
         for (i in historyList.indices) {
@@ -162,7 +165,8 @@ object SessionHistoryManager {
         val newRecord = SessionRecord(
             startTimeMs = now,
             presetName = presetName,
-            status = SessionStatus.ACTIVE
+            status = SessionStatus.ACTIVE,
+            proxyMode = proxyMode
         )
         historyList.add(0, newRecord) // add newest at top
 
@@ -171,7 +175,7 @@ object SessionHistoryManager {
         }
 
         saveToPrefs()
-        AppLogger.i("SessionHistoryManager", "Сессия запущенa [${newRecord.id}] ($presetName)")
+        AppLogger.i("SessionHistoryManager", "Сессия запущена [${newRecord.id}] ($presetName, $proxyMode)")
         return newRecord
     }
 

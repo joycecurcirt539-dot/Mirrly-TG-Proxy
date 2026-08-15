@@ -1,0 +1,41 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Outer rounded badge / link node icon representing DaLink -->
+    <path
+        android:pathData="M9,4.5 C6.5,4.5 4.5,6.5 4.5,9 C4.5,11.5 6.5,13.5 9,13.5 H10.5 C10.9,13.5 11.25,13.85 11.25,14.25 C11.25,14.65 10.9,15 10.5,15 H9 C5.7,15 3,12.3 3,9 C3,5.7 5.7,3 9,3 H10.5 C10.9,3 11.25,3.35 11.25,3.75 C11.25,4.15 10.9,4.5 10.5,4.5 H9 Z"
+        android:strokeWidth="0.2">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="3"
+                android:startY="3"
+                android:endX="15"
+                android:endY="15"
+                android:type="linear">
+                <item android:color="#FFF59C07" android:offset="0.0" />
+                <item android:color="#FFF57507" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M15,19.5 C17.5,19.5 19.5,17.5 19.5,15 C19.5,12.5 17.5,10.5 15,10.5 H13.5 C13.1,10.5 12.75,10.15 12.75,9.75 C12.75,9.35 13.1,9 13.5,9 H15 C18.3,9 21,11.7 21,15 C21,18.3 18.3,21 15,21 H13.5 C13.1,21 12.75,20.65 12.75,20.25 C12.75,19.85 13.1,19.5 13.5,19.5 H15 Z"
+        android:strokeWidth="0.2">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="12.75"
+                android:startY="9"
+                android:endX="21"
+                android:endY="21"
+                android:type="linear">
+                <item android:color="#FFF59C07" android:offset="0.0" />
+                <item android:color="#FFF57507" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M8,12 C8,11.45 8.45,11 9,11 H15 C15.55,11 16,11.45 16,12 C16,12.55 15.55,13 15,13 H9 C8.45,13 8,12.55 8,12 Z"
+        android:fillColor="#FFF57D07" />
+</vector>

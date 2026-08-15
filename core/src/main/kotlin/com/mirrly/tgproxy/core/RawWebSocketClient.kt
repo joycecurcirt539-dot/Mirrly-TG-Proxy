@@ -99,14 +99,19 @@ class RawWebSocketClient(
 
     suspend fun connectAndAwait(timeoutMs: Long = 3000): Boolean {
         connect()
-        return kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+        val ok = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
             try {
                 openChannel.receive()
             } catch (_: Exception) {
                 false
             }
         } ?: false
+        if (!ok) {
+            close()
+        }
+        return ok
     }
+
 
     fun send(data: ByteArray): Boolean {
         if (isClosed) return false

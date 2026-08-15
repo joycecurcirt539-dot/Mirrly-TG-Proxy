@@ -43,7 +43,7 @@ fun ValueStarBanner(
         ExternalLinkConfirmDialog(
             url = githubUrl,
             title = "Оценить проект звёздочкой на GitHub",
-            description = "Ссылка ведет на официальную страницу открытого репозитория Mirrly TG Proxy на GitHub. Оценка звёздочкой (⭐ Star) — это совершенно бесплатный способ поддержать автора R1Xern и помочь продвижению проекта!",
+            description = "Ссылка ведет на официальную страницу открытого репозитория Mirrly TG Proxy на GitHub. Оценка звёздочкой (Star) — это совершенно бесплатный способ поддержать автора R1Xern и помочь продвижению проекта!",
             onDismiss = { showConfirmDialog = false },
             onConfirmed = { onStarClicked() }
         )
@@ -67,7 +67,7 @@ fun ValueStarBanner(
                 brush = Brush.horizontalGradient(
                     colors = listOf(
                         ActiveGreenLed.copy(alpha = 0.55f),
-                        Color(0xFF00F0FF).copy(alpha = 0.3f),
+                        ActiveGreenLed.copy(alpha = 0.30f),
                         ActiveGreenLed.copy(alpha = 0.35f)
                     )
                 ),
@@ -96,7 +96,12 @@ fun ValueStarBanner(
                         .background(ActiveGreenLed.copy(alpha = 0.15f))
                         .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), CircleShape)
                 ) {
-                    Text(text = "🔥", fontSize = 20.sp)
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_github),
+                        contentDescription = null,
+                        tint = ActiveGreenLed,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
 
                 Column(modifier = Modifier.weight(1f)) {

@@ -70,7 +70,7 @@ export default {
         JSON.stringify({
           status: "active",
           service: "Mirrly TG Proxy Cloudflare Worker",
-          version: "1.1.0",
+          version: "1.1.1",
           time: new Date().toISOString()
         }),
         {
@@ -188,14 +188,17 @@ fun CloudflareWorkerGuideDialog(
     ) {
         val view = LocalView.current
         LaunchedEffect(Unit) {
-            val window = (view.parent as? DialogWindowProvider)?.window
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                window?.attributes = window?.attributes?.apply {
-                    blurBehindRadius = 50
+            try {
+                val window = (view.parent as? DialogWindowProvider)?.window
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window?.attributes = window?.attributes?.apply {
+                        blurBehindRadius = 50
+                    }
                 }
-            }
+            } catch (_: Exception) {}
         }
+
 
         Box(
             modifier = Modifier
@@ -226,14 +229,14 @@ fun CloudflareWorkerGuideDialog(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = Color(0xFF00F0FF).copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.35f))
+                        color = ActiveGreenLed.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
                     ) {
                         Text(
                             text = "ПОШАГОВАЯ ИНСТРУКЦИЯ WORKER",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00F0FF),
+                            color = ActiveGreenLed,
                             letterSpacing = 0.8.sp,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
@@ -277,8 +280,8 @@ fun CloudflareWorkerGuideDialog(
                 // Security & Technical Info Card (Transparent Cyan Glass)
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF00F0FF).copy(alpha = 0.06f),
-                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.25f)),
+                    color = ActiveGreenLed.copy(alpha = 0.06f),
+                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.25f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -289,7 +292,7 @@ fun CloudflareWorkerGuideDialog(
                             text = "БЕЗОПАСНОСТЬ ЛИЧНЫХ ДАННЫХ И ПРИНЦИП РАБОТЫ",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00F0FF),
+                            color = ActiveGreenLed,
                             letterSpacing = 0.8.sp
                         )
 
@@ -395,10 +398,10 @@ fun CloudflareWorkerGuideDialog(
                     },
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF00F0FF).copy(alpha = 0.20f),
-                        contentColor = Color(0xFF00F0FF)
+                        containerColor = ActiveGreenLed.copy(alpha = 0.20f),
+                        contentColor = ActiveGreenLed
                     ),
-                    border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.50f)),
+                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.50f)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
@@ -449,7 +452,7 @@ private fun GuideBulletItem(text: String) {
             modifier = Modifier
                 .padding(top = 6.dp)
                 .size(5.dp)
-                .background(Color(0xFF00F0FF), CircleShape)
+                .background(ActiveGreenLed, CircleShape)
         )
         Text(
             text = text,
@@ -483,8 +486,8 @@ fun RedirectionGuideStepItem(
         ) {
             Surface(
                 shape = CircleShape,
-                color = Color(0xFF00F0FF).copy(alpha = 0.15f),
-                border = BorderStroke(1.dp, Color(0xFF00F0FF).copy(alpha = 0.45f)),
+                color = ActiveGreenLed.copy(alpha = 0.15f),
+                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.45f)),
                 modifier = Modifier.size(28.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -492,7 +495,7 @@ fun RedirectionGuideStepItem(
                         text = stepNumber,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF00F0FF)
+                        color = ActiveGreenLed
                     )
                 }
             }

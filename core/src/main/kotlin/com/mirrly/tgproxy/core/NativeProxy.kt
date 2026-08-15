@@ -46,11 +46,15 @@ object NativeProxy {
         private set
 
     fun startProxy(host: String, port: Int, dcIps: String, secret: String, verbose: Int): Int {
-        val code = ProxyLibrary.INSTANCE.StartProxy(host, port, dcIps, secret, verbose)
-        if (code == 0) {
-            isStarted = true
+        return try {
+            val code = ProxyLibrary.INSTANCE.StartProxy(host, port, dcIps, secret, verbose)
+            if (code == 0) {
+                isStarted = true
+            }
+            code
+        } catch (_: Throwable) {
+            -1
         }
-        return code
     }
 
     fun stopProxy(): Int {

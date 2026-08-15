@@ -14,9 +14,15 @@ class PreferencesManager(context: Context) {
     private val _animationsDisabledFlow = MutableStateFlow(areAnimationsDisabled())
     val animationsDisabledFlow: StateFlow<Boolean> = _animationsDisabledFlow.asStateFlow()
 
+    private val _isSocks5Flow = MutableStateFlow(loadConfig().isSocks5Mode)
+    val isSocks5Flow: StateFlow<Boolean> = _isSocks5Flow.asStateFlow()
+
     private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
         if (key == "disable_animations_particles") {
             _animationsDisabledFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+        if (key == "proxy_mode" || key == "socks5_enabled") {
+            _isSocks5Flow.value = loadConfig().isSocks5Mode
         }
     }
 
@@ -99,6 +105,7 @@ class PreferencesManager(context: Context) {
             .putBoolean("use_default_worker_mtproto", config.useDefaultWorkerMtproto)
             .putString("proxy_mode", config.proxyModeName)
             .apply()
+        _isSocks5Flow.value = config.isSocks5Mode
     }
 
     fun isAutoReconnectEnabled(): Boolean {
