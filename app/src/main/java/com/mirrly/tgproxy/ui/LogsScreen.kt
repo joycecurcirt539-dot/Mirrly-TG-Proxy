@@ -168,7 +168,7 @@ fun LogsScreen(
                         modifier = Modifier.size(52.dp)
                     )
                     Text(
-                        text = if (searchQuery.isNotEmpty()) "События не найдены" else "Журнал событий пуст",
+                        text = if (searchQuery.isNotEmpty()) "События не найдены" else "Логи пусты",
                         color = TextMuted,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
@@ -230,7 +230,7 @@ fun LogsScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = "Журнал событий",
+                            text = "Логи",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
                             color = TextWhite,
@@ -296,7 +296,7 @@ fun LogsScreen(
                         IconButton(onClick = {
                             AppLogger.clear()
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            Toast.makeText(context, "Журнал очищен", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Логи очищены", Toast.LENGTH_SHORT).show()
                         }) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_trash),
@@ -367,10 +367,10 @@ fun LogsScreen(
                         keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF0C0C10),
-                            unfocusedContainerColor = Color(0xFF0C0C10),
-                            focusedBorderColor = activeProtoColor.copy(alpha = 0.65f),
-                            unfocusedBorderColor = Color(0xFF222228),
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedBorderColor = activeProtoColor.copy(alpha = 0.85f),
+                            unfocusedBorderColor = Color(0xFF1E283D),
                             focusedTextColor = TextWhite,
                             unfocusedTextColor = TextWhite
                         )
@@ -441,13 +441,8 @@ private fun SegmentedFilterChip(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val bgColor by animateColorAsState(
-        targetValue = if (isSelected) activeColor.copy(alpha = 0.16f) else Color(0xFF0E0E12),
-        animationSpec = tween(180),
-        label = "chipBg"
-    )
     val borderColor by animateColorAsState(
-        targetValue = if (isSelected) activeColor.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.07f),
+        targetValue = if (isSelected) activeColor.copy(alpha = 0.85f) else Color(0xFF1E283D),
         animationSpec = tween(180),
         label = "chipBorder"
     )
@@ -459,7 +454,7 @@ private fun SegmentedFilterChip(
 
     Surface(
         shape = RoundedCornerShape(11.dp),
-        color = bgColor,
+        color = Color.Transparent,
         border = BorderStroke(1.dp, borderColor),
         modifier = modifier
             .height(34.dp)
@@ -504,14 +499,14 @@ private fun GlassLogCard(entry: LogEntry) {
     }
 
     val cardBorderColor = when (entry.level) {
-        LogLevel.INFO -> Color.White.copy(alpha = 0.06f)
-        LogLevel.WARN -> Color(0xFFF59E0B).copy(alpha = 0.22f)
-        LogLevel.ERROR -> Color(0xFFEF4444).copy(alpha = 0.28f)
+        LogLevel.INFO -> Color(0xFF181E2E)
+        LogLevel.WARN -> Color(0xFFF59E0B).copy(alpha = 0.35f)
+        LogLevel.ERROR -> Color(0xFFEF4444).copy(alpha = 0.45f)
     }
 
     Surface(
         shape = RoundedCornerShape(13.dp),
-        color = Color(0xFF0C0C10).copy(alpha = 0.95f),
+        color = Color.Transparent,
         border = BorderStroke(1.dp, cardBorderColor),
         modifier = Modifier
             .fillMaxWidth()
@@ -550,8 +545,8 @@ private fun GlassLogCard(entry: LogEntry) {
                     // Tag Badge
                     Surface(
                         shape = RoundedCornerShape(5.dp),
-                        color = Color.White.copy(alpha = 0.05f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, Color(0xFF1E283D))
                     ) {
                         Text(
                             text = entry.tag.ifBlank { "System" },
