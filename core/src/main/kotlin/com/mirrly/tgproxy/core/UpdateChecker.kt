@@ -112,9 +112,9 @@ object UpdateChecker {
                             }
                             downloadUrl = universalApkUrl ?: releaseApkUrl ?: fallbackApkUrl
 
-                            val sha256Regex = Regex("(?i)sha-?256[:\\s]+([a-fA-F0-9:-]{32,95})")
-                            val shaMatches = sha256Regex.findAll(bodyText).toList()
-                            val expectedSha256List = shaMatches.map { it.groupValues[1].trim() }
+                            val hex64Matches = Regex("""(?i)\b[a-fA-F0-9]{64}\b""").findAll(bodyText).map { it.value.trim().uppercase() }
+                            val colonMatches = Regex("""(?i)\b(?:[a-fA-F0-9]{2}:){31}[a-fA-F0-9]{2}\b""").findAll(bodyText).map { it.value.trim().uppercase() }
+                            val expectedSha256List = (hex64Matches + colonMatches).distinct().toList()
                             val expectedSha256 = expectedSha256List.firstOrNull()
 
                             val latestVerClean = cleanVersionString(tagName)

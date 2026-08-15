@@ -74,31 +74,29 @@ object UpdateManager {
                         cleanCachedVersion,
                         currentAppVersion
                     )
-                    if (isStillAvailable) {
-                        val cachedHtmlUrl = prefs.getString(KEY_CACHED_HTML_URL, "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases") ?: ""
-                        val cachedNotes = prefs.getString(KEY_CACHED_RELEASE_NOTES, "") ?: ""
-                        val cachedDownloadUrl = prefs.getString(KEY_CACHED_DOWNLOAD_URL, null)
-                        val cachedSha256 = prefs.getString(KEY_CACHED_EXPECTED_SHA256, null)
-                        val cachedPreview = prefs.getString(KEY_CACHED_CHANGELOG_PREVIEW, "") ?: ""
+                    val cachedHtmlUrl = prefs.getString(KEY_CACHED_HTML_URL, "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases") ?: ""
+                    val cachedNotes = prefs.getString(KEY_CACHED_RELEASE_NOTES, "") ?: ""
+                    val cachedDownloadUrl = prefs.getString(KEY_CACHED_DOWNLOAD_URL, null)
+                    val cachedSha256 = prefs.getString(KEY_CACHED_EXPECTED_SHA256, null)
+                    val cachedPreview = prefs.getString(KEY_CACHED_CHANGELOG_PREVIEW, "") ?: ""
 
-                        val reconstructedInfo = ReleaseInfo(
-                            tagName = cleanCachedVersion,
-                            versionName = cleanCachedVersion,
-                            htmlUrl = cachedHtmlUrl,
-                            releaseNotes = cachedNotes,
-                            isUpdateAvailable = true,
-                            downloadUrl = cachedDownloadUrl,
-                            etag = info.etag ?: cachedEtag,
-                            isNotModified = true,
-                            expectedSha256 = cachedSha256,
-                            expectedSha256List = if (cachedSha256 != null) listOf(cachedSha256) else emptyList(),
-                            changelogPreview = cachedPreview
-                        )
-                        _updateState.value = reconstructedInfo
-                    } else {
-                        _updateState.value = null
+                    val reconstructedInfo = ReleaseInfo(
+                        tagName = cleanCachedVersion,
+                        versionName = cleanCachedVersion,
+                        htmlUrl = cachedHtmlUrl,
+                        releaseNotes = cachedNotes,
+                        isUpdateAvailable = isStillAvailable,
+                        downloadUrl = cachedDownloadUrl,
+                        etag = info.etag ?: cachedEtag,
+                        isNotModified = true,
+                        expectedSha256 = cachedSha256,
+                        expectedSha256List = if (cachedSha256 != null) listOf(cachedSha256) else emptyList(),
+                        changelogPreview = cachedPreview
+                    )
+                    _updateState.value = reconstructedInfo
+
+                    if (!isStillAvailable) {
                         prefs.edit()
-                            .remove(KEY_CACHED_VERSION)
                             .remove(KEY_LAST_NOTIFIED_VERSION)
                             .remove(KEY_LAST_NOTIFIED_TIME)
                             .apply()
@@ -107,9 +105,6 @@ object UpdateManager {
                 } else {
                     if (!forceRefresh) {
                         return checkForUpdates(context, notifyIfFound = notifyIfFound, forceRefresh = true)
-                    } else {
-                        _updateState.value = null
-                        NotificationHelper.cancelUpdateNotification(context)
                     }
                 }
             } else {
@@ -122,9 +117,9 @@ object UpdateManager {
                     .putString(KEY_CACHED_CHANGELOG_PREVIEW, info.changelogPreview)
                     .apply()
 
-                if (info.isUpdateAvailable) {
-                    _updateState.value = info
+                _updateState.value = info
 
+                if (info.isUpdateAvailable) {
                     val lastNotifiedVersion = prefs.getString(KEY_LAST_NOTIFIED_VERSION, "")
                     val lastNotifiedTimeMs = prefs.getLong(KEY_LAST_NOTIFIED_TIME, 0L)
                     val now = System.currentTimeMillis()
@@ -140,7 +135,6 @@ object UpdateManager {
                         NotificationHelper.showUpdateNotification(context, info)
                     }
                 } else {
-                    _updateState.value = null
                     prefs.edit()
                         .remove(KEY_LAST_NOTIFIED_VERSION)
                         .remove(KEY_LAST_NOTIFIED_TIME)

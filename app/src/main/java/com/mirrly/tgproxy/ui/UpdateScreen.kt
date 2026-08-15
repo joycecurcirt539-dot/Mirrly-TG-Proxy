@@ -38,7 +38,9 @@ import com.mirrly.tgproxy.core.ReleaseInfo
 import com.mirrly.tgproxy.service.DownloadStatus
 import com.mirrly.tgproxy.service.UpdateDownloader
 import com.mirrly.tgproxy.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,6 +55,14 @@ fun UpdateScreen(
     val scrollState = rememberScrollState()
 
     val downloadStatus by UpdateDownloader.status.collectAsState()
+
+    LaunchedEffect(Unit) {
+        if (releaseInfo == null) {
+            withContext(Dispatchers.IO) {
+                com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false)
+            }
+        }
+    }
 
     var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
 
@@ -459,7 +469,7 @@ fun UpdateScreen(
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 val info = releaseInfo
                                                 val rawUrl = info?.downloadUrl
-                                                if (!rawUrl.isNullOrBlank() && info != null) {
+                                                if (info != null && !rawUrl.isNullOrBlank()) {
                                                     val validUrl = rawUrl
                                                     coroutineScope.launch {
                                                         UpdateDownloader.downloadAndVerifyApk(

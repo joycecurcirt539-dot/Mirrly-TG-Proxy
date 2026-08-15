@@ -25,6 +25,8 @@ class UpdateCheckerTest {
         assertFalse(UpdateChecker.isVersionNewer("1.0.5", "1.0.5"))
         assertFalse(UpdateChecker.isVersionNewer("1.0.4", "1.0.5"))
         assertFalse(UpdateChecker.isVersionNewer("v1.0.5", "1.0.5"))
+        assertFalse(UpdateChecker.isVersionNewer("v1.1.1", "1.1.1"))
+        assertFalse(UpdateChecker.isVersionNewer("1.1.1", "1.1.1"))
         assertFalse(UpdateChecker.isVersionNewer("", "1.0.5"))
     }
 }
