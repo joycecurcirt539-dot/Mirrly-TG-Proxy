@@ -211,13 +211,13 @@ flowchart TD
 
 | Главный экран | Таймер сна | История сессий |
 | :-: | :-: | :-: |
-| <img src="docs/assets/home.jpg" alt="Главный экран" width="240" /> | <img src="docs/assets/sleep%20screen.jpg" alt="Таймер сна" width="240" /> | <img src="docs/assets/session.jpg" alt="История сессий" width="240" /> |
+| <img src="docs/assets/home%20screen.jpg" alt="Главный экран" width="240" /> | <img src="docs/assets/sleep%20screen.jpg" alt="Таймер сна" width="240" /> | <img src="docs/assets/session.jpg" alt="История сессий" width="240" /> |
 
 <br />
 
 | Настройки (1 часть) | Настройки (2 часть) | Логи | Экран обновлений |
 | :-: | :-: | :-: | :-: |
-| <img src="docs/assets/settings%20p1.jpg" alt="Настройки - Параметры" width="220" /> | <img src="docs/assets/settings%20p2.jpg" alt="Настройки - Воркеры и сеть" width="220" /> | <img src="docs/assets/logs.jpg" alt="Логи" width="220" /> | <img src="docs/assets/update%20screen.jpg" alt="Экран обновлений" width="220" /> |
+| <img src="docs/assets/settings%20p1.jpg" alt="Настройки - Параметры" width="220" /> | <img src="docs/assets/settings%20p2.jpg" alt="Настройки - Воркеры и сеть" width="220" /> | <img src="docs/assets/logs%20screen.jpg" alt="Логи" width="220" /> | <img src="docs/assets/update%20screen.jpg" alt="Экран обновлений" width="220" /> |
 
 </div>
 
