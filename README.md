@@ -3,6 +3,7 @@
 <img src="docs/assets/logo.png" alt="Mirrly TG Proxy Logo" width="220" />
 
 # Mirrly TG Proxy для Android
+Версия 1.1.2 была удалена, причина - временное отсутствие работоспособности обхода
 
 **Локальный MTProto & SOCKS5 прокси-сервер на собственном движке Rust (mirrlyengine) с поддержкой FakeTLS и личных Cloudflare Worker для подключения Telegram без VPN**
 
