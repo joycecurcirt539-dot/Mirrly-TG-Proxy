@@ -18,6 +18,10 @@ class BootReceiver : BroadcastReceiver() {
         ) {
             AppLogger.i("BootReceiver", "Системный сигнал загрузки устройства: $action")
 
+            if (action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+                UpdateManager.onAppInit(context)
+            }
+
             val prefsManager = PreferencesManager(context)
             val config = prefsManager.loadConfig()
 

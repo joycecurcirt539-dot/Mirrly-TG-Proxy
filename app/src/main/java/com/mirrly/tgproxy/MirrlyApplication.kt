@@ -52,6 +52,7 @@ class MirrlyApplication : Application() {
                 if (tx != android.net.TrafficStats.UNSUPPORTED.toLong() && tx > 0) tx else 0L
             )
         }
+        UpdateManager.onAppInit(this)
         UpdateManager.scheduleDaytimeCheck(this)
     }
 

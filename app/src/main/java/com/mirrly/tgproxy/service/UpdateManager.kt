@@ -33,6 +33,40 @@ object UpdateManager {
     private val _updateState = MutableStateFlow<ReleaseInfo?>(null)
     val updateState: StateFlow<ReleaseInfo?> = _updateState.asStateFlow()
 
+    fun onAppInit(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val currentAppVersion = com.mirrly.tgproxy.BuildConfig.VERSION_NAME
+            val lastAppVersion = prefs.getString("last_installed_app_version", null)
+            val lastNotifiedVersion = prefs.getString(KEY_LAST_NOTIFIED_VERSION, null)
+
+            val isAppUpgraded = lastAppVersion != currentAppVersion
+            val isNotifiedNotNewer = !lastNotifiedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(lastNotifiedVersion, currentAppVersion)
+
+            if (isAppUpgraded || isNotifiedNotNewer) {
+                prefs.edit()
+                    .putString("last_installed_app_version", currentAppVersion)
+                    .remove(KEY_CACHED_ETAG)
+                    .remove(KEY_CACHED_VERSION)
+                    .remove(KEY_LAST_NOTIFIED_VERSION)
+                    .remove(KEY_LAST_NOTIFIED_TIME)
+                    .apply()
+                NotificationHelper.cancelUpdateNotification(context)
+            }
+
+            // Clean up any stale downloaded APKs in cache
+            val apkDir = java.io.File(context.cacheDir, "apks")
+            if (apkDir.exists() && apkDir.isDirectory) {
+                apkDir.listFiles()?.forEach { file ->
+                    try {
+                        file.delete()
+                    } catch (_: Exception) {}
+                }
+            }
+            UpdateDownloader.resetStatus()
+        } catch (_: Exception) {}
+    }
+
     suspend fun checkForUpdates(
         context: Context,
         notifyIfFound: Boolean = true,
@@ -42,7 +76,12 @@ object UpdateManager {
         val currentAppVersion = com.mirrly.tgproxy.BuildConfig.VERSION_NAME
 
         val lastAppVersion = prefs.getString("last_installed_app_version", null)
-        if (lastAppVersion != currentAppVersion) {
+        val lastNotifiedVersion = prefs.getString(KEY_LAST_NOTIFIED_VERSION, null)
+
+        val isAppUpgraded = lastAppVersion != currentAppVersion
+        val isNotifiedNotNewer = !lastNotifiedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(lastNotifiedVersion, currentAppVersion)
+
+        if (isAppUpgraded || isNotifiedNotNewer) {
             prefs.edit()
                 .putString("last_installed_app_version", currentAppVersion)
                 .remove(KEY_CACHED_ETAG)
