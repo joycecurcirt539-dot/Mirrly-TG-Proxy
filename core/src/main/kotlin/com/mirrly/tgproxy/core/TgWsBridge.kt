@@ -22,10 +22,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.Socket
@@ -52,12 +55,38 @@ class TgWsBridge(
             val inputStream: InputStream = clientSocket.getInputStream()
             val outputStream: OutputStream = clientSocket.getOutputStream()
 
-            val handshakeHeader = ByteArray(TgConstants.HANDSHAKE_LEN)
-            var bytesRead = 0
-            while (bytesRead < TgConstants.HANDSHAKE_LEN) {
-                val count = inputStream.read(handshakeHeader, bytesRead, TgConstants.HANDSHAKE_LEN - bytesRead)
+            val prefix = ByteArray(5)
+            var prefixRead = 0
+            while (prefixRead < 5) {
+                val count = inputStream.read(prefix, prefixRead, 5 - prefixRead)
                 if (count < 0) return@withContext
-                bytesRead += count
+                prefixRead += count
+            }
+
+            val isFakeTls = FakeTls.isTlsHandshake(prefix)
+            val handshakeHeader = ByteArray(TgConstants.HANDSHAKE_LEN)
+            var initialExtraPayload: ByteArray? = null
+
+            if (isFakeTls) {
+                AppLogger.i("TgWsBridge", "Fake-TLS Handshake обнаружен от клиента")
+                val appData = FakeTls.handleFakeTlsHandshake(inputStream, outputStream, prefix)
+                    ?: return@withContext
+                if (appData.size < TgConstants.HANDSHAKE_LEN) {
+                    AppLogger.w("TgWsBridge", "Fake-TLS payload < 64 байт")
+                    return@withContext
+                }
+                System.arraycopy(appData, 0, handshakeHeader, 0, TgConstants.HANDSHAKE_LEN)
+                if (appData.size > TgConstants.HANDSHAKE_LEN) {
+                    initialExtraPayload = appData.copyOfRange(TgConstants.HANDSHAKE_LEN, appData.size)
+                }
+            } else {
+                System.arraycopy(prefix, 0, handshakeHeader, 0, 5)
+                var bytesRead = 5
+                while (bytesRead < TgConstants.HANDSHAKE_LEN) {
+                    val count = inputStream.read(handshakeHeader, bytesRead, TgConstants.HANDSHAKE_LEN - bytesRead)
+                    if (count < 0) return@withContext
+                    bytesRead += count
+                }
             }
 
             val handshakeResult = MTProtoCrypto.tryHandshake(handshakeHeader, config.secretBytes)
@@ -70,41 +99,46 @@ class TgWsBridge(
                 else -> TgConstants.PROTO_PADDED_INTERMEDIATE_INT
             }
 
-            val msgSplitter = MsgSplitter(relayInit, protoInt)
-            val domains = TgConstants.getWsDomains(handshakeResult.dcId, handshakeResult.isMedia)
+            // ── Upload ciphers (client → WS): client_dec + upstream_enc ──
+            // client_dec: decrypt data arriving from the Telegram client
+            val clientDecPrekey = handshakeHeader.copyOfRange(TgConstants.SKIP_LEN, TgConstants.SKIP_LEN + TgConstants.PREKEY_LEN)
+            val clientDecIv = handshakeHeader.copyOfRange(TgConstants.SKIP_LEN + TgConstants.PREKEY_LEN, TgConstants.SKIP_LEN + TgConstants.PREKEY_LEN + TgConstants.IV_LEN)
+            val clientDecKey = MTProtoCrypto.sha256(clientDecPrekey + config.secretBytes)
+            val clientDec = AesCtrCipher(clientDecKey, clientDecIv)
+            clientDec.update(ByteArray(64)) // discard 64 bytes (handshake header)
+
+            // upstream_enc: encrypt data going to the Telegram WS server
+            val upstreamEncKey = relayInit.copyOfRange(TgConstants.SKIP_LEN, TgConstants.SKIP_LEN + TgConstants.PREKEY_LEN)
+            val upstreamEncIv = relayInit.copyOfRange(TgConstants.SKIP_LEN + TgConstants.PREKEY_LEN, TgConstants.SKIP_LEN + TgConstants.PREKEY_LEN + TgConstants.IV_LEN)
+            val upstreamEnc = AesCtrCipher(upstreamEncKey, upstreamEncIv)
+            upstreamEnc.update(ByteArray(64)) // discard 64 bytes (relay_init header)
+
+            val msgSplitter = MsgSplitter(clientDec, upstreamEnc, protoInt)
+
+            // ── Download ciphers (WS → client): upstream_dec + client_enc ──
+            // upstream_dec: decrypt data arriving from the Telegram WS server (reversed relay_init key/iv)
+            val upstreamRev48 = relayInit.copyOfRange(TgConstants.SKIP_LEN, TgConstants.SKIP_LEN + TgConstants.PREKEY_LEN + TgConstants.IV_LEN).reversedArray()
+            val upstreamDecKey = upstreamRev48.copyOfRange(0, TgConstants.PREKEY_LEN)
+            val upstreamDecIv = upstreamRev48.copyOfRange(TgConstants.PREKEY_LEN, TgConstants.PREKEY_LEN + TgConstants.IV_LEN)
+            val upstreamDec = AesCtrCipher(upstreamDecKey, upstreamDecIv)
+            upstreamDec.update(ByteArray(64)) // discard 64 bytes
+
+            // client_enc: encrypt data going back to the Telegram client (reversed handshake key/iv)
+            val clientRev48 = handshakeHeader.copyOfRange(TgConstants.SKIP_LEN, TgConstants.SKIP_LEN + TgConstants.PREKEY_LEN + TgConstants.IV_LEN).reversedArray()
+            val clientEncPrekey = clientRev48.copyOfRange(0, TgConstants.PREKEY_LEN)
+            val clientEncIv = clientRev48.copyOfRange(TgConstants.PREKEY_LEN, TgConstants.PREKEY_LEN + TgConstants.IV_LEN)
+            val clientEncKey = MTProtoCrypto.sha256(clientEncPrekey + config.secretBytes)
+            val clientEnc = AesCtrCipher(clientEncKey, clientEncIv)
+            clientEnc.update(ByteArray(64)) // discard 64 bytes
 
             var wsConnected = false
             var wsClient: RawWebSocketClient? = null
 
-            val cfDomain = config.getEffectiveCfDomain()
-
-            // 1. Попытка подключения через Cloudflare Worker (Кастомный воркер пользователя или включенный дефолтный)
-            if (cfDomain.isNotEmpty()) {
-                val dcIpMap = if (config.isTestEnvironment) TgConstants.DC_TEST_IPS else TgConstants.DC_DEFAULT_IPS
-                val dcIp = dcIpMap[handshakeResult.dcId] ?: "149.154.167.51"
-                val wsUrl = "wss://$cfDomain/tcp?target=$dcIp:443&host=$dcIp&port=443"
-                val client = RawWebSocketClient(wsUrl)
-                try {
-                    AppLogger.i("TgWsBridge", "MTProto: Подключение к Cloudflare Worker ($cfDomain) для DC ${handshakeResult.dcId} ($dcIp:443)...")
-                    client.connect()
-                    if (client.send(relayInit)) {
-                        wsClient = client
-                        wsConnected = true
-                        AppLogger.i("TgWsBridge", "MTProto: Успешное WSS туннелирование через Cloudflare Worker ($cfDomain) для DC ${handshakeResult.dcId}")
-                    } else {
-                        client.close()
-                    }
-                } catch (e: Exception) {
-                    AppLogger.w("TgWsBridge", "MTProto: Ошибка подключения к Cloudflare Worker ($cfDomain): ${e.message}")
-                    client.close()
-                }
-            }
-
-            // 2. Попытка использования прогретого пула WsPool (если CF воркер не был использован или отвалился)
-            if (!wsConnected && wsPool != null) {
+            // 1. Попытка использования прогретого пула WsPool (/apiws)
+            if (wsPool != null) {
                 val pooledClient = wsPool.get(handshakeResult.dcId, handshakeResult.isMedia, config.isTestEnvironment)
                 if (pooledClient != null) {
-                    if (pooledClient.send(relayInit)) {
+                    if (pooledClient.isAlive && pooledClient.send(relayInit)) {
                         wsClient = pooledClient
                         wsConnected = true
                     } else {
@@ -113,24 +147,49 @@ class TgWsBridge(
                 }
             }
 
-            // 3. Фолбек на прямые домены Telegram WebSockets
+            // 3. Быстрая параллельная гонка (Happy Eyeballs, 150ms stagger) по доверенным доменам и шлюзам Telegram
             if (!wsConnected) {
-                for (domain in domains) {
-                    val wsUrl = "wss://$domain${if (config.isTestEnvironment) TgConstants.WS_PATH_TEST else TgConstants.WS_PATH}"
-                    val client = RawWebSocketClient(wsUrl)
-                    try {
-                        client.connect()
-                        if (client.send(relayInit)) {
-                            wsClient = client
-                            wsConnected = true
-                            wsPool?.triggerRefill(PoolKey(handshakeResult.dcId, handshakeResult.isMedia), config.isTestEnvironment)
-                            break
-                        } else {
-                            client.close()
+                val candidateDomains = TgConstants.getWsDomains(handshakeResult.dcId, handshakeResult.isMedia)
+                val wsPath = if (config.isTestEnvironment) TgConstants.WS_PATH_TEST else TgConstants.WS_PATH
+
+                val raceChannel = Channel<Pair<String, RawWebSocketClient>>(1)
+                val jobs = mutableListOf<Job>()
+
+                val raceJob = bridgeScope.launch {
+                    for (domain in candidateDomains) {
+                        val job = bridgeScope.launch {
+                            val wsUrl = "wss://$domain$wsPath"
+                            val client = RawWebSocketClient(wsUrl)
+                            try {
+                                val connected = client.connectAndAwait(2000)
+                                if (connected && client.isAlive && client.send(relayInit)) {
+                                    if (raceChannel.trySend(Pair(domain, client)).isSuccess) {
+                                        return@launch
+                                    }
+                                }
+                                client.close()
+                            } catch (_: Exception) {
+                                client.close()
+                            }
                         }
-                    } catch (_: Exception) {
-                        client.close()
+                        jobs.add(job)
+                        delay(150)
                     }
+                }
+
+                try {
+                    withTimeoutOrNull(5000) {
+                        val winner = raceChannel.receive()
+                        wsClient = winner.second
+                        wsConnected = true
+                        AppLogger.i("TgWsBridge", "MTProto: Успешное быстрое WSS подключение через ${winner.first} для DC ${handshakeResult.dcId}")
+                        TgConstants.promoteDomain(winner.first)
+                        wsPool?.triggerRefill(PoolKey(handshakeResult.dcId, handshakeResult.isMedia), config.isTestEnvironment)
+                    }
+                } catch (_: Exception) {
+                } finally {
+                    raceJob.cancel()
+                    jobs.forEach { it.cancel() }
                 }
             }
 
@@ -164,8 +223,12 @@ class TgWsBridge(
                                         while (isActive) {
                                             val len = directIn.read(buf)
                                             if (len < 0) break
-                                            outputStream.write(buf, 0, len)
-                                            outputStream.flush()
+                                            if (isFakeTls) {
+                                                FakeTls.writeTlsAppData(outputStream, buf, 0, len)
+                                            } else {
+                                                outputStream.write(buf, 0, len)
+                                                outputStream.flush()
+                                            }
                                             stats.addReceived(len.toLong())
                                         }
                                     } catch (_: Throwable) {}
@@ -174,11 +237,30 @@ class TgWsBridge(
                                     }
                                 }
                                 try {
+                                    if (initialExtraPayload != null && initialExtraPayload.isNotEmpty()) {
+                                        directSocket.getOutputStream().write(initialExtraPayload)
+                                        directSocket.getOutputStream().flush()
+                                        stats.addSent(initialExtraPayload.size.toLong())
+                                    }
                                     val buf = ByteArray(bufLen)
                                     while (isActive && !clientSocket.isClosed) {
-                                        val len = inputStream.read(buf)
-                                        if (len < 0) break
-                                        directSocket.getOutputStream().write(buf, 0, len)
+                                        val dataToSend: ByteArray
+                                        val offset: Int
+                                        val len: Int
+                                        if (isFakeTls) {
+                                            val frame = FakeTls.readTlsAppData(inputStream) ?: break
+                                            if (frame.isEmpty()) continue
+                                            dataToSend = frame
+                                            offset = 0
+                                            len = frame.size
+                                        } else {
+                                            val count = inputStream.read(buf)
+                                            if (count < 0) break
+                                            dataToSend = buf
+                                            offset = 0
+                                            len = count
+                                        }
+                                        directSocket.getOutputStream().write(dataToSend, offset, len)
                                         directSocket.getOutputStream().flush()
                                         stats.addSent(len.toLong())
                                     }
@@ -194,14 +276,22 @@ class TgWsBridge(
                 return@withContext
             }
 
-            val activeWs = wsClient
+            val activeWs = wsClient ?: return@withContext
 
             // Coroutine 1: WS -> Client Socket (Download / Входящий трафик)
+            // Re-encrypt: upstream_dec(WS frame) → plaintext → client_enc(plaintext) → client socket
             val wsToClientJob = bridgeScope.launch {
                 try {
                     activeWs.messageChannel.consumeEach { frame ->
-                        outputStream.write(frame)
-                        outputStream.flush()
+                        // Re-encrypt: upstream_dec → client_enc
+                        val decrypted = upstreamDec.update(frame)
+                        val reEncrypted = clientEnc.update(decrypted)
+                        if (isFakeTls) {
+                            FakeTls.writeTlsAppData(outputStream, reEncrypted)
+                        } else {
+                            outputStream.write(reEncrypted)
+                            outputStream.flush()
+                        }
                         stats.addReceived(frame.size.toLong())
                     }
                 } catch (_: Exception) {
@@ -222,14 +312,38 @@ class TgWsBridge(
             }
 
             // Main loop: Client Socket -> WS (Upload / Исходящий трафик)
+            if (initialExtraPayload != null && initialExtraPayload.isNotEmpty()) {
+                stats.addSent(initialExtraPayload.size.toLong())
+                val packets = msgSplitter.split(initialExtraPayload, 0, initialExtraPayload.size)
+                for (packet in packets) {
+                    if (!activeWs.send(packet)) break
+                }
+            }
+
             val bufLen = config.bufferSizeBytes.coerceAtLeast(16384)
             val readBuffer = ByteArray(bufLen)
             while (isActive && !clientSocket.isClosed) {
-                val readCount = inputStream.read(readBuffer)
-                if (readCount < 0) break
+                val dataToProcess: ByteArray
+                val readOffset: Int
+                val readCount: Int
+
+                if (isFakeTls) {
+                    val frame = FakeTls.readTlsAppData(inputStream) ?: break
+                    if (frame.isEmpty()) continue
+                    dataToProcess = frame
+                    readOffset = 0
+                    readCount = frame.size
+                } else {
+                    val count = inputStream.read(readBuffer)
+                    if (count < 0) break
+                    dataToProcess = readBuffer
+                    readOffset = 0
+                    readCount = count
+                }
+
                 stats.addSent(readCount.toLong())
 
-                val packets = msgSplitter.split(readBuffer, 0, readCount)
+                val packets = msgSplitter.split(dataToProcess, readOffset, readCount)
                 for (packet in packets) {
                     if (!activeWs.send(packet)) {
                         break

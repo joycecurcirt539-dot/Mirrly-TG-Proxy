@@ -42,17 +42,54 @@ object TgConstants {
         5 to "flora.web.telegram.org"
     )
 
+    val DEFAULT_EMBEDDED_DOMAINS = listOf(
+        "virkgj.com",
+        "vmmzovy.com",
+        "mkuosckvso.com",
+        "twdmbzcm.com",
+        "awzwsldi.com",
+        "clngqrflngqin.com",
+        "tjacxbqtj.com",
+        "bxaxtxmrw.com",
+        "dmohrsgmohcrwb.com",
+        "vwbmtmoi.com",
+        "khgrre.com",
+        "ulihssf.com",
+        "tmhqsdqmfpmk.com",
+        "xwuwoqbm.com",
+        "orgcnunpj.com",
+        "zhkuldz.com",
+        "zypoljnslxa.com",
+        "efabnxaowuzs.com",
+        "zaftuzsftqdq.com"
+    )
+
     const val WS_PATH = "/apiws"
     const val WS_PATH_TEST = "/apiws_test"
 
+    private val dynamicEmbeddedDomains = java.util.concurrent.CopyOnWriteArrayList(DEFAULT_EMBEDDED_DOMAINS)
+
+    fun promoteDomain(domain: String) {
+        if (dynamicEmbeddedDomains.remove(domain)) {
+            dynamicEmbeddedDomains.add(0, domain)
+        }
+    }
+
     fun getWsDomains(dc: Int, isMedia: Boolean?): List<String> {
-        val targetDc = if (dc == 203) 2 else dc
+        val targetDc = if (dc == 203) 2 else if (dc in 1..5) dc else 2
         val named = NAMED_GATEWAYS[targetDc] ?: "venus.web.telegram.org"
-        return if (isMedia == true) {
+        val nativeDomains = if (isMedia == true) {
             listOf("kws$targetDc-1.web.telegram.org", "kws$targetDc.web.telegram.org", named)
         } else {
             listOf("kws$targetDc.web.telegram.org", "kws$targetDc-1.web.telegram.org", named)
         }
+        val embeddedFormatted = mutableListOf<String>()
+        for (domain in dynamicEmbeddedDomains) {
+            val kwsDomain = if (isMedia == true) "kws$targetDc-1.$domain" else "kws$targetDc.$domain"
+            embeddedFormatted.add(kwsDomain)
+            embeddedFormatted.add(domain)
+        }
+        return nativeDomains + embeddedFormatted
     }
 
     /**

@@ -203,6 +203,13 @@ fun TelegramConnectDialog(
                             Button(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (app.config.isSocks5Mode) {
+                                        app.config.proxyModeName = com.mirrly.tgproxy.core.ProxyMode.MTPROTO.name
+                                        app.prefsManager.saveConfig(app.config)
+                                        if (app.proxyServer.isRunning) {
+                                            app.proxyServer.restart(context.cacheDir)
+                                        }
+                                    }
                                     onDismiss()
                                     applyToTelegramPackages(context, mtprotoUrl)
                                 },
@@ -297,6 +304,13 @@ fun TelegramConnectDialog(
                             Button(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (!app.config.isSocks5Mode) {
+                                        app.config.proxyModeName = com.mirrly.tgproxy.core.ProxyMode.SOCKS5.name
+                                        app.prefsManager.saveConfig(app.config)
+                                        if (app.proxyServer.isRunning) {
+                                            app.proxyServer.restart(context.cacheDir)
+                                        }
+                                    }
                                     onDismiss()
                                     applyToTelegramPackages(context, socks5Url)
                                 },

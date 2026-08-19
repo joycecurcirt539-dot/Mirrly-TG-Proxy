@@ -211,8 +211,9 @@ class Socks5WsBridge(
         // Priority 1: Cloudflare Worker WSS Forwarding (if custom worker is configured)
         val cfDomain = config.getEffectiveCfDomain()
         if (config.cfProxyEnabled && cfDomain.isNotBlank()) {
-            val wsUrl = "wss://$cfDomain/tcp?target=$targetHost:$targetPort&host=$targetHost&port=$targetPort"
-            AppLogger.i("Socks5WsBridge", "🌐 [SOCKS5 WSS] Подключение к туннелю Cloudflare Worker ($cfDomain) для $targetHost:$targetPort...")
+            val targetSpec = if (targetHost.contains(":") && !targetHost.startsWith("[")) "[$targetHost]:$targetPort" else "$targetHost:$targetPort"
+            val wsUrl = "wss://$cfDomain/tcp?target=$targetSpec&host=$targetHost&port=$targetPort"
+            AppLogger.i("Socks5WsBridge", "🌐 [SOCKS5 WSS] Подключение к туннелю Cloudflare Worker ($cfDomain) для $targetSpec...")
             val client = RawWebSocketClient(wsUrl)
             try {
                 val connected = client.connectAndAwait(5000)

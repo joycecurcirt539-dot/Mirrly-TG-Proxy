@@ -57,38 +57,91 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     var currentPingMs: Long = -1L
         private set
 
-    @Volatile
-    var isTransitioning: Boolean = false
-        private set
-
     val uptimeSeconds: Long
         get() = if (isRunning && startTimeMs > 0L) (System.currentTimeMillis() - startTimeMs) / 1000L else 0L
 
     @Synchronized
     fun start(cacheDir: File? = null): Boolean {
-        if (isRunning || isTransitioning) return isRunning
-        isTransitioning = true
-        try {
-            return performStart(cacheDir)
-        } finally {
-            isTransitioning = false
-        }
+        if (isRunning) return true
+        return performStart(cacheDir)
     }
 
     private fun performStart(cacheDir: File?): Boolean {
         stats.resetBaseline()
 
-        // В режиме SOCKS5 — запускаем только SOCKS5-движок (прозрачный TCP relay)
+        // В режиме SOCKS5 — сначала пробуем высокопроизводительный нативный SOCKS5 Rust-движок (с фолбеком на Kotlin)
         if (config.isSocks5Mode) {
-            isNativeRunning = false
-            if (wsPool == null) {
-                wsPool = WsPool(config.poolSize)
+            AppLogger.i("LocalProxyServer", "Настройка нативного SOCKS5 движка прокси...")
+            var nativeStarted = false
+            try {
+                if (cacheDir != null) {
+                    try {
+                        NativeProxy.setCfProxyCacheDir(cacheDir.absolutePath)
+                    } catch (t: Throwable) {
+                        AppLogger.e("LocalProxyServer", "Не удалось установить кэш-директорию Cloudflare: ${t.message}")
+                    }
+                }
+
+                NativeProxy.setPoolSize(config.poolSize.coerceIn(2, 16))
+
+                val useCf = config.cfProxyEnabled
+                val workerDomain = config.getEffectiveCfDomain()
+
+                NativeProxy.setCfProxyConfig(
+                    enabled = useCf,
+                    priority = !config.fallbackDirectTcp,
+                    userDomain = workerDomain
+                )
+
+                var code = NativeProxy.startSocks5Proxy(
+                    host = config.bindHost,
+                    port = config.socks5Port,
+                    verbose = if (config.verboseLogs) 1 else 0
+                )
+
+                if (code == 3) {
+                    AppLogger.w("LocalProxyServer", "Порт SOCKS5 ${config.socks5Port} всё ещё освобождается (code 3), повторный запуск...")
+                    code = NativeProxy.startSocks5Proxy(
+                        host = config.bindHost,
+                        port = config.socks5Port,
+                        verbose = if (config.verboseLogs) 1 else 0
+                    )
+                }
+
+                if (code == 0) {
+                    nativeStarted = true
+                    isNativeRunning = true
+                    isRunning = true
+                    if (startTimeMs == 0L) {
+                        startTimeMs = System.currentTimeMillis()
+                    }
+                    AppLogger.i("LocalProxyServer", "Нативный SOCKS5 движок успешно запущен на порту ${config.socks5Port}")
+                } else {
+                    AppLogger.w("LocalProxyServer", "Нативный SOCKS5 движок вернул код $code, переключение на Kotlin-fallback")
+                }
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "Сбой запуска нативного SOCKS5 движка: ${t.message}, запуск Kotlin fallback")
             }
-            val ok = startSocks5Engine()
-            if (!ok) return false
+
+            if (!nativeStarted) {
+                isNativeRunning = false
+                if (wsPool == null) {
+                    wsPool = WsPool(config.poolSize)
+                }
+                val ok = startSocks5Engine()
+                if (!ok) return false
+            }
 
             speedJob = scope.launch {
                 while (isActive && isRunning) {
+                    if (isNativeRunning) {
+                        try {
+                            val nativeStats = NativeProxy.getStats()
+                            if (!nativeStats.isNullOrEmpty()) {
+                                stats.parseNativeStats(nativeStats)
+                            }
+                        } catch (_: Exception) {}
+                    }
                     stats.updateSpeed()
                     if (System.currentTimeMillis() % 5000 < 1000) {
                         measurePingAsync()
@@ -116,19 +169,9 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             val useCf = config.cfProxyEnabled
             val workerDomain = config.getEffectiveCfDomain()
 
-            // Если для MTProto задан Cloudflare Worker (кастомный или дефолтный), запускаем Kotlin TgWsBridge с WSS TCP туннелированием
-            if (workerDomain.isNotEmpty()) {
-                AppLogger.i("LocalProxyServer", "Для MTProto активен Cloudflare Worker ($workerDomain). Запуск Kotlin TgWsBridge...")
-                isNativeRunning = false
-                if (wsPool == null) {
-                    wsPool = WsPool(config.poolSize)
-                }
-                return startKotlinEngine()
-            }
-
             NativeProxy.setCfProxyConfig(
                 enabled = useCf,
-                priority = useCf,
+                priority = !config.fallbackDirectTcp,
                 userDomain = workerDomain
             )
 
@@ -141,10 +184,8 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 verbose = if (config.verboseLogs) 1 else 0
             )
 
-            // Если сокет ещё освобождается стеком ОС (code 3 = EADDRINUSE) -> ждём 350мс и пробуем повторно
             if (code == 3) {
-                AppLogger.w("LocalProxyServer", "Порт ${config.bindPort} всё ещё освобождается (code 3), повторная попытка через 350мс...")
-                try { Thread.sleep(350) } catch (_: Exception) {}
+                AppLogger.w("LocalProxyServer", "Порт ${config.bindPort} всё ещё освобождается (code 3), повторный запуск...")
                 code = NativeProxy.startProxy(
                     host = config.bindHost,
                     port = config.bindPort,
@@ -218,7 +259,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             } catch (e: Exception) {
                 lastErr = e
                 AppLogger.w("LocalProxyServer", "Попытка $attempt биндинга Kotlin-движка на ${config.bindPort} не удалась: ${e.message}")
-                try { Thread.sleep(250) } catch (_: Exception) {}
             }
         }
         if (socket == null) {
@@ -268,7 +308,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             } catch (e: Exception) {
                 lastErr = e
                 AppLogger.w("LocalProxyServer", "Попытка $attempt биндинга SOCKS5-движка на ${config.activePort} не удалась: ${e.message}")
-                try { Thread.sleep(250) } catch (_: Exception) {}
             }
         }
         if (socket == null) {
@@ -306,13 +345,8 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     @Synchronized
     fun stop() {
-        if (!isRunning) return
-        isTransitioning = true
-        try {
-            performStop()
-        } finally {
-            isTransitioning = false
-        }
+        if (!isRunning && !isNativeRunning && serverSocket == null && socks5ServerSocket == null) return
+        performStop()
     }
 
     private fun performStop() {
@@ -340,18 +374,13 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         } catch (_: Exception) {}
         wsPool = null
 
-        if (isNativeRunning) {
-            isNativeRunning = false
-            try {
-                NativeProxy.stopProxy()
-                AppLogger.i("LocalProxyServer", "Движок прокси успешно остановлен")
-            } catch (t: Throwable) {
-                AppLogger.e("LocalProxyServer", "Ошибка остановки нативного движка: ${t.message}")
-            }
+        isNativeRunning = false
+        try {
+            NativeProxy.stopProxy()
+            AppLogger.i("LocalProxyServer", "Движок прокси успешно остановлен")
+        } catch (t: Throwable) {
+            AppLogger.e("LocalProxyServer", "Ошибка остановки нативного движка: ${t.message}")
         }
-
-        // Кроткая пауза 250 мс для полного освобождения порта сокета стеком ОС
-        try { Thread.sleep(250) } catch (_: Exception) {}
     }
 
     @Synchronized
@@ -424,12 +453,22 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         } catch (e: Exception) {
             AppLogger.w("LocalProxyServer", "Ошибка при обновлении WsPool: ${e.message}")
         }
+        if (isNativeRunning) {
+            try {
+                NativeProxy.resetNetworkSockets()
+            } catch (_: Exception) {}
+        }
     }
 
     fun resetWsPool() {
         try {
             wsPool?.clear()
         } catch (_: Exception) {}
+        if (isNativeRunning) {
+            try {
+                NativeProxy.resetNetworkSockets()
+            } catch (_: Exception) {}
+        }
     }
 
     fun getPoolSocketCount(): Int = wsPool?.availableSockets ?: 0
@@ -438,7 +477,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         val cleanSecret = config.rawSecret32
         val secretWithPrefix = when {
             config.secretHex.startsWith("ee") || config.secretHex.startsWith("dd") -> config.secretHex
-            else -> "ee$cleanSecret"
+            else -> "dd$cleanSecret"
         }
         return "tg://proxy?server=${config.bindHost}&port=${config.bindPort}&secret=$secretWithPrefix"
     }

@@ -44,19 +44,11 @@ class RawWebSocketClient(
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            val result = messageChannel.trySend(bytes.toByteArray())
-            if (!result.isSuccess) {
-                AppLogger.w("RawWebSocketClient", "⚠️ messageChannel.trySend failed. Closing WS to prevent TCP stream corruption.")
-                close()
-            }
+            messageChannel.trySend(bytes.toByteArray())
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            val result = messageChannel.trySend(text.toByteArray(Charsets.UTF_8))
-            if (!result.isSuccess) {
-                AppLogger.w("RawWebSocketClient", "⚠️ messageChannel.trySend failed. Closing WS to prevent TCP stream corruption.")
-                close()
-            }
+            messageChannel.trySend(text.toByteArray(Charsets.UTF_8))
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {

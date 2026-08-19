@@ -37,6 +37,8 @@ class Socks5ProtocolTest {
         assertEquals(Pair(4, false), TgConstants.findDcByTarget("149.154.167.91"))
         // DC5
         assertEquals(Pair(5, false), TgConstants.findDcByTarget("91.108.56.130"))
+        // DC203 (Test/Prod cluster)
+        assertEquals(Pair(203, false), TgConstants.findDcByTarget("91.105.192.100"))
         // Named gateways
         assertEquals(Pair(2, false), TgConstants.findDcByTarget("venus.web.telegram.org"))
         assertEquals(Pair(1, false), TgConstants.findDcByTarget("pluto.web.telegram.org"))
@@ -65,13 +67,22 @@ class Socks5ProtocolTest {
     @Test
     fun testUnstartedNativeProxyStopSafety() {
         assertFalse(NativeProxy.isStarted)
-        // Calling stopProxy, getStats, setPoolSize on unstarted NativeProxy must be safe no-ops
+        // Calling stopProxy, getStats, setPoolSize, resetNetworkSockets on unstarted NativeProxy must be safe no-ops
         assertEquals(0, NativeProxy.stopProxy())
         assertNull(NativeProxy.getStats())
         assertNull(NativeProxy.getSecretWithPrefix())
         assertDoesNotThrow { NativeProxy.setPoolSize(4) }
         assertDoesNotThrow { NativeProxy.setSecret("testsecret") }
+        assertDoesNotThrow { NativeProxy.resetNetworkSockets() }
         assertFalse(NativeProxy.isStarted)
+    }
+
+    @Test
+    fun testLocalProxyServerNetworkReset() {
+        val config = ProxyConfig(bindHost = "127.0.0.1", bindPort = 19870)
+        val server = LocalProxyServer(config)
+        assertDoesNotThrow { server.onNetworkRestored() }
+        assertDoesNotThrow { server.resetWsPool() }
     }
 
     @Test

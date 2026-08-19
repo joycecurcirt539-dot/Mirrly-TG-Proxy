@@ -64,7 +64,6 @@ class PreferencesManager(context: Context) {
         }
 
         val useDefaultSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
-        val useDefaultMtproto = prefs.getBoolean("use_default_worker_mtproto", defaults.useDefaultWorkerMtproto)
 
         return ProxyConfig(
             bindHost = bindHost,
@@ -80,7 +79,6 @@ class PreferencesManager(context: Context) {
             bufferSizeBytes = bufferSizeBytes,
             socks5Port = socks5Port,
             useDefaultWorkerSocks5 = useDefaultSocks5,
-            useDefaultWorkerMtproto = useDefaultMtproto,
             proxyModeName = proxyModeName
         )
     }
@@ -102,7 +100,6 @@ class PreferencesManager(context: Context) {
             .putInt("buffer_size_bytes", config.bufferSizeBytes)
             .putInt("socks5_port", config.socks5Port)
             .putBoolean("use_default_worker_socks5", config.useDefaultWorkerSocks5)
-            .putBoolean("use_default_worker_mtproto", config.useDefaultWorkerMtproto)
             .putString("proxy_mode", config.proxyModeName)
             .apply()
         _isSocks5Flow.value = config.isSocks5Mode

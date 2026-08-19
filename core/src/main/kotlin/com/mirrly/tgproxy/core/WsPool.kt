@@ -94,9 +94,13 @@ class WsPool(@Volatile var poolSize: Int = 4) {
                 val url = "wss://$domain$wsPath"
                 try {
                     val client = RawWebSocketClient(url)
-                    val connected = client.connectAndAwait(3000)
+                    val connected = client.connectAndAwait(2000)
                     if (connected && client.isAlive) {
-                        queue.add(PooledSocket(client, System.currentTimeMillis()))
+                        if (queue.size < poolSize) {
+                            queue.add(PooledSocket(client, System.currentTimeMillis()))
+                        } else {
+                            client.close()
+                        }
                         break
                     } else {
                         client.close()

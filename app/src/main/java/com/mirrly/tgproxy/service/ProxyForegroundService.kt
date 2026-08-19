@@ -67,7 +67,7 @@ class ProxyForegroundService : Service() {
             }
 
             if (app.proxyServer.isRunning) {
-                // 1. Мгновенный сброс протухших сокетов и упреждающий прогрев WSS
+                // Мгновенный сброс устаревших апстрим-сокетов и прогрев WSS на новом интерфейсе без разрыва локального сокета 127.0.0.1
                 app.proxyServer.onNetworkRestored()
 
                 if (oldType == "Wi-Fi" && (newType.contains("Mobile") || newType.contains("Cellular"))) {
@@ -77,31 +77,6 @@ class ProxyForegroundService : Service() {
                         showToastOnMainThread("Переключено на мобильную сеть. Прокси активен (${humanBytes(totalBytes)} за сессию)")
                     } else {
                         showToastOnMainThread("Переключено на мобильную сеть. Прокси активен")
-                    }
-                }
-
-                if (app.prefsManager.isAutoReconnectEnabled()) {
-                    isReconnectingNetwork = true
-                    serviceScope.launch {
-                        try {
-                            delay(500)
-                            if (app.proxyServer.isRunning) {
-                                app.proxyServer.stop()
-                                delay(350)
-                                val started = app.proxyServer.start(cacheDir)
-                                if (started) {
-                                    app.proxyServer.onNetworkRestored()
-                                    withContext(Dispatchers.Main) {
-                                        startNotificationUpdates()
-                                        startWakeLockRefresh()
-                                    }
-                                }
-                            }
-                        } catch (_: Exception) {
-                        } finally {
-                            delay(1000)
-                            isReconnectingNetwork = false
-                        }
                     }
                 }
             }
@@ -238,7 +213,7 @@ class ProxyForegroundService : Service() {
         val tgUrl = if (config.isSocks5Mode) {
             server.getTelegramSocks5Url()
         } else {
-            "tg://proxy?server=${config.bindHost}&port=${config.bindPort}&secret=${config.secretHex}"
+            server.getTelegramProxyUrl()
         }
         val label = if (config.isSocks5Mode) "tg://socks" else "tg://proxy"
 
@@ -247,7 +222,7 @@ class ProxyForegroundService : Service() {
             val clip = ClipData.newPlainText("Telegram Proxy Link", tgUrl)
             clipboard.setPrimaryClip(clip)
             showToastOnMainThread("Ссылка $label скопирована!")
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             showToastOnMainThread("Ошибка копирования ссылки")
         }
     }
@@ -487,7 +462,7 @@ class ProxyForegroundService : Service() {
         } catch (_: Exception) {}
         NotificationHelper.cancelProxyNotifications(this)
 
-        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+        serviceScope.launch {
             try {
                 val server = MirrlyApplication.instance.proxyServer
 
@@ -506,15 +481,14 @@ class ProxyForegroundService : Service() {
 
                 server.stop()
 
-                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     ProxyTileService.requestSync(this@ProxyForegroundService)
                     NotificationHelper.cancelProxyNotifications(this@ProxyForegroundService)
                     stopSelf()
-                    try { serviceScope.cancel() } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Ошибка при остановке службы: ${e.message}")
-                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
                     NotificationHelper.cancelProxyNotifications(this@ProxyForegroundService)
                     stopSelf()
                 }
@@ -522,21 +496,10 @@ class ProxyForegroundService : Service() {
         }
     }
 
-    private fun formatDuration(seconds: Long): String {
-        if (seconds < 60) return "$seconds сек"
-        val minutes = seconds / 60
-        val remainingSec = seconds % 60
-        if (minutes < 60) {
-            return if (remainingSec > 0) "${minutes}мин ${remainingSec}сек" else "${minutes}мин"
-        }
-        val hours = minutes / 60
-        val remainingMin = minutes % 60
-        return if (remainingMin > 0) "${hours}ч ${remainingMin}мин" else "${hours}ч"
-    }
-
     override fun onDestroy() {
         stopProxyService()
         NotificationHelper.cancelProxyNotifications(this)
+        try { serviceScope.cancel() } catch (_: Exception) {}
         super.onDestroy()
     }
 

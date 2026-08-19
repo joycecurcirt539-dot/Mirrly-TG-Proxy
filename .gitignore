@@ -50,4 +50,18 @@ app/.cxx/
 .verify_check/
 .vscode/
 
+# Rust / Cargo
+target/
+mirrlyengine/target/
+**/target/
+.cargo/
 
+# Scratch & Legacy analysis
+scratch/
+legacy/
+mirrlyengine/legacy/
+
+# Editor swap and temp files
+*.swp
+*.swo
+*~

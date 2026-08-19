@@ -4,77 +4,84 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-class MsgSplitter(relayInit: ByteArray, private val protoInt: Int) {
-    private val decCipher: AesCtrCipher
-    private val cipherBuf = ByteArrayOutputStream()
+/**
+ * Splits MTProto stream into discrete packets for WebSocket /apiws framing.
+ * Performs full re-encryption: client_dec(ciphertext) -> plaintext -> upstream_enc(plaintext).
+ * This is required because Telegram WS server expects data encrypted with the relay_init upstream key,
+ * NOT the client's original encryption key.
+ *
+ * @param clientDec AES-CTR cipher initialized with the client's handshake decryption key (already +64 discarded)
+ * @param upstreamEnc AES-CTR cipher initialized with the upstream relay_init encryption key (already +64 discarded)
+ */
+class MsgSplitter(
+    private val clientDec: AesCtrCipher,
+    private val upstreamEnc: AesCtrCipher,
+    private val protoInt: Int
+) {
+    /**
+     * Convenience constructor initializing symmetric ciphers from relayInit.
+     */
+    constructor(relayInit: ByteArray, protoInt: Int) : this(
+        AesCtrCipher(relayInit.copyOfRange(8, 40), relayInit.copyOfRange(40, 56)).also { it.update(ByteArray(64)) },
+        AesCtrCipher(relayInit.copyOfRange(8, 40), relayInit.copyOfRange(40, 56)).also { it.update(ByteArray(64)) },
+        protoInt
+    )
+
     private val plainBuf = ByteArrayOutputStream()
     private var disabled = false
-
-    init {
-        val key = relayInit.copyOfRange(8, 40)
-        val iv = relayInit.copyOfRange(40, 56)
-        decCipher = AesCtrCipher(key, iv)
-        // Discard 64 bytes keystream
-        decCipher.update(ByteArray(64))
-    }
 
     @Synchronized
     fun split(chunk: ByteArray, offset: Int = 0, length: Int = chunk.size): List<ByteArray> {
         if (length <= 0) return emptyList()
         if (disabled) {
+            // After disable, pass data with re-encryption but without splitting
             val slice = if (offset == 0 && length == chunk.size) chunk else chunk.copyOfRange(offset, offset + length)
-            return listOf(slice)
+            val decrypted = clientDec.update(slice)
+            return listOf(upstreamEnc.update(decrypted))
         }
 
-        val decrypted = decCipher.update(chunk, offset, length)
+        val decrypted = clientDec.update(chunk, offset, length)
 
-        val cipherBytes: ByteArray
         val plainBytes: ByteArray
-        val hasResidue = cipherBuf.size() > 0
+        val hasResidue = plainBuf.size() > 0
 
         if (hasResidue) {
-            cipherBuf.write(chunk, offset, length)
             plainBuf.write(decrypted)
-            cipherBytes = cipherBuf.toByteArray()
             plainBytes = plainBuf.toByteArray()
         } else {
-            cipherBytes = chunk
             plainBytes = decrypted
         }
 
         val parts = mutableListOf<ByteArray>()
         var curPlainOffset = 0
-        val bufLen = if (hasResidue) cipherBytes.size else length
+        val bufLen = plainBytes.size
 
         while (curPlainOffset < bufLen) {
             val avail = bufLen - curPlainOffset
             val packetLen = nextPacketLen(plainBytes, curPlainOffset, avail) ?: break
             if (packetLen <= 0) {
-                val startCipherOffset = if (hasResidue) curPlainOffset else (offset + curPlainOffset)
-                val endCipherOffset = if (hasResidue) cipherBytes.size else (offset + bufLen)
-                parts.add(cipherBytes.copyOfRange(startCipherOffset, endCipherOffset))
+                // Unknown protocol — re-encrypt and pass through remaining data
+                val remaining = plainBytes.copyOfRange(curPlainOffset, bufLen)
+                parts.add(upstreamEnc.update(remaining))
                 curPlainOffset = bufLen
                 disabled = true
                 break
             }
-            val startCipherOffset = if (hasResidue) curPlainOffset else (offset + curPlainOffset)
-            parts.add(cipherBytes.copyOfRange(startCipherOffset, startCipherOffset + packetLen))
+            val packet = plainBytes.copyOfRange(curPlainOffset, curPlainOffset + packetLen)
+            parts.add(upstreamEnc.update(packet))
             curPlainOffset += packetLen
         }
 
         if (hasResidue) {
             if (curPlainOffset > 0) {
                 val remainingLen = bufLen - curPlainOffset
-                cipherBuf.reset()
                 plainBuf.reset()
                 if (remainingLen > 0) {
-                    cipherBuf.write(cipherBytes, curPlainOffset, remainingLen)
                     plainBuf.write(plainBytes, curPlainOffset, remainingLen)
                 }
             }
         } else {
             if (curPlainOffset < bufLen) {
-                cipherBuf.write(cipherBytes, offset + curPlainOffset, bufLen - curPlainOffset)
                 plainBuf.write(plainBytes, curPlainOffset, bufLen - curPlainOffset)
             }
         }
@@ -84,10 +91,9 @@ class MsgSplitter(relayInit: ByteArray, private val protoInt: Int) {
 
     @Synchronized
     fun flush(): List<ByteArray> {
-        val remaining = cipherBuf.toByteArray()
-        cipherBuf.reset()
+        val remaining = plainBuf.toByteArray()
         plainBuf.reset()
-        return if (remaining.isNotEmpty()) listOf(remaining) else emptyList()
+        return if (remaining.isNotEmpty()) listOf(upstreamEnc.update(remaining)) else emptyList()
     }
 
     private fun nextPacketLen(plain: ByteArray, offset: Int, avail: Int): Int? {

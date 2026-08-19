@@ -25,12 +25,14 @@ import com.sun.jna.Pointer
 interface ProxyLibrary : Library {
     companion object {
         val INSTANCE: ProxyLibrary by lazy {
-            Native.load("tgwsproxy", ProxyLibrary::class.java) as ProxyLibrary
+            Native.load("mirrlyengine", ProxyLibrary::class.java) as ProxyLibrary
         }
     }
 
     fun StartProxy(host: String, port: Int, dcIps: String, secret: String, verbose: Int): Int
+    fun StartSocks5Proxy(host: String, port: Int, verbose: Int): Int
     fun StopProxy(): Int
+    fun ResetNetworkSockets()
     fun SetPoolSize(size: Int)
     fun SetCfProxyCacheDir(cacheDir: String)
     fun SetCfProxyConfig(enabled: Int, priority: Int, userDomain: String)
@@ -57,6 +59,18 @@ object NativeProxy {
         }
     }
 
+    fun startSocks5Proxy(host: String, port: Int, verbose: Int): Int {
+        return try {
+            val code = ProxyLibrary.INSTANCE.StartSocks5Proxy(host, port, verbose)
+            if (code == 0) {
+                isStarted = true
+            }
+            code
+        } catch (_: Throwable) {
+            -1
+        }
+    }
+
     fun stopProxy(): Int {
         if (!isStarted) {
             return 0
@@ -67,6 +81,13 @@ object NativeProxy {
         } catch (t: Throwable) {
             -1
         }
+    }
+
+    fun resetNetworkSockets() {
+        if (!isStarted) return
+        try {
+            ProxyLibrary.INSTANCE.ResetNetworkSockets()
+        } catch (_: Throwable) {}
     }
 
     fun setPoolSize(size: Int) {

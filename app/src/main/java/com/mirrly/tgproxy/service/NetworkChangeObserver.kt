@@ -15,6 +15,7 @@ class NetworkChangeObserver(
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var lastNetwork: Network? = null
     private var lastActiveNetworkType: String = ""
 
     fun start() {
@@ -27,17 +28,24 @@ class NetworkChangeObserver(
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 val currentType = getCurrentNetworkTypeName()
-                if (lastActiveNetworkType != currentType) {
+                val isNetworkChanged = (lastNetwork != null && lastNetwork != network)
+                if (lastActiveNetworkType != currentType || isNetworkChanged) {
                     val oldType = lastActiveNetworkType
                     lastActiveNetworkType = currentType
+                    lastNetwork = network
                     onNetworkChanged(currentType, oldType)
+                } else {
+                    lastNetwork = network
                 }
             }
 
             override fun onLost(network: Network) {
-                val oldType = lastActiveNetworkType
-                lastActiveNetworkType = "DISCONNECTED"
-                onNetworkChanged("DISCONNECTED", oldType)
+                if (lastNetwork == network || lastNetwork == null) {
+                    val oldType = lastActiveNetworkType
+                    lastActiveNetworkType = "DISCONNECTED"
+                    lastNetwork = null
+                    onNetworkChanged("DISCONNECTED", oldType)
+                }
             }
         }
 

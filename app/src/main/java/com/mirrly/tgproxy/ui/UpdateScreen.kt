@@ -468,15 +468,14 @@ fun UpdateScreen(
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 val info = releaseInfo
-                                                val rawUrl = info?.downloadUrl
-                                                if (info != null && !rawUrl.isNullOrBlank()) {
-                                                    val validUrl = rawUrl
+                                                val url = info?.downloadUrl
+                                                if (!url.isNullOrBlank()) {
                                                     coroutineScope.launch {
                                                         UpdateDownloader.downloadAndVerifyApk(
                                                             context = context,
-                                                            downloadUrl = validUrl,
-                                                            expectedSha256List = info.expectedSha256List,
-                                                            versionName = info.versionName
+                                                            downloadUrl = url,
+                                                            expectedSha256List = info?.expectedSha256List.orEmpty(),
+                                                            versionName = info?.versionName.orEmpty()
                                                         )
                                                     }
                                                 } else {

@@ -122,7 +122,46 @@ object HumanLogTranslator {
                 "Настройка нативного движка MTProto..."
             }
 
-            // Telegram Clients & Socket Pool
+            // Telegram Clients & Native Engine Events
+            msg.contains("Incoming MTProto client connected from", ignoreCase = true) -> {
+                val ip = msg.substringAfter("from", "").trim()
+                if (ip.isNotEmpty()) "MTProto: Подключение Telegram-клиента ($ip)" else "MTProto: Подключение Telegram-клиента"
+            }
+            msg.contains("Handshake parsed:", ignoreCase = true) -> {
+                val dcMatch = Regex("""dc_id=(\d+)""").find(msg)?.groupValues?.get(1) ?: ""
+                val targetMatch = Regex("""target_dc=([0-9\.:]+)""").find(msg)?.groupValues?.get(1) ?: ""
+                if (dcMatch.isNotEmpty() && targetMatch.isNotEmpty()) {
+                    "MTProto: Рукопожатие клиента (Telegram DC $dcMatch, $targetMatch)"
+                } else {
+                    "MTProto: Рукопожатие Telegram-клиента"
+                }
+            }
+            msg.contains("Connected 1-hop Native WS to", ignoreCase = true) -> {
+                val dom = msg.substringAfter("to", "").substringBefore("!").trim()
+                "WSS: Успешный туннель через Cloudflare ($dom), передача MTProto данных"
+            }
+            msg.contains("Pre-warmed socket in pool for", ignoreCase = true) -> {
+                val dc = Regex("""DC(\d+)""").find(msg)?.groupValues?.get(1) ?: ""
+                val dom = msg.substringAfter("via", "").trim()
+                "Пул сокетов: Прогрет WSS-сокет для DC $dc через $dom"
+            }
+            msg.contains("Successfully fetched", ignoreCase = true) && msg.contains("upstream cfproxy domains", ignoreCase = true) -> {
+                val count = Regex("""fetched\s+(\d+)""").find(msg)?.groupValues?.get(1) ?: ""
+                "Загружен актуальный список $count CDN-доменов Cloudflare Fronting"
+            }
+            msg.contains("WS connect to", ignoreCase = true) && msg.contains("failed", ignoreCase = true) -> {
+                val dom = Regex("""connect to\s+([0-9a-zA-Z\._-]+)""").find(msg)?.groupValues?.get(1) ?: ""
+                "Cloudflare Fronting: Сбой подключения к узлу $dom"
+            }
+            msg.contains("MTProto client connection closed", ignoreCase = true) -> {
+                "MTProto: Соединение с Telegram-клиентом завершено"
+            }
+            msg.contains("StartProxy requested:", ignoreCase = true) -> {
+                "Запуск нативного движка прокси mirrlyengine"
+            }
+            msg.contains("SetCfProxyConfig:", ignoreCase = true) -> {
+                "Обновлена конфигурация Cloudflare туннелирования"
+            }
             msg.contains("Client connected", ignoreCase = true) || msg.contains("Accepted connection", ignoreCase = true) -> {
                 "Telegram-клиент подключился к прокси"
             }

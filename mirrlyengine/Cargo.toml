@@ -1,0 +1,39 @@
+[package]
+name = "mirrlyengine"
+version = "1.0.0"
+edition = "2021"
+authors = ["R1Xern (Mirrly Dev)"]
+description = "Mirrly TG Proxy - High Performance Native MTProto & WebSocket Engine"
+
+[lib]
+name = "mirrlyengine"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = "1.10"
+webpki-roots = "0.26"
+ring = { version = "0.17", default-features = false, features = ["std"] }
+aes = "0.8"
+ctr = "0.9"
+sha2 = "0.10"
+hmac = "0.12"
+rand = "0.8"
+httparse = "1.9"
+base64 = "0.22"
+hex = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-manual-roots-no-provider", "json"] }
+parking_lot = "0.12"
+socket2 = { version = "0.5", features = ["all"] }
+url = "2.5"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

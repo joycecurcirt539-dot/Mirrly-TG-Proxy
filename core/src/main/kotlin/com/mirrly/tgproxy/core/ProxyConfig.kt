@@ -19,22 +19,22 @@ enum class ProxyMode {
 data class ProxyConfig(
     var bindHost: String = "127.0.0.1",
     var bindPort: Int = 1443,
-    var secretHex: String = "ee000000000000000000000000000000",
+    var secretHex: String = "dd00000000000000000000000000000000",
     var cfProxyEnabled: Boolean = true,
     var customCfDomain: String = "",
     var poolSize: Int = 8, // 8 pre-warmed sockets per DC for instant 0ms response
     var isDcAuto: Boolean = true,
     var autostartOnBoot: Boolean = false,
     var verboseLogs: Boolean = true,
-    var fallbackDirectTcp: Boolean = true,
+    var fallbackDirectTcp: Boolean = false,
     var isTestEnvironment: Boolean = false,
     var speedPresetName: String = SpeedPreset.BALANCED.name,
     var tcpNoDelay: Boolean = true,
     var bufferSizeBytes: Int = 131072, // 128KB default buffer
     var socks5Port: Int = 10808,
-    // Раздельные флаги вызова встроенного (временно поднятого) воркера
+    // Флаг вызова встроенного воркера разработчика (только для SOCKS5)
     var useDefaultWorkerSocks5: Boolean = true,
-    var useDefaultWorkerMtproto: Boolean = false,
+    var useDefaultWorkerMtproto: Boolean = true,
     // proxyModeName — единый источник истины (MTPROTO или SOCKS5)
     var proxyModeName: String = ProxyMode.MTPROTO.name,
     // Оставляем для обратной совместимости с PreferencesManager
@@ -67,12 +67,10 @@ data class ProxyConfig(
         if (userDomain.isNotEmpty()) {
             return userDomain
         }
-        val defaultDomain = if (isSocks5Mode) {
-            if (useDefaultWorkerSocks5) "mirrly-tg-proxy-worker.brawny-singer.workers.dev" else ""
-        } else {
-            if (useDefaultWorkerMtproto) "mirrly-tg-proxy-worker.brawny-singer.workers.dev" else ""
+        if ((isSocks5Mode && useDefaultWorkerSocks5) || (!isSocks5Mode && useDefaultWorkerMtproto)) {
+            return "mirrly-tg-proxy-worker.brawny-singer.workers.dev"
         }
-        return sanitizeDomain(defaultDomain)
+        return ""
     }
 
     val rawSecret32: String
@@ -130,7 +128,7 @@ data class ProxyConfig(
         fun generateRandomSecret(): String {
             val randomBytes = ByteArray(16)
             java.security.SecureRandom().nextBytes(randomBytes)
-            return bytesToHex(randomBytes)
+            return "dd" + bytesToHex(randomBytes)
         }
     }
 }

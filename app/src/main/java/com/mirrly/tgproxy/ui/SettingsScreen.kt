@@ -423,7 +423,6 @@ fun SettingsScreen(
     var showSecret by remember { mutableStateOf(false) }
     var customDomainText by remember { mutableStateOf(config.customCfDomain) }
     var useDefaultWorkerSocks5 by remember { mutableStateOf(config.useDefaultWorkerSocks5) }
-    var useDefaultWorkerMtproto by remember { mutableStateOf(config.useDefaultWorkerMtproto) }
 
     var selectedMode by remember { mutableStateOf(config.proxyMode) }
     var showSocks5WarningDialog by remember { mutableStateOf(false) }
@@ -1108,19 +1107,34 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text("Кастомный домен воркера", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFFB388FF).copy(alpha = 0.12f))
+                                .border(1.dp, Color(0xFFB388FF).copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                        ) {
+                            Text(
+                                text = "SOCKS5",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFB388FF),
+                                letterSpacing = 0.5.sp
+                            )
+                        }
                         InfoButton { infoKey = "cf_domain" }
                     }
                     OutlinedTextField(
                         value = customDomainText,
                         onValueChange = { customDomainText = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("worker.mydomain.workers.dev (свой воркер)", color = TextMuted, fontSize = 13.sp) },
+                        placeholder = { Text("worker.mydomain.workers.dev (для SOCKS5)", color = TextMuted, fontSize = 13.sp) },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = Color.Transparent,
                             unfocusedContainerColor = Color.Transparent,
-                            focusedBorderColor = ActiveGreenLed,
+                            focusedBorderColor = Color(0xFFB388FF),
                             unfocusedBorderColor = Color(0xFF1E2333),
                             focusedTextColor = TextWhite,
                             unfocusedTextColor = TextWhite
@@ -1174,50 +1188,41 @@ fun SettingsScreen(
                     )
                 }
 
-                // Cloudflare Worker Mirrly для MTProto
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                // Информационная плашка для MTProto
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF0F172A).copy(alpha = 0.6f))
+                        .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
+                        .padding(12.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(ActiveGreenLed.copy(alpha = 0.12f))
+                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
                         ) {
-                            Text("Cloudflare Worker Mirrly", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                            ) {
-                                Text(
-                                    text = "MTProto",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ActiveGreenLed,
-                                    letterSpacing = 0.5.sp
-                                )
-                            }
-                            InfoButton { infoKey = "cf_domain" }
+                            Text(
+                                text = "MTProto",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ActiveGreenLed,
+                                letterSpacing = 0.5.sp
+                            )
                         }
-                        Text("Необязательно для MTProto. Используется для туннелирования через Cloudflare при блокировках прямого подключения", color = TextMuted, fontSize = 11.5.sp)
+                        Text(
+                            text = "MTProto работает автономно через встроенный высокоскоростной Anycast CDN-пул Telegram и не требует настройки Cloudflare Worker.",
+                            color = TextMuted,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp
+                        )
                     }
-                    InertialSpringSwitch(
-                        checked = useDefaultWorkerMtproto,
-                        activeColor = ActiveGreenLed,
-                        onCheckedChange = { newValue ->
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            useDefaultWorkerMtproto = newValue
-                            config.useDefaultWorkerMtproto = newValue
-                            app.saveConfig()
-                            if (config.proxyMode == ProxyMode.MTPROTO) {
-                                restartProxyIfNeeded()
-                            }
-                        }
-                    )
                 }
             }
 
