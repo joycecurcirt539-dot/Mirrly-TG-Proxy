@@ -35,7 +35,7 @@ interface ProxyLibrary : Library {
     fun ResetNetworkSockets()
     fun SetPoolSize(size: Int)
     fun SetCfProxyCacheDir(cacheDir: String)
-    fun SetCfProxyConfig(enabled: Int, priority: Int, userDomain: String)
+    fun SetCfProxyConfig(enabled: Int, userDomain: String)
     fun SetSecret(secret: String)
     fun GetSecretWithPrefix(): Pointer?
     fun GetStats(): Pointer?
@@ -103,11 +103,10 @@ object NativeProxy {
         } catch (_: Throwable) {}
     }
 
-    fun setCfProxyConfig(enabled: Boolean, priority: Boolean, userDomain: String) {
+    fun setCfProxyConfig(enabled: Boolean, userDomain: String) {
         try {
             ProxyLibrary.INSTANCE.SetCfProxyConfig(
                 if (enabled) 1 else 0,
-                if (priority) 1 else 0,
                 userDomain
             )
         } catch (_: Throwable) {}

@@ -1,269 +1,588 @@
-use crate::config::ConfigManager;
-use crate::dc::get_ws_domains;
-use crate::doh::DohResolver;
-use crate::logging::{log_error, log_info};
-use parking_lot::RwLock;
-use rand::seq::SliceRandom;
-use std::fs;
-use std::net::SocketAddr;
-use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use crate::config::*;
+use crate::ws::{is_http_status_error, ws_connect_once, RawWebSocket, WsError};
+use crate::{ldebug, lerror, linfo, lwarn};
+use serde::Deserialize;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use tokio::sync::Semaphore;
 
-pub const UPSTREAM_DOMAINS_URL: &str =
-    "https://raw.githubusercontent.com/Flowseal/tg-ws-proxy/main/.github/cfproxy-domains.txt";
+use once_cell::sync::Lazy;
+static CFPROXY_SEM: Lazy<Semaphore> = Lazy::new(|| Semaphore::new(CFPROXY_GLOBAL_PARALLEL));
 
-pub const DEFAULT_EMBEDDED_DOMAINS: &[&str] = &[
-    "virkgj.com",
-    "vmmzovy.com",
-    "mkuosckvso.com",
-    "twdmbzcm.com",
-    "awzwsldi.com",
-    "clngqrflngqin.com",
-    "tjacxbqtj.com",
-    "bxaxtxmrw.com",
-    "dmohrsgmohcrwb.com",
-    "vwbmtmoi.com",
-    "khgrre.com",
-    "ulihssf.com",
-    "tmhqsdqmfpmk.com",
-    "xwuwoqbm.com",
-    "zaewayzmplad.com",
-    "orgcnunpj.com",
-    "zhkuldz.com",
-    "zypoljnslxa.com",
-    "efabnxaowuzs.com",
-    "zaftuzsftqdq.com",
-];
+// ---------------------------------------------------------------------------
+// Domain decoding
+// ---------------------------------------------------------------------------
 
-pub struct CfManager {
-    config: Arc<ConfigManager>,
-    doh: Arc<DohResolver>,
-    domains: RwLock<Vec<String>>,
-    cache_dir: RwLock<Option<String>>,
-    domain_idx: AtomicUsize,
+pub fn decode_cf_domain(s: &str) -> String {
+    if !s.ends_with(".com") {
+        return s.to_string();
+    }
+    let suffix = ".co.uk";
+    let p = &s[..s.len() - 4];
+    let mut n = 0i32;
+    for c in p.chars() {
+        if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+            n += 1;
+        }
+    }
+    let mut result: Vec<u8> = Vec::new();
+    for &c in p.as_bytes() {
+        if c >= b'a' && c <= b'z' {
+            let v = (((c - b'a') as i32 - n % 26 + 26) % 26) as u8 + b'a';
+            result.push(v);
+        } else if c >= b'A' && c <= b'Z' {
+            let v = (((c - b'A') as i32 - n % 26 + 26) % 26) as u8 + b'A';
+            result.push(v);
+        } else {
+            result.push(c);
+        }
+    }
+    let mut out = String::from_utf8_lossy(&result).to_string();
+    out.push_str(suffix);
+    out
 }
 
-impl CfManager {
-    pub fn new(config: Arc<ConfigManager>, doh: Arc<DohResolver>) -> Arc<Self> {
-        let mut initial_domains: Vec<String> = DEFAULT_EMBEDDED_DOMAINS
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        initial_domains.shuffle(&mut rand::thread_rng());
-
-        Arc::new(Self {
-            config,
-            doh,
-            domains: RwLock::new(initial_domains),
-            cache_dir: RwLock::new(None),
-            domain_idx: AtomicUsize::new(0),
-        })
+pub fn normalize_cf_domain(s: &str) -> String {
+    let s_trim = s.trim();
+    if s_trim.is_empty() {
+        return String::new();
     }
-
-    pub fn is_worker_or_user_domain(&self, domain: &str) -> bool {
-        if domain.contains("workers.dev") {
-            return true;
+    // If it's a user domain (e.g. workers.dev or custom com/net/org domain not needing caesar decode)
+    if !s_trim.ends_with(".com") || s_trim.contains('/') || s_trim.contains(':') {
+        let mut d = s_trim.to_lowercase();
+        while d.ends_with('.') {
+            d.pop();
         }
-        let user_dom = self.config.get().cf_user_domain;
-        !user_dom.is_empty() && domain == user_dom
+        return d;
     }
+    let mut decoded = decode_cf_domain(s_trim).trim().to_lowercase();
+    while decoded.ends_with('.') {
+        decoded.pop();
+    }
+    if decoded.is_empty() {
+        return String::new();
+    }
+    decoded
+}
 
-    pub fn set_cache_dir(&self, dir: &str) {
-        let mut lock = self.cache_dir.write();
-        *lock = Some(dir.to_string());
-
-        // Load cached domains from disk if available
-        let loaded = load_cached_domains(Some(dir));
-        if !loaded.is_empty() {
-            let mut dom_lock = self.domains.write();
-            *dom_lock = loaded;
+pub fn default_cfproxy_domains() -> Vec<String> {
+    let mut domains = Vec::with_capacity(CFPROXY_ENC.len());
+    for enc in CFPROXY_ENC {
+        let d = normalize_cf_domain(enc);
+        if !d.is_empty() {
+            domains.push(d);
         }
     }
+    domains
+}
 
-    pub fn get_domains(&self) -> Vec<String> {
-        let cfg = self.config.get();
-        if !cfg.cf_user_domain.is_empty() {
-            return vec![cfg.cf_user_domain];
-        }
-
-        let dom = self.domains.read().clone();
-        if !dom.is_empty() {
-            dom
-        } else {
-            DEFAULT_EMBEDDED_DOMAINS
-                .iter()
-                .map(|s| s.to_string())
-                .collect()
-        }
-    }
-
-    /// Selects a domain for WebSocket tunneling.
-    /// Priority:
-    /// 1. User custom domain (if configured)
-    /// 2. Round-robin from Cloudflare reverse-proxy edge domains list
-    /// 3. Direct Telegram WS fallback (venus.web.telegram.org)
-    pub fn select_domain(&self) -> String {
-        let cfg = self.config.get();
-        if !cfg.cf_user_domain.is_empty() {
-            return cfg.cf_user_domain;
-        }
-
-        let doms = self.domains.read();
-        if doms.is_empty() {
-            return "venus.web.telegram.org".to_string();
-        }
-
-        let idx = self.domain_idx.fetch_add(1, Ordering::Relaxed) % doms.len();
-        doms[idx].clone()
-    }
-
-    /// Returns the complete list of target candidate domains for a given DC.
-    /// Order: user custom domain > CF CDN domains (bypass DPI) > native Telegram gateways (fallback).
-    /// CF domains are prioritized because native Telegram domains are blocked by DPI in restricted regions.
-    pub fn get_candidate_domains(&self, dc_id: i16, is_media: bool) -> Vec<String> {
-        let cfg = self.config.get();
-        let mut candidates = Vec::new();
-
-        // 1. User custom domain has absolute priority if specified
-        if !cfg.cf_user_domain.is_empty() {
-            candidates.push(cfg.cf_user_domain.clone());
-        }
-
-        // 2. Default Cloudflare Worker (active TCP tunnel via cloudflare:sockets)
-        if cfg.cf_enabled {
-            let default_worker = "mirrly-tg-proxy-worker.brawny-singer.workers.dev".to_string();
-            if !candidates.contains(&default_worker) {
-                candidates.push(default_worker);
+pub fn merge_cfproxy_domains(lists: &[Vec<String>]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut merged = Vec::new();
+    for list in lists {
+        for raw in list {
+            let d = normalize_cf_domain(raw);
+            if d.is_empty() || seen.contains(&d) {
+                continue;
             }
-        }
-
-        // 3. Cloudflare CDN fronting / proxy domains (bypass DPI in restricted regions)
-        if cfg.cf_enabled {
-            let doms = self.domains.read();
-            let abs_dc = if dc_id.abs() == 203 { 2 } else { dc_id.abs() };
-            let dc_num = if abs_dc == 0 || abs_dc > 5 { 2 } else { abs_dc };
-
-            for d in doms.iter() {
-                let kws_sub = if is_media {
-                    format!("kws{}-1.{}", dc_num, d)
-                } else {
-                    format!("kws{}.{}", dc_num, d)
-                };
-                if !candidates.contains(&kws_sub) {
-                    candidates.push(kws_sub);
-                }
-                if !candidates.contains(d) {
-                    candidates.push(d.clone());
-                }
-            }
-        }
-
-        // 3. Native Telegram WebSockets domains as fallback (blocked by DPI in Russia/Iran/China)
-        let native_domains = get_ws_domains(dc_id, is_media);
-        for d in native_domains {
-            if !candidates.contains(&d) {
-                candidates.push(d);
-            }
-        }
-
-        candidates
-    }
-
-    pub fn promote_domain(&self, winning_domain: &str) {
-        let mut doms = self.domains.write();
-        if let Some(pos) = doms.iter().position(|d| d == winning_domain) {
-            if pos > 0 {
-                let d = doms.remove(pos);
-                doms.insert(0, d);
-            }
+            seen.insert(d.clone());
+            merged.push(d);
         }
     }
+    merged
+}
 
-    pub async fn resolve_target(&self, domain: &str) -> Option<SocketAddr> {
-        if domain.is_empty() {
-            return None;
+// ---------------------------------------------------------------------------
+// 429 cooldown logic
+// ---------------------------------------------------------------------------
+
+pub fn clear_cfproxy_429_cooldowns() {
+    CFPROXY_429.write().clear();
+}
+
+pub fn clear_cfproxy_429_cooldown(domain: &str) {
+    let d = normalize_cf_domain(domain);
+    if d.is_empty() {
+        return;
+    }
+    CFPROXY_429.write().remove(&d);
+}
+
+pub fn retry_after_delay(err: &WsError) -> Duration {
+    let h = match err.handshake() {
+        Some(h) => h,
+        None => return Duration::ZERO,
+    };
+    let retry_after = h.headers.get("retry-after").map(|s| s.trim()).unwrap_or("");
+    if retry_after.is_empty() {
+        return Duration::ZERO;
+    }
+    if let Ok(seconds) = retry_after.parse::<i64>() {
+        if seconds > 0 {
+            return Duration::from_secs(seconds as u64);
         }
-        self.doh.resolve_socket_addr(domain, 443).await
+    }
+    Duration::ZERO
+}
+
+pub fn next_cfproxy_429_cooldown_delay(prev: &Cfproxy429State, retry_after: Duration) -> Duration {
+    if retry_after > Duration::ZERO {
+        if retry_after > CFPROXY_429_MAX_COOLDOWN {
+            return CFPROXY_429_MAX_COOLDOWN;
+        }
+        return retry_after;
+    }
+    let mut strikes = prev.strikes;
+    let expired = match prev.until {
+        None => true,
+        Some(u) => u.elapsed() > CFPROXY_429_MAX_COOLDOWN,
+    };
+    if expired {
+        strikes = 0;
+    }
+    let mut delay = CFPROXY_429_COOLDOWN;
+    for _ in 0..strikes {
+        delay *= 2;
+        if delay >= CFPROXY_429_MAX_COOLDOWN {
+            return CFPROXY_429_MAX_COOLDOWN;
+        }
+    }
+    if delay > CFPROXY_429_MAX_COOLDOWN {
+        return CFPROXY_429_MAX_COOLDOWN;
+    }
+    delay
+}
+
+pub fn mark_cfproxy_429_cooldown(domain: &str, err: &WsError) {
+    let d = normalize_cf_domain(domain);
+    if d.is_empty() {
+        return;
+    }
+    let retry_after = retry_after_delay(err);
+    let mut map = CFPROXY_429.write();
+    let prev = map.get(&d).cloned().unwrap_or_default();
+    let delay = next_cfproxy_429_cooldown_delay(&prev, retry_after);
+    let mut strikes = prev.strikes + 1;
+    let expired = match prev.until {
+        None => true,
+        Some(u) => u.elapsed() > CFPROXY_429_MAX_COOLDOWN,
+    };
+    if expired {
+        strikes = 1;
+    }
+    map.insert(
+        d.clone(),
+        Cfproxy429State {
+            until: Some(Instant::now() + delay),
+            strikes,
+        },
+    );
+    drop(map);
+    ldebug!(" CF cooldown {}: {:.0}s after 429", d, delay.as_secs_f64().ceil());
+}
+
+pub fn cfproxy_429_cooldown_remaining(domain: &str) -> Duration {
+    let d = normalize_cf_domain(domain);
+    if d.is_empty() {
+        return Duration::ZERO;
+    }
+    let map = CFPROXY_429.read();
+    let state = match map.get(&d) {
+        Some(s) => s.clone(),
+        None => return Duration::ZERO,
+    };
+    drop(map);
+    let until = match state.until {
+        Some(u) => u,
+        None => return Duration::ZERO,
+    };
+    let now = Instant::now();
+    if until <= now {
+        CFPROXY_429.write().remove(&d);
+        return Duration::ZERO;
+    }
+    until - now
+}
+
+pub async fn acquire_cfproxy_attempt_slot() -> Option<tokio::sync::SemaphorePermit<'static>> {
+    CFPROXY_SEM.acquire().await.ok()
+}
+
+// ---------------------------------------------------------------------------
+// Cache files
+// ---------------------------------------------------------------------------
+
+fn cfproxy_cache_path() -> Option<PathBuf> {
+    let dir = CFPROXY.read().cache_dir.trim().to_string();
+    if dir.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(dir).join(CFPROXY_CACHE_FILE_NAME))
+}
+
+fn load_cfproxy_domains_from_cache() -> Vec<String> {
+    let path = match cfproxy_cache_path() {
+        Some(p) => p,
+        None => return Vec::new(),
+    };
+    let data = match std::fs::read_to_string(&path) {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
+    let list: Vec<String> = data.split('\n').map(|s| s.to_string()).collect();
+    merge_cfproxy_domains(&[list])
+}
+
+fn save_cfproxy_domains_to_cache(domains: &[String]) {
+    let path = match cfproxy_cache_path() {
+        Some(p) => p,
+        None => return,
+    };
+    if domains.is_empty() {
+        return;
+    }
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            ldebug!(" CF: кеш создать не удалось: {}", e);
+            return;
+        }
+    }
+    let data = domains.join("\n");
+    if let Err(e) = std::fs::write(&path, data) {
+        ldebug!(" CF: кеш сохранить не удалось: {}", e);
+    }
+}
+
+fn should_refresh_cfproxy_domains() -> bool {
+    let path = match cfproxy_cache_path() {
+        Some(p) => p,
+        None => return true,
+    };
+    let meta = match std::fs::metadata(&path) {
+        Ok(m) => m,
+        Err(_) => return true,
+    };
+    let modified = match meta.modified() {
+        Ok(t) => t,
+        Err(_) => return true,
+    };
+    match modified.elapsed() {
+        Ok(elapsed) => elapsed >= CFPROXY_REFRESH_INTERVAL,
+        Err(_) => true,
+    }
+}
+
+pub fn init_cfproxy_domains() {
+    let defaults = default_cfproxy_domains();
+    let cached = load_cfproxy_domains_from_cache();
+
+    let mut cfg = CFPROXY.write();
+    if !cfg.user_domain.is_empty() {
+        let ud = cfg.user_domain.clone();
+        cfg.domains = vec![ud.clone()];
+        crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
+        return;
     }
 
-    /// Background task to fetch the latest cfproxy-domains list from GitHub.
-    pub async fn fetch_upstream_domains(self: Arc<Self>) {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .user_agent("Mozilla/5.0 tg-ws-proxy-android")
-            .danger_accept_invalid_certs(true)
-            .build()
-            .unwrap_or_default();
+    if !cached.is_empty() {
+        let n = cached.len();
+        cfg.domains = merge_cfproxy_domains(&[cached, defaults]);
+        crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
+        drop(cfg);
+        linfo!(" CF: кеш доменов загружен ({} шт.)", n);
+    } else {
+        cfg.domains = defaults;
+        crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
+    }
+}
 
-        match client.get(UPSTREAM_DOMAINS_URL).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                if let Ok(text) = resp.text().await {
-                    let new_domains: Vec<String> = text
-                        .lines()
-                        .map(|l| l.trim().to_string())
-                        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                        .collect();
+pub fn start_cfproxy_refresh() {
+    if !should_refresh_cfproxy_domains() {
+        ldebug!(" CF: кеш свежий, пропускаю обновление списка");
+        return;
+    }
+    tokio::spawn(async move {
+        for _ in 0..3 {
+            if try_refresh_cfproxy_domains().await {
+                return;
+            }
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+        ldebug!(" CF: обновить список доменов не удалось, остаюсь на кеше/встроенном списке");
+    });
+}
 
-                    if !new_domains.is_empty() {
-                        log_info(
-                            "mirrlyengine",
-                            &format!(
-                                "Successfully fetched {} upstream cfproxy domains",
-                                new_domains.len()
-                            ),
-                        );
-                        {
-                            let mut lock = self.domains.write();
-                            *lock = new_domains.clone();
-                        }
-                        let cache_dir = self.cache_dir.read().clone();
-                        save_cached_domains(cache_dir.as_deref(), &new_domains);
+static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .unwrap_or_default()
+});
+
+pub async fn try_refresh_cfproxy_domains() -> bool {
+    let has_user = !CFPROXY.read().user_domain.is_empty();
+    if has_user {
+        return true;
+    }
+
+    let resp = match HTTP_CLIENT
+        .get(CFPROXY_DOMAINS_URL)
+        .header("User-Agent", "Mozilla/5.0 tg-ws-proxy-android")
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            ldebug!(" CF: GitHub недоступен: {}", e);
+            return false;
+        }
+    };
+    if resp.status().as_u16() != 200 {
+        ldebug!(" CF: GitHub вернул {}", resp.status().as_u16());
+        return false;
+    }
+    let body = match resp.text().await {
+        Ok(b) => b,
+        Err(e) => {
+            ldebug!(" CF: список доменов прочитать не удалось: {}", e);
+            return false;
+        }
+    };
+
+    let mut new_domains = Vec::new();
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let d = normalize_cf_domain(line);
+        if !d.is_empty() {
+            new_domains.push(d);
+        }
+    }
+
+    if !new_domains.is_empty() {
+        let merged = merge_cfproxy_domains(&[new_domains.clone(), default_cfproxy_domains()]);
+        {
+            let mut cfg = CFPROXY.write();
+            if !cfg.user_domain.is_empty() {
+                return true;
+            }
+            cfg.domains = merged.clone();
+        }
+        crate::balancer::BALANCER.write().update_domains_list(&merged);
+        save_cfproxy_domains_to_cache(&merged);
+        linfo!(" CF: список доменов обновлен ({} шт.)", new_domains.len());
+        return true;
+    }
+    false
+}
+
+// ---------------------------------------------------------------------------
+// DNS over HTTPS (DoH) resolve
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct DohAnswer {
+    #[serde(rename = "data")]
+    data: String,
+    #[serde(rename = "type")]
+    type_: i32,
+}
+#[derive(Deserialize)]
+struct DohResponse {
+    #[serde(rename = "Answer", default)]
+    answer: Vec<DohAnswer>,
+}
+
+static DOH_CACHE: Lazy<parking_lot::RwLock<std::collections::HashMap<String, (String, Instant)>>> =
+    Lazy::new(|| parking_lot::RwLock::new(std::collections::HashMap::new()));
+
+fn pick_preferred_ip(candidates: &[String]) -> String {
+    let mut fallback_v6 = String::new();
+    for c in candidates {
+        let c = c.trim();
+        if let Ok(ip) = c.parse::<std::net::IpAddr>() {
+            match ip {
+                std::net::IpAddr::V4(v4) => return v4.to_string(),
+                std::net::IpAddr::V6(v6) => {
+                    if fallback_v6.is_empty() {
+                        fallback_v6 = v6.to_string();
                     }
                 }
             }
-            Ok(resp) => {
-                log_error(
-                    "mirrlyengine",
-                    &format!("Upstream domains fetch returned status: {}", resp.status()),
-                );
+        }
+    }
+    fallback_v6
+}
+
+pub async fn resolve_doh(domain: &str) -> Option<String> {
+    if let Some((ip, exp)) = DOH_CACHE.read().get(domain).cloned() {
+        if Instant::now() < exp {
+            return Some(ip);
+        }
+    }
+
+    let endpoints = [
+        "https://cloudflare-dns.com/dns-query",
+        "https://dns.google/dns-query",
+        "https://dns.quad9.net/dns-query",
+        "https://dns.adguard-dns.com/dns-query",
+    ];
+
+    let client = HTTP_CLIENT.clone();
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(endpoints.len() + 1);
+    let mut tasks = Vec::new();
+
+    for u in endpoints {
+        let client = client.clone();
+        let domain = domain.to_string();
+        let tx = tx.clone();
+        tasks.push(tokio::spawn(async move {
+            let full = format!("{}?name={}&type=A", u, domain);
+            if let Ok(resp) = client
+                .get(&full)
+                .header("Accept", "application/dns-json")
+                .send()
+                .await
+            {
+                if resp.status().as_u16() == 200 {
+                    if let Ok(r) = resp.json::<DohResponse>().await {
+                        for ans in r.answer {
+                            if ans.type_ == 1 {
+                                let _ = tx.send(Some(ans.data)).await;
+                                return;
+                            }
+                        }
+                    }
+                }
             }
-            Err(e) => {
-                log_info(
-                    "mirrlyengine",
-                    &format!("Using local/cached cfproxy domains: {:?}", e),
-                );
+            let _ = tx.send(None).await;
+        }));
+    }
+
+    // UDP-lookup
+    {
+        let domain2 = domain.to_string();
+        let tx = tx.clone();
+        tasks.push(tokio::spawn(async move {
+            let host = format!("{}:443", domain2);
+            if let Ok(Ok(addrs)) = tokio::time::timeout(
+                Duration::from_millis(1500),
+                tokio::net::lookup_host(host),
+            )
+            .await
+            {
+                let ips: Vec<String> = addrs.map(|a| a.ip().to_string()).collect();
+                let p = pick_preferred_ip(&ips);
+                if !p.is_empty() {
+                    let _ = tx.send(Some(p)).await;
+                    return;
+                }
+            }
+            let _ = tx.send(None).await;
+        }));
+    }
+
+    drop(tx);
+
+    let deadline = tokio::time::sleep(Duration::from_millis(1500));
+    tokio::pin!(deadline);
+
+    let mut final_ip = None;
+    loop {
+        tokio::select! {
+            _ = &mut deadline => {
+                break;
+            }
+            msg = rx.recv() => {
+                match msg {
+                    Some(Some(ip)) => {
+                        final_ip = Some(ip);
+                        break;
+                    }
+                    Some(None) => {}
+                    None => break,
+                }
+            }
+        }
+    }
+
+    for t in tasks {
+        t.abort();
+    }
+
+    if let Some(ip) = &final_ip {
+        DOH_CACHE.write().insert(
+            domain.to_string(),
+            (ip.clone(), Instant::now() + Duration::from_secs(300)),
+        );
+    }
+    
+    final_ip
+}
+
+// ---------------------------------------------------------------------------
+// cfConnectDomain
+// ---------------------------------------------------------------------------
+
+fn new_timed_attempt_timeout(base: Duration, phase: Duration) -> Duration {
+    let mut eff = base;
+    if eff <= Duration::ZERO {
+        eff = Duration::from_secs(5);
+    }
+    if eff > phase {
+        eff = phase;
+    }
+    eff
+}
+
+pub async fn cf_connect_domain(
+    domain: &str,
+    path: &str,
+    timeout: f64,
+) -> (Option<RawWebSocket>, String, Option<WsError>) {
+    let path = if path.is_empty() { "/apiws" } else { path };
+
+    let attempt_timeout = crate::ws::ws_connect_timeout(timeout);
+    let mut phase_timeout = attempt_timeout;
+    if phase_timeout > CFPROXY_DIAL_PHASE_TIMEOUT {
+        phase_timeout = CFPROXY_DIAL_PHASE_TIMEOUT;
+    }
+
+    let host_timeout = new_timed_attempt_timeout(phase_timeout, phase_timeout);
+    match ws_connect_once(domain, domain, path, host_timeout).await {
+        Ok(ws) => (Some(ws), String::new(), None),
+        Err(host_err) => {
+            if is_http_status_error(&host_err, 429) {
+                return (None, String::new(), Some(host_err));
+            }
+            let resolved_ip = resolve_doh(domain).await.unwrap_or_default();
+            if resolved_ip.is_empty() {
+                ldebug!(" CF DNS {} -> no result", domain);
+                return (None, String::new(), Some(host_err));
+            }
+            ldebug!(" CF DNS {} -> {}", domain, resolved_ip);
+            let ip_timeout = new_timed_attempt_timeout(phase_timeout, phase_timeout);
+            match ws_connect_once(&resolved_ip, domain, path, ip_timeout).await {
+                Ok(ws) => (Some(ws), resolved_ip, None),
+                Err(e) => (None, resolved_ip, Some(e)),
             }
         }
     }
 }
 
-pub fn load_cached_domains(cache_dir: Option<&str>) -> Vec<String> {
-    if let Some(dir) = cache_dir {
-        let path = Path::new(dir).join("cfproxy-domains-cache.txt");
-        if let Ok(content) = fs::read_to_string(path) {
-            let domains: Vec<String> = content
-                .lines()
-                .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                .collect();
-            if !domains.is_empty() {
-                return domains;
-            }
+pub fn log_cf_conn_error(msg: &str, err: &WsError) {
+    if let WsError::Io(e) = err {
+        if e.kind() == std::io::ErrorKind::ConnectionReset {
+            return;
         }
     }
-
-    DEFAULT_EMBEDDED_DOMAINS
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
-}
-
-pub fn save_cached_domains(cache_dir: Option<&str>, domains: &[String]) {
-    if let Some(dir) = cache_dir {
-        let path = Path::new(dir).join("cfproxy-domains-cache.txt");
-        let content = domains.join("\n");
-        let _ = fs::write(path, content);
+    if is_http_status_error(err, 429) {
+        lwarn!("{}", msg);
+    } else {
+        lerror!("{}", msg);
     }
 }

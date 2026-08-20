@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Build
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -172,6 +173,7 @@ fun ExternalLinkConfirmDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
             dismissOnBackPress = true,
             dismissOnClickOutside = true
         )
@@ -180,10 +182,13 @@ fun ExternalLinkConfirmDialog(
         SideEffect {
             try {
                 val window = (view.parent as? DialogWindowProvider)?.window
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                    window?.attributes = window?.attributes?.apply {
-                        blurBehindRadius = 70
+                if (window != null) {
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                        window.attributes = window.attributes.apply {
+                            blurBehindRadius = 70
+                        }
                     }
                 }
             } catch (_: Exception) {}
@@ -207,7 +212,8 @@ fun ExternalLinkConfirmDialog(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth()
-                    .padding(bottom = 70.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 110.dp)
                     .clickable(enabled = false) {}
             ) {
                 // Category Pill
@@ -267,7 +273,8 @@ fun ExternalLinkConfirmDialog(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 36.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 32.dp)
                     .fillMaxWidth()
                     .clickable(enabled = false) {}
             ) {

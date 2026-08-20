@@ -20,6 +20,7 @@ package com.mirrly.tgproxy.ui
 
 import android.content.Intent
 import android.os.Build
+import androidx.core.view.WindowCompat
 import com.mirrly.tgproxy.core.AppLogger
 import android.view.WindowManager
 import androidx.compose.ui.platform.LocalView
@@ -161,6 +162,7 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
             dismissOnBackPress = true,
             dismissOnClickOutside = true
         )
@@ -169,10 +171,13 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
         LaunchedEffect(Unit) {
             try {
                 val window = (view.parent as? DialogWindowProvider)?.window
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                    window?.attributes = window?.attributes?.apply {
-                        blurBehindRadius = 50
+                if (window != null) {
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                        window.attributes = window.attributes.apply {
+                            blurBehindRadius = 50
+                        }
                     }
                 }
             } catch (_: Exception) {}
@@ -197,7 +202,8 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                     .align(Alignment.Center)
                     .fillMaxWidth()
                     .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
-                    .padding(bottom = 110.dp, top = 24.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 120.dp, top = 24.dp)
                     .verticalScroll(rememberScrollState())
                     .clickable(enabled = false) {}
             ) {
@@ -245,6 +251,7 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
                     .padding(bottom = 32.dp)
                     .fillMaxWidth(0.90f)
                     .height(48.dp)
@@ -422,11 +429,8 @@ fun SettingsScreen(
     var secretText by remember(config.secretHex) { mutableStateOf(config.secretHex) }
     var showSecret by remember { mutableStateOf(false) }
     var customDomainText by remember { mutableStateOf(config.customCfDomain) }
-    var useDefaultWorkerSocks5 by remember { mutableStateOf(config.useDefaultWorkerSocks5) }
 
     var selectedMode by remember { mutableStateOf(config.proxyMode) }
-    var showSocks5WarningDialog by remember { mutableStateOf(false) }
-    var showWorkerGuideDialog by remember { mutableStateOf(false) }
 
     val poolOptions = remember { listOf(2f, 4f, 8f, 16f) }
     var poolSize by remember { mutableFloatStateOf(config.poolSize.toFloat()) }
@@ -624,13 +628,9 @@ fun SettingsScreen(
                                     indication = null
                                 ) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (mode == ProxyMode.SOCKS5 && config.customCfDomain.trim().isEmpty() && !useDefaultWorkerSocks5) {
-                                        showSocks5WarningDialog = true
-                                    } else {
-                                        selectedMode = mode
-                                        config.proxyModeName = mode.name
-                                        restartProxyIfNeeded()
-                                    }
+                                    selectedMode = mode
+                                    config.proxyModeName = mode.name
+                                    restartProxyIfNeeded()
                                 }
                                 .padding(vertical = 12.dp),
                             contentAlignment = Alignment.Center
@@ -1068,67 +1068,27 @@ fun SettingsScreen(
                 modifier = Modifier.staggeredEntrance(index = 3),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "ТУННЕЛИРОВАНИЕ CLOUDFLARE",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.3.sp,
-                        color = TextMuted
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = ActiveGreenLed.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
-                        modifier = Modifier.clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showWorkerGuideDialog = true
-                        }
-                    ) {
-                        Text(
-                            text = "ИНСТРУКЦИЯ ВОРКЕРА",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ActiveGreenLed,
-                            letterSpacing = 0.8.sp,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
+                Text(
+                    text = "ТУННЕЛИРОВАНИЕ CLOUDFLARE",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted
+                )
 
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("Кастомный домен воркера", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFFB388FF).copy(alpha = 0.12f))
-                                .border(1.dp, Color(0xFFB388FF).copy(alpha = 0.45f), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                        ) {
-                            Text(
-                                text = "SOCKS5",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFB388FF),
-                                letterSpacing = 0.5.sp
-                            )
-                        }
+                        Text("Кастомный Cloudflare домен", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         InfoButton { infoKey = "cf_domain" }
                     }
                     OutlinedTextField(
                         value = customDomainText,
                         onValueChange = { customDomainText = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("worker.mydomain.workers.dev (для SOCKS5)", color = TextMuted, fontSize = 13.sp) },
+                        placeholder = { Text("custom-domain.com (опционально)", color = TextMuted, fontSize = 13.sp) },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -1142,53 +1102,7 @@ fun SettingsScreen(
                     )
                 }
 
-                // Cloudflare Worker Mirrly для SOCKS5
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Cloudflare Worker Mirrly", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFFB388FF).copy(alpha = 0.12f))
-                                    .border(1.dp, Color(0xFFB388FF).copy(alpha = 0.45f), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                            ) {
-                                Text(
-                                    text = "SOCKS5",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFB388FF),
-                                    letterSpacing = 0.5.sp
-                                )
-                            }
-                            InfoButton { infoKey = "cf_domain" }
-                        }
-                        Text("Обязательно для SOCKS5. Необходим для туннелирования трафика через Cloudflare, если не развёрнут свой воркер", color = TextMuted, fontSize = 11.5.sp)
-                    }
-                    InertialSpringSwitch(
-                        checked = useDefaultWorkerSocks5,
-                        activeColor = Color(0xFFB388FF),
-                        onCheckedChange = { newValue ->
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            useDefaultWorkerSocks5 = newValue
-                            config.useDefaultWorkerSocks5 = newValue
-                            app.saveConfig()
-                            if (config.proxyMode == ProxyMode.SOCKS5) {
-                                restartProxyIfNeeded()
-                            }
-                        }
-                    )
-                }
-
-                // Информационная плашка для MTProto
+                // Информационная плашка
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1209,7 +1123,7 @@ fun SettingsScreen(
                                 .padding(horizontal = 5.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = "MTProto",
+                                text = "CDN",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = ActiveGreenLed,
@@ -1217,7 +1131,7 @@ fun SettingsScreen(
                             )
                         }
                         Text(
-                            text = "MTProto работает автономно через встроенный высокоскоростной Anycast CDN-пул Telegram и не требует настройки Cloudflare Worker.",
+                            text = "По умолчанию трафик надежно туннелируется через встроенный пул Cloudflare CDN доменов без прямого подключения.",
                             color = TextMuted,
                             fontSize = 11.5.sp,
                             lineHeight = 16.sp
@@ -1642,33 +1556,6 @@ fun SettingsScreen(
         if (showSleepTimerDialog) {
             SleepTimerDialog(
                 onDismiss = { showSleepTimerDialog = false }
-            )
-        }
-
-        if (showSocks5WarningDialog) {
-            Socks5WarningDialog(
-                onOpenGuide = {
-                    showSocks5WarningDialog = false
-                    showWorkerGuideDialog = true
-                },
-                onConfirmSocks5 = {
-                    showSocks5WarningDialog = false
-                    selectedMode = ProxyMode.SOCKS5
-                    config.proxyModeName = ProxyMode.SOCKS5.name
-                    restartProxyIfNeeded()
-                },
-                onRevertToMtproto = {
-                    showSocks5WarningDialog = false
-                    selectedMode = ProxyMode.MTPROTO
-                    config.proxyModeName = ProxyMode.MTPROTO.name
-                    restartProxyIfNeeded()
-                }
-            )
-        }
-
-        if (showWorkerGuideDialog) {
-            CloudflareWorkerGuideDialog(
-                onDismiss = { showWorkerGuideDialog = false }
             )
         }
     }

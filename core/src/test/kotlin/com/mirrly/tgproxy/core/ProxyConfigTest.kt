@@ -61,4 +61,22 @@ class ProxyConfigTest {
         )
         assertEquals("custom-worker.workers.dev", config.getEffectiveCfDomain())
     }
+
+    @Test
+    fun testGetEffectiveCfDomainMtprotoDefaultEmpty() {
+        val config = ProxyConfig(
+            proxyModeName = ProxyMode.MTPROTO.name,
+            customCfDomain = ""
+        )
+        assertEquals("", config.getEffectiveCfDomain())
+    }
+
+    @Test
+    fun testGetEffectiveCfDomainSocks5DefaultEmpty() {
+        val config = ProxyConfig(
+            proxyModeName = ProxyMode.SOCKS5.name,
+            customCfDomain = ""
+        )
+        assertEquals("", config.getEffectiveCfDomain())
+    }
 }

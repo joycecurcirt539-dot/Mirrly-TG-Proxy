@@ -37,7 +37,7 @@
         android:hardwareAccelerated="true"
         android:icon="@drawable/ic_launcher_mirrly"
         android:roundIcon="@drawable/ic_launcher_mirrly"
-        android:label="Mirrly TG Proxy"
+        android:label="${appLabel}"
         android:supportsRtl="true"
         android:theme="@style/Theme.Mirrly">
 

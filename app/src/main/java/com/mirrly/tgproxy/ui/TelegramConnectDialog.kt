@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
@@ -70,6 +71,7 @@ fun TelegramConnectDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
             dismissOnBackPress = true,
             dismissOnClickOutside = true
         )
@@ -78,10 +80,13 @@ fun TelegramConnectDialog(
         SideEffect {
             try {
                 val window = (view.parent as? DialogWindowProvider)?.window
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                    window?.attributes = window?.attributes?.apply {
-                        blurBehindRadius = 70
+                if (window != null) {
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                        window.attributes = window.attributes.apply {
+                            blurBehindRadius = 70
+                        }
                     }
                 }
             } catch (_: Exception) {}
@@ -104,7 +109,8 @@ fun TelegramConnectDialog(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth()
-                    .padding(bottom = 76.dp, top = 24.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 110.dp, top = 24.dp)
                     .verticalScroll(rememberScrollState())
                     .clickable(enabled = false) {}
             ) {
@@ -357,7 +363,8 @@ fun TelegramConnectDialog(
                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 32.dp)
                     .fillMaxWidth(0.90f)
                     .height(48.dp)
             ) {

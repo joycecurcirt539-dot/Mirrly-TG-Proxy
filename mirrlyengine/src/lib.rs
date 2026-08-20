@@ -1,620 +1,319 @@
+pub mod balancer;
 pub mod cfproxy;
 pub mod config;
 pub mod crypto;
-pub mod dc;
-pub mod doh;
-pub mod faketls;
-pub mod logging;
 pub mod proxy;
 pub mod socks5;
-pub mod stats;
 pub mod ws;
 
-use cfproxy::CfManager;
-use config::ConfigManager;
-use crypto::format_secret_with_prefix;
-use dc::{get_ws_path, parse_dc_ips, resolve_dc_addr};
-use doh::DohResolver;
-use logging::{log_error, log_info};
-use parking_lot::{Mutex, RwLock};
-use proxy::ProxyServer;
-use rustls::ClientConfig;
-use socks5::Socks5Server;
-use stats::EngineStats;
+use config::*;
+use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
+use proxy::{parse_cidr_pool, run_proxy, WsPool};
+use socks5::run_socks5_server;
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
-use std::net::SocketAddr;
 use std::os::raw::{c_char, c_int};
-use std::panic::catch_unwind;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::runtime::{Builder, Runtime};
-use tokio::sync::watch;
-use ws::WsPool;
+use tokio::runtime::Runtime;
+use tokio_util::sync::CancellationToken;
 
-#[allow(dead_code)]
-struct EngineState {
-    runtime: Option<Runtime>,
-    config: Arc<ConfigManager>,
-    stats: Arc<EngineStats>,
-    doh: Arc<DohResolver>,
-    cf_manager: Arc<CfManager>,
-    ws_pool: Arc<WsPool>,
-    tls_config: Arc<ClientConfig>,
-    shutdown_tx: Option<watch::Sender<bool>>,
-    is_running: AtomicBool,
+static RUNTIME: OnceCell<Runtime> = OnceCell::new();
+
+struct ProxyState {
+    pool: Option<Arc<WsPool>>,
+    handle: tokio::task::JoinHandle<()>,
+    cancel_tasks: CancellationToken,
 }
 
-static ENGINE: Mutex<Option<EngineState>> = Mutex::new(None);
-static GLOBAL_CONFIG: RwLock<Option<Arc<ConfigManager>>> = RwLock::new(None);
+static STATE: OnceCell<Mutex<Option<ProxyState>>> = OnceCell::new();
 
-fn get_or_init_engine() -> &'static Mutex<Option<EngineState>> {
-    &ENGINE
+fn state_cell() -> &'static Mutex<Option<ProxyState>> {
+    STATE.get_or_init(|| Mutex::new(None))
 }
 
-fn stop_engine_internal(lock: &mut Option<EngineState>) {
-    if let Some(mut state) = lock.take() {
-        state.is_running.store(false, Ordering::SeqCst);
-
-        // Signal all background and listener tasks to stop
-        if let Some(tx) = state.shutdown_tx.take() {
-            let _ = tx.send(true);
-        }
-
-        if let Some(rt) = state.runtime.take() {
-            let pool = state.ws_pool.clone();
-            rt.block_on(async move {
-                pool.clear().await;
-            });
-            rt.shutdown_timeout(Duration::from_millis(300));
-        }
-    }
-}
-
-pub fn ensure_crypto_provider() {
+fn init_crypto_and_panic_hook() {
     let _ = rustls::crypto::ring::default_provider().install_default();
+    static PANIC_HOOK_SET: OnceCell<()> = OnceCell::new();
+    PANIC_HOOK_SET.get_or_init(|| {
+        std::panic::set_hook(Box::new(|info| {
+            crate::lerror!("RUST ENGINE PANIC: {}", info);
+        }));
+    });
 }
 
-pub fn get_global_config() -> Arc<ConfigManager> {
-    let mut lock = GLOBAL_CONFIG.write();
-    if let Some(cfg) = lock.as_ref() {
-        cfg.clone()
-    } else {
-        let cfg = ConfigManager::new();
-        *lock = Some(cfg.clone());
-        cfg
-    }
+fn runtime() -> &'static Runtime {
+    RUNTIME.get_or_init(|| {
+        init_crypto_and_panic_hook();
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .thread_name("mirrly-rt")
+            .enable_all()
+            .build()
+            .expect("failed to build global tokio runtime")
+    })
 }
 
-#[derive(Debug)]
-struct NoServerCertVerifier;
-
-impl rustls::client::danger::ServerCertVerifier for NoServerCertVerifier {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls_pki_types::CertificateDer<'_>,
-        _intermediates: &[rustls_pki_types::CertificateDer<'_>],
-        _server_name: &rustls_pki_types::ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: rustls_pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls_pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls_pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        rustls::crypto::ring::default_provider()
-            .signature_verification_algorithms
-            .supported_schemes()
-    }
-}
-
-pub fn create_tls_config() -> Arc<ClientConfig> {
-    ensure_crypto_provider();
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let mut config = ClientConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .expect("Failed to initialize safe default protocol versions for rustls")
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(NoServerCertVerifier))
-        .with_no_client_auth();
-
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
-
-    Arc::new(config)
-}
-
-fn c_str_to_rust(ptr: *const c_char) -> String {
-    if ptr.is_null() {
+fn cstr_to_string(p: *const c_char) -> String {
+    if p.is_null() {
         return String::new();
     }
-    unsafe {
-        CStr::from_ptr(ptr)
-            .to_str()
-            .unwrap_or("")
-            .trim()
-            .to_string()
+    unsafe { CStr::from_ptr(p).to_string_lossy().into_owned() }
+}
+
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn StartProxy(
+    c_host: *const c_char,
+    port: c_int,
+    c_dc_ips: *const c_char,
+    c_secret: *const c_char,
+    verbose: c_int,
+) -> c_int {
+    init_crypto_and_panic_hook();
+
+    let cell = state_cell();
+    let mut guard = cell.lock();
+
+    if guard.is_some() {
+        return -1;
     }
+
+    let host = cstr_to_string(c_host);
+    let go_port = port as u16;
+    let dc_ips_str = cstr_to_string(c_dc_ips);
+    let secret_str = cstr_to_string(c_secret);
+    let is_verbose = verbose != 0;
+
+    init_logging(is_verbose);
+    cfproxy::clear_cfproxy_429_cooldowns();
+
+    if secret_str.len() == 32 {
+        if hex::decode(&secret_str).is_ok() {
+            *PROXY_SECRET.write() = secret_str.clone();
+        }
+    }
+
+    cfproxy::init_cfproxy_domains();
+
+    let dc_opt_map: HashMap<i32, String> = parse_cidr_pool(&dc_ips_str);
+
+    let rt = runtime();
+    let cancel_tasks = CancellationToken::new();
+    let pool = Arc::new(WsPool::new(cancel_tasks.clone()));
+
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+
+    let pool_task = pool.clone();
+    let host_task = host.clone();
+    let map_task = dc_opt_map.clone();
+    let cancel_root = cancel_tasks.clone();
+
+    let handle = rt.spawn(async move {
+        let addr = format!("{}:{}", host_task, go_port);
+        match tokio::net::TcpListener::bind(&addr).await {
+            Ok(listener) => {
+                let _ = tx.send(Ok(()));
+                if let Err(e) =
+                    run_proxy(pool_task, host_task, go_port, map_task, cancel_root, listener).await
+                {
+                    crate::lerror!("listen on {}: {}", addr, e);
+                }
+            }
+            Err(e) => {
+                let _ = tx.send(Err(format!("listen on {}: {}", addr, e)));
+            }
+        }
+    });
+
+    match rx.recv() {
+        Ok(Ok(())) => {}
+        _ => {
+            handle.abort();
+            return -3;
+        }
+    }
+
+    *guard = Some(ProxyState {
+        pool: Some(pool),
+        handle,
+        cancel_tasks,
+    });
+
+    0
 }
 
 #[no_mangle]
-pub extern "C" fn StartProxy(
-    host: *const c_char,
-    port: c_int,
-    dc_ips: *const c_char,
-    secret: *const c_char,
-    verbose: c_int,
-) -> c_int {
-    let res = catch_unwind(|| {
-        ensure_crypto_provider();
-
-        let host_str = c_str_to_rust(host);
-        let host_str = if host_str.is_empty() {
-            "127.0.0.1"
-        } else {
-            &host_str
-        };
-        let port_u16 = if port <= 0 || port > 65535 {
-            10808
-        } else {
-            port as u16
-        };
-        let dc_ips_str = c_str_to_rust(dc_ips);
-        let secret_str = c_str_to_rust(secret);
-        let is_verbose = verbose != 0;
-
-        log_info(
-            "mirrlyengine",
-            &format!(
-                "StartProxy requested: host={}, port={}, secret_len={}, verbose={}",
-                host_str,
-                port_u16,
-                secret_str.len(),
-                is_verbose
-            ),
-        );
-
-        let bind_addr: SocketAddr = match format!("{}:{}", host_str, port_u16).parse() {
-            Ok(addr) => addr,
-            Err(e) => {
-                log_error("mirrlyengine", &format!("Invalid bind address: {:?}", e));
-                return 1;
-            }
-        };
-
-        let mut lock = get_or_init_engine().lock();
-
-        // Always clean up any existing engine runtime/state before starting
-        if lock.is_some() {
-            log_info("mirrlyengine", "Stopping existing engine instance before starting MTProto proxy...");
-            stop_engine_internal(&mut lock);
-        }
-
-        let rt = match Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .thread_name("mirrlyengine-worker")
-            .build()
-        {
-            Ok(r) => r,
-            Err(_) => return 2, // Runtime failure
-        };
-
-        let _guard = rt.enter();
-
-        let listener = match proxy::create_listener(bind_addr) {
-            Ok(l) => l,
-            Err(_) => return 3, // EADDRINUSE or bind failure
-        };
-
-        let config = get_global_config();
-        if !secret_str.is_empty() {
-            config.set_secret(secret_str);
-        }
-        config.set_verbose(is_verbose);
-        if !dc_ips_str.is_empty() {
-            config.set_dc_ips(parse_dc_ips(&dc_ips_str));
-        }
-
-        let stats = EngineStats::new();
-        let doh = DohResolver::new();
-        let cf_manager = CfManager::new(config.clone(), doh.clone());
-        let tls_config = create_tls_config();
-        let ws_pool = WsPool::new(tls_config.clone(), doh.clone());
-
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
-
-        let server = Arc::new(ProxyServer::new(
-            config.clone(),
-            stats.clone(),
-            cf_manager.clone(),
-            ws_pool.clone(),
-            tls_config.clone(),
-        ));
-
-        // Start background domain updater
-        let cf_bg = cf_manager.clone();
-        rt.spawn(async move {
-            cf_bg.fetch_upstream_domains().await;
-        });
-
-        // Background 1-Hop WebSocket pre-warming task based on pool_size for primary DCs (DC2 & DC4)
-        let ws_pool_bg = ws_pool.clone();
-        let cf_manager_bg = cf_manager.clone();
-        let config_bg = config.clone();
-        let mut shutdown_rx_bg = shutdown_rx.clone();
-
-        rt.spawn(async move {
-            let primary_keys: &[(i16, bool)] = &[(2, false), (4, false), (2, true), (4, true)];
-
-            loop {
-                let cfg = config_bg.get();
-                let pool_size = cfg.pool_size.clamp(2, 16);
-                let pool_per_dc = (pool_size / 2).max(1);
-
-                for &(dc_id, is_media) in primary_keys {
-                    if cfg.cf_enabled {
-                        let target_dc_addr = resolve_dc_addr(dc_id, &cfg.dc_ips);
-                        let ws_path = format!("/tcp?target={}", target_dc_addr);
-                        let candidates = cf_manager_bg.get_candidate_domains(dc_id, is_media);
-                        for domain in candidates {
-                            if ws_pool_bg
-                                .prewarm_target(dc_id, is_media, &domain, &ws_path, pool_per_dc)
-                                .await
-                            {
-                                log_info(
-                                    "mirrlyengine",
-                                    &format!(
-                                        "Pre-warmed socket in pool for DC{} (media={}) via {}",
-                                        dc_id, is_media, domain
-                                    ),
-                                );
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(3)) => {}
-                    _ = shutdown_rx_bg.changed() => {
-                        if *shutdown_rx_bg.borrow() {
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-
-        // Spawn main proxy listener
-        let server_future = server.run(listener, shutdown_rx);
-        rt.spawn(async move {
-            let _ = server_future.await;
-        });
-
-        *lock = Some(EngineState {
-            runtime: Some(rt),
-            config,
-            stats,
-            doh,
-            cf_manager,
-            ws_pool,
-            tls_config,
-            shutdown_tx: Some(shutdown_tx),
-            is_running: AtomicBool::new(true),
-        });
-
-        0 // Success
-    });
-
-    res.unwrap_or(-1)
-}
-
-#[no_mangle]
-pub extern "C" fn StartSocks5Proxy(
-    host: *const c_char,
+pub unsafe extern "C" fn StartSocks5Proxy(
+    c_host: *const c_char,
     port: c_int,
     verbose: c_int,
 ) -> c_int {
-    let res = catch_unwind(|| {
-        ensure_crypto_provider();
+    init_crypto_and_panic_hook();
 
-        let host_str = c_str_to_rust(host);
-        let host_str = if host_str.is_empty() {
-            "127.0.0.1"
-        } else {
-            &host_str
-        };
-        let port_u16 = if port <= 0 || port > 65535 {
-            10808
-        } else {
-            port as u16
-        };
-        let is_verbose = verbose != 0;
+    let cell = state_cell();
+    let mut guard = cell.lock();
 
-        log_info(
-            "mirrlyengine",
-            &format!(
-                "StartSocks5Proxy requested: host={}, port={}, verbose={}",
-                host_str, port_u16, is_verbose
-            ),
-        );
+    if guard.is_some() {
+        return -1;
+    }
 
-        let bind_addr: SocketAddr = match format!("{}:{}", host_str, port_u16).parse() {
-            Ok(addr) => addr,
-            Err(e) => {
-                log_error("mirrlyengine", &format!("Invalid bind address: {:?}", e));
-                return 1;
+    let host = cstr_to_string(c_host);
+    let go_port = port as u16;
+    let is_verbose = verbose != 0;
+
+    init_logging(is_verbose);
+    cfproxy::clear_cfproxy_429_cooldowns();
+    cfproxy::init_cfproxy_domains();
+
+    let rt = runtime();
+    let cancel_tasks = CancellationToken::new();
+
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+
+    let host_task = host.clone();
+    let cancel_root = cancel_tasks.clone();
+
+    let handle = rt.spawn(async move {
+        let addr = format!("{}:{}", host_task, go_port);
+        match tokio::net::TcpListener::bind(&addr).await {
+            Ok(listener) => {
+                let _ = tx.send(Ok(()));
+                if let Err(e) = run_socks5_server(host_task, go_port, cancel_root, listener).await {
+                    crate::lerror!("listen socks5 on {}: {}", addr, e);
+                }
             }
-        };
-
-        let mut lock = get_or_init_engine().lock();
-
-        // Always clean up any existing engine runtime/state before starting
-        if lock.is_some() {
-            log_info("mirrlyengine", "Stopping existing engine instance before starting SOCKS5 proxy...");
-            stop_engine_internal(&mut lock);
+            Err(e) => {
+                let _ = tx.send(Err(format!("listen socks5 on {}: {}", addr, e)));
+            }
         }
-
-        let rt = match Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .thread_name("mirrlyengine-socks5-worker")
-            .build()
-        {
-            Ok(r) => r,
-            Err(_) => return 2, // Runtime failure
-        };
-
-        let _guard = rt.enter();
-
-        let listener = match proxy::create_listener(bind_addr) {
-            Ok(l) => l,
-            Err(e) => {
-                log_error("mirrlyengine", &format!("Bind SOCKS5 listener failed on {}: {:?}", bind_addr, e));
-                return 3; // EADDRINUSE or bind failure
-            }
-        };
-
-        let config = get_global_config();
-        config.set_verbose(is_verbose);
-
-        let stats = EngineStats::new();
-        let doh = DohResolver::new();
-        let cf_manager = CfManager::new(config.clone(), doh.clone());
-        let tls_config = create_tls_config();
-        let ws_pool = WsPool::new(tls_config.clone(), doh.clone());
-
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
-
-        let server = Arc::new(Socks5Server::new(
-            config.clone(),
-            stats.clone(),
-            cf_manager.clone(),
-            ws_pool.clone(),
-            tls_config.clone(),
-        ));
-
-        // Start background domain updater
-        let cf_bg = cf_manager.clone();
-        rt.spawn(async move {
-            cf_bg.fetch_upstream_domains().await;
-        });
-
-        // Background 1-Hop WebSocket pre-warming task for primary DCs
-        let ws_pool_bg = ws_pool.clone();
-        let cf_manager_bg = cf_manager.clone();
-        let config_bg = config.clone();
-        let mut shutdown_rx_bg = shutdown_rx.clone();
-
-        rt.spawn(async move {
-            let primary_keys: &[(i16, bool)] = &[(2, false), (4, false), (2, true), (4, true)];
-            let ws_path = get_ws_path(false);
-
-            loop {
-                let pool_size = config_bg.get().pool_size.clamp(2, 16);
-                let pool_per_dc = (pool_size / 2).max(1);
-
-                for &(dc_id, is_media) in primary_keys {
-                    let candidates = cf_manager_bg.get_candidate_domains(dc_id, is_media);
-                    for domain in candidates {
-                        if ws_pool_bg
-                            .prewarm_target(dc_id, is_media, &domain, ws_path, pool_per_dc)
-                            .await
-                        {
-                            break;
-                        }
-                    }
-                }
-
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(3)) => {}
-                    _ = shutdown_rx_bg.changed() => {
-                        if *shutdown_rx_bg.borrow() {
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-
-        // Spawn main SOCKS5 listener
-        let server_future = server.run(listener, shutdown_rx);
-        rt.spawn(async move {
-            let _ = server_future.await;
-        });
-
-        *lock = Some(EngineState {
-            runtime: Some(rt),
-            config,
-            stats,
-            doh,
-            cf_manager,
-            ws_pool,
-            tls_config,
-            shutdown_tx: Some(shutdown_tx),
-            is_running: AtomicBool::new(true),
-        });
-
-        0 // Success
     });
 
-    res.unwrap_or(-1)
+    match rx.recv() {
+        Ok(Ok(())) => {}
+        _ => {
+            handle.abort();
+            return -3;
+        }
+    }
+
+    *guard = Some(ProxyState {
+        pool: None,
+        handle,
+        cancel_tasks,
+    });
+
+    0
 }
 
 #[no_mangle]
 pub extern "C" fn StopProxy() -> c_int {
-    let res = catch_unwind(|| {
-        log_info("mirrlyengine", "StopProxy requested");
-        let mut lock = get_or_init_engine().lock();
-        stop_engine_internal(&mut lock);
-        0
+    let cell = state_cell();
+    let mut guard = cell.lock();
+
+    let state = match guard.take() {
+        Some(s) => s,
+        None => return 0,
+    };
+
+    crate::linfo!("StopProxy: cancelling all tasks");
+    state.cancel_tasks.cancel();
+
+    let rt = runtime();
+    let pool_opt = state.pool;
+    let handle = state.handle;
+    rt.spawn(async move {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+        if let Some(pool) = pool_opt {
+            pool.close_all().await;
+        }
     });
 
-    res.unwrap_or(-1)
+    STATS.reset();
+    WS_BLACKLIST.write().clear();
+    DC_FAIL_UNTIL.write().clear();
+    cfproxy::clear_cfproxy_429_cooldowns();
+
+    crate::linfo!("StopProxy: stopped successfully");
+    0
 }
 
 #[no_mangle]
 pub extern "C" fn ResetNetworkSockets() {
-    let _ = catch_unwind(|| {
-        log_info(
-            "mirrlyengine",
-            "ResetNetworkSockets requested (Network Wi-Fi <-> LTE changed)",
-        );
-        let lock = get_or_init_engine().lock();
-        if let Some(state) = lock.as_ref() {
-            if let Some(rt) = state.runtime.as_ref() {
-                let pool = state.ws_pool.clone();
-                let doh = state.doh.clone();
-                let cf_manager = state.cf_manager.clone();
-                let config = state.config.clone();
-
-                rt.spawn(async move {
-                    pool.clear().await;
-                    doh.clear_cache();
-
-                    let pool_size = config.get().pool_size.clamp(2, 16);
-                    let pool_per_dc = (pool_size / 2).max(1);
-                    let primary_keys: &[(i16, bool)] = &[(2, false), (4, false), (2, true), (4, true)];
-                    let ws_path = get_ws_path(false);
-
-                    for &(dc_id, is_media) in primary_keys {
-                        let candidates = cf_manager.get_candidate_domains(dc_id, is_media);
-                        for domain in candidates {
-                            if pool.prewarm_target(dc_id, is_media, &domain, ws_path, pool_per_dc).await {
-                                break;
-                            }
-                        }
-                    }
-                });
-            }
+    let cell = state_cell();
+    let guard = cell.lock();
+    if let Some(state) = guard.as_ref() {
+        if let Some(ref pool) = state.pool {
+            let p = pool.clone();
+            let rt = runtime();
+            rt.spawn(async move {
+                p.close_all().await;
+            });
         }
-    });
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn SetPoolSize(size: c_int) {
-    let _ = catch_unwind(|| {
-        let size_clamped = size.clamp(2, 16) as usize;
-        get_global_config().set_pool_size(size_clamped);
-        log_info("mirrlyengine", &format!("Pool size updated to {}", size_clamped));
-    });
+    let mut n = size;
+    if n < 2 {
+        n = 2;
+    }
+    if n > 16 {
+        n = 16;
+    }
+    POOL_SIZE.store(n, Ordering::Relaxed);
 }
 
 #[no_mangle]
-pub extern "C" fn SetCfProxyCacheDir(cache_dir: *const c_char) {
-    let _ = catch_unwind(|| {
-        let dir_str = c_str_to_rust(cache_dir);
-        if !dir_str.is_empty() {
-            let lock = get_or_init_engine().lock();
-            if let Some(state) = lock.as_ref() {
-                state.cf_manager.set_cache_dir(&dir_str);
-            }
-        }
-    });
+pub unsafe extern "C" fn SetCfProxyCacheDir(c_cache_dir: *const c_char) {
+    let dir = cstr_to_string(c_cache_dir);
+    CFPROXY.write().cache_dir = dir.trim().to_string();
 }
 
 #[no_mangle]
-pub extern "C" fn SetCfProxyConfig(enabled: c_int, priority: c_int, user_domain: *const c_char) {
-    let _ = catch_unwind(|| {
-        let is_enabled = enabled != 0;
-        let is_priority = priority != 0;
-        let domain_str = c_str_to_rust(user_domain);
-
-        let cfg = get_global_config();
-        cfg.set_cf_config(is_enabled, is_priority, domain_str.clone());
-        log_info(
-            "mirrlyengine",
-            &format!(
-                "SetCfProxyConfig: enabled={}, priority={}, user_domain='{}'",
-                is_enabled, is_priority, domain_str
-            ),
-        );
-    });
+pub unsafe extern "C" fn SetCfProxyConfig(
+    enabled: c_int,
+    c_user_domain: *const c_char,
+) {
+    CFPROXY_ENABLED.store(enabled != 0, Ordering::Relaxed);
+    let user_domain = cstr_to_string(c_user_domain);
+    let mut cfg = CFPROXY.write();
+    cfg.user_domain = user_domain.clone();
+    if !user_domain.is_empty() {
+        cfg.domains = vec![user_domain.clone()];
+        cfg.active = user_domain;
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn SetSecret(secret: *const c_char) {
-    let _ = catch_unwind(|| {
-        let sec_str = c_str_to_rust(secret);
-        if !sec_str.is_empty() {
-            get_global_config().set_secret(sec_str);
-        }
-    });
-}
-
-#[no_mangle]
-pub extern "C" fn GetSecretWithPrefix() -> *mut c_char {
-    let res = catch_unwind(|| {
-        let cfg = get_global_config().get();
-        let formatted = format_secret_with_prefix(&cfg.secret);
-        CString::new(formatted).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
-    });
-
-    res.unwrap_or(std::ptr::null_mut())
+pub unsafe extern "C" fn SetSecret(c_secret: *const c_char) {
+    let s = cstr_to_string(c_secret);
+    if s.len() != 32 || hex::decode(&s).is_err() {
+        return;
+    }
+    *PROXY_SECRET.write() = s;
 }
 
 #[no_mangle]
 pub extern "C" fn GetStats() -> *mut c_char {
-    let res = catch_unwind(|| {
-        let lock = get_or_init_engine().lock();
-        if let Some(state) = lock.as_ref() {
-            let json = state.stats.to_json();
-            CString::new(json).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
-        } else {
-            CString::new("{}".to_string())
-                .map(|c| c.into_raw())
-                .unwrap_or(std::ptr::null_mut())
-        }
-    });
-
-    res.unwrap_or(std::ptr::null_mut())
+    let s = STATS.summary();
+    CString::new(s).unwrap_or_default().into_raw()
 }
 
 #[no_mangle]
-pub extern "C" fn FreeString(ptr: *mut c_char) {
-    let _ = catch_unwind(|| {
-        if !ptr.is_null() {
-            unsafe {
-                let _ = CString::from_raw(ptr);
-            }
-        }
-    });
+pub extern "C" fn GetSecretWithPrefix() -> *mut c_char {
+    let sec = PROXY_SECRET.read().clone();
+    CString::new(format!("dd{}", sec)).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn FreeString(p: *mut c_char) {
+    if !p.is_null() {
+        let _ = CString::from_raw(p);
+    }
 }

@@ -47,7 +47,6 @@ class PreferencesManager(context: Context) {
         val customDomain = ProxyConfig.sanitizeDomain(prefs.getString("custom_cf_domain", defaults.customCfDomain) ?: defaults.customCfDomain)
         val poolSize = prefs.getInt("pool_size", defaults.poolSize)
         val autostart = prefs.getBoolean("autostart_on_boot", defaults.autostartOnBoot)
-        val fallbackTcp = prefs.getBoolean("fallback_direct_tcp", defaults.fallbackDirectTcp)
         val speedPresetName = prefs.getString("speed_preset", defaults.speedPresetName) ?: defaults.speedPresetName
         val tcpNoDelay = prefs.getBoolean("tcp_nodelay", defaults.tcpNoDelay)
         val bufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
@@ -63,8 +62,6 @@ class PreferencesManager(context: Context) {
             else ProxyMode.MTPROTO.name
         }
 
-        val useDefaultSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
-
         return ProxyConfig(
             bindHost = bindHost,
             bindPort = bindPort,
@@ -73,12 +70,10 @@ class PreferencesManager(context: Context) {
             customCfDomain = customDomain,
             poolSize = poolSize,
             autostartOnBoot = autostart,
-            fallbackDirectTcp = fallbackTcp,
             speedPresetName = speedPresetName,
             tcpNoDelay = tcpNoDelay,
             bufferSizeBytes = bufferSizeBytes,
             socks5Port = socks5Port,
-            useDefaultWorkerSocks5 = useDefaultSocks5,
             proxyModeName = proxyModeName
         )
     }
@@ -94,12 +89,10 @@ class PreferencesManager(context: Context) {
             .putString("custom_cf_domain", sanitizedDomain)
             .putInt("pool_size", config.poolSize)
             .putBoolean("autostart_on_boot", config.autostartOnBoot)
-            .putBoolean("fallback_direct_tcp", config.fallbackDirectTcp)
             .putString("speed_preset", config.speedPresetName)
             .putBoolean("tcp_nodelay", config.tcpNoDelay)
             .putInt("buffer_size_bytes", config.bufferSizeBytes)
             .putInt("socks5_port", config.socks5Port)
-            .putBoolean("use_default_worker_socks5", config.useDefaultWorkerSocks5)
             .putString("proxy_mode", config.proxyModeName)
             .apply()
         _isSocks5Flow.value = config.isSocks5Mode

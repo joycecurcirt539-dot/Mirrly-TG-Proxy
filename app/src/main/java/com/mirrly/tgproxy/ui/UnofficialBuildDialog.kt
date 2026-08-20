@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.os.Build
 import android.view.WindowManager
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.Dialog
@@ -69,6 +70,7 @@ fun UnofficialBuildDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
             dismissOnBackPress = true,
             dismissOnClickOutside = false
         )
@@ -77,10 +79,13 @@ fun UnofficialBuildDialog(
         LaunchedEffect(Unit) {
             try {
                 val window = (view.parent as? DialogWindowProvider)?.window
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                    window?.attributes = window?.attributes?.apply {
-                        blurBehindRadius = 50
+                if (window != null) {
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                        window.attributes = window.attributes.apply {
+                            blurBehindRadius = 50
+                        }
                     }
                 }
             } catch (_: Exception) {}
@@ -105,7 +110,8 @@ fun UnofficialBuildDialog(
                     .align(Alignment.Center)
                     .fillMaxWidth()
                     .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
-                    .padding(bottom = 150.dp, top = 24.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 160.dp, top = 24.dp)
                     .verticalScroll(rememberScrollState())
                     .clickable(enabled = false) {}
             ) {
@@ -159,6 +165,7 @@ fun UnofficialBuildDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
                     .padding(bottom = 28.dp)
                     .fillMaxWidth()
                     .clickable(enabled = false) {}

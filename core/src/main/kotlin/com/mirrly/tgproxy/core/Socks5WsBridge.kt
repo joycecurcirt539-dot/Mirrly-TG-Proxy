@@ -36,9 +36,8 @@ import java.net.Socket
  * Transparent SOCKS5 bridge that acts as a pure TCP relay.
  *
  * All traffic (Telegram DC chats/media AND VoIP calls) is routed through
- * handleVoIpOrGeneralTraffic() which uses:
- *   1. Cloudflare Worker WSS transparent tunnel (if cfDomain configured)
- *   2. Direct TCP as fallback
+ * handleVoIpOrGeneralTraffic() which uses Cloudflare CDN FlowSila domains
+ * as the sole transport. No direct TCP to Telegram is ever attempted.
  *
  * There is NO MTProto-specific processing here — SOCKS5 is a transparent proxy.
  * Telegram handles its own encryption end-to-end with the DC.
@@ -183,7 +182,7 @@ class Socks5WsBridge(
             outputStream.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00))
             outputStream.flush()
 
-            // ── 3. Прозрачный relay: весь трафик через CF Worker / Direct TCP ───────────
+            // ── 3. Прозрачный relay: весь трафик через CF Worker ───────────
             handleVoIpOrGeneralTraffic(targetHost, targetPort, inputStream, outputStream)
         } catch (t: Throwable) {
             AppLogger.e("Socks5WsBridge", "💥 Ошибка во время SOCKS5 сессии ($clientIp): ${t.message}")
@@ -196,8 +195,9 @@ class Socks5WsBridge(
     }
 
     /**
-     * Handles VoIP calls and general raw TCP streams by tunneling over Cloudflare Worker WSS or Direct TCP.
-     * Also used for all Telegram DC traffic in SOCKS5 mode (transparent relay, no MTProto parsing).
+     * Routes all traffic through Cloudflare CDN FlowSila domains.
+     * WsPool is checked first (zero-latency). Then sequential CDN domain attempts.
+     * If all CDN domains fail, connection is refused with no direct TCP fallback.
      */
     private suspend fun handleVoIpOrGeneralTraffic(
         targetHost: String,
@@ -208,96 +208,51 @@ class Socks5WsBridge(
         var wsConnected = false
         var wsClient: RawWebSocketClient? = null
 
-        // Priority 1: Cloudflare Worker WSS Forwarding (if custom worker is configured)
-        val cfDomain = config.getEffectiveCfDomain()
-        if (config.cfProxyEnabled && cfDomain.isNotBlank()) {
-            val targetSpec = if (targetHost.contains(":") && !targetHost.startsWith("[")) "[$targetHost]:$targetPort" else "$targetHost:$targetPort"
-            val wsUrl = "wss://$cfDomain/tcp?target=$targetSpec&host=$targetHost&port=$targetPort"
-            AppLogger.i("Socks5WsBridge", "🌐 [SOCKS5 WSS] Подключение к туннелю Cloudflare Worker ($cfDomain) для $targetSpec...")
-            val client = RawWebSocketClient(wsUrl)
-            try {
-                val connected = client.connectAndAwait(5000)
-                if (connected && client.isAlive) {
-                    wsClient = client
-                    wsConnected = true
-                    AppLogger.i("Socks5WsBridge", "✅ [SOCKS5 WSS] Успешное туннелирование к $targetHost:$targetPort через Cloudflare Worker ($cfDomain)")
-                } else {
-                    AppLogger.w("Socks5WsBridge", "⚠️ [SOCKS5 WSS] Не удалось установить сокет с Worker $cfDomain (таймаут/закрыт)")
-                    client.close()
-                }
-            } catch (e: Exception) {
-                AppLogger.w("Socks5WsBridge", "⚠️ [SOCKS5 WSS] Ошибка подключения к Worker $cfDomain: ${e.message}")
-                client.close()
+        // Priority 1: WsPool pre-warmed connection (Zero-Latency)
+        val dcInfo = TgConstants.findDcByTarget(targetHost)
+        if (dcInfo != null && wsPool != null) {
+            val pooled = wsPool.get(dcInfo.first, dcInfo.second, config.isTestEnvironment)
+            if (pooled != null) {
+                wsClient = pooled
+                wsConnected = true
+                AppLogger.i("Socks5WsBridge", "[SOCKS5 WsPool] Pre-warmed CDN socket for DC${dcInfo.first}")
             }
-        } else {
-            AppLogger.w("Socks5WsBridge", "⚠️ [SOCKS5] Кастомный домен Cloudflare Worker не назначен! Пропуск WSS-туннеля и переход на прямое TCP-подключение (может не работать в РФ)")
         }
 
-        // Priority 2: Direct TCP Fallback (Fast-fail connect 2500ms)
-        if (!wsConnected || wsClient == null) {
-            if (config.fallbackDirectTcp) {
-                AppLogger.i("Socks5WsBridge", "🔌 [SOCKS5 Direct TCP] Прямое TCP подключение к $targetHost:$targetPort (без WSS)...")
+        // Priority 2: Cloudflare CDN FlowSila domains (sole transport)
+        if (!wsConnected) {
+            val cfDomain = config.getEffectiveCfDomain()
+            val targetSpec = if (targetHost.contains(":") && !targetHost.startsWith("[")) "[$targetHost]:$targetPort" else "$targetHost:$targetPort"
+
+            val domainsToTry = if (cfDomain.isNotBlank()) {
+                listOf(cfDomain)
+            } else {
+                TgConstants.DEFAULT_EMBEDDED_DOMAINS
+            }
+
+            for (domain in domainsToTry) {
+                val wsUrl = "wss://$domain/tcp?target=$targetSpec"
+                AppLogger.i("Socks5WsBridge", "[SOCKS5 CDN] Connecting via $domain for $targetSpec...")
+                val client = RawWebSocketClient(wsUrl)
                 try {
-                    Socket().use { directSocket ->
-                        if (config.tcpNoDelay) {
-                            try { directSocket.tcpNoDelay = true } catch (_: Exception) {}
-                        }
-                        try {
-                            directSocket.receiveBufferSize = config.bufferSizeBytes
-                            directSocket.sendBufferSize = config.bufferSizeBytes
-                            directSocket.soTimeout = 15000
-                        } catch (_: Exception) {}
-
-                        directSocket.connect(InetSocketAddress(targetHost, targetPort), 3000)
-                        AppLogger.i("Socks5WsBridge", "✅ [SOCKS5 Direct TCP] Успешно подключено напрямую к $targetHost:$targetPort")
-
-                        val bufLen = config.bufferSizeBytes.coerceAtLeast(16384)
-                        val directIn = directSocket.getInputStream()
-                        val directOut = directSocket.getOutputStream()
-
-                        val fallbackJob = bridgeScope.launch {
-                            val buf = ByteArray(bufLen)
-                            try {
-                                while (bridgeScope.isActive) {
-                                    val len = directIn.read(buf)
-                                    if (len < 0) break
-                                    outputStream.write(buf, 0, len)
-                                    outputStream.flush()
-                                    stats.addReceived(len.toLong())
-                                }
-                            } catch (e: Throwable) {
-                                if (e !is kotlinx.coroutines.CancellationException && e !is java.io.InterruptedIOException) {
-                                    AppLogger.w("Socks5WsBridge", "⚠️ [Direct TCP IN] Завершено/Ошибка: ${e.message}")
-                                }
-                            } finally {
-                                try { directSocket.close() } catch (_: Throwable) {}
-                            }
-                        }
-
-                        try {
-                            val buf = ByteArray(bufLen)
-                            while (bridgeScope.isActive && !clientSocket.isClosed) {
-                                val len = inputStream.read(buf)
-                                if (len < 0) break
-                                directOut.write(buf, 0, len)
-                                directOut.flush()
-                                stats.addSent(len.toLong())
-                            }
-                        } catch (e: Throwable) {
-                            if (e !is kotlinx.coroutines.CancellationException && e !is java.io.InterruptedIOException) {
-                                AppLogger.w("Socks5WsBridge", "⚠️ [Direct TCP OUT] Завершено/Ошибка: ${e.message}")
-                            }
-                        } finally {
-                            fallbackJob.cancel()
-                            try { directSocket.close() } catch (_: Throwable) {}
-                        }
+                    val connected = client.connectAndAwait(4000)
+                    if (connected && client.isAlive) {
+                        wsClient = client
+                        wsConnected = true
+                        AppLogger.i("Socks5WsBridge", "[SOCKS5 CDN] Connected via $domain")
+                        TgConstants.promoteDomain(domain)
+                        break
+                    } else {
+                        client.close()
                     }
                 } catch (e: Exception) {
-                    AppLogger.e("Socks5WsBridge", "❌ [SOCKS5 Direct TCP] Не удалось подключиться к $targetHost:$targetPort (блокировка провайдера): ${e.message}")
+                    AppLogger.e("Socks5WsBridge", "❌ [SOCKS5 CDN] Не удалось подключиться через $domain: ${e.message}")
                 }
-            } else {
-                AppLogger.w("Socks5WsBridge", "❌ Direct TCP отключен в настройках, трафик не перенаправлен")
             }
+        }
+
+        if (!wsConnected || wsClient == null) {
+            AppLogger.w("Socks5WsBridge", "❌ [SOCKS5 CDN] Все CDN домены недоступны для $targetHost:$targetPort")
             return
         }
 

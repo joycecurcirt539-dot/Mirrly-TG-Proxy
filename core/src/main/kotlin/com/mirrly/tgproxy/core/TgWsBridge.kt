@@ -193,88 +193,12 @@ class TgWsBridge(
                 }
             }
 
+
             if (!wsConnected || wsClient == null) {
-                // Direct TCP Fallback (Last-resort single attempt with 2.5s fast-fail timeout)
-                if (config.fallbackDirectTcp) {
-                    val dcIp = (if (config.isTestEnvironment) TgConstants.DC_TEST_IPS else TgConstants.DC_DEFAULT_IPS)[handshakeResult.dcId]
-                    if (dcIp != null) {
-                        try {
-                            Socket().use { directSocket ->
-                                if (config.tcpNoDelay) {
-                                    try { directSocket.tcpNoDelay = true } catch (_: Exception) {}
-                                }
-                                try {
-                                    directSocket.receiveBufferSize = config.bufferSizeBytes
-                                    directSocket.sendBufferSize = config.bufferSizeBytes
-                                    directSocket.soTimeout = 15000
-                                } catch (_: Exception) {}
-
-                                // Fast-fail connect timeout: 2500ms (prevent hanging when Telegram DC is blocked by DPI)
-                                directSocket.connect(java.net.InetSocketAddress(dcIp, 443), 2500)
-
-                                directSocket.getOutputStream().write(relayInit)
-                                directSocket.getOutputStream().flush()
-
-                                val bufLen = config.bufferSizeBytes.coerceAtLeast(16384)
-                                val fallbackJob = bridgeScope.launch {
-                                    val buf = ByteArray(bufLen)
-                                    val directIn = directSocket.getInputStream()
-                                    try {
-                                        while (isActive) {
-                                            val len = directIn.read(buf)
-                                            if (len < 0) break
-                                            if (isFakeTls) {
-                                                FakeTls.writeTlsAppData(outputStream, buf, 0, len)
-                                            } else {
-                                                outputStream.write(buf, 0, len)
-                                                outputStream.flush()
-                                            }
-                                            stats.addReceived(len.toLong())
-                                        }
-                                    } catch (_: Throwable) {}
-                                    finally {
-                                        try { directSocket.close() } catch (_: Throwable) {}
-                                    }
-                                }
-                                try {
-                                    if (initialExtraPayload != null && initialExtraPayload.isNotEmpty()) {
-                                        directSocket.getOutputStream().write(initialExtraPayload)
-                                        directSocket.getOutputStream().flush()
-                                        stats.addSent(initialExtraPayload.size.toLong())
-                                    }
-                                    val buf = ByteArray(bufLen)
-                                    while (isActive && !clientSocket.isClosed) {
-                                        val dataToSend: ByteArray
-                                        val offset: Int
-                                        val len: Int
-                                        if (isFakeTls) {
-                                            val frame = FakeTls.readTlsAppData(inputStream) ?: break
-                                            if (frame.isEmpty()) continue
-                                            dataToSend = frame
-                                            offset = 0
-                                            len = frame.size
-                                        } else {
-                                            val count = inputStream.read(buf)
-                                            if (count < 0) break
-                                            dataToSend = buf
-                                            offset = 0
-                                            len = count
-                                        }
-                                        directSocket.getOutputStream().write(dataToSend, offset, len)
-                                        directSocket.getOutputStream().flush()
-                                        stats.addSent(len.toLong())
-                                    }
-                                } catch (_: Throwable) {}
-                                finally {
-                                    fallbackJob.cancel()
-                                    try { directSocket.close() } catch (_: Throwable) {}
-                                }
-                            }
-                        } catch (_: Exception) {}
-                    }
-                }
+                AppLogger.w("TgWsBridge", "MTProto: All CDN domains unreachable for DC ${handshakeResult.dcId}. Dropping connection.")
                 return@withContext
             }
+
 
             val activeWs = wsClient ?: return@withContext
 

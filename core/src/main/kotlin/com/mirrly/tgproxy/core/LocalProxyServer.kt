@@ -89,7 +89,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
                 NativeProxy.setCfProxyConfig(
                     enabled = useCf,
-                    priority = !config.fallbackDirectTcp,
                     userDomain = workerDomain
                 )
 
@@ -171,7 +170,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
             NativeProxy.setCfProxyConfig(
                 enabled = useCf,
-                priority = !config.fallbackDirectTcp,
                 userDomain = workerDomain
             )
 
@@ -420,21 +418,12 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     fun measurePingAsync(dcId: Int = 2) {
         scope.launch {
             val cfDomain = config.getEffectiveCfDomain()
-            val ping = if (config.cfProxyEnabled && cfDomain.isNotBlank()) {
+            val pingTarget = if (cfDomain.isNotBlank()) cfDomain else TgConstants.decodeCfDomain("virkgj.com")
+            val ping = run {
                 val start = System.currentTimeMillis()
                 try {
                     Socket().use { s ->
-                        s.connect(java.net.InetSocketAddress(cfDomain, 443), 2500)
-                        System.currentTimeMillis() - start
-                    }
-                } catch (_: Exception) {
-                    -1L
-                }
-            } else {
-                val start = System.currentTimeMillis()
-                try {
-                    Socket().use { s ->
-                        s.connect(java.net.InetSocketAddress("web.telegram.org", 443), 2500)
+                        s.connect(java.net.InetSocketAddress(pingTarget, 443), 2500)
                         System.currentTimeMillis() - start
                     }
                 } catch (_: Exception) {

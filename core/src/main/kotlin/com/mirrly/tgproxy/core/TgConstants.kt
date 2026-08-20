@@ -46,6 +46,7 @@ object TgConstants {
         "virkgj.com",
         "vmmzovy.com",
         "mkuosckvso.com",
+        "zaewayzmplad.com",
         "twdmbzcm.com",
         "awzwsldi.com",
         "clngqrflngqin.com",
@@ -75,21 +76,43 @@ object TgConstants {
         }
     }
 
+    fun decodeCfDomain(s: String): String {
+        val trimmed = s.trim()
+        if (!trimmed.endsWith(".com")) return trimmed
+        val suffix = ".co.uk"
+        val p = trimmed.dropLast(4)
+        var n = 0
+        for (c in p) {
+            if (c in 'a'..'z' || c in 'A'..'Z') n++
+        }
+        val sb = StringBuilder()
+        for (c in p) {
+            when (c) {
+                in 'a'..'z' -> {
+                    val v = (((c - 'a') - n % 26 + 26) % 26 + 'a'.code).toChar()
+                    sb.append(v)
+                }
+                in 'A'..'Z' -> {
+                    val v = (((c - 'A') - n % 26 + 26) % 26 + 'A'.code).toChar()
+                    sb.append(v)
+                }
+                else -> sb.append(c)
+            }
+        }
+        sb.append(suffix)
+        return sb.toString()
+    }
+
     fun getWsDomains(dc: Int, isMedia: Boolean?): List<String> {
         val targetDc = if (dc == 203) 2 else if (dc in 1..5) dc else 2
-        val named = NAMED_GATEWAYS[targetDc] ?: "venus.web.telegram.org"
-        val nativeDomains = if (isMedia == true) {
-            listOf("kws$targetDc-1.web.telegram.org", "kws$targetDc.web.telegram.org", named)
-        } else {
-            listOf("kws$targetDc.web.telegram.org", "kws$targetDc-1.web.telegram.org", named)
-        }
         val embeddedFormatted = mutableListOf<String>()
-        for (domain in dynamicEmbeddedDomains) {
+        for (raw in dynamicEmbeddedDomains) {
+            val domain = decodeCfDomain(raw)
             val kwsDomain = if (isMedia == true) "kws$targetDc-1.$domain" else "kws$targetDc.$domain"
             embeddedFormatted.add(kwsDomain)
             embeddedFormatted.add(domain)
         }
-        return nativeDomains + embeddedFormatted
+        return embeddedFormatted
     }
 
     /**

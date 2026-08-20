@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.os.Build
 import android.view.WindowManager
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.window.Dialog
@@ -213,6 +214,7 @@ fun OfficialSourceCard(
             onDismissRequest = { showSecurityDialog = false },
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
                 dismissOnBackPress = true,
                 dismissOnClickOutside = true
             )
@@ -221,10 +223,13 @@ fun OfficialSourceCard(
             LaunchedEffect(Unit) {
                 try {
                     val window = (view.parent as? DialogWindowProvider)?.window
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                        window?.attributes = window?.attributes?.apply {
-                            blurBehindRadius = 50
+                    if (window != null) {
+                        WindowCompat.setDecorFitsSystemWindows(window, false)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                            window.attributes = window.attributes.apply {
+                                blurBehindRadius = 50
+                            }
                         }
                     }
                 } catch (_: Exception) {}
@@ -249,6 +254,7 @@ fun OfficialSourceCard(
                         .align(Alignment.Center)
                         .fillMaxWidth()
                         .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
+                        .navigationBarsPadding()
                         .padding(bottom = 120.dp, top = 24.dp)
                         .verticalScroll(rememberScrollState())
                         .clickable(enabled = false) {}
@@ -335,7 +341,8 @@ fun OfficialSourceCard(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 36.dp)
+                        .navigationBarsPadding()
+                        .padding(bottom = 32.dp)
                         .fillMaxWidth(0.90f)
                         .clickable(enabled = false) {}
                 ) {

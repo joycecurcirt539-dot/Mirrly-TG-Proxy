@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import android.os.Build
 import android.view.WindowManager
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -71,6 +72,7 @@ fun GithubStarDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
             dismissOnBackPress = true,
             dismissOnClickOutside = true
         )
@@ -79,10 +81,13 @@ fun GithubStarDialog(
         SideEffect {
             try {
                 val window = (view.parent as? DialogWindowProvider)?.window
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                    window?.attributes = window?.attributes?.apply {
-                        blurBehindRadius = 70
+                if (window != null) {
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                        window.attributes = window.attributes.apply {
+                            blurBehindRadius = 70
+                        }
                     }
                 }
             } catch (_: Exception) {}
@@ -106,7 +111,8 @@ fun GithubStarDialog(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth()
-                    .padding(bottom = 120.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 150.dp)
                     .clickable(enabled = false) {}
             ) {
                 // Category Pill
@@ -152,6 +158,7 @@ fun GithubStarDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
                     .padding(bottom = 28.dp)
                     .fillMaxWidth(0.92f)
                     .clickable(enabled = false) {}

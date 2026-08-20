@@ -26,20 +26,13 @@ data class ProxyConfig(
     var isDcAuto: Boolean = true,
     var autostartOnBoot: Boolean = false,
     var verboseLogs: Boolean = true,
-    var fallbackDirectTcp: Boolean = false,
     var isTestEnvironment: Boolean = false,
     var speedPresetName: String = SpeedPreset.BALANCED.name,
     var tcpNoDelay: Boolean = true,
     var bufferSizeBytes: Int = 131072, // 128KB default buffer
     var socks5Port: Int = 10808,
-    // Флаг вызова встроенного воркера разработчика (только для SOCKS5)
-    var useDefaultWorkerSocks5: Boolean = true,
-    var useDefaultWorkerMtproto: Boolean = true,
     // proxyModeName — единый источник истины (MTPROTO или SOCKS5)
-    var proxyModeName: String = ProxyMode.MTPROTO.name,
-    // Оставляем для обратной совместимости с PreferencesManager
-    @Deprecated("Используй proxyMode") var socks5Enabled: Boolean = false,
-    @Deprecated("Более не используется") var dualPortMode: Boolean = false
+    var proxyModeName: String = ProxyMode.MTPROTO.name
 ) {
     val speedPreset: SpeedPreset
         get() = try { SpeedPreset.valueOf(speedPresetName) } catch (_: Exception) { SpeedPreset.BALANCED }
@@ -62,15 +55,10 @@ data class ProxyConfig(
         bufferSizeBytes = preset.defaultBufferSizeBytes
     }
 
+    /** Возвращает пользовательский кастомный CF-домен или пустую строку.
+     *  Воркер разработчика полностью удалён — только пользовательский домен. */
     fun getEffectiveCfDomain(): String {
-        val userDomain = sanitizeDomain(customCfDomain)
-        if (userDomain.isNotEmpty()) {
-            return userDomain
-        }
-        if ((isSocks5Mode && useDefaultWorkerSocks5) || (!isSocks5Mode && useDefaultWorkerMtproto)) {
-            return "mirrly-tg-proxy-worker.brawny-singer.workers.dev"
-        }
-        return ""
+        return sanitizeDomain(customCfDomain)
     }
 
     val rawSecret32: String

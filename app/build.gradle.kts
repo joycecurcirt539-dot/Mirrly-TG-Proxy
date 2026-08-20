@@ -20,6 +20,7 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        manifestPlaceholders["appLabel"] = "Mirrly TG Proxy"
         externalNativeBuild {
             cmake {
                 cppFlags("")
@@ -42,10 +43,22 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             signingConfig = signingConfigs.getByName("debug")
+            manifestPlaceholders["appLabel"] = "Mirrly TG Proxy"
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        create("beta") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".beta"
+            versionNameSuffix = "-beta"
+            matchingFallbacks += listOf("release")
+            manifestPlaceholders["appLabel"] = "Mirrly (Beta)"
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        debug {
+            manifestPlaceholders["appLabel"] = "Mirrly (Debug)"
         }
     }
 

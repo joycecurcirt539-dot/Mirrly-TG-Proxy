@@ -2,6 +2,7 @@ package com.mirrly.tgproxy.ui
 
 import android.os.Build
 import android.view.WindowManager
+import androidx.core.view.WindowCompat
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -236,6 +237,7 @@ fun HistoryScreen(
             onDismissRequest = { showClearDialog = false },
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
                 dismissOnBackPress = true,
                 dismissOnClickOutside = true
             )
@@ -244,10 +246,13 @@ fun HistoryScreen(
             LaunchedEffect(Unit) {
                 try {
                     val window = (view.parent as? DialogWindowProvider)?.window
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                        window?.attributes = window?.attributes?.apply {
-                            blurBehindRadius = 50
+                    if (window != null) {
+                        WindowCompat.setDecorFitsSystemWindows(window, false)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                            window.attributes = window.attributes.apply {
+                                blurBehindRadius = 50
+                            }
                         }
                     }
                 } catch (_: Exception) {}
@@ -262,6 +267,7 @@ fun HistoryScreen(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) { showClearDialog = false }
+                    .navigationBarsPadding()
                     .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.Center
             ) {
