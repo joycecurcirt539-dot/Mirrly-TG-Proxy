@@ -1,22 +1,13 @@
 /**
- * Mirrly TG Proxy - Dedicated Cloudflare Worker for Telegram (MTProto & SOCKS5)
- * 
- * Specifically optimized for Telegram:
- * 1. SOCKS5 raw TCP tunneling via Cloudflare Sockets API (cloudflare:sockets)
- *    - Instant routing to Telegram Data Centers (DC1 - DC5)
- *    - Low-latency VoIP Reflector support for audio & video calls
- *    - Robust buffer streaming with zero V8 GC overhead
- * 2. MTProto WebSocket proxying via /apiws
- * 3. Dynamic IPv4, IPv6 and domain endpoint resolution
+ * Mirrly TG Proxy - Dedicated Cloudflare Worker for Telegram
+ * Specifically optimized for Telegram MTProto & SOCKS5 VoIP calls
  */
-
 import { connect } from 'cloudflare:sockets';
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Health check / Service info for HTTP GET
     const upgradeHeader = request.headers.get('Upgrade');
     if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
       return new Response(
@@ -37,14 +28,13 @@ export default {
       );
     }
 
-    // Parse target endpoint (host & port)
     let targetHost = url.searchParams.get('host');
     let targetPort = parseInt(url.searchParams.get('port'), 10);
 
     if (!targetHost || isNaN(targetPort)) {
       const targetParam = url.searchParams.get('target');
       if (!targetParam) {
-        return new Response("Missing target parameter. Expected ?target=host:port or ?host=...&port=...", { status: 400 });
+        return new Response("Missing target parameter", { status: 400 });
       }
 
       if (targetParam.startsWith('[')) {
@@ -72,15 +62,13 @@ export default {
     }
 
     if (!targetHost) {
-      return new Response("Invalid target format. Expected host:port", { status: 400 });
+      return new Response("Invalid target format", { status: 400 });
     }
 
-    // Accept WebSocket connection
     const webSocketPair = new WebSocketPair();
     const [clientWs, serverWs] = Object.values(webSocketPair);
     serverWs.accept();
 
-    // Connect to Telegram TCP endpoint using cloudflare:sockets
     try {
       const tcpSocket = connect({
         hostname: targetHost,
@@ -90,7 +78,6 @@ export default {
       const tcpWriter = tcpSocket.writable.getWriter();
       const tcpReader = tcpSocket.readable.getReader();
 
-      // Client WS -> Telegram Remote TCP
       serverWs.addEventListener('message', async (event) => {
         try {
           const data = typeof event.data === 'string' ? new TextEncoder().encode(event.data) : new Uint8Array(event.data);
@@ -111,7 +98,6 @@ export default {
         try { tcpSocket.close(); } catch (_) {}
       });
 
-      // Telegram Remote TCP -> Client WS
       (async () => {
         try {
           while (true) {
@@ -129,7 +115,7 @@ export default {
       })();
 
     } catch (err) {
-      serverWs.close(1011, `Connect failed: ${err.message}`);
+      serverWs.close(1011, "Connect failed: " + err.message);
     }
 
     return new Response(null, {
