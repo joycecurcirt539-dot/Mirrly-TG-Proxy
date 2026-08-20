@@ -4,9 +4,13 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.core.ProxyMode
+import com.mirrly.tgproxy.core.WorkerProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
 
 class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("mirrly_tg_proxy_prefs", Context.MODE_PRIVATE)
@@ -51,12 +55,12 @@ class PreferencesManager(context: Context) {
         val tcpNoDelay = prefs.getBoolean("tcp_nodelay", defaults.tcpNoDelay)
         val bufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
         val socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
+        val useDefaultWorkerSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
 
         // Миграция: если proxy_mode ещё не сохранён, читаем старый socks5_enabled
         val proxyModeName = if (prefs.contains("proxy_mode")) {
             prefs.getString("proxy_mode", ProxyMode.MTPROTO.name) ?: ProxyMode.MTPROTO.name
         } else {
-            // Старые установки: если был socks5_enabled=true → переводим в SOCKS5 режим
             @Suppress("DEPRECATION")
             if (prefs.getBoolean("socks5_enabled", false)) ProxyMode.SOCKS5.name
             else ProxyMode.MTPROTO.name
@@ -74,6 +78,7 @@ class PreferencesManager(context: Context) {
             tcpNoDelay = tcpNoDelay,
             bufferSizeBytes = bufferSizeBytes,
             socks5Port = socks5Port,
+            useDefaultWorkerSocks5 = useDefaultWorkerSocks5,
             proxyModeName = proxyModeName
         )
     }
@@ -93,6 +98,7 @@ class PreferencesManager(context: Context) {
             .putBoolean("tcp_nodelay", config.tcpNoDelay)
             .putInt("buffer_size_bytes", config.bufferSizeBytes)
             .putInt("socks5_port", config.socks5Port)
+            .putBoolean("use_default_worker_socks5", config.useDefaultWorkerSocks5)
             .putString("proxy_mode", config.proxyModeName)
             .apply()
         _isSocks5Flow.value = config.isSocks5Mode
@@ -131,5 +137,138 @@ class PreferencesManager(context: Context) {
     fun setAnimationsDisabled(disabled: Boolean) {
         prefs.edit().putBoolean("disable_animations_particles", disabled).apply()
         _animationsDisabledFlow.value = disabled
+    }
+
+    // ── Worker Profiles Management ──────────────────────────────────────────
+
+    companion object {
+        val DEFAULT_DEV_WORKERS = listOf(
+            WorkerProfile(
+                id = "dev_default",
+                name = "Воркер разработчика #1 (Основной)",
+                domain = "mirrly-tg-proxy-worker.brawny-singer.workers.dev",
+                isDeveloperWorker = true
+            ),
+            WorkerProfile(
+                id = "dev_alpha",
+                name = "Воркер разработчика #2 (Alpha)",
+                domain = "mirrly-tg-proxy-alpha.brawny-singer.workers.dev",
+                isDeveloperWorker = true
+            ),
+            WorkerProfile(
+                id = "dev_beta",
+                name = "Воркер разработчика #3 (Beta)",
+                domain = "mirrly-tg-proxy-beta.brawny-singer.workers.dev",
+                isDeveloperWorker = true
+            ),
+            WorkerProfile(
+                id = "dev_gamma",
+                name = "Воркер разработчика #4 (Gamma)",
+                domain = "mirrly-tg-proxy-gamma.brawny-singer.workers.dev",
+                isDeveloperWorker = true
+            ),
+            WorkerProfile(
+                id = "dev_delta",
+                name = "Воркер разработчика #5 (Delta)",
+                domain = "mirrly-tg-proxy-delta.brawny-singer.workers.dev",
+                isDeveloperWorker = true
+            )
+        )
+    }
+
+    fun getDeveloperWorkers(): List<WorkerProfile> {
+        return DEFAULT_DEV_WORKERS
+    }
+
+    fun getCustomWorkers(): List<WorkerProfile> {
+        val jsonStr = prefs.getString("custom_workers_json", null) ?: return emptyList()
+        val result = mutableListOf<WorkerProfile>()
+        try {
+            val array = JSONArray(jsonStr)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                result.add(
+                    WorkerProfile(
+                        id = obj.getString("id"),
+                        name = obj.optString("name", "Личный воркер"),
+                        domain = obj.getString("domain"),
+                        isDeveloperWorker = false
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return result
+    }
+
+    fun saveCustomWorkers(workers: List<WorkerProfile>) {
+        val array = JSONArray()
+        for (w in workers) {
+            val obj = JSONObject()
+            obj.put("id", w.id)
+            obj.put("name", w.name)
+            obj.put("domain", w.domain)
+            array.put(obj)
+        }
+        prefs.edit().putString("custom_workers_json", array.toString()).apply()
+    }
+
+    fun addCustomWorker(name: String, domain: String): Result<WorkerProfile> {
+        val cleanDomain = ProxyConfig.sanitizeDomain(domain)
+        if (cleanDomain.isBlank()) {
+            return Result.failure(IllegalArgumentException("Укажите корректный домен воркера"))
+        }
+
+        val current = getCustomWorkers().toMutableList()
+        val allExisting = current + DEFAULT_DEV_WORKERS
+        if (allExisting.any { it.domain.equals(cleanDomain, ignoreCase = true) }) {
+            return Result.failure(IllegalStateException("Этот воркер уже добавлен в ваш список"))
+        }
+
+        val cleanName = if (name.trim().isBlank()) "Личный воркер #${current.size + 1}" else name.trim()
+        val newWorker = WorkerProfile(
+            id = UUID.randomUUID().toString(),
+            name = cleanName,
+            domain = cleanDomain,
+            isDeveloperWorker = false
+        )
+        current.add(newWorker)
+        saveCustomWorkers(current)
+        return Result.success(newWorker)
+    }
+
+    fun deleteCustomWorker(id: String) {
+        val current = getCustomWorkers().filter { it.id != id }
+        saveCustomWorkers(current)
+        if (getActiveWorkerId() == id) {
+            setActiveWorkerId("dev_default")
+        }
+    }
+
+    fun getActiveWorkerId(): String {
+        return prefs.getString("active_worker_id", "dev_default") ?: "dev_default"
+    }
+
+    fun setActiveWorkerId(id: String) {
+        prefs.edit().putString("active_worker_id", id).apply()
+        val worker = getActiveWorker(id)
+        val config = loadConfig()
+        if (worker.isDeveloperWorker) {
+            if (worker.id == "dev_default") {
+                config.customCfDomain = ""
+                config.useDefaultWorkerSocks5 = true
+            } else {
+                config.customCfDomain = worker.domain
+                config.useDefaultWorkerSocks5 = true
+            }
+        } else {
+            config.customCfDomain = worker.domain
+            config.useDefaultWorkerSocks5 = false
+        }
+        saveConfig(config)
+    }
+
+    fun getActiveWorker(activeId: String = getActiveWorkerId()): WorkerProfile {
+        return (getCustomWorkers() + DEFAULT_DEV_WORKERS).find { it.id == activeId }
+            ?: DEFAULT_DEV_WORKERS.first()
     }
 }

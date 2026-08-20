@@ -65,6 +65,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -97,6 +98,8 @@ fun HomeScreen(
     onOpenLogs: () -> Unit,
     onOpenHistory: () -> Unit = {},
     onOpenUpdate: () -> Unit = {},
+    onOpenWorkerGuide: () -> Unit = {},
+    onOpenWorkerManager: () -> Unit = {},
     onUiHiddenChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -244,25 +247,61 @@ fun HomeScreen(
                     alpha = (1f - uiAnimProgress * 2f).coerceIn(0f, 1f)
                 },
                 title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                    val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onOpenWorkerManager()
+                            }
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
                     ) {
-                        Text(
-                            text = "Mirrly",
-                            color = TextWhite,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 15.sp,
-                            letterSpacing = 0.5.sp
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (isSocks5) "SOCKS5" else "MTProto",
-                            color = protoColors.primary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.5.sp,
-                            letterSpacing = 0.2.sp
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "Mirrly",
+                                color = TextWhite,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 15.sp,
+                                letterSpacing = 0.5.sp
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isSocks5) "SOCKS5" else "MTProto",
+                                color = protoColors.primary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.5.sp,
+                                letterSpacing = 0.2.sp
+                            )
+                        }
+
+                        if (isSocks5) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier
+                                    .padding(top = 2.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.White.copy(alpha = 0.08f))
+                                    .padding(horizontal = 10.dp, vertical = 2.5.dp)
+                            ) {
+                                Text(
+                                    text = activeWorker.name,
+                                    color = protoColors.primary,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1
+                                )
+                            }
+                        }
                     }
                 },
                 navigationIcon = {
@@ -633,6 +672,43 @@ fun HomeScreen(
                         },
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // SOCKS5 Developer Worker Info Notice (Centered above Session Timer)
+                    val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
+                    if (isSocks5 && activeWorker.isDeveloperWorker) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = if (isCompactHeight) 5.dp else 7.dp)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onOpenWorkerManager()
+                                }
+                        ) {
+                            Text(
+                                text = "${activeWorker.name} (Общий пул)",
+                                color = Color(0xFFFF9E00).copy(alpha = 0.75f),
+                                fontSize = if (isCompactHeight) 10.5.sp else 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Лимит запросов может исчерпаться. Выберите другой воркер в менеджере или разверните личный.",
+                                color = Color(0xFFFFB74D).copy(alpha = 0.50f),
+                                fontSize = if (isCompactHeight) 9.5.sp else 10.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.Center,
+                                lineHeight = if (isCompactHeight) 13.sp else 14.5.sp
+                            )
+                        }
+                    }
+
                     // Unified Central Time & Sleep Timer Capsule (Cyber aesthetic)
                     Surface(
                         onClick = {

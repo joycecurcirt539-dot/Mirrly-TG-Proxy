@@ -72,10 +72,21 @@ class ProxyConfigTest {
     }
 
     @Test
-    fun testGetEffectiveCfDomainSocks5DefaultEmpty() {
+    fun testGetEffectiveCfDomainSocks5DefaultUsesDevWorker() {
         val config = ProxyConfig(
             proxyModeName = ProxyMode.SOCKS5.name,
-            customCfDomain = ""
+            customCfDomain = "",
+            useDefaultWorkerSocks5 = true
+        )
+        assertEquals(TgConstants.DEFAULT_SOCKS5_DEV_WORKER, config.getEffectiveCfDomain())
+    }
+
+    @Test
+    fun testGetEffectiveCfDomainSocks5DisabledWorkerEmpty() {
+        val config = ProxyConfig(
+            proxyModeName = ProxyMode.SOCKS5.name,
+            customCfDomain = "",
+            useDefaultWorkerSocks5 = false
         )
         assertEquals("", config.getEffectiveCfDomain())
     }

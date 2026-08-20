@@ -24,13 +24,14 @@ data class ProxyConfig(
     var customCfDomain: String = "",
     var poolSize: Int = 8, // 8 pre-warmed sockets per DC for instant 0ms response
     var isDcAuto: Boolean = true,
-    var autostartOnBoot: Boolean = false,
+    var autostartOnBoot: Boolean = true,
     var verboseLogs: Boolean = true,
     var isTestEnvironment: Boolean = false,
     var speedPresetName: String = SpeedPreset.BALANCED.name,
     var tcpNoDelay: Boolean = true,
     var bufferSizeBytes: Int = 131072, // 128KB default buffer
     var socks5Port: Int = 10808,
+    var useDefaultWorkerSocks5: Boolean = true,
     // proxyModeName — единый источник истины (MTPROTO или SOCKS5)
     var proxyModeName: String = ProxyMode.MTPROTO.name
 ) {
@@ -55,10 +56,15 @@ data class ProxyConfig(
         bufferSizeBytes = preset.defaultBufferSizeBytes
     }
 
-    /** Возвращает пользовательский кастомный CF-домен или пустую строку.
-     *  Воркер разработчика полностью удалён — только пользовательский домен. */
+    /** Возвращает эффективный CF-домен: пользовательский кастомный воркер имеет 100% приоритет;
+     *  в режиме SOCKS5 при включенном флаге используется дефолтный SOCKS5 воркер. */
     fun getEffectiveCfDomain(): String {
-        return sanitizeDomain(customCfDomain)
+        val userDomain = sanitizeDomain(customCfDomain)
+        if (userDomain.isNotEmpty()) return userDomain
+        if (isSocks5Mode && useDefaultWorkerSocks5) {
+            return TgConstants.DEFAULT_SOCKS5_DEV_WORKER
+        }
+        return ""
     }
 
     val rawSecret32: String

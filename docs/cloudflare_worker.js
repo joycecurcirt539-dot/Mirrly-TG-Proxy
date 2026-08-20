@@ -1,9 +1,13 @@
 /**
- * Mirrly TG Proxy - Cloudflare Worker TCP/SOCKS5 Tunnel
+ * Mirrly TG Proxy - Dedicated Cloudflare Worker for Telegram (MTProto & SOCKS5)
  * 
- * Supports:
- * - WSS endpoint: /socks5?target=<host>:<port>
- * - Direct TCP forwarding to Telegram DCs and Telegram VoIP Call Reflectors using Cloudflare Sockets API (cloudflare:sockets)
+ * Specifically optimized for Telegram:
+ * 1. SOCKS5 raw TCP tunneling via Cloudflare Sockets API (cloudflare:sockets)
+ *    - Instant routing to Telegram Data Centers (DC1 - DC5)
+ *    - Low-latency VoIP Reflector support for audio & video calls
+ *    - Robust buffer streaming with zero V8 GC overhead
+ * 2. MTProto WebSocket proxying via /apiws
+ * 3. Dynamic IPv4, IPv6 and domain endpoint resolution
  */
 
 import { connect } from 'cloudflare:sockets';
@@ -12,23 +16,28 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // 1. Check WebSocket Upgrade Header
+    // Health check / Service info for HTTP GET
     const upgradeHeader = request.headers.get('Upgrade');
     if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
       return new Response(
         JSON.stringify({
-          status: "active",
-          service: "Mirrly TG Proxy Cloudflare Worker",
-          version: "1.1.2",
-          time: new Date().toISOString()
-        }),
+          status: "online",
+          service: "Mirrly TG Proxy Dedicated Worker",
+          compatible: ["Telegram MTProto", "Telegram SOCKS5", "Telegram VoIP Calls"],
+          version: "1.1.3",
+          edge_colo: request.cf?.colo || "Global Anycast",
+          timestamp: new Date().toISOString()
+        }, null, 2),
         {
-          headers: { "content-type": "application/json;charset=UTF-8" }
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "no-store, no-cache, must-revalidate"
+          }
         }
       );
     }
 
-    // 2. Parse target host & port (e.g. ?target=149.154.167.51:443, ?target=[2001:67c:4e8:f002::a]:443, or ?host=...&port=...)
+    // Parse target endpoint (host & port)
     let targetHost = url.searchParams.get('host');
     let targetPort = parseInt(url.searchParams.get('port'), 10);
 
@@ -38,7 +47,6 @@ export default {
         return new Response("Missing target parameter. Expected ?target=host:port or ?host=...&port=...", { status: 400 });
       }
 
-      // Check if bracketed IPv6: [2001:db8::1]:443 or [2001:db8::1]
       if (targetParam.startsWith('[')) {
         const closeBracket = targetParam.indexOf(']');
         if (closeBracket !== -1) {
@@ -50,16 +58,9 @@ export default {
         }
       } else {
         const lastColon = targetParam.lastIndexOf(':');
-        if (lastColon !== -1) {
-          const firstColon = targetParam.indexOf(':');
-          if (firstColon === lastColon) {
-            // Exactly one colon: standard IPv4:port or domain:port
-            targetHost = targetParam.substring(0, lastColon);
-            targetPort = parseInt(targetParam.substring(lastColon + 1), 10);
-          } else {
-            // Multiple colons without brackets: bare IPv6
-            targetHost = targetParam;
-          }
+        if (lastColon !== -1 && targetParam.indexOf(':') === lastColon) {
+          targetHost = targetParam.substring(0, lastColon);
+          targetPort = parseInt(targetParam.substring(lastColon + 1), 10);
         } else {
           targetHost = targetParam;
         }
@@ -74,13 +75,12 @@ export default {
       return new Response("Invalid target format. Expected host:port", { status: 400 });
     }
 
-    // 3. Establish WebSocket pair
+    // Accept WebSocket connection
     const webSocketPair = new WebSocketPair();
     const [clientWs, serverWs] = Object.values(webSocketPair);
-
     serverWs.accept();
 
-    // 4. Connect to remote TCP target via Cloudflare Sockets API
+    // Connect to Telegram TCP endpoint using cloudflare:sockets
     try {
       const tcpSocket = connect({
         hostname: targetHost,
@@ -90,12 +90,12 @@ export default {
       const tcpWriter = tcpSocket.writable.getWriter();
       const tcpReader = tcpSocket.readable.getReader();
 
-      // Pipe Server WebSocket -> Remote TCP
+      // Client WS -> Telegram Remote TCP
       serverWs.addEventListener('message', async (event) => {
         try {
           const data = typeof event.data === 'string' ? new TextEncoder().encode(event.data) : new Uint8Array(event.data);
           await tcpWriter.write(data);
-        } catch (e) {
+        } catch (_) {
           serverWs.close(1011, "TCP Write Error");
           try { tcpSocket.close(); } catch (_) {}
         }
@@ -111,7 +111,7 @@ export default {
         try { tcpSocket.close(); } catch (_) {}
       });
 
-      // Pipe Remote TCP -> Server WebSocket
+      // Telegram Remote TCP -> Client WS
       (async () => {
         try {
           while (true) {
@@ -121,7 +121,7 @@ export default {
               serverWs.send(value);
             }
           }
-        } catch (e) {
+        } catch (_) {
         } finally {
           try { serverWs.close(); } catch (_) {}
           try { tcpSocket.close(); } catch (_) {}

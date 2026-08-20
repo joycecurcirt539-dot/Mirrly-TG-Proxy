@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 pub struct Balancer {
     domains: Vec<String>,
+    ranked_domains: Vec<(String, u64)>, // (domain, latency_ms) sorted by speed
     dc_to_domain: HashMap<i32, String>,
 }
 
@@ -14,6 +15,7 @@ impl Balancer {
     pub fn new() -> Self {
         Self {
             domains: Vec::new(),
+            ranked_domains: Vec::new(),
             dc_to_domain: HashMap::new(),
         }
     }
@@ -29,12 +31,29 @@ impl Balancer {
         }
 
         self.domains = domains_list.to_vec();
-        let mut rng = rand::thread_rng();
+        if self.ranked_domains.is_empty() {
+            let mut rng = rand::thread_rng();
+            self.dc_to_domain.clear();
+            for dc_id in [1, 2, 3, 4, 5, 203] {
+                if let Some(domain) = self.domains.choose(&mut rng) {
+                    self.dc_to_domain.insert(dc_id, domain.clone());
+                }
+            }
+        }
+    }
 
-        self.dc_to_domain.clear();
-        for dc_id in [1, 2, 3, 4, 5, 203] {
-            if let Some(domain) = self.domains.choose(&mut rng) {
-                self.dc_to_domain.insert(dc_id, domain.clone());
+    pub fn update_ranked_domains(&mut self, mut ranked: Vec<(String, u64)>) {
+        if ranked.is_empty() {
+            return;
+        }
+        // Sort by lowest latency ms
+        ranked.sort_by_key(|(_, latency)| *latency);
+        self.ranked_domains = ranked;
+
+        // Automatically set the top-1 fastest domain as primary for all DCs
+        if let Some((best_domain, _)) = self.ranked_domains.first() {
+            for dc_id in [1, 2, 3, 4, 5, 203] {
+                self.dc_to_domain.insert(dc_id, best_domain.clone());
             }
         }
     }
@@ -47,24 +66,42 @@ impl Balancer {
         true
     }
 
+    pub fn get_fastest_domain(&self) -> Option<String> {
+        self.ranked_domains.first().map(|(d, _)| d.clone())
+    }
+
     pub fn get_domains_for_dc(&self, dc_id: i32) -> Vec<String> {
         let mut result = Vec::new();
-        let current_domain = self.dc_to_domain.get(&dc_id).cloned();
-        
-        if let Some(ref d) = current_domain {
-            result.push(d.clone());
-        }
+        let mut seen = std::collections::HashSet::new();
 
-        let mut shuffled = self.domains.clone();
-        let mut rng = rand::thread_rng();
-        shuffled.shuffle(&mut rng);
-
-        for d in shuffled {
-            if Some(&d) != current_domain.as_ref() {
-                result.push(d);
+        // 1. Current active/confirmed domain for this DC (if any)
+        if let Some(d) = self.dc_to_domain.get(&dc_id) {
+            if !d.is_empty() {
+                result.push(d.clone());
+                seen.insert(d.clone());
             }
         }
-        
+
+        // 2. Ranked domains in order of lowest latency
+        for (d, _) in &self.ranked_domains {
+            if !seen.contains(d) {
+                result.push(d.clone());
+                seen.insert(d.clone());
+            }
+        }
+
+        // 3. Fallback to remaining unranked domains (shuffled)
+        let mut remaining = self.domains.clone();
+        let mut rng = rand::thread_rng();
+        remaining.shuffle(&mut rng);
+
+        for d in remaining {
+            if !seen.contains(&d) {
+                result.push(d.clone());
+                seen.insert(d);
+            }
+        }
+
         result
     }
 }

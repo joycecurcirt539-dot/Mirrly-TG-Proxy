@@ -138,6 +138,11 @@ pub unsafe extern "C" fn StartProxy(
         }
     }
 
+    let cancel_balancer = cancel_tasks.clone();
+    rt.spawn(async move {
+        cfproxy::start_background_balancer_loop(cancel_balancer).await;
+    });
+
     *guard = Some(ProxyState {
         pool: Some(pool),
         handle,
@@ -200,6 +205,11 @@ pub unsafe extern "C" fn StartSocks5Proxy(
             return -3;
         }
     }
+
+    let cancel_balancer = cancel_tasks.clone();
+    rt.spawn(async move {
+        cfproxy::start_background_balancer_loop(cancel_balancer).await;
+    });
 
     *guard = Some(ProxyState {
         pool: None,

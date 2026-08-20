@@ -33,6 +33,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -53,9 +54,18 @@ import android.graphics.RenderEffect
 import android.graphics.Shader
 
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mirrly.tgproxy.MirrlyApplication
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -133,6 +143,12 @@ class MainActivity : ComponentActivity() {
 
                 BackHandler {
                     when (currentScreen) {
+                        "worker_manager" -> {
+                            currentScreen = previousScreen
+                        }
+                        "worker_guide" -> {
+                            currentScreen = previousScreen
+                        }
                         "update" -> {
                             currentScreen = "home"
                         }
@@ -232,6 +248,8 @@ class MainActivity : ComponentActivity() {
                     val isLicense = currentScreen == "license"
                     val isTerms = currentScreen == "terms"
                     val isUpdate = currentScreen == "update"
+                    val isWorkerGuide = currentScreen == "worker_guide"
+                    val isWorkerManager = currentScreen == "worker_manager"
 
                     // Animated offsets & scales for Update screen
                     val updateOffsetFraction by animateFloatAsState(
@@ -250,11 +268,54 @@ class MainActivity : ComponentActivity() {
                         label = "updateAlpha"
                     )
 
+                    // Animated offsets & scales for Worker Guide screen
+                    val workerGuideOffsetFraction by animateFloatAsState(
+                        targetValue = if (isWorkerGuide) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "workerGuideOffset"
+                    )
+                    val workerGuideScale by animateFloatAsState(
+                        targetValue = if (isWorkerGuide) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "workerGuideScale"
+                    )
+                    val workerGuideAlpha by animateFloatAsState(
+                        targetValue = if (isWorkerGuide) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "workerGuideAlpha"
+                    )
+
+                    val heightPx = constraints.maxHeight.toFloat()
+
+                    // Animated offsets & scales for Worker Manager screen (Top-to-bottom slide dropdown)
+                    val workerManagerOffsetYFraction by animateFloatAsState(
+                        targetValue = when {
+                            isWorkerManager -> 0f
+                            isWorkerGuide -> -0.15f
+                            else -> -1.0f
+                        },
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "workerManagerOffsetY"
+                    )
+                    val workerManagerScale by animateFloatAsState(
+                        targetValue = if (isWorkerManager) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "workerManagerScale"
+                    )
+                    val workerManagerAlpha by animateFloatAsState(
+                        targetValue = if (isWorkerManager) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "workerManagerAlpha"
+                    )
+
                     // Animated offsets & scales for Home screen
                     val homeOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings || isAbout || isLicense || isTerms || isUpdate -> -0.15f
+                            isSettings || isAbout || isLicense || isTerms || isUpdate || isWorkerGuide || isWorkerManager -> -0.15f
                             isLogs || isHistory -> 0.15f
                             else -> 0f
                         },
@@ -276,7 +337,7 @@ class MainActivity : ComponentActivity() {
                     val settingsOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isSettings -> 0f
-                            isAbout || isLicense || isTerms -> -0.15f
+                            isAbout || isLicense || isTerms || isWorkerGuide || isWorkerManager -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -412,6 +473,14 @@ class MainActivity : ComponentActivity() {
                                 previousScreen = "home"
                                 currentScreen = "update"
                             },
+                            onOpenWorkerGuide = {
+                                previousScreen = "home"
+                                currentScreen = "worker_guide"
+                            },
+                            onOpenWorkerManager = {
+                                previousScreen = "home"
+                                currentScreen = "worker_manager"
+                            },
                             onUiHiddenChange = { hidden ->
                                 isUiHidden = hidden
                             }
@@ -471,7 +540,52 @@ class MainActivity : ComponentActivity() {
                             onOpenUpdate = {
                                 previousScreen = "settings"
                                 currentScreen = "update"
+                            },
+                            onOpenWorkerGuide = {
+                                previousScreen = "settings"
+                                currentScreen = "worker_guide"
+                            },
+                            onOpenWorkerManager = {
+                                previousScreen = "settings"
+                                currentScreen = "worker_manager"
                             }
+                        )
+                    }
+
+                    // WORKER MANAGER SCREEN (Top-to-bottom slide dropdown)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                translationY = heightPx * workerManagerOffsetYFraction
+                                scaleX = workerManagerScale
+                                scaleY = workerManagerScale
+                                alpha = workerManagerAlpha
+                            }
+                    ) {
+                        WorkerManagerScreen(
+                            prefs = app.prefsManager,
+                            onBack = { currentScreen = previousScreen },
+                            onOpenWorkerGuide = {
+                                previousScreen = "worker_manager"
+                                currentScreen = "worker_guide"
+                            }
+                        )
+                    }
+
+                    // WORKER GUIDE SCREEN (Pre-warmed & persistent)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                translationX = widthPx * workerGuideOffsetFraction
+                                scaleX = workerGuideScale
+                                scaleY = workerGuideScale
+                                alpha = workerGuideAlpha
+                            }
+                    ) {
+                        CloudflareWorkerGuideScreen(
+                            onBack = { currentScreen = previousScreen }
                         )
                     }
 
@@ -567,9 +681,85 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
+
+                    // Deep Link Import Worker Dialog
+                    var pendingImportWorker by remember { mutableStateOf(extractWorkerDeepLink(intent)) }
+
+                    DisposableEffect(Unit) {
+                        onDeepLinkReceived = { deepLinkWorker ->
+                            pendingImportWorker = deepLinkWorker
+                        }
+                        onDispose {
+                            onDeepLinkReceived = null
+                        }
+                    }
+
+                    pendingImportWorker?.let { (importName, importDomain) ->
+                        ImportWorkerDialog(
+                            name = importName,
+                            domain = importDomain,
+                            onDismiss = { pendingImportWorker = null },
+                            onImport = { name, domain ->
+                                val res = app.prefsManager.addCustomWorker(name, domain)
+                                res.fold(
+                                    onSuccess = { added ->
+                                        app.prefsManager.setActiveWorkerId(added.id)
+                                        pendingImportWorker = null
+                                        Toast.makeText(applicationContext, "Воркер «${added.name}» импортирован и активирован ⚡", Toast.LENGTH_LONG).show()
+                                    },
+                                    onFailure = { err ->
+                                        // If already exists, activate it
+                                        val existing = app.prefsManager.getCustomWorkers().find { it.domain.equals(domain.trim(), ignoreCase = true) }
+                                        if (existing != null) {
+                                            app.prefsManager.setActiveWorkerId(existing.id)
+                                            pendingImportWorker = null
+                                            Toast.makeText(applicationContext, "Воркер уже был в списке и теперь активирован ⚡", Toast.LENGTH_LONG).show()
+                                        } else {
+                                            Toast.makeText(applicationContext, err.message ?: "Ошибка импорта", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                )
+                            }
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private var onDeepLinkReceived: ((Pair<String, String>) -> Unit)? = null
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        extractWorkerDeepLink(intent)?.let {
+            onDeepLinkReceived?.invoke(it)
+        }
+    }
+
+    private fun extractWorkerDeepLink(intent: android.content.Intent?): Pair<String, String>? {
+        val data = intent?.data ?: return null
+        val scheme = data.scheme?.lowercase()
+        val host = data.host?.lowercase()
+        val path = data.path ?: ""
+
+        val isMirrlyScheme = scheme == "mirrly" && (host == "worker" || path.startsWith("/worker"))
+        val isHttpsScheme = (scheme == "https" || scheme == "http") &&
+                (host == "mirrly.app" || host == "mirrly.me" || host == "www.mirrly.app") &&
+                (path.startsWith("/worker") || path.isEmpty())
+
+        if (isMirrlyScheme || isHttpsScheme) {
+            val rawDomain = data.getQueryParameter("domain")
+                ?: data.getQueryParameter("d")
+                ?: data.lastPathSegment?.takeIf { it != "worker" }
+                ?: ""
+            val rawName = data.getQueryParameter("name") ?: data.getQueryParameter("n") ?: ""
+            val cleanDomain = com.mirrly.tgproxy.core.ProxyConfig.sanitizeDomain(rawDomain)
+            if (cleanDomain.isNotBlank()) {
+                return Pair(rawName.trim(), cleanDomain)
+            }
+        }
+        return null
     }
 
     private fun optimizeForHighRefreshRate() {
@@ -594,4 +784,97 @@ class MainActivity : ComponentActivity() {
             }
         } catch (_: Exception) {}
     }
+}
+
+@Composable
+fun ImportWorkerDialog(
+    name: String,
+    domain: String,
+    onDismiss: () -> Unit,
+    onImport: (name: String, domain: String) -> Unit
+) {
+    var editName by remember { mutableStateOf(name) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF0F172A),
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(
+                text = "📥 Импорт Cloudflare Worker",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "Вы открыли ссылку для подключения Cloudflare Worker. Хотите добавить этот узел в список и сразу активировать?",
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+
+                OutlinedTextField(
+                    value = editName,
+                    onValueChange = { editName = it },
+                    label = { Text("Название воркера (не обязательно)") },
+                    placeholder = { Text("например: От друга (опционально)", color = Color.White.copy(alpha = 0.35f)) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF00E676),
+                        unfocusedBorderColor = Color(0xFF334155),
+                        focusedLabelColor = Color(0xFF00E676),
+                        unfocusedLabelColor = Color.White.copy(alpha = 0.5f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF1E293B).copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "ДОМЕН УЗЛА",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00E5FF),
+                            letterSpacing = 0.8.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = domain,
+                            fontSize = 13.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onImport(editName, domain) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF00E676),
+                    contentColor = Color(0xFF0A0E1A)
+                ),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Импортировать ⚡", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Отмена", color = Color.White.copy(alpha = 0.7f))
+            }
+        }
+    )
 }

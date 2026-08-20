@@ -13,7 +13,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_V8-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Native_Rust%20%26%20C%2B%2B-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Version](https://img.shields.io/badge/Релиз-v1.1.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Version](https://img.shields.io/badge/Релиз-v1.1.3-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Stars](https://img.shields.io/github/stars/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=F5A623)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
 [![Issues](https://img.shields.io/github/issues/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=E53935)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues)
@@ -77,19 +77,24 @@ Mirrly TG Proxy запускает на Android-устройстве высок�
 
 ---
 
-## 2. Личные Cloudflare Worker и Безопасность
+## 2. Cloudflare Worker: SOCKS5 Воркер по умолчанию и Личный Worker
 
-Mirrly TG Proxy обеспечивает работу через встроенный распределенный пул Anycast CDN FlowSila и одновременно поддерживает использование **ЛИЧНЫХ Cloudflare Worker** для максимальной приватности.
+Mirrly TG Proxy обеспечивает раздельное туннелирование трафика для двух протоколов:
+* **MTProto (Чаты и Медиа)**: Трафик направляется через распределенный пул Anycast CDN FlowSila (20 Anycast-доменов).
+* **SOCKS5 (Чаты, Медиа и Звонки)**: По умолчанию используется встроенный Cloudflare Worker разработчика (`mirrly-tg-proxy-worker.brawny-singer.workers.dev`), что позволяет SOCKS5 и аудио/видеозвонкам работать «из коробки» без дополнительных настроек.
 
-> [!IMPORTANT]
-> **Маршрутизация и роль Личного Cloudflare Worker**:
-> Начиная с версии **v1.1.2** прокси использует собственное нативное ядро `mirrlyengine` и распределенную сеть Anycast-узлов. В приложении полностью отсутствуют сторонние воркеры разработчика.
-> При желании вы можете развернуть собственный бесплатный Cloudflare Worker (скрипт доступен в [`docs/cloudflare_worker.js`](docs/cloudflare_worker.js)) и указать его в поле «Кастомный домен» в Настройках — он получит наивысший приоритет при туннелировании.
+> [!WARNING]
+> **Ограничение лимитов на общем воркере разработчика**:
+> Воркер разработчика является публичным и делит общую бесплатную квоту Cloudflare (100 000 запросов в день на всех пользователей).
+> При высокой нагрузке или исчерпании лимитов SOCKS5-соединение может временно возвращать ошибку 429 (Too Many Requests).
+> 
+> **Решение**: Разверните собственный бесплатный Cloudflare Worker по встроенной инструкции в приложении (Настройки → «Инструкция по развертыванию» или файл [`docs/cloudflare_worker.js`](docs/cloudflare_worker.js)).
 
-### Зачем нужен Личный Cloudflare Worker?
+### Преимущества создания Личного Cloudflare Worker:
 1. **100% Приватность и Контроль**: Трафик проходит исключительно через ваш личный аккаунт Cloudflare.
-2. **Персональный Лимит 100 000 Запросов в День**: Бесплатный тариф Cloudflare предоставляет персональную квоту запросов.
-3. **Выделенная Скорость**: Отсутствие конкуренции с другими пользователями гарантирует максимальную скорость для звонков и тяжелого контента.
+2. **Персональный Лимит 100 000 Запросов в День**: Персональная суточная квота, принадлежащая исключительно вам.
+3. **Бесперебойные Звонки и Скорость**: Отсутствие конкуренции с другими пользователями гарантирует максимальную стабильность для голосовых и видеозвонков.
+4. **Абсолютный приоритет**: При указании адреса личного воркера в Настройках приложение автоматически направляет трафик через него.
 
 ---
 
@@ -106,10 +111,16 @@ Mirrly TG Proxy обеспечивает работу через встроен�
   * Маскировка MTProto-соединений под валидные сессии TLS 1.3 (`ClientHello`, `ServerHello`, `ApplicationData`).
   * Полная невидимость для систем глубокого анализа пакетов (DPI).
   * Генерация случайных стойких ключей с префиксом `dd` в один клик.
-* **Сетевой стек и параллельная гонка (Happy Eyeballs)**:
-  * Параллельное открытие WSS-сокетов со ступенчатой задержкой 150 мс и автоматическим выбором наиболее быстрых узлов.
-  * Полноценная сквозная перешифровка в `MsgSplitter` (`client_dec -> plaintext -> upstream_enc`).
+* **Скоростной балансировщик Anycast (Fast Race & Latency Balancer)**:
+  * Алгоритм гонки рукопожатий (RFC 8305 Happy Eyeballs) со ступенчатым стартом 25 мс и ультра-коротким таймаутом 450 мс (вместо 4–5 сек).
+  * Мгновенный отклик: первый ответивший узел моментально передается Telegram без задержек при старте.
+  * Формирование ранжированного списка серверов по времени отклика (RTT) и тихий фоновый замер 1 раз в 60 минут (расход всего 0.48% суточного лимита запросов).
+* **Сетевой стек и DoH-клиент**:
+  * Сквозная перешифровка пакетов в `MsgSplitter` (`client_dec -> plaintext -> upstream_enc`).
   * Встроенный DNS-over-HTTPS (DoH) клиент с параллельной гонкой запросов (Cloudflare, Google, Quad9, AdGuard).
+* **Интерактивная инструкция по Cloudflare Worker**:
+  * Полноэкранная встроенная вкладка с пошаговыми иллюстрированными руководствами для ПК и Смартфонов.
+  * Копирование готового V8-скрипта воркера в один клик с вибрационным откликом и прямой переход в Cloudflare Dashboard.
 * **Унифицированное WSS-туннелирование Cloudflare Worker**:
   * Единый протокол туннелирования `wss://$cfDomain/tcp?target=$dcIp:443` через `cloudflare:sockets` с поддержкой IPv6 в квадратных скобках `[::1]:port` и раздельных параметров `?host=...&port=...`.
 * **Автоматическое переключение режимов в диалоге подключения**:

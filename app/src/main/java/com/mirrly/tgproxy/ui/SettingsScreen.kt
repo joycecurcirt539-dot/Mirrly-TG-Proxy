@@ -406,7 +406,9 @@ private fun InfoBulletItem(text: String) {
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenAbout: () -> Unit = {},
-    onOpenUpdate: () -> Unit = {}
+    onOpenUpdate: () -> Unit = {},
+    onOpenWorkerGuide: () -> Unit = {},
+    onOpenWorkerManager: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -515,7 +517,7 @@ fun SettingsScreen(
                 "32-символьный hex-ключ протокола MTProto. Его необходимо указать в настройках прокси Telegram — без него подключение невозможно.\n\nПрефикс dd означает режим Fake TLS: трафик маскируется под обычный HTTPS, что позволяет обходить DPI-фильтрацию.\n\nНажмите кнопку генерации для создания нового случайного ключа. После смены обновите ссылку-приглашение в Telegram."
             "cf_domain" -> "Безопасность & Принцип работы Cloudflare Worker" to
                 "БЕЗОПАСНОСТЬ ЛИЧНЫХ ДАННЫХ:\n" +
-                "Для 100% защиты вашей конфиденциальности и анонимности мы НАСТОЯТЕЛЬНО рекомендуем НЕ использовать дефолтные воркеры разработчика на постоянной основе, а развернуть свой личный воркер по инструкции ниже.\n\n" +
+                "Для 100% защиты вашей конфиденциальности и анонимности мы рекомендуем развернуть свой личный воркер по встроенной инструкции.\n\n" +
                 "При использовании чужого воркера ваш трафик проходит через посторонний узел. Разворачивая собственный бесплатный воркер, вы гарантируете, что логи и ключи доступа принадлежат ТОЛЬКО вам.\n\n" +
                 "КАК РАБОТАЕТ CLOUDFLARE WORKER:\n" +
                 "• Cloudflare Worker — это бессерверный V8-скрипт на глобальной сети Cloudflare Edge (300+ городов по всему миру).\n" +
@@ -525,6 +527,10 @@ fun SettingsScreen(
                 "• Бесплатный тариф Cloudflare даёт 100 000 запросов в день лично вам.\n" +
                 "• Отсутствие зависимости от сторонних серверов и чужих лимитов.\n" +
                 "• Максимальная скорость для звонков, скачивания тяжёлых файлов и видео."
+            "worker_socks5" -> "Воркер по умолчанию (SOCKS5)" to
+                "Включает использование встроенного Cloudflare Worker для режима SOCKS5.\n\n" +
+                "• SOCKS5 требует открытия произвольных TCP-соединений (в том числе к серверам звонков Telegram VoIP Reflectors), что возможно только через Cloudflare Worker с API cloudflare:sockets.\n\n" +
+                "• При наличии указанного личного кастомного воркера он автоматически используется с 100% приоритетом."
             "pool" -> "Размер пула сокетов" to
                 "Количество WebSocket-соединений, которые прокси держит открытыми заранее (pre-warming).\n\nБольший пул = меньше задержка при открытии чата:\n• 2 — минимальный расход батареи и RAM\n• 4 — баланс скорости и экономии (рекомендуется)\n• 8 — быстрый отклик, умеренный расход\n• 16 — максимальная скорость, повышенный расход\n\nКаждое соединение занимает ~50–100 КБ RAM и поддерживает фоновое соединение с Cloudflare."
             "autostart" -> "Автозапуск при загрузке" to
@@ -1076,33 +1082,167 @@ fun SettingsScreen(
                     color = TextMuted
                 )
 
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("Кастомный Cloudflare домен", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        InfoButton { infoKey = "cf_domain" }
+                // Unified Worker Settings Card (AboutScreen LinkCardItem style)
+                val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(20.dp))
+                ) {
+                    Column {
+                        // Row 1: Worker Manager
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onOpenWorkerManager()
+                                }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFFB388FF).copy(alpha = 0.12f))
+                                        .border(1.dp, Color(0xFFB388FF).copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_settings),
+                                        contentDescription = null,
+                                        tint = Color(0xFFB388FF),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+
+                                Column {
+                                    Text(
+                                        text = "Менеджер воркеров",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextWhite
+                                    )
+                                    Text(
+                                        text = "Активен: ${activeWorker.name}",
+                                        fontSize = 11.5.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                            }
+
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_chevron_right),
+                                contentDescription = null,
+                                tint = TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+                        // Row 2: Worker Guide
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onOpenWorkerGuide()
+                                }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFFFF9E00).copy(alpha = 0.12f))
+                                        .border(1.dp, Color(0xFFFF9E00).copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_speed_turbo),
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF9E00),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+
+                                Column {
+                                    Text(
+                                        text = "Инструкция по развертыванию",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextWhite
+                                    )
+                                    Text(
+                                        text = "Создать личный воркер за 2 минуты",
+                                        fontSize = 11.5.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                            }
+
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_chevron_right),
+                                contentDescription = null,
+                                tint = TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
-                    OutlinedTextField(
-                        value = customDomainText,
-                        onValueChange = { customDomainText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("custom-domain.com (опционально)", color = TextMuted, fontSize = 13.sp) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedBorderColor = Color(0xFFB388FF),
-                            unfocusedBorderColor = Color(0xFF1E2333),
-                            focusedTextColor = TextWhite,
-                            unfocusedTextColor = TextWhite
-                        )
+                }
+
+                // SOCKS5 Default Worker Toggle
+                var useDefaultWorkerSocks5 by remember { mutableStateOf(config.useDefaultWorkerSocks5) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Воркер по умолчанию (SOCKS5)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "worker_socks5" }
+                        }
+                        Text("Использовать встроенный Cloudflare воркер для звонков и чатов в SOCKS5 режиме. При наличии кастомного воркера он имеет приоритет.", color = TextMuted, fontSize = 11.5.sp)
+                    }
+                    InertialSpringSwitch(
+                        checked = useDefaultWorkerSocks5,
+                        onCheckedChange = { newValue ->
+                            useDefaultWorkerSocks5 = newValue
+                            config.useDefaultWorkerSocks5 = newValue
+                            app.saveConfig()
+                            restartProxyIfNeeded()
+                        }
                     )
                 }
 
-                // Информационная плашка
+                // Informational CDN Badge
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1131,7 +1271,7 @@ fun SettingsScreen(
                             )
                         }
                         Text(
-                            text = "По умолчанию трафик надежно туннелируется через встроенный пул Cloudflare CDN доменов без прямого подключения.",
+                            text = "В режиме MTProto трафик надежно туннелируется через 20 встроенных Cloudflare CDN узлов без прямого подключения.",
                             color = TextMuted,
                             fontSize = 11.5.sp,
                             lineHeight = 16.sp

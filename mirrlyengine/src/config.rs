@@ -30,8 +30,10 @@ pub const WS_POOL_CONNECT_TIMEOUT: f64 = 8.0;
 
 pub const CFPROXY_CACHE_FILE_NAME: &str = "cfproxy-domains-cache.txt";
 pub const CFPROXY_REFRESH_INTERVAL: Duration = Duration::from_secs(12 * 3600);
-pub const CFPROXY_DIAL_PHASE_TIMEOUT: Duration = Duration::from_secs(4);
-pub const CFPROXY_FALLBACK_PARALLEL: usize = 2;
+pub const CFPROXY_DIAL_PHASE_TIMEOUT: Duration = Duration::from_millis(600);
+pub const CFPROXY_RACE_TIMEOUT: Duration = Duration::from_millis(450);
+pub const CFPROXY_RACE_INTERVAL: Duration = Duration::from_secs(3600);
+pub const CFPROXY_FALLBACK_PARALLEL: usize = 4;
 pub const CFPROXY_429_COOLDOWN: Duration = Duration::from_secs(45);
 pub const CFPROXY_429_MAX_COOLDOWN: Duration = Duration::from_secs(300);
 pub const CFPROXY_GLOBAL_PARALLEL: usize = 4;
@@ -84,6 +86,8 @@ pub const CFPROXY_DOMAINS_URL: &str =
 // MTProto proxy secret
 pub static PROXY_SECRET: Lazy<RwLock<String>> =
     Lazy::new(|| RwLock::new("00000000000000000000000000000000".to_string()));
+
+pub static DEFAULT_SOCKS5_WORKER: &str = "mirrly-tg-proxy-worker.brawny-singer.workers.dev";
 
 pub static CFPROXY_ENC: &[&str] = &[
     "virkgj.com",

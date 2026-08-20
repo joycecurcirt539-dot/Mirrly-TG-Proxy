@@ -586,3 +586,133 @@ pub fn log_cf_conn_error(msg: &str, err: &WsError) {
         lerror!("{}", msg);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Fast Anycast Race & Latency Prober (RFC 8305 Staggered Happy Eyeballs)
+// ---------------------------------------------------------------------------
+
+pub async fn probe_domain_latency(domain: &str, dc: i32, timeout: Duration) -> Option<u64> {
+    let base_domain = normalize_cf_domain(domain);
+    if base_domain.is_empty() {
+        return None;
+    }
+    if cfproxy_429_cooldown_remaining(&base_domain) > Duration::ZERO {
+        return None;
+    }
+    let target_host = format!("kws{}.{}", dc, base_domain);
+    let start = Instant::now();
+
+    match ws_connect_once(&target_host, &target_host, "/apiws", timeout).await {
+        Ok(ws) => {
+            let rtt = start.elapsed().as_millis() as u64;
+            tokio::spawn(async move {
+                let _ = ws.close().await;
+            });
+            Some(rtt)
+        }
+        Err(e) => {
+            if is_http_status_error(&e, 429) {
+                mark_cfproxy_429_cooldown(&base_domain, &e);
+            }
+            None
+        }
+    }
+}
+
+pub async fn race_rank_domains(dc: i32) {
+    let domains = {
+        let cfg = CFPROXY.read();
+        if !cfg.user_domain.is_empty() {
+            return; // Custom user worker has 100% priority, skip public CDN race
+        }
+        if cfg.domains.is_empty() {
+            default_cfproxy_domains()
+        } else {
+            cfg.domains.clone()
+        }
+    };
+
+    if domains.is_empty() {
+        return;
+    }
+
+    ldebug!("Начало Fast Anycast Race для {} доменов (DC{})...", domains.len(), dc);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, u64)>(domains.len());
+    let mut handles = Vec::new();
+
+    let stagger_step = Duration::from_millis(25);
+    for (i, d) in domains.iter().enumerate() {
+        let domain = d.clone();
+        let tx = tx.clone();
+        let delay = stagger_step * (i as u32);
+
+        handles.push(tokio::spawn(async move {
+            if delay > Duration::ZERO {
+                tokio::time::sleep(delay).await;
+            }
+            if let Some(latency_ms) = probe_domain_latency(&domain, dc, CFPROXY_RACE_TIMEOUT).await {
+                let _ = tx.send((domain, latency_ms)).await;
+            }
+        }));
+    }
+
+    drop(tx);
+
+    let race_deadline = tokio::time::sleep(Duration::from_millis(1500));
+    tokio::pin!(race_deadline);
+
+    let mut ranked = Vec::new();
+    let mut first_winner_set = false;
+
+    loop {
+        tokio::select! {
+            _ = &mut race_deadline => break,
+            msg = rx.recv() => {
+                match msg {
+                    Some((domain, latency_ms)) => {
+                        if !first_winner_set {
+                            // Immediately set the fastest domain to balancer for instant 0ms start
+                            crate::balancer::BALANCER.write().update_domain_for_dc(dc, &domain);
+                            linfo!("⚡ Быстрый лидер гонки Anycast: {} ({} ms)", domain, latency_ms);
+                            first_winner_set = true;
+                        }
+                        ranked.push((domain, latency_ms));
+                    }
+                    None => break,
+                }
+            }
+        }
+    }
+
+    for h in handles {
+        h.abort();
+    }
+
+    if !ranked.is_empty() {
+        ranked.sort_by_key(|(_, l)| *l);
+        linfo!("🏁 Итоги Fast Anycast Race (топ-3): {:?}",
+            ranked.iter().take(3).map(|(d, l)| format!("{}: {}ms", d, l)).collect::<Vec<_>>()
+        );
+        crate::balancer::BALANCER.write().update_ranked_domains(ranked);
+    }
+}
+
+pub async fn start_background_balancer_loop(cancel_token: tokio_util::sync::CancellationToken) {
+    // 1. Immediate race at startup for 0ms response
+    race_rank_domains(2).await;
+
+    // 2. Periodic race every 60 minutes
+    let mut interval = tokio::time::interval(CFPROXY_RACE_INTERVAL);
+    // consume the initial instant tick
+    interval.tick().await;
+
+    loop {
+        tokio::select! {
+            _ = cancel_token.cancelled() => break,
+            _ = interval.tick() => {
+                ldebug!("Плановый запуск Fast Anycast Race (1 раз в 60 минут)...");
+                race_rank_domains(2).await;
+            }
+        }
+    }
+}

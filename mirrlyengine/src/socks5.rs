@@ -148,12 +148,11 @@ async fn handle_socks5_client(mut client: TcpStream, cancel: CancellationToken) 
     bridge_socks5_ws(client, ws, cancel).await;
 }
 
-async fn socks5_acquire_cf_ws(target_addr: &str, cancel_token: &CancellationToken) -> Option<RawWebSocket> {
-    let (enabled, domains, user_domain) = {
+async fn socks5_acquire_cf_ws(target_addr: &str, _cancel_token: &CancellationToken) -> Option<RawWebSocket> {
+    let (enabled, user_domain) = {
         let cfg = CFPROXY.read();
         (
             CFPROXY_ENABLED.load(Ordering::Relaxed),
-            cfg.domains.clone(),
             cfg.user_domain.clone(),
         )
     };
@@ -164,7 +163,7 @@ async fn socks5_acquire_cf_ws(target_addr: &str, cancel_token: &CancellationToke
 
     let path = format!("/tcp?target={}", target_addr);
 
-    // If user has custom domain configured, prioritize it
+    // 1. If user has custom Cloudflare worker configured, prioritize it with 100% priority
     if !user_domain.is_empty() {
         let (ws, _, _) = cf_connect_domain(&user_domain, &path, 5.0).await;
         if let Some(w) = ws {
@@ -172,25 +171,10 @@ async fn socks5_acquire_cf_ws(target_addr: &str, cancel_token: &CancellationToke
         }
     }
 
-    if domains.is_empty() {
-        return None;
-    }
-
-    // Try balanced domains
-    let ordered = crate::balancer::BALANCER.read().get_domains_for_dc(2);
-    for bd in ordered.iter().take(4) {
-        if cancel_token.is_cancelled() {
-            return None;
-        }
-        let (ws, _, err) = cf_connect_domain(bd, &path, 4.0).await;
-        if let Some(w) = ws {
-            return Some(w);
-        }
-        if let Some(e) = err {
-            if is_http_status_error(&e, 429) {
-                mark_cfproxy_429_cooldown(bd, &e);
-            }
-        }
+    // 2. Default SOCKS5 dev worker tunnel
+    let (ws, _, _) = cf_connect_domain(DEFAULT_SOCKS5_WORKER, &path, 5.0).await;
+    if let Some(w) = ws {
+        return Some(w);
     }
 
     None
