@@ -65,15 +65,19 @@
                     android:host="worker" />
             </intent-filter>
 
-            <!-- Deep Link: https://mirrly.app/worker?domain=...&name=... -->
-            <intent-filter>
+            <!-- Android App Links: https://mirrly.app/worker?domain=...&name=... -->
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="https"
-                    android:host="mirrly.app"
-                    android:pathPrefix="/worker" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="mirrly.app" />
+                <data android:host="www.mirrly.app" />
+                <data android:host="mirrly.me" />
+                <data android:host="www.mirrly.me" />
+                <data android:pathPrefix="/worker" />
+                <data android:path="/" />
             </intent-filter>
         </activity>
 

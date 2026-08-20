@@ -616,6 +616,41 @@ fun UpdateScreen(
                                             )
                                         }
                                     }
+
+                                    // Tertiary Button: Ignore / Skip this version
+                                    val isIgnored = releaseInfo?.isIgnored == true
+                                    if (isAvail) {
+                                        Button(
+                                            onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                val ver = releaseInfo?.versionName ?: ""
+                                                if (isIgnored) {
+                                                    com.mirrly.tgproxy.service.UpdateManager.unignoreVersion(context, ver)
+                                                    Toast.makeText(context, "Напоминания для v$ver включены", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    com.mirrly.tgproxy.service.UpdateManager.ignoreVersion(context, ver)
+                                                    Toast.makeText(context, "Версия v$ver скрыта", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color.Transparent,
+                                                contentColor = TextMuted
+                                            ),
+                                            border = BorderStroke(1.dp, Color(0xFF1E283D)),
+                                            shape = RoundedCornerShape(14.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(40.dp)
+                                                .springPress()
+                                        ) {
+                                            Text(
+                                                text = if (isIgnored) "Вернуть напоминание об обновлении" else "Пропустить эту версию",
+                                                fontWeight = FontWeight.Medium,
+                                                fontSize = 12.5.sp,
+                                                color = if (isIgnored) ActiveGreenLed else TextMuted
+                                            )
+                                        }
+                                    }
                                 }
 
                                 is DownloadStatus.ReadyToInstall -> {

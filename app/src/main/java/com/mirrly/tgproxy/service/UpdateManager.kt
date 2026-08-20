@@ -6,6 +6,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.core.ReleaseInfo
 import com.mirrly.tgproxy.core.UpdateChecker
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +52,9 @@ object UpdateManager {
                     .remove(KEY_LAST_NOTIFIED_VERSION)
                     .remove(KEY_LAST_NOTIFIED_TIME)
                     .apply()
+                try {
+                    MirrlyApplication.instance.prefsManager.clearIgnoredUpdateVersion()
+                } catch (_: Exception) {}
                 NotificationHelper.cancelUpdateNotification(context)
             }
 
@@ -64,6 +68,27 @@ object UpdateManager {
                 }
             }
             UpdateDownloader.resetStatus()
+        } catch (_: Exception) {}
+    }
+
+    fun ignoreVersion(context: Context, version: String) {
+        try {
+            MirrlyApplication.instance.prefsManager.setIgnoredUpdateVersion(version)
+            val current = _updateState.value
+            if (current != null) {
+                _updateState.value = current.copy(isIgnored = true)
+            }
+            NotificationHelper.cancelUpdateNotification(context)
+        } catch (_: Exception) {}
+    }
+
+    fun unignoreVersion(context: Context, version: String) {
+        try {
+            MirrlyApplication.instance.prefsManager.clearIgnoredUpdateVersion()
+            val current = _updateState.value
+            if (current != null) {
+                _updateState.value = current.copy(isIgnored = false)
+            }
         } catch (_: Exception) {}
     }
 
@@ -89,6 +114,9 @@ object UpdateManager {
                 .remove(KEY_LAST_NOTIFIED_VERSION)
                 .remove(KEY_LAST_NOTIFIED_TIME)
                 .apply()
+            try {
+                MirrlyApplication.instance.prefsManager.clearIgnoredUpdateVersion()
+            } catch (_: Exception) {}
             NotificationHelper.cancelUpdateNotification(context)
         }
 
@@ -98,7 +126,14 @@ object UpdateManager {
             currentVersion = currentAppVersion,
             cachedEtag = cachedEtag
         )
-        result.onSuccess { info ->
+        result.onSuccess { rawInfo ->
+            val cleanVer = UpdateChecker.cleanVersionString(rawInfo.versionName)
+            val isIgnored = try {
+                MirrlyApplication.instance.prefsManager.isUpdateVersionIgnored(cleanVer)
+            } catch (_: Exception) { false }
+
+            val info = rawInfo.copy(isIgnored = isIgnored)
+
             if (!info.etag.isNullOrBlank()) {
                 prefs.edit().putString(KEY_CACHED_ETAG, info.etag).apply()
             }
@@ -113,6 +148,10 @@ object UpdateManager {
                         cleanCachedVersion,
                         currentAppVersion
                     )
+                    val isCachedIgnored = try {
+                        MirrlyApplication.instance.prefsManager.isUpdateVersionIgnored(cleanCachedVersion)
+                    } catch (_: Exception) { false }
+
                     val cachedHtmlUrl = prefs.getString(KEY_CACHED_HTML_URL, "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases") ?: ""
                     val cachedNotes = prefs.getString(KEY_CACHED_RELEASE_NOTES, "") ?: ""
                     val cachedDownloadUrl = prefs.getString(KEY_CACHED_DOWNLOAD_URL, null)
@@ -130,11 +169,12 @@ object UpdateManager {
                         isNotModified = true,
                         expectedSha256 = cachedSha256,
                         expectedSha256List = if (cachedSha256 != null) listOf(cachedSha256) else emptyList(),
-                        changelogPreview = cachedPreview
+                        changelogPreview = cachedPreview,
+                        isIgnored = isCachedIgnored
                     )
                     _updateState.value = reconstructedInfo
 
-                    if (!isStillAvailable) {
+                    if (!isStillAvailable || isCachedIgnored) {
                         prefs.edit()
                             .remove(KEY_LAST_NOTIFIED_VERSION)
                             .remove(KEY_LAST_NOTIFIED_TIME)
@@ -158,7 +198,7 @@ object UpdateManager {
 
                 _updateState.value = info
 
-                if (info.isUpdateAvailable) {
+                if (info.isUpdateAvailable && !info.isIgnored) {
                     val lastNotifiedVersion = prefs.getString(KEY_LAST_NOTIFIED_VERSION, "")
                     val lastNotifiedTimeMs = prefs.getLong(KEY_LAST_NOTIFIED_TIME, 0L)
                     val now = System.currentTimeMillis()

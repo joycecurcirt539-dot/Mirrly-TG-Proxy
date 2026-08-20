@@ -37,9 +37,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
@@ -137,46 +139,32 @@ class MainActivity : ComponentActivity() {
 
                 val globalProxyState = if (isProxyRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
 
-                var currentScreen by remember { mutableStateOf("home") }
-                var previousScreen by remember { mutableStateOf("home") }
+                val screenStack = remember { mutableStateListOf("home") }
+                val currentScreen = screenStack.lastOrNull() ?: "home"
                 var lastBackTime by remember { mutableLongStateOf(0L) }
 
-                BackHandler {
-                    when (currentScreen) {
-                        "worker_manager" -> {
-                            currentScreen = previousScreen
-                        }
-                        "worker_guide" -> {
-                            currentScreen = previousScreen
-                        }
-                        "update" -> {
-                            currentScreen = "home"
-                        }
-                        "license" -> {
-                            currentScreen = "about"
-                        }
-                        "about" -> {
-                            currentScreen = "settings"
-                        }
-                        "settings" -> {
-                            currentScreen = previousScreen
-                        }
-                        "logs" -> {
-                            currentScreen = "home"
-                        }
-                        "history" -> {
-                            currentScreen = "home"
-                        }
-                        "home" -> {
-                            val now = System.currentTimeMillis()
-                            if (now - lastBackTime < 2000) {
-                                finish()
-                            } else {
-                                lastBackTime = now
-                                Toast.makeText(this@MainActivity, "Нажмите еще раз для выхода", Toast.LENGTH_SHORT).show()
-                            }
+                fun navigateTo(screen: String) {
+                    if (screenStack.lastOrNull() != screen) {
+                        screenStack.add(screen)
+                    }
+                }
+
+                fun navigateBack() {
+                    if (screenStack.size > 1) {
+                        screenStack.removeAt(screenStack.size - 1)
+                    } else {
+                        val now = System.currentTimeMillis()
+                        if (now - lastBackTime < 2000) {
+                            finish()
+                        } else {
+                            lastBackTime = now
+                            Toast.makeText(this@MainActivity, "Нажмите еще раз для выхода", Toast.LENGTH_SHORT).show()
                         }
                     }
+                }
+
+                BackHandler {
+                    navigateBack()
                 }
 
                 val blurRadius by animateDpAsState(
@@ -459,28 +447,12 @@ class MainActivity : ComponentActivity() {
                             }
                     ) {
                         HomeScreen(
-                            onOpenSettings = {
-                                previousScreen = "home"
-                                currentScreen = "settings"
-                            },
-                            onOpenLogs = {
-                                currentScreen = "logs"
-                            },
-                            onOpenHistory = {
-                                currentScreen = "history"
-                            },
-                            onOpenUpdate = {
-                                previousScreen = "home"
-                                currentScreen = "update"
-                            },
-                            onOpenWorkerGuide = {
-                                previousScreen = "home"
-                                currentScreen = "worker_guide"
-                            },
-                            onOpenWorkerManager = {
-                                previousScreen = "home"
-                                currentScreen = "worker_manager"
-                            },
+                            onOpenSettings = { navigateTo("settings") },
+                            onOpenLogs = { navigateTo("logs") },
+                            onOpenHistory = { navigateTo("history") },
+                            onOpenUpdate = { navigateTo("update") },
+                            onOpenWorkerGuide = { navigateTo("worker_guide") },
+                            onOpenWorkerManager = { navigateTo("worker_manager") },
                             onUiHiddenChange = { hidden ->
                                 isUiHidden = hidden
                             }
@@ -499,11 +471,8 @@ class MainActivity : ComponentActivity() {
                             }
                     ) {
                         LogsScreen(
-                            onBack = { currentScreen = "home" },
-                            onOpenSettings = {
-                                previousScreen = "logs"
-                                currentScreen = "settings"
-                            }
+                            onBack = { navigateBack() },
+                            onOpenSettings = { navigateTo("settings") }
                         )
                     }
 
@@ -519,7 +488,7 @@ class MainActivity : ComponentActivity() {
                             }
                     ) {
                         HistoryScreen(
-                            onBack = { currentScreen = "home" }
+                            onBack = { navigateBack() }
                         )
                     }
 
@@ -535,20 +504,11 @@ class MainActivity : ComponentActivity() {
                             }
                     ) {
                         SettingsScreen(
-                            onBack = { currentScreen = previousScreen },
-                            onOpenAbout = { currentScreen = "about" },
-                            onOpenUpdate = {
-                                previousScreen = "settings"
-                                currentScreen = "update"
-                            },
-                            onOpenWorkerGuide = {
-                                previousScreen = "settings"
-                                currentScreen = "worker_guide"
-                            },
-                            onOpenWorkerManager = {
-                                previousScreen = "settings"
-                                currentScreen = "worker_manager"
-                            }
+                            onBack = { navigateBack() },
+                            onOpenAbout = { navigateTo("about") },
+                            onOpenUpdate = { navigateTo("update") },
+                            onOpenWorkerGuide = { navigateTo("worker_guide") },
+                            onOpenWorkerManager = { navigateTo("worker_manager") }
                         )
                     }
 
@@ -565,11 +525,8 @@ class MainActivity : ComponentActivity() {
                     ) {
                         WorkerManagerScreen(
                             prefs = app.prefsManager,
-                            onBack = { currentScreen = previousScreen },
-                            onOpenWorkerGuide = {
-                                previousScreen = "worker_manager"
-                                currentScreen = "worker_guide"
-                            }
+                            onBack = { navigateBack() },
+                            onOpenWorkerGuide = { navigateTo("worker_guide") }
                         )
                     }
 
@@ -585,7 +542,7 @@ class MainActivity : ComponentActivity() {
                             }
                     ) {
                         CloudflareWorkerGuideScreen(
-                            onBack = { currentScreen = previousScreen }
+                            onBack = { navigateBack() }
                         )
                     }
 
@@ -601,13 +558,10 @@ class MainActivity : ComponentActivity() {
                             }
                     ) {
                         AboutScreen(
-                            onBack = { currentScreen = "settings" },
-                            onOpenLicense = { currentScreen = "license" },
-                            onOpenTerms = { currentScreen = "terms" },
-                            onOpenUpdate = {
-                                previousScreen = "about"
-                                currentScreen = "update"
-                            }
+                            onBack = { navigateBack() },
+                            onOpenLicense = { navigateTo("license") },
+                            onOpenTerms = { navigateTo("terms") },
+                            onOpenUpdate = { navigateTo("update") }
                         )
                     }
 
@@ -623,7 +577,7 @@ class MainActivity : ComponentActivity() {
                             }
                     ) {
                         LicenseScreen(
-                            onBack = { currentScreen = "about" }
+                            onBack = { navigateBack() }
                         )
                     }
 
@@ -639,7 +593,7 @@ class MainActivity : ComponentActivity() {
                             }
                     ) {
                         TermsScreen(
-                            onBack = { currentScreen = "about" }
+                            onBack = { navigateBack() }
                         )
                     }
 
@@ -656,7 +610,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         UpdateScreen(
                             releaseInfo = currentUpdateInfo,
-                            onBack = { currentScreen = previousScreen }
+                            onBack = { navigateBack() }
                         )
                     }
 
@@ -739,21 +693,26 @@ class MainActivity : ComponentActivity() {
 
     private fun extractWorkerDeepLink(intent: android.content.Intent?): Pair<String, String>? {
         val data = intent?.data ?: return null
-        val scheme = data.scheme?.lowercase()
-        val host = data.host?.lowercase()
+        val scheme = data.scheme?.lowercase() ?: ""
+        val host = data.host?.lowercase() ?: ""
         val path = data.path ?: ""
 
-        val isMirrlyScheme = scheme == "mirrly" && (host == "worker" || path.startsWith("/worker"))
-        val isHttpsScheme = (scheme == "https" || scheme == "http") &&
-                (host == "mirrly.app" || host == "mirrly.me" || host == "www.mirrly.app") &&
-                (path.startsWith("/worker") || path.isEmpty())
+        val isMirrlyScheme = scheme == "mirrly" && (host == "worker" || path.contains("worker"))
+        val isWebScheme = (scheme == "https" || scheme == "http") &&
+                (host == "mirrly.app" || host == "www.mirrly.app" || host == "mirrly.me" || host == "www.mirrly.me")
 
-        if (isMirrlyScheme || isHttpsScheme) {
+        if (isMirrlyScheme || isWebScheme) {
             val rawDomain = data.getQueryParameter("domain")
                 ?: data.getQueryParameter("d")
-                ?: data.lastPathSegment?.takeIf { it != "worker" }
+                ?: data.getQueryParameter("host")
+                ?: data.getQueryParameter("worker")
+                ?: data.getQueryParameter("url")
+                ?: data.lastPathSegment?.takeIf { it != "worker" && it.isNotEmpty() }
                 ?: ""
-            val rawName = data.getQueryParameter("name") ?: data.getQueryParameter("n") ?: ""
+            val rawName = data.getQueryParameter("name")
+                ?: data.getQueryParameter("n")
+                ?: data.getQueryParameter("title")
+                ?: ""
             val cleanDomain = com.mirrly.tgproxy.core.ProxyConfig.sanitizeDomain(rawDomain)
             if (cleanDomain.isNotBlank()) {
                 return Pair(rawName.trim(), cleanDomain)

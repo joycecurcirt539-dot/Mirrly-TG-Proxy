@@ -20,6 +20,8 @@ package com.mirrly.tgproxy.ui
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
@@ -112,7 +114,9 @@ fun WorkerManagerScreen(
             Toast.makeText(context, "Воркером разработчика нельзя делиться", Toast.LENGTH_SHORT).show()
             return
         }
-        val link = "https://mirrly.app/worker?domain=${worker.domain}"
+        val encodedDomain = Uri.encode(worker.domain)
+        val encodedName = Uri.encode(worker.name)
+        val link = "https://mirrly.app/worker?domain=$encodedDomain&name=$encodedName"
 
         val shareText = buildString {
             append("Подключи мой Cloudflare Worker в Mirrly TG Proxy в 1 клик:\n\n")
@@ -416,6 +420,73 @@ fun WorkerManagerScreen(
                             workerToDelete = worker
                         }
                     )
+                }
+            }
+
+            item {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White.copy(alpha = 0.03f),
+                    border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.25f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "ОТКРЫТИЕ ССЫЛОК В ПРИЛОЖЕНИИ",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF00E5FF),
+                            letterSpacing = 0.8.sp
+                        )
+                        Text(
+                            text = "Чтобы ссылки https://mirrly.app/worker?... открывались напрямую в Mirrly TG Proxy, разрешите приложению открывать поддерживаемые ссылки в системных настройках Android.",
+                            fontSize = 11.5.sp,
+                            color = TextMuted,
+                            lineHeight = 16.sp
+                        )
+                        Button(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                try {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        val intent = Intent(
+                                            android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
+                                            Uri.parse("package:${context.packageName}")
+                                        )
+                                        context.startActivity(intent)
+                                    } else {
+                                        val intent = Intent(
+                                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                            Uri.parse("package:${context.packageName}")
+                                        )
+                                        context.startActivity(intent)
+                                    }
+                                } catch (_: Exception) {
+                                    val intent = Intent(
+                                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                    context.startActivity(intent)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.Transparent,
+                                contentColor = Color(0xFF00E5FF)
+                            ),
+                            border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(38.dp)
+                        ) {
+                            Text("Разрешить открытие ссылок в Настройках", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
 

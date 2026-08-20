@@ -514,7 +514,7 @@ fun HomeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // ─── 1. TOP SECTION (Update banner if present) ───
-                val isBannerVisible = (updateInfo?.isUpdateAvailable == true) && !isUiHidden
+                val isBannerVisible = (updateInfo?.isUpdateAvailable == true) && (updateInfo?.isIgnored != true) && !isUiHidden
                 AnimatedVisibility(
                     visible = isBannerVisible,
                     enter = fadeIn(tween(300)) + expandVertically(tween(350)),
@@ -562,7 +562,7 @@ fun HomeScreen(
 
                                     Column {
                                         Text(
-                                            text = "Найдено обновление!",
+                                            text = "Найдено обновление v${info.versionName}!",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 13.sp,
                                             color = updateYellow
@@ -575,12 +575,33 @@ fun HomeScreen(
                                     }
                                 }
 
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_chevron_right),
-                                    contentDescription = null,
-                                    tint = updateYellow,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            com.mirrly.tgproxy.service.UpdateManager.ignoreVersion(context, info.versionName)
+                                            Toast.makeText(context, "Обновление v${info.versionName} скрыто", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Text(
+                                            text = "✕",
+                                            color = TextMuted,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                                        contentDescription = null,
+                                        tint = updateYellow,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                         }
                     }

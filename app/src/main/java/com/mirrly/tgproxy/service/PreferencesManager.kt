@@ -271,4 +271,24 @@ class PreferencesManager(context: Context) {
         return (getCustomWorkers() + DEFAULT_DEV_WORKERS).find { it.id == activeId }
             ?: DEFAULT_DEV_WORKERS.first()
     }
+
+    fun getIgnoredUpdateVersion(): String? {
+        return prefs.getString("ignored_update_version", null)
+    }
+
+    fun setIgnoredUpdateVersion(version: String) {
+        val clean = com.mirrly.tgproxy.core.UpdateChecker.cleanVersionString(version)
+        prefs.edit().putString("ignored_update_version", clean).apply()
+    }
+
+    fun clearIgnoredUpdateVersion() {
+        prefs.edit().remove("ignored_update_version").apply()
+    }
+
+    fun isUpdateVersionIgnored(version: String): Boolean {
+        val ignored = getIgnoredUpdateVersion() ?: return false
+        val cleanIgnored = com.mirrly.tgproxy.core.UpdateChecker.cleanVersionString(ignored)
+        val cleanVersion = com.mirrly.tgproxy.core.UpdateChecker.cleanVersionString(version)
+        return cleanIgnored.isNotBlank() && cleanIgnored == cleanVersion
+    }
 }
