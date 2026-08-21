@@ -318,3 +318,11 @@ cd Mirrly-TG-Proxy
 
 * **[Flowseal](https://github.com/Flowseal)** — за оригинальный проект [tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy), концепция, логика туннелирования и наработки которого легли в основу идеи проекта.
 * **[amurcanov](https://github.com/amurcanov)** — за реализацию и наработки оригинального Rust-движка прокси [tg-ws-proxy-android](https://github.com/amurcanov/tg-ws-proxy-android), вдохновившего развитие архитектуры нативного ядра.
+
+  ## Огромная благодарность самым лучшим людям на земле за помощь в развитии проекта, а именно за поиск багов, ошибок и проблем! Вы лучшие!)
+1) Grovymon
+2) zzzxxx888207-design
+3) VikKalm
+4) Astimir Meikulov
+
+У меня есть свой телеграм канал) там иногда, может быть будет чтото полезное
