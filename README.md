@@ -17,7 +17,7 @@
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Stars](https://img.shields.io/github/stars/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=F5A623)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
 [![Issues](https://img.shields.io/github/issues/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=E53935)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues)
-[![Issues](https://img.shields.io/github/issues/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=E53935)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues?q=is%3Aissue%20state%3Aclosed)
+[![Issues](https://img.shields.io/github/issues/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=E53935)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues/created_by/closed?q=is%3Aissue%20state%3Aclosed%20author%3Aclosed)
 [![Views](https://komarev.com/ghpvc/?username=joycecurcirt539-dot-Mirrly-TG-Proxy&color=1e293b&label=Views)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy)
 <br/>
 [![Telegram](https://img.shields.io/badge/Telegram-Канал_сообщества-1E293B?logo=telegram&logoColor=26A5E4)](https://t.me/WhyOkyHb)
