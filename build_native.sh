@@ -55,6 +55,11 @@ export CC_armv7_linux_androideabi="$NDK_BIN/armv7a-linux-androideabi${API_LEVEL}
 export CC_i686_linux_android="$NDK_BIN/i686-linux-android${API_LEVEL}-clang"
 export CC_x86_64_linux_android="$NDK_BIN/x86_64-linux-android${API_LEVEL}-clang"
 
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android${API_LEVEL}-clang"
+export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$NDK_BIN/armv7a-linux-androideabi${API_LEVEL}-clang"
+export CARGO_TARGET_I686_LINUX_ANDROID_LINKER="$NDK_BIN/i686-linux-android${API_LEVEL}-clang"
+export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$NDK_BIN/x86_64-linux-android${API_LEVEL}-clang"
+
 export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
 export AR_armv7_linux_androideabi="$NDK_BIN/llvm-ar"
 export AR_i686_linux_android="$NDK_BIN/llvm-ar"

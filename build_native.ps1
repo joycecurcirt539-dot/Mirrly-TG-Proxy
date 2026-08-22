@@ -53,6 +53,11 @@ $env:CC_armv7_linux_androideabi = "$ndkBin\armv7a-linux-androideabi$($apiLevel)-
 $env:CC_i686_linux_android = "$ndkBin\i686-linux-android$($apiLevel)-clang.cmd"
 $env:CC_x86_64_linux_android = "$ndkBin\x86_64-linux-android$($apiLevel)-clang.cmd"
 
+$env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = "$ndkBin\aarch64-linux-android$($apiLevel)-clang.cmd"
+$env:CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER = "$ndkBin\armv7a-linux-androideabi$($apiLevel)-clang.cmd"
+$env:CARGO_TARGET_I686_LINUX_ANDROID_LINKER = "$ndkBin\i686-linux-android$($apiLevel)-clang.cmd"
+$env:CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER = "$ndkBin\x86_64-linux-android$($apiLevel)-clang.cmd"
+
 $env:AR_aarch64_linux_android = "$ndkBin\llvm-ar.exe"
 $env:AR_armv7_linux_androideabi = "$ndkBin\llvm-ar.exe"
 $env:AR_i686_linux_android = "$ndkBin\llvm-ar.exe"
