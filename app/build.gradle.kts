@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,8 +15,8 @@ android {
         applicationId = "com.mirrly.tgproxy"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "1.1.3.1"
+        versionCode = 17
+        versionName = "1.1.4"
 
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -38,11 +41,62 @@ android {
         }
     }
 
+    val keystorePropertiesFile = rootProject.file("keystore.properties").takeIf { it.exists() }
+        ?: project.file("keystore.properties").takeIf { it.exists() }
+    val keystoreProperties = Properties()
+    if (keystorePropertiesFile != null) {
+        keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+    }
+
+    val envStoreFile = System.getenv("RELEASE_KEYSTORE_PATH") ?: System.getenv("KEYSTORE_PATH")
+    val propStoreFile = keystoreProperties.getProperty("storeFile")
+    val releaseStoreFile = when {
+        !propStoreFile.isNullOrBlank() -> {
+            val f = file(propStoreFile)
+            if (f.exists()) f else rootProject.file(propStoreFile).takeIf { it.exists() }
+        }
+        !envStoreFile.isNullOrBlank() -> file(envStoreFile).takeIf { it.exists() }
+        else -> null
+    }
+
+    val releaseStorePassword = keystoreProperties.getProperty("storePassword")
+        ?: System.getenv("RELEASE_STORE_PASSWORD")
+        ?: System.getenv("KEYSTORE_PASSWORD")
+
+    val releaseKeyAlias = keystoreProperties.getProperty("keyAlias")
+        ?: System.getenv("RELEASE_KEY_ALIAS")
+        ?: System.getenv("KEY_ALIAS")
+
+    val releaseKeyPassword = keystoreProperties.getProperty("keyPassword")
+        ?: System.getenv("RELEASE_KEY_PASSWORD")
+        ?: System.getenv("KEY_PASSWORD")
+
+    val isReleaseSigningConfigured = releaseStoreFile != null &&
+            !releaseStorePassword.isNullOrBlank() &&
+            !releaseKeyAlias.isNullOrBlank() &&
+            !releaseKeyPassword.isNullOrBlank()
+
+    signingConfigs {
+        if (isReleaseSigningConfigured) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (isReleaseSigningConfigured) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn("WARNING: Release keystore is not configured. Falling back to debug signing for assembleRelease. This APK will NOT match official release signatures.")
+                signingConfigs.getByName("debug")
+            }
             manifestPlaceholders["appLabel"] = "Mirrly TG Proxy"
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -55,7 +109,11 @@ android {
             versionNameSuffix = "-beta"
             matchingFallbacks += listOf("release")
             manifestPlaceholders["appLabel"] = "Mirrly (Beta)"
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (isReleaseSigningConfigured) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
         debug {
             manifestPlaceholders["appLabel"] = "Mirrly (Debug)"

@@ -13,7 +13,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_V8-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Native_Rust%20%26%20C%2B%2B-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Version](https://img.shields.io/badge/Релиз-v1.1.3-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Version](https://img.shields.io/badge/Релиз-v1.1.4-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Stars](https://img.shields.io/github/stars/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=F5A623)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
 [![Issues](https://img.shields.io/github/issues/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=E53935)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues)
@@ -112,8 +112,9 @@ Mirrly TG Proxy обеспечивает раздельное туннелиро
   * Полная невидимость для систем глубокого анализа пакетов (DPI).
   * Генерация случайных стойких ключей с префиксом `dd` в один клик.
 * **Скоростной балансировщик Anycast (Fast Race & Latency Balancer)**:
-  * Алгоритм гонки рукопожатий (RFC 8305 Happy Eyeballs) со ступенчатым стартом 25 мс и ультра-коротким таймаутом 450 мс (вместо 4–5 сек).
-  * Мгновенный отклик: первый ответивший узел моментально передается Telegram без задержек при старте.
+  * Алгоритм гонки рукопожатий (RFC 8305 Happy Eyeballs) со ступенчатым стартом 100 мс, лимитером параллелизма (до 4 потоков) и адаптивным таймаутом 2000 мс для стабильности в мобильных сетях (LTE/5G).
+  * Стабильность превыше джиттера (Anti-Flapping Hysteresis): балансировщик удерживает проверенный надежный узел при колебаниях радиосигнала (порог 60 мс), предотвращая разрывы соединений.
+  * Мгновенный отклик при холодном старте: первый ответивший узел моментально передается Telegram без задержек.
   * Формирование ранжированного списка серверов по времени отклика (RTT) и тихий фоновый замер 1 раз в 60 минут (расход всего 0.48% суточного лимита запросов).
 * **Сетевой стек и DoH-клиент**:
   * Сквозная перешифровка пакетов в `MsgSplitter` (`client_dec -> plaintext -> upstream_enc`).
@@ -129,8 +130,8 @@ Mirrly TG Proxy обеспечивает раздельное туннелиро
   * Настроен профиль компиляции `baseline-prof.txt` для AOT-ускорения холодного старта.
   * Агрессивные правила минификации R8 (`-optimizations`) для максимального сжатия байткода.
   * Потокобезопасный `AppLogger` и изоляция корутин сокетов с `SupervisorJob()`.
-* **Профили производительности (Speed Presets)**: `Турбо` (16 сокетов / 2 МБ буфер), `Баланс` (8 сокетов / 256 КБ буфер), `Эко` (2 сокета / 32 КБ буфер).
-* **Мгновенная отдача (TCP_NODELAY)**: отключение алгоритма Нагла устраняет сетевые задержки (40–200 мс).
+* **Профили производительности (Speed Presets)**: `Турбо` (8 сокетов / 1 МБ буфер), `Баланс` (4 сокета / 256 КБ буфер), `Эко` (2 сокета / 128 КБ буфер).
+* **Интеллектуальный TCP_NODELAY**: 3 режима работы (АВТО / ВКЛ / ВЫКЛ) с автоматической адаптацией под пропускную способность (порог 50 Мбит/с) и пинг (порог 140 мс).
 * **Умный таймер сна (Sleep Timer)**: автовыключение прокси по интервалу (от 15 мин до 6 ч) с уведомлениями и продлением в один клик.
 * **Встроенный установщик обновлений**: валидация целостности по SHA-256 и верификация подписи разработчика в нативном NDK-слое (C++ `SignatureVerifier`).
 * **Человекопонятный журнал событий (`HumanLogTranslator`)**: отображение понятных событий Rust-ядра, рукопожатий и статусов подключения.
@@ -143,15 +144,6 @@ Mirrly TG Proxy обеспечивает раздельное туннелиро
 flowchart TD
     subgraph ClientLayer ["1. Клиенты Telegram (Android-устройство)"]
         TGApp["Клиенты Telegram<br/>(Official / AyuGram / NekoGram / ExteraGram / Telegram X)"]
-    end
-
-    subgraph ServiceLayer ["2. Локальный Прокси-сервер Mirrly (Android Service, Без VPN)"]
-        ModeSwitch{"Переключатель режима<br/>(proxyModeName)"}
-        
-        subgraph SocksBox ["Режим SOCKS5 (Порт 10808)"]
-            SocksRust["mirrlyengine SOCKS5 (Rust Core)<br/>Слушатель сокета 10808<br/>WSS Relay & Чаты/Звонки"]
-            SocksKotlin["Socks5WsBridge (Kotlin Релей)"]
-        end
 
         subgraph MtprotoBox ["Режим MTProto (Порт 1443)"]
             MtprotoRust["mirrlyengine MTProto (Rust Core)<br/>Fake-TLS, DoH & WsPool Pre-warming"]
@@ -247,9 +239,9 @@ flowchart TD
 | `socks5Port` | `10808` | Локальный TCP-порт для SOCKS5 |
 | `secretHex` | `dd000000...` | Секретный ключ MTProto (поддерживаются префиксы FakeTLS `dd` и `ee`) |
 | `customCfDomain` | `""` | Персональный кастомный Cloudflare домен пользователя (опционально) |
-| `speedPreset` | `BALANCED` | Профиль скорости: `TURBO` (2 МБ / 16 сокетов), `BALANCED` (256 КБ / 8 сокетов), `ECO` (32 КБ / 2 сокета) |
-| `tcpNoDelay` | `true` | Мгновенная отправка сетевых пакетов без задержек (TCP_NODELAY) |
-| `poolSize` | `8` | Количество удерживаемых открытыми WSS-сокетов на каждый дата-центр |
+| `speedPreset` | `BALANCED` | Профиль скорости: `TURBO` (1 МБ / 8 сокетов), `BALANCED` (256 КБ / 4 сокета), `ECO` (128 КБ / 2 сокета) |
+| `tcpNoDelayModeName` | `AUTO` | 3-позиционный режим алгоритма Нагла: `AUTO` (адаптивный по 50 Мбит/с и 140 мс), `ON` (мгновенно), `OFF` (склеивание) |
+| `poolSize` | `4` | Количество удерживаемых открытыми WSS-сокетов на каждый дата-центр |
 | `autostartOnBoot` | `true` | Автоматический запуск службы при загрузке операционной системы |
 | `disableAnimations` | `false` | Отключение визуальных эффектов для снижения энергопотребления |
 

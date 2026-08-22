@@ -71,6 +71,16 @@ fun CloudflareWorkerGuideScreen(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     var selectedTab by remember { mutableStateOf(GuideTab.PC) }
+    var showDashboardConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showDashboardConfirmDialog) {
+        ExternalLinkConfirmDialog(
+            url = "https://dash.cloudflare.com/",
+            title = "Панель Cloudflare Dashboard",
+            description = "Ссылка ведет на официальную веб-панель управления Cloudflare (dash.cloudflare.com) для создания и редактирования скрипта Worker.",
+            onDismiss = { showDashboardConfirmDialog = false }
+        )
+    }
 
     fun copyScriptToClipboard() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -82,13 +92,7 @@ fun CloudflareWorkerGuideScreen(
 
     fun openCloudflareDashboard() {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://dash.cloudflare.com/"))
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-        } catch (_: Exception) {
-            Toast.makeText(context, "Не удалось открыть браузер", Toast.LENGTH_SHORT).show()
-        }
+        showDashboardConfirmDialog = true
     }
 
     Scaffold(

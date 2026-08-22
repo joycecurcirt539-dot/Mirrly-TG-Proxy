@@ -23,6 +23,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ui.theme.*
 
 data class LinkDetails(
@@ -203,18 +205,39 @@ fun ExternalLinkConfirmDialog(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) { onDismiss() }
-                .padding(horizontal = 24.dp)
         ) {
-            // Detailed Link Information (Centered)
+            // Top-Left Back Navigation Button (Same style as Settings & Screen headers)
+            IconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onDismiss()
+                },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(top = 12.dp, start = 12.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_arrow_left),
+                    contentDescription = "Назад",
+                    tint = TextWhite,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            // Detailed Link Information + Action Button (Centered)
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
                     .navigationBarsPadding()
-                    .padding(bottom = 110.dp)
-                    .clickable(enabled = false) {}
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
             ) {
                 // Category Pill
                 Surface(
@@ -266,35 +289,10 @@ fun ExternalLinkConfirmDialog(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
-            }
 
-            // Floating Bottom Action Buttons
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 32.dp)
-                    .fillMaxWidth()
-                    .clickable(enabled = false) {}
-            ) {
-                OutlinedButton(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onDismiss()
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = TextWhite.copy(alpha = 0.90f)
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                ) {
-                    Text("Отклонить", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                }
+                Spacer(modifier = Modifier.height(8.dp))
 
+                // Primary "Перейти" Action Button placed directly under the link
                 Button(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -314,8 +312,9 @@ fun ExternalLinkConfirmDialog(
                     ),
                     border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
                     modifier = Modifier
-                        .weight(1f)
+                        .fillMaxWidth(0.70f)
                         .height(48.dp)
+                        .springPress()
                 ) {
                     Text("Перейти", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }

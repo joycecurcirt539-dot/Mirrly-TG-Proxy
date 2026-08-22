@@ -822,10 +822,11 @@ fun HomeScreen(
                     val statusSubtitle = when (currentState) {
                         ProxyUiState.CONNECTED -> {
                             if (app.config.cfProxyEnabled) {
-                                if (app.config.customCfDomain.isNotBlank()) {
-                                    "Cloudflare WSS (${app.config.customCfDomain.trim()}) • Защищено"
+                                val effDomain = app.config.getEffectiveCfDomain()
+                                if (effDomain.isNotBlank()) {
+                                    "Cloudflare WSS (${effDomain.trim()}) • Защищено"
                                 } else {
-                                    "Cloudflare WSS • Защищено"
+                                    "Cloudflare Anycast CDN • Защищено"
                                 }
                             } else {
                                 "Локальный прокси • Защищено"
@@ -1049,9 +1050,6 @@ fun HomeScreen(
                         onSupportClicked = {
                             com.mirrly.tgproxy.service.DonationManager.setDismissedForever(context, true)
                             showDonationBanner = false
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://dalink.to/cartneyzix"))
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(intent)
                         },
                         onPostponeClicked = {
                             com.mirrly.tgproxy.service.DonationManager.postpone3Days(context)

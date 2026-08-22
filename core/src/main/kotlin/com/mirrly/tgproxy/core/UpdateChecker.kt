@@ -27,7 +27,7 @@ object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_API_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
     private const val GITHUB_API_ALL_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
-    const val CURRENT_VERSION_NAME = "1.1.3.1"
+    const val CURRENT_VERSION_NAME = "1.1.4"
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -131,15 +131,15 @@ object UpdateChecker {
                             Result.success(
                                 ReleaseInfo(
                                     tagName = tagName,
-                                    versionName = latestVerClean,
+                                    versionName = if (isUpdateAvailable) latestVerClean else currentVerClean,
                                     htmlUrl = htmlUrl,
                                     releaseNotes = bodyText,
                                     isUpdateAvailable = isUpdateAvailable,
-                                    downloadUrl = downloadUrl,
+                                    downloadUrl = if (isUpdateAvailable) downloadUrl else null,
                                     etag = responseEtag,
                                     isNotModified = false,
-                                    expectedSha256 = expectedSha256,
-                                    expectedSha256List = expectedSha256List,
+                                    expectedSha256 = if (isUpdateAvailable) expectedSha256 else null,
+                                    expectedSha256List = if (isUpdateAvailable) expectedSha256List else emptyList(),
                                     changelogPreview = preview
                                 )
                             )

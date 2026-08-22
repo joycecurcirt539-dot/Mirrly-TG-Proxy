@@ -34,6 +34,7 @@ interface ProxyLibrary : Library {
     fun StopProxy(): Int
     fun ResetNetworkSockets()
     fun SetPoolSize(size: Int)
+    fun SetTcpNoDelay(enabled: Int)
     fun SetCfProxyCacheDir(cacheDir: String)
     fun SetCfProxyConfig(enabled: Int, userDomain: String)
     fun SetSecret(secret: String)
@@ -94,6 +95,12 @@ object NativeProxy {
         if (!isStarted) return
         try {
             ProxyLibrary.INSTANCE.SetPoolSize(size)
+        } catch (_: Throwable) {}
+    }
+
+    fun setTcpNoDelay(enabled: Boolean) {
+        try {
+            ProxyLibrary.INSTANCE.SetTcpNoDelay(if (enabled) 1 else 0)
         } catch (_: Throwable) {}
     }
 

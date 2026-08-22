@@ -48,14 +48,28 @@ class PreferencesManager(context: Context) {
             savedSecret
         }
         val cfEnabled = prefs.getBoolean("cf_proxy_enabled", defaults.cfProxyEnabled)
-        val customDomain = ProxyConfig.sanitizeDomain(prefs.getString("custom_cf_domain", defaults.customCfDomain) ?: defaults.customCfDomain)
+        val savedCustomDomain = prefs.getString("custom_cf_domain", null)
+        val customDomain = if (savedCustomDomain != null && savedCustomDomain.isNotBlank()) {
+            ProxyConfig.sanitizeDomain(savedCustomDomain)
+        } else {
+            getActiveWorker().domain
+        }
         val poolSize = prefs.getInt("pool_size", defaults.poolSize)
         val autostart = prefs.getBoolean("autostart_on_boot", defaults.autostartOnBoot)
         val speedPresetName = prefs.getString("speed_preset", defaults.speedPresetName) ?: defaults.speedPresetName
+        val tcpNoDelayModeName = if (prefs.contains("tcp_nodelay_mode")) {
+            prefs.getString("tcp_nodelay_mode", defaults.tcpNoDelayModeName) ?: defaults.tcpNoDelayModeName
+        } else if (prefs.contains("tcp_nodelay")) {
+            if (prefs.getBoolean("tcp_nodelay", true)) com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO.name
+            else com.mirrly.tgproxy.core.TcpNoDelayMode.OFF.name
+        } else {
+            defaults.tcpNoDelayModeName
+        }
         val tcpNoDelay = prefs.getBoolean("tcp_nodelay", defaults.tcpNoDelay)
         val bufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
         val socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
         val useDefaultWorkerSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
+        val applyWorkerToMtproto = prefs.getBoolean("apply_worker_to_mtproto", defaults.applyWorkerToMtproto)
 
         // Миграция: если proxy_mode ещё не сохранён, читаем старый socks5_enabled
         val proxyModeName = if (prefs.contains("proxy_mode")) {
@@ -75,10 +89,12 @@ class PreferencesManager(context: Context) {
             poolSize = poolSize,
             autostartOnBoot = autostart,
             speedPresetName = speedPresetName,
+            tcpNoDelayModeName = tcpNoDelayModeName,
             tcpNoDelay = tcpNoDelay,
             bufferSizeBytes = bufferSizeBytes,
             socks5Port = socks5Port,
             useDefaultWorkerSocks5 = useDefaultWorkerSocks5,
+            applyWorkerToMtproto = applyWorkerToMtproto,
             proxyModeName = proxyModeName
         )
     }
@@ -95,10 +111,12 @@ class PreferencesManager(context: Context) {
             .putInt("pool_size", config.poolSize)
             .putBoolean("autostart_on_boot", config.autostartOnBoot)
             .putString("speed_preset", config.speedPresetName)
+            .putString("tcp_nodelay_mode", config.tcpNoDelayModeName)
             .putBoolean("tcp_nodelay", config.tcpNoDelay)
             .putInt("buffer_size_bytes", config.bufferSizeBytes)
             .putInt("socks5_port", config.socks5Port)
             .putBoolean("use_default_worker_socks5", config.useDefaultWorkerSocks5)
+            .putBoolean("apply_worker_to_mtproto", config.applyWorkerToMtproto)
             .putString("proxy_mode", config.proxyModeName)
             .apply()
         _isSocks5Flow.value = config.isSocks5Mode
@@ -145,31 +163,31 @@ class PreferencesManager(context: Context) {
         val DEFAULT_DEV_WORKERS = listOf(
             WorkerProfile(
                 id = "dev_default",
-                name = "Воркер разработчика #1 (Основной)",
+                name = "Mirrly Основной",
                 domain = "mirrly-tg-proxy-worker.brawny-singer.workers.dev",
                 isDeveloperWorker = true
             ),
             WorkerProfile(
                 id = "dev_alpha",
-                name = "Воркер разработчика #2 (Alpha)",
+                name = "Mirrly Альфа",
                 domain = "mirrly-tg-proxy-alpha.brawny-singer.workers.dev",
                 isDeveloperWorker = true
             ),
             WorkerProfile(
                 id = "dev_beta",
-                name = "Воркер разработчика #3 (Beta)",
+                name = "Mirrly Бета",
                 domain = "mirrly-tg-proxy-beta.brawny-singer.workers.dev",
                 isDeveloperWorker = true
             ),
             WorkerProfile(
                 id = "dev_gamma",
-                name = "Воркер разработчика #4 (Gamma)",
+                name = "Mirrly Гамма",
                 domain = "mirrly-tg-proxy-gamma.brawny-singer.workers.dev",
                 isDeveloperWorker = true
             ),
             WorkerProfile(
                 id = "dev_delta",
-                name = "Воркер разработчика #5 (Delta)",
+                name = "Mirrly Дельта",
                 domain = "mirrly-tg-proxy-delta.brawny-singer.workers.dev",
                 isDeveloperWorker = true
             )
@@ -252,19 +270,18 @@ class PreferencesManager(context: Context) {
         prefs.edit().putString("active_worker_id", id).apply()
         val worker = getActiveWorker(id)
         val config = loadConfig()
-        if (worker.isDeveloperWorker) {
-            if (worker.id == "dev_default") {
-                config.customCfDomain = ""
-                config.useDefaultWorkerSocks5 = true
-            } else {
-                config.customCfDomain = worker.domain
-                config.useDefaultWorkerSocks5 = true
-            }
-        } else {
-            config.customCfDomain = worker.domain
-            config.useDefaultWorkerSocks5 = false
-        }
+        config.customCfDomain = worker.domain
+        config.useDefaultWorkerSocks5 = worker.isDeveloperWorker
         saveConfig(config)
+
+        try {
+            val app = com.mirrly.tgproxy.MirrlyApplication.instance
+            app.config.customCfDomain = worker.domain
+            app.config.useDefaultWorkerSocks5 = worker.isDeveloperWorker
+            if (app.proxyServer.isRunning) {
+                app.proxyServer.onWorkerChanged(worker.domain)
+            }
+        } catch (_: Exception) {}
     }
 
     fun getActiveWorker(activeId: String = getActiveWorkerId()): WorkerProfile {

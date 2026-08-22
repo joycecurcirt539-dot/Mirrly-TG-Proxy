@@ -67,8 +67,18 @@ class ProxyForegroundService : Service() {
             }
 
             if (app.proxyServer.isRunning) {
-                // Мгновенный сброс устаревших апстрим-сокетов и прогрев WSS на новом интерфейсе без разрыва локального сокета 127.0.0.1
+                // Мгновенный сброс активных сессий и прогрев сокетов на новом интерфейсе для моментального реконнекта Telegram
                 app.proxyServer.onNetworkRestored()
+
+                if (app.config.tcpNoDelayMode == com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO) {
+                    val eval = NetworkConditionEvaluator.evaluate(
+                        context = this@ProxyForegroundService,
+                        capabilities = networkObserver?.getCurrentCapabilities(),
+                        currentPingMs = app.proxyServer.currentPingMs,
+                        currentThroughputBps = 0L
+                    )
+                    app.proxyServer.applyTcpNoDelay(eval.isInstantSendRecommended)
+                }
 
                 if (oldType == "Wi-Fi" && (newType.contains("Mobile") || newType.contains("Cellular"))) {
                     val stats = app.proxyServer.stats
@@ -193,7 +203,9 @@ class ProxyForegroundService : Service() {
         val currentPreset = app.config.speedPreset
         val nextPreset = when (currentPreset) {
             SpeedPreset.BALANCED -> SpeedPreset.TURBO
-            SpeedPreset.TURBO -> SpeedPreset.ECO
+            SpeedPreset.TURBO -> SpeedPreset.ULTRA
+            SpeedPreset.ULTRA -> SpeedPreset.AUTO
+            SpeedPreset.AUTO -> SpeedPreset.ECO
             SpeedPreset.ECO -> SpeedPreset.BALANCED
         }
 
@@ -235,9 +247,11 @@ class ProxyForegroundService : Service() {
 
     private fun getPresetShortName(preset: SpeedPreset): String {
         return when (preset) {
+            SpeedPreset.ULTRA -> "Ультра"
             SpeedPreset.TURBO -> "Турбо"
             SpeedPreset.BALANCED -> "Баланс"
             SpeedPreset.ECO -> "Эко"
+            SpeedPreset.AUTO -> "Авто"
         }
     }
 
@@ -294,7 +308,8 @@ class ProxyForegroundService : Service() {
     private fun startNotificationUpdates() {
         updateJob?.cancel()
         updateJob = serviceScope.launch {
-            val server = MirrlyApplication.instance.proxyServer
+            val app = MirrlyApplication.instance
+            val server = app.proxyServer
             var secondsCounter = 0
             var pingCounter = 0
 
@@ -319,6 +334,16 @@ class ProxyForegroundService : Service() {
                 stats.updateSpeed()
 
                 val activeConns = stats.activeConnections.get()
+
+                if (app.config.tcpNoDelayMode == com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO) {
+                    val eval = NetworkConditionEvaluator.evaluate(
+                        context = this@ProxyForegroundService,
+                        capabilities = networkObserver?.getCurrentCapabilities(),
+                        currentPingMs = server.currentPingMs,
+                        currentThroughputBps = stats.downloadSpeedBps + stats.uploadSpeedBps
+                    )
+                    server.applyTcpNoDelay(eval.isInstantSendRecommended)
+                }
 
                 SessionHistoryManager.onSessionUpdate(
                     bytesReceived = stats.totalBytesReceived.get(),

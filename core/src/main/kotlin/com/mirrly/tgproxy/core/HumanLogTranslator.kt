@@ -70,45 +70,45 @@ object HumanLogTranslator {
                 val cause = msg.substringAfter(":", "").trim()
                 if (cause.isNotEmpty()) "Ошибка при остановке движка прокси: $cause" else "Ошибка при остановке движка прокси"
             }
-            msg.contains("Не удалось запустить Kotlin-движок", ignoreCase = true) -> {
-                val cause = msg.substringAfter(":", "").trim()
-                if (cause.isNotEmpty()) "Не удалось запустить Kotlin-движок: $cause" else "Не удалось запустить Kotlin-движок прокси"
+            msg.contains("Не удалось запустить нативный SOCKS5 движок", ignoreCase = true) || msg.contains("Не удалось запустить SOCKS5-движок", ignoreCase = true) -> {
+                val code = Regex("""\b-?\d+\b""").find(msg)?.value ?: ""
+                if (code.isNotEmpty()) "Ошибка запуска SOCKS5 движка (код: $code)" else "Ошибка запуска SOCKS5 движка"
+            }
+            msg.contains("Не удалось запустить нативный MTProto движок", ignoreCase = true) || msg.contains("Не удалось запустить движок", ignoreCase = true) -> {
+                val code = Regex("""\b-?\d+\b""").find(msg)?.value ?: ""
+                if (code.isNotEmpty()) "Ошибка запуска MTProto движка (код: $code)" else "Ошибка запуска MTProto движка"
             }
             msg.contains("setPoolSize() не удался", ignoreCase = true) || msg.contains("setPoolSize failed", ignoreCase = true) -> {
                 "Ошибка изменения размера пула сокетов, выполняем перезапуск..."
             }
             msg.contains("Код ответа нативной библиотеки", ignoreCase = true) || msg.contains("Native proxy returned code", ignoreCase = true) -> {
                 val code = Regex("""\b-?\d+\b""").find(msg)?.value ?: ""
-                if (code.isNotEmpty()) "Код нативной библиотеки: $code, переключение на Kotlin..." else "Нативная библиотека вернула ошибку, переключение на Kotlin..."
+                if (code.isNotEmpty()) "Код нативной библиотеки: $code" else "Нативная библиотека вернула ошибку"
             }
             msg.contains("Нативный прокси недоступен", ignoreCase = true) || msg.contains("Native proxy unavailable", ignoreCase = true) -> {
-                "Нативный прокси недоступен, переключение на Kotlin TgWsBridge"
+                "Нативный прокси недоступен"
             }
 
             // Proxy Server Started
             msg.contains("Proxy started", ignoreCase = true) ||
             msg.contains("started on port", ignoreCase = true) ||
             msg.contains("успешно запущен", ignoreCase = true) ||
-            (msg.contains("запущен на", ignoreCase = true) && msg.contains("LocalProxyServer", ignoreCase = true)) ||
-            (msg.contains("TgWsBridge запущен", ignoreCase = true)) -> {
-                val isKotlin = msg.contains("Kotlin", ignoreCase = true) || msg.contains("TgWsBridge", ignoreCase = true)
-                val engineStr = if (isKotlin) " (Kotlin)" else ""
-
+            (msg.contains("запущен на", ignoreCase = true) && msg.contains("LocalProxyServer", ignoreCase = true)) -> {
                 // Try matching IP:Port (e.g. 127.0.0.1:1080 or 0.0.0.0:1080)
                 val hostPortMatch = Regex("""\b((?:\d{1,3}\.){3}\d{1,3}):(\d{2,5})\b""").find(msg)
                 if (hostPortMatch != null) {
                     val host = hostPortMatch.groupValues[1]
                     val port = hostPortMatch.groupValues[2]
-                    "Прокси-сервер$engineStr запущен на $host:$port"
+                    "Прокси-сервер запущен на $host:$port"
                 } else {
                     val portMatch = Regex("""(?::|port\s+|порту\s+)(\d{2,5})\b""", RegexOption.IGNORE_CASE).find(msg)
                         ?.groupValues?.get(1)
                         ?: Regex("""\b(\d{4,5})\b""").find(msg)?.value
 
                     if (!portMatch.isNullOrEmpty()) {
-                        "Прокси-сервер$engineStr запущен на порту $portMatch"
+                        "Прокси-сервер запущен на порту $portMatch"
                     } else {
-                        "Прокси-сервер$engineStr успешно запущен"
+                        "Прокси-сервер успешно запущен"
                     }
                 }
             }

@@ -1,9 +1,11 @@
 package com.mirrly.tgproxy.core
 
 enum class SpeedPreset(val displayName: String, val defaultPoolSize: Int, val defaultBufferSizeBytes: Int) {
-    ECO("Эко (2 сокета)", 2, 32768),
-    BALANCED("Баланс (8 сокетов)", 8, 262144),
-    TURBO("Турбо (16 сокетов)", 16, 2097152)
+    ECO("Эко (2 сокета)", 2, 131072),
+    BALANCED("Баланс (4 сокета)", 4, 262144),
+    TURBO("Турбо (8 сокетов)", 8, 1048576),
+    ULTRA("Ультра (16 сокетов)", 16, 2097152),
+    AUTO("Авто (динамический)", 4, 262144)
 }
 
 /**
@@ -16,27 +18,47 @@ enum class ProxyMode {
     SOCKS5
 }
 
+/**
+ * Режим управления алгоритмом Нагла (TCP_NODELAY).
+ * AUTO — автоматическая адаптация по скорости (>= 50 Мбит/с) и пингу (<= 140 мс).
+ * ON   — принудительно включено (мгновенная отдача пакетов во всех сетях).
+ * OFF  — принудительно выключено (склеивание пакетов алгоритмом Нагла).
+ */
+enum class TcpNoDelayMode(val displayName: String) {
+    AUTO("Авто"),
+    ON("ВКЛ"),
+    OFF("ВЫКЛ")
+}
+
 data class ProxyConfig(
     var bindHost: String = "127.0.0.1",
     var bindPort: Int = 1443,
     var secretHex: String = "dd00000000000000000000000000000000",
     var cfProxyEnabled: Boolean = true,
     var customCfDomain: String = "",
-    var poolSize: Int = 8, // 8 pre-warmed sockets per DC for instant 0ms response
+    var poolSize: Int = 4, // 4 pre-warmed sockets per DC for fast response with low battery impact
     var isDcAuto: Boolean = true,
     var autostartOnBoot: Boolean = true,
     var verboseLogs: Boolean = true,
     var isTestEnvironment: Boolean = false,
     var speedPresetName: String = SpeedPreset.BALANCED.name,
+    var tcpNoDelayModeName: String = TcpNoDelayMode.AUTO.name,
     var tcpNoDelay: Boolean = true,
-    var bufferSizeBytes: Int = 131072, // 128KB default buffer
+    var bufferSizeBytes: Int = 262144, // 256KB default buffer
     var socks5Port: Int = 10808,
     var useDefaultWorkerSocks5: Boolean = true,
+    var applyWorkerToMtproto: Boolean = false,
     // proxyModeName — единый источник истины (MTPROTO или SOCKS5)
     var proxyModeName: String = ProxyMode.MTPROTO.name
 ) {
     val speedPreset: SpeedPreset
         get() = try { SpeedPreset.valueOf(speedPresetName) } catch (_: Exception) { SpeedPreset.BALANCED }
+
+    val isAutoSpeedPreset: Boolean
+        get() = speedPreset == SpeedPreset.AUTO
+
+    val tcpNoDelayMode: TcpNoDelayMode
+        get() = try { TcpNoDelayMode.valueOf(tcpNoDelayModeName) } catch (_: Exception) { TcpNoDelayMode.AUTO }
 
     /** Текущий режим прокси. Единый источник истины. */
     val proxyMode: ProxyMode
@@ -52,19 +74,30 @@ data class ProxyConfig(
 
     fun applyPreset(preset: SpeedPreset) {
         speedPresetName = preset.name
-        poolSize = preset.defaultPoolSize
-        bufferSizeBytes = preset.defaultBufferSizeBytes
+        if (preset != SpeedPreset.AUTO) {
+            poolSize = preset.defaultPoolSize
+            bufferSizeBytes = preset.defaultBufferSizeBytes
+        }
     }
 
-    /** Возвращает эффективный CF-домен: пользовательский кастомный воркер имеет 100% приоритет;
-     *  в режиме SOCKS5 при включенном флаге используется дефолтный SOCKS5 воркер. */
+    /** Возвращает эффективный CF-домен:
+     *  - В режиме SOCKS5: используется пользовательский воркер (100% приоритет) или дефолтный SOCKS5 воркер (если включен useDefaultWorkerSocks5).
+     *  - В режиме MTProto: домен воркера используется ТОЛЬКО если пользователь включил переключатель applyWorkerToMtproto; иначе MTProto туннелируется через Anycast CDN пул.
+     */
     fun getEffectiveCfDomain(): String {
         val userDomain = sanitizeDomain(customCfDomain)
-        if (userDomain.isNotEmpty()) return userDomain
-        if (isSocks5Mode && useDefaultWorkerSocks5) {
-            return TgConstants.DEFAULT_SOCKS5_DEV_WORKER
+        if (isSocks5Mode) {
+            if (userDomain.isNotEmpty()) return userDomain
+            if (useDefaultWorkerSocks5) {
+                return TgConstants.DEFAULT_SOCKS5_DEV_WORKER
+            }
+            return ""
+        } else {
+            if (applyWorkerToMtproto && userDomain.isNotEmpty()) {
+                return userDomain
+            }
+            return ""
         }
-        return ""
     }
 
     val rawSecret32: String

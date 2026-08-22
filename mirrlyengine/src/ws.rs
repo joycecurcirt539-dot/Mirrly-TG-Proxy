@@ -8,7 +8,7 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
 use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -446,11 +446,13 @@ pub fn build_frame(opcode: u8, data: &[u8], mask: bool) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 fn set_sock_opts(stream: &TcpStream) {
-    if TCP_NODELAY {
-        let _ = stream.set_nodelay(true);
-    }
+    let nodelay = TCP_NODELAY.load(Ordering::Relaxed);
+    let _ = stream.set_nodelay(nodelay);
     let sock = socket2::SockRef::from(stream);
-    let ka = socket2::TcpKeepalive::new().with_time(Duration::from_secs(30));
+    let ka = socket2::TcpKeepalive::new()
+        .with_time(Duration::from_secs(30))
+        .with_interval(Duration::from_secs(10))
+        .with_retries(3);
     let _ = sock.set_tcp_keepalive(&ka);
 }
 
@@ -477,23 +479,143 @@ fn server_name(domain: &str) -> ServerName<'static> {
         .unwrap_or_else(|_| ServerName::IpAddress("127.0.0.1".parse::<IpAddr>().unwrap().into()))
 }
 
-pub async fn ws_connect_once(
-    dial_addr: &str,
+pub const HAPPY_EYEBALLS_DELAY: Duration = Duration::from_millis(200);
+
+pub async fn happy_eyeballs_tcp_connect(
+    addrs: &[SocketAddr],
+    total_timeout: Duration,
+) -> Result<(TcpStream, SocketAddr), WsError> {
+    if addrs.is_empty() {
+        return Err(WsError::Other("no candidate addresses provided".to_string()));
+    }
+    if addrs.len() == 1 {
+        let addr = addrs[0];
+        let stream = match tokio::time::timeout(total_timeout, TcpStream::connect(addr)).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => return Err(WsError::Io(e)),
+            Err(_) => return Err(WsError::Timeout),
+        };
+        set_sock_opts(&stream);
+        return Ok((stream, addr));
+    }
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(TcpStream, SocketAddr)>(1);
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+    let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::with_capacity(addrs.len());
+
+    let mut next_idx = 0;
+    let num_addrs = addrs.len();
+
+    let deadline = tokio::time::sleep(total_timeout);
+    tokio::pin!(deadline);
+
+    let mut stagger_timer = tokio::time::interval(HAPPY_EYEBALLS_DELAY);
+    let mut remaining_active: usize = 0;
+
+    let (err_tx, mut err_rx) = tokio::sync::mpsc::channel::<std::io::Error>(num_addrs);
+    #[allow(unused_assignments)]
+    let mut last_err = None;
+
+    loop {
+        tokio::select! {
+            _ = &mut deadline => {
+                cancel_token.cancel();
+                for t in tasks {
+                    t.abort();
+                }
+                return Err(WsError::Timeout);
+            }
+            res = rx.recv() => {
+                if let Some((stream, winning_addr)) = res {
+                    cancel_token.cancel();
+                    for t in tasks {
+                        t.abort();
+                    }
+                    set_sock_opts(&stream);
+                    return Ok((stream, winning_addr));
+                }
+            }
+            err = err_rx.recv() => {
+                if let Some(e) = err {
+                    last_err = Some(e);
+                    remaining_active = remaining_active.saturating_sub(1);
+                    // Fast failover: immediately launch next candidate on early connection failure
+                    if next_idx < num_addrs {
+                        let target_addr = addrs[next_idx];
+                        next_idx += 1;
+                        remaining_active += 1;
+
+                        let tx = tx.clone();
+                        let err_tx = err_tx.clone();
+                        let cancel = cancel_token.clone();
+
+                        tasks.push(tokio::spawn(async move {
+                            tokio::select! {
+                                _ = cancel.cancelled() => {}
+                                res = TcpStream::connect(target_addr) => {
+                                    match res {
+                                        Ok(s) => {
+                                            let _ = tx.send((s, target_addr)).await;
+                                        }
+                                        Err(e) => {
+                                            let _ = err_tx.send(e).await;
+                                        }
+                                    }
+                                }
+                            }
+                        }));
+                    } else if remaining_active == 0 {
+                        break;
+                    }
+                }
+            }
+            _ = stagger_timer.tick(), if next_idx < num_addrs => {
+                let target_addr = addrs[next_idx];
+                next_idx += 1;
+                remaining_active += 1;
+
+                let tx = tx.clone();
+                let err_tx = err_tx.clone();
+                let cancel = cancel_token.clone();
+
+                tasks.push(tokio::spawn(async move {
+                    tokio::select! {
+                        _ = cancel.cancelled() => {}
+                        res = TcpStream::connect(target_addr) => {
+                            match res {
+                                Ok(s) => {
+                                    let _ = tx.send((s, target_addr)).await;
+                                }
+                                Err(e) => {
+                                    let _ = err_tx.send(e).await;
+                                }
+                            }
+                        }
+                    }
+                }));
+            }
+        }
+    }
+
+    cancel_token.cancel();
+    for t in tasks {
+        t.abort();
+    }
+
+    if let Some(e) = last_err {
+        Err(WsError::Io(e))
+    } else {
+        Err(WsError::Other("all connection candidates failed".to_string()))
+    }
+}
+
+pub async fn ws_handshake_over_stream(
+    raw_conn: TcpStream,
+    dial_ip: &str,
     domain: &str,
     path: &str,
     timeout: Duration,
 ) -> Result<RawWebSocket, WsError> {
-    if dial_addr.is_empty() {
-        return Err(WsError::Other("empty dial address".to_string()));
-    }
-
-    let target_addr = format!("{}:443", dial_addr);
-
-    let raw_conn = match tokio::time::timeout(timeout, TcpStream::connect(&target_addr)).await {
-        Ok(Ok(c)) => c,
-        Ok(Err(e)) => return Err(WsError::Io(e)),
-        Err(_) => return Err(WsError::Timeout),
-    };
     set_sock_opts(&raw_conn);
 
     let connector = TlsConnector::from(TLS_CONFIG.clone());
@@ -505,12 +627,12 @@ pub async fn ws_connect_once(
             Ok(Ok(c)) => c,
             Ok(Err(e)) => {
                 if e.kind() != std::io::ErrorKind::ConnectionReset {
-                    ldebug!(" ws tls fail {} via {}: {}", domain, dial_addr, e);
+                    ldebug!(" ws tls fail {} via {}: {}", domain, dial_ip, e);
                 }
                 return Err(WsError::Io(e));
             }
             Err(_) => {
-                ldebug!(" ws tls fail {} via {}: timeout", domain, dial_addr);
+                ldebug!(" ws tls fail {} via {}: timeout", domain, dial_ip);
                 return Err(WsError::Timeout);
             }
         };
@@ -605,6 +727,48 @@ pub async fn ws_connect_once(
     }))
 }
 
+pub async fn ws_connect_happy_eyeballs(
+    domain: &str,
+    path: &str,
+    addrs: &[SocketAddr],
+    timeout: Duration,
+) -> Result<(RawWebSocket, SocketAddr), WsError> {
+    let (stream, winner_addr) = happy_eyeballs_tcp_connect(addrs, timeout).await?;
+    let dial_ip = winner_addr.ip().to_string();
+    let ws = ws_handshake_over_stream(stream, &dial_ip, domain, path, timeout).await?;
+    Ok((ws, winner_addr))
+}
+
+pub async fn ws_connect_once(
+    dial_addr: &str,
+    domain: &str,
+    path: &str,
+    timeout: Duration,
+) -> Result<RawWebSocket, WsError> {
+    if dial_addr.is_empty() {
+        return Err(WsError::Other("empty dial address".to_string()));
+    }
+
+    if let Ok(ip) = dial_addr.parse::<IpAddr>() {
+        let sock_addr = SocketAddr::new(ip, 443);
+        let (stream, _) = happy_eyeballs_tcp_connect(&[sock_addr], timeout).await?;
+        return ws_handshake_over_stream(stream, dial_addr, domain, path, timeout).await;
+    }
+
+    let target_addr = if dial_addr.contains(':') {
+        dial_addr.to_string()
+    } else {
+        format!("{}:443", dial_addr)
+    };
+
+    let raw_conn = match tokio::time::timeout(timeout, TcpStream::connect(&target_addr)).await {
+        Ok(Ok(c)) => c,
+        Ok(Err(e)) => return Err(WsError::Io(e)),
+        Err(_) => return Err(WsError::Timeout),
+    };
+    ws_handshake_over_stream(raw_conn, dial_addr, domain, path, timeout).await
+}
+
 async fn read_line<R: AsyncReadExt + Unpin>(reader: &mut R) -> Result<String, WsError> {
     let mut buf = Vec::with_capacity(128);
     let mut byte = [0u8; 1];
@@ -636,25 +800,27 @@ pub async fn ws_connect(
     let path = if path.is_empty() { "/apiws" } else { path };
     let attempt_timeout = ws_connect_timeout(timeout);
 
-    let primary_addr = if ip.trim().is_empty() {
-        domain.to_string()
+    let candidate_ips = if !ip.trim().is_empty() {
+        if let Ok(parsed) = ip.trim().parse::<IpAddr>() {
+            vec![parsed]
+        } else {
+            crate::cfproxy::resolve_dual_stack_ips(ip.trim()).await
+        }
     } else {
-        ip.trim().to_string()
+        crate::cfproxy::resolve_dual_stack_ips(domain).await
     };
 
-    match ws_connect_once(&primary_addr, domain, path, attempt_timeout).await {
-        Ok(ws) => Ok(ws),
-        Err(e) => {
-            if primary_addr == domain && primary_addr.parse::<IpAddr>().is_err() {
-                if let Some(resolved) = crate::cfproxy::resolve_doh(domain).await {
-                    if !resolved.is_empty() && resolved != primary_addr {
-                        return ws_connect_once(&resolved, domain, path, attempt_timeout).await;
-                    }
-                }
-            }
-            Err(e)
-        }
+    let candidate_addrs: Vec<SocketAddr> = candidate_ips
+        .into_iter()
+        .map(|ip_addr| SocketAddr::new(ip_addr, 443))
+        .collect();
+
+    if candidate_addrs.is_empty() {
+        return Err(WsError::Other("no candidate addresses found".to_string()));
     }
+
+    let (ws, _) = ws_connect_happy_eyeballs(domain, path, &candidate_addrs, attempt_timeout).await?;
+    Ok(ws)
 }
 
 pub async fn connect_one_ws(ip: &str, domains: &[String]) -> Option<RawWebSocket> {

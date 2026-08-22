@@ -34,6 +34,20 @@ object UpdateManager {
     private val _updateState = MutableStateFlow<ReleaseInfo?>(null)
     val updateState: StateFlow<ReleaseInfo?> = _updateState.asStateFlow()
 
+    private fun clearUpdateCache(prefs: android.content.SharedPreferences) {
+        prefs.edit()
+            .remove(KEY_CACHED_ETAG)
+            .remove(KEY_CACHED_VERSION)
+            .remove(KEY_CACHED_HTML_URL)
+            .remove(KEY_CACHED_RELEASE_NOTES)
+            .remove(KEY_CACHED_DOWNLOAD_URL)
+            .remove(KEY_CACHED_EXPECTED_SHA256)
+            .remove(KEY_CACHED_CHANGELOG_PREVIEW)
+            .remove(KEY_LAST_NOTIFIED_VERSION)
+            .remove(KEY_LAST_NOTIFIED_TIME)
+            .apply()
+    }
+
     fun onAppInit(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -45,13 +59,8 @@ object UpdateManager {
             val isNotifiedNotNewer = !lastNotifiedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(lastNotifiedVersion, currentAppVersion)
 
             if (isAppUpgraded || isNotifiedNotNewer) {
-                prefs.edit()
-                    .putString("last_installed_app_version", currentAppVersion)
-                    .remove(KEY_CACHED_ETAG)
-                    .remove(KEY_CACHED_VERSION)
-                    .remove(KEY_LAST_NOTIFIED_VERSION)
-                    .remove(KEY_LAST_NOTIFIED_TIME)
-                    .apply()
+                clearUpdateCache(prefs)
+                prefs.edit().putString("last_installed_app_version", currentAppVersion).apply()
                 try {
                     MirrlyApplication.instance.prefsManager.clearIgnoredUpdateVersion()
                 } catch (_: Exception) {}
@@ -107,13 +116,8 @@ object UpdateManager {
         val isNotifiedNotNewer = !lastNotifiedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(lastNotifiedVersion, currentAppVersion)
 
         if (isAppUpgraded || isNotifiedNotNewer) {
-            prefs.edit()
-                .putString("last_installed_app_version", currentAppVersion)
-                .remove(KEY_CACHED_ETAG)
-                .remove(KEY_CACHED_VERSION)
-                .remove(KEY_LAST_NOTIFIED_VERSION)
-                .remove(KEY_LAST_NOTIFIED_TIME)
-                .apply()
+            clearUpdateCache(prefs)
+            prefs.edit().putString("last_installed_app_version", currentAppVersion).apply()
             try {
                 MirrlyApplication.instance.prefsManager.clearIgnoredUpdateVersion()
             } catch (_: Exception) {}
@@ -164,21 +168,21 @@ object UpdateManager {
                         htmlUrl = cachedHtmlUrl,
                         releaseNotes = cachedNotes,
                         isUpdateAvailable = isStillAvailable,
-                        downloadUrl = cachedDownloadUrl,
+                        downloadUrl = if (isStillAvailable) cachedDownloadUrl else null,
                         etag = info.etag ?: cachedEtag,
                         isNotModified = true,
-                        expectedSha256 = cachedSha256,
-                        expectedSha256List = if (cachedSha256 != null) listOf(cachedSha256) else emptyList(),
+                        expectedSha256 = if (isStillAvailable) cachedSha256 else null,
+                        expectedSha256List = if (isStillAvailable && cachedSha256 != null) listOf(cachedSha256) else emptyList(),
                         changelogPreview = cachedPreview,
                         isIgnored = isCachedIgnored
                     )
                     _updateState.value = reconstructedInfo
 
                     if (!isStillAvailable || isCachedIgnored) {
-                        prefs.edit()
-                            .remove(KEY_LAST_NOTIFIED_VERSION)
-                            .remove(KEY_LAST_NOTIFIED_TIME)
-                            .apply()
+                        clearUpdateCache(prefs)
+                        if (!reconstructedInfo.etag.isNullOrBlank()) {
+                            prefs.edit().putString(KEY_CACHED_ETAG, reconstructedInfo.etag).apply()
+                        }
                         NotificationHelper.cancelUpdateNotification(context)
                     }
                 } else {
@@ -187,18 +191,18 @@ object UpdateManager {
                     }
                 }
             } else {
-                prefs.edit()
-                    .putString(KEY_CACHED_VERSION, info.versionName)
-                    .putString(KEY_CACHED_HTML_URL, info.htmlUrl)
-                    .putString(KEY_CACHED_RELEASE_NOTES, info.releaseNotes)
-                    .putString(KEY_CACHED_DOWNLOAD_URL, info.downloadUrl)
-                    .putString(KEY_CACHED_EXPECTED_SHA256, info.expectedSha256)
-                    .putString(KEY_CACHED_CHANGELOG_PREVIEW, info.changelogPreview)
-                    .apply()
-
-                _updateState.value = info
-
                 if (info.isUpdateAvailable && !info.isIgnored) {
+                    prefs.edit()
+                        .putString(KEY_CACHED_VERSION, info.versionName)
+                        .putString(KEY_CACHED_HTML_URL, info.htmlUrl)
+                        .putString(KEY_CACHED_RELEASE_NOTES, info.releaseNotes)
+                        .putString(KEY_CACHED_DOWNLOAD_URL, info.downloadUrl)
+                        .putString(KEY_CACHED_EXPECTED_SHA256, info.expectedSha256)
+                        .putString(KEY_CACHED_CHANGELOG_PREVIEW, info.changelogPreview)
+                        .apply()
+
+                    _updateState.value = info
+
                     val lastNotifiedVersion = prefs.getString(KEY_LAST_NOTIFIED_VERSION, "")
                     val lastNotifiedTimeMs = prefs.getLong(KEY_LAST_NOTIFIED_TIME, 0L)
                     val now = System.currentTimeMillis()
@@ -214,10 +218,11 @@ object UpdateManager {
                         NotificationHelper.showUpdateNotification(context, info)
                     }
                 } else {
-                    prefs.edit()
-                        .remove(KEY_LAST_NOTIFIED_VERSION)
-                        .remove(KEY_LAST_NOTIFIED_TIME)
-                        .apply()
+                    clearUpdateCache(prefs)
+                    if (!info.etag.isNullOrBlank()) {
+                        prefs.edit().putString(KEY_CACHED_ETAG, info.etag).apply()
+                    }
+                    _updateState.value = info
                     NotificationHelper.cancelUpdateNotification(context)
                 }
             }

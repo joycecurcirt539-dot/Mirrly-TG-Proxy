@@ -887,19 +887,21 @@ fun UpdateScreen(
                             softWrap = false,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color.Transparent)
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "NEW",
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Black,
-                                color = ActiveGreenLed
-                            )
+                        if (releaseInfo?.isUpdateAvailable == true) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color.Transparent)
+                                    .border(1.dp, Color(0xFFFFB703).copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "NEW",
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFFFFB703)
+                                )
+                            }
                         }
                     }
                 },

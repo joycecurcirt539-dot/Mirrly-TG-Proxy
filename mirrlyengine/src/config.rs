@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 pub const DEFAULT_PORT: u16 = 1443;
 pub const SOCKS5_DEFAULT_PORT: u16 = 10808;
-pub const TCP_NODELAY: bool = true;
+pub static TCP_NODELAY: AtomicBool = AtomicBool::new(true);
 pub const DEFAULT_RECV_BUF: usize = 256 * 1024;
 pub const DEFAULT_SEND_BUF: usize = 256 * 1024;
 pub const DEFAULT_POOL_SZ: i32 = 4;
@@ -19,19 +19,20 @@ pub const DC_FAIL_COOLDOWN: f64 = 30.0;
 pub const WS_FAIL_TIMEOUT: f64 = 2.0;
 
 pub const BRIDGE_READ_TIMEOUT: Duration = Duration::from_secs(120);
-pub const BRIDGE_PING_INTERVAL: Duration = Duration::from_secs(30);
+pub const BRIDGE_PING_INTERVAL: Duration = Duration::from_secs(15);
+pub const WS_POOL_PING_INTERVAL: Duration = Duration::from_secs(10);
 pub const WS_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 pub const WS_CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
 pub const WS_BRIDGE_CHUNK_SIZE: usize = 64 * 1024;
 pub const POOLED_FRAME_CAP: usize = WS_BRIDGE_CHUNK_SIZE + 32;
 
-pub const WS_POOL_REUSE_MAX_AGE: f64 = 120.0;
+pub const WS_POOL_REUSE_MAX_AGE: f64 = 30.0;
 pub const WS_POOL_CONNECT_TIMEOUT: f64 = 8.0;
 
 pub const CFPROXY_CACHE_FILE_NAME: &str = "cfproxy-domains-cache.txt";
 pub const CFPROXY_REFRESH_INTERVAL: Duration = Duration::from_secs(12 * 3600);
-pub const CFPROXY_DIAL_PHASE_TIMEOUT: Duration = Duration::from_millis(600);
-pub const CFPROXY_RACE_TIMEOUT: Duration = Duration::from_millis(450);
+pub const CFPROXY_DIAL_PHASE_TIMEOUT: Duration = Duration::from_millis(2500);
+pub const CFPROXY_RACE_TIMEOUT: Duration = Duration::from_millis(2000);
 pub const CFPROXY_RACE_INTERVAL: Duration = Duration::from_secs(3600);
 pub const CFPROXY_FALLBACK_PARALLEL: usize = 4;
 pub const CFPROXY_429_COOLDOWN: Duration = Duration::from_secs(45);
@@ -88,6 +89,16 @@ pub static PROXY_SECRET: Lazy<RwLock<String>> =
     Lazy::new(|| RwLock::new("00000000000000000000000000000000".to_string()));
 
 pub static DEFAULT_SOCKS5_WORKER: &str = "mirrly-tg-proxy-worker.brawny-singer.workers.dev";
+
+pub static DEV_SOCKS5_WORKERS: &[&str] = &[
+    DEFAULT_SOCKS5_WORKER,
+    "mirrly-tg-proxy-alpha.brawny-singer.workers.dev",
+    "mirrly-tg-proxy-beta.brawny-singer.workers.dev",
+    "mirrly-tg-proxy-gamma.brawny-singer.workers.dev",
+    "mirrly-tg-proxy-delta.brawny-singer.workers.dev",
+];
+
+pub static LAST_SOCKS5_WORKER: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(String::new()));
 
 pub static CFPROXY_ENC: &[&str] = &[
     "virkgj.com",

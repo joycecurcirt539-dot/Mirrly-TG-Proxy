@@ -195,6 +195,10 @@ static jint native_verify(JNIEnv* env, jclass clazz, jobject context, jstring cu
             }
         }
 
+        if (currentSha256Clean.empty()) {
+            return 2; // UNOFFICIAL_MODIFIED (cannot verify without signature)
+        }
+
         // 2. Check official XOR-obfuscated SHA-256
         uint8_t officialSha256[32];
         get_official_sha256_bytes(officialSha256);
@@ -234,8 +238,8 @@ static jint native_verify(JNIEnv* env, jclass clazz, jobject context, jstring cu
         }
 
     } catch (...) {
-        LOGW("Exception in native_verify");
-        return 0; // OFFICIAL_RELEASE fallback
+        LOGW("Exception in native_verify: returning UNOFFICIAL_MODIFIED (fail-closed)");
+        return 2; // UNOFFICIAL_MODIFIED fallback
     }
 }
 

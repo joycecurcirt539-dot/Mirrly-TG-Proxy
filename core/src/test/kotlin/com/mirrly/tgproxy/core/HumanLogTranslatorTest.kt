@@ -13,10 +13,10 @@ class HumanLogTranslatorTest {
     }
 
     @Test
-    fun testKotlinEngineStartedWithIpAndPort() {
-        val raw = "Kotlin-движок TgWsBridge запущен на 127.0.0.1:1080"
+    fun testSocks5EngineStartedWithPort() {
+        val raw = "Нативный SOCKS5 движок успешно запущен на порту 10808"
         val translated = HumanLogTranslator.translateToHumanRussian("LocalProxyServer", raw)
-        assertEquals("Прокси-сервер (Kotlin) запущен на 127.0.0.1:1080", translated)
+        assertEquals("Прокси-сервер запущен на порту 10808", translated)
     }
 
     @Test

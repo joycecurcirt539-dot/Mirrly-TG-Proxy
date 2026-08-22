@@ -22,6 +22,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.view.WindowCompat
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.core.NativeProxy
 import android.view.WindowManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.Dialog
@@ -63,12 +64,15 @@ import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.core.ProxyMode
+import com.mirrly.tgproxy.core.TcpNoDelayMode
+import com.mirrly.tgproxy.service.NetworkConditionEvaluator
 import com.mirrly.tgproxy.service.ProxyForegroundService
 import com.mirrly.tgproxy.ui.theme.*
 import com.mirrly.tgproxy.util.shareApp
 import android.net.Uri
 import android.widget.Toast
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -199,12 +203,13 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth()
-                    .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
-                    .navigationBarsPadding()
-                    .padding(bottom = 120.dp, top = 24.dp)
+                    .fillMaxSize()
+                    .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 44.dp)
                     .verticalScroll(rememberScrollState())
+                    .padding(
+                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
+                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                    )
                     .clickable(enabled = false) {}
             ) {
                 // Category Pill
@@ -237,27 +242,26 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                 FormattedInfoBody(body = body)
             }
 
-            // Bottom Floating Action Button (Seamless over blurred background)
-            Button(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onDismiss()
-                },
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White.copy(alpha = 0.20f),
-                    contentColor = TextWhite
-                ),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+            // Top Header with Back Button (pinned at top left over blurred background)
+            Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 32.dp)
-                    .fillMaxWidth(0.90f)
-                    .height(48.dp)
-                    .springPress()
+                    .fillMaxWidth()
+                    .align(Alignment.TopStart)
+                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp)
             ) {
-                Text("Понятно", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onDismiss()
+                    }
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_arrow_left),
+                        contentDescription = "Назад",
+                        tint = TextWhite,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
         }
     }
@@ -436,6 +440,14 @@ fun SettingsScreen(
 
     val poolOptions = remember { listOf(2f, 4f, 8f, 16f) }
     var poolSize by remember { mutableFloatStateOf(config.poolSize.toFloat()) }
+    var selectedSpeedPresetName by remember { mutableStateOf(config.speedPresetName) }
+
+    LaunchedEffect(server.isRunning, selectedSpeedPresetName) {
+        while (isActive && selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name) {
+            poolSize = config.poolSize.toFloat()
+            delay(1000)
+        }
+    }
     var autostart by remember { mutableStateOf(config.autostartOnBoot) }
     // Key of the setting whose info dialog is currently open (null = closed)
     var infoKey by remember { mutableStateOf<String?>(null) }
@@ -527,20 +539,30 @@ fun SettingsScreen(
                 "• Бесплатный тариф Cloudflare даёт 100 000 запросов в день лично вам.\n" +
                 "• Отсутствие зависимости от сторонних серверов и чужих лимитов.\n" +
                 "• Максимальная скорость для звонков, скачивания тяжёлых файлов и видео."
+            "worker_mtproto" -> "Применение воркера к MTProto" to
+                "Управляет маршрутизацией нативного протокола MTProto через Cloudflare Worker:\n\n" +
+                "• Включено:\nТрафик MTProto туннелируется через активный воркер (из Менеджера воркеров или ваш личный узел). Рекомендуется, если у вас развернут собственный воркер для максимальной приватности.\n\n" +
+                "• Выключено (по умолчанию):\nИспользуется глобальный пул Anycast CDN Cloudflare (20 встроенных балансируемых узлов). Это не расходует дневной лимит запросов вашего воркера и обеспечивает максимальную скорость."
             "worker_socks5" -> "Воркер по умолчанию (SOCKS5)" to
                 "Включает использование встроенного Cloudflare Worker для режима SOCKS5.\n\n" +
                 "• SOCKS5 требует открытия произвольных TCP-соединений (в том числе к серверам звонков Telegram VoIP Reflectors), что возможно только через Cloudflare Worker с API cloudflare:sockets.\n\n" +
                 "• При наличии указанного личного кастомного воркера он автоматически используется с 100% приоритетом."
             "pool" -> "Размер пула сокетов" to
-                "Количество WebSocket-соединений, которые прокси держит открытыми заранее (pre-warming).\n\nБольший пул = меньше задержка при открытии чата:\n• 2 — минимальный расход батареи и RAM\n• 4 — баланс скорости и экономии (рекомендуется)\n• 8 — быстрый отклик, умеренный расход\n• 16 — максимальная скорость, повышенный расход\n\nКаждое соединение занимает ~50–100 КБ RAM и поддерживает фоновое соединение с Cloudflare."
+                "Количество WebSocket-соединений, которые прокси держит открытыми заранее (pre-warming).\n\nБольший пул = меньше задержка при открытии чата и загрузке медиа:\n• 2 — минимальный расход батареи и RAM (Эко)\n• 4 — баланс скорости и экономии (Баланс, рекомендуется)\n• 8 — быстрый отклик, умеренный расход (Турбо)\n• 16 — максимальная параллелизация соединений (Ультра)\n\nКаждое соединение занимает ~50–100 КБ RAM и поддерживает фоновое соединение с Cloudflare."
             "autostart" -> "Автозапуск при загрузке" to
                 "Прокси автоматически запустится после перезагрузки устройства — не нужно включать вручную.\n\nРаботает через системный сигнал BOOT_COMPLETED.\n\nВажно: на устройствах MIUI, HyperOS и OneUI может потребоваться дополнительное разрешение «Автозапуск» в системных настройках телефона, иначе система заблокирует запуск."
             "reconnect" -> "Авто-переподключение" to
                 "При смене сети (Wi-Fi → LTE и обратно) прокси автоматически перезапускает соединения.\n\nБез этой функции Telegram может «зависать» на несколько секунд при переходе между сетями.\n\nФункция отслеживает изменения через NetworkCallback Android и перезапускает прокси только при реальной смене сети, а не временных потерях сигнала."
             "preset" -> "Режимы производительности" to
-                "Настройка глубины буферов и количества сокетов для максимальной скорости:\n\n• Эко — 2 сокета, 32 КБ буфер. Минимальный расход энергии и памяти.\n\n• Баланс — 8 сокетов, 256 КБ буфер. Оптимальная скорость для повседневного использования.\n\n• Турбо — 16 сокетов, 2 МБ буфер. Максимальная пропускная способность при скачивании и выгрузке гигабайтных файлов на каналах до 1 Гбит/с."
+                "Настройка глубины буферов и количества сокетов для максимальной скорости:\n\n• Эко — 2 сокета, 128 КБ буфер. Минимальный расход энергии и памяти.\n\n• Баланс — 4 сокета, 256 КБ буфер. Оптимальная скорость для повседневного использования.\n\n• Турбо — 8 сокетов, 1 МБ буфер. Быстрая загрузка медиа и голосовых сообщений.\n\n• Ультра — 16 сокетов, 2 МБ буфер. Максимальная пропускная способность при скачивании тяжёлых файлов на каналах до 1 Гбит/с.\n\n• Авто — 2–16 сокетов. Интеллектуальная адаптация в реальном времени под текущую пропускную способность сети и задержку."
             "tcp_nodelay" -> "Мгновенная отдача (TCP_NODELAY)" to
-                "Отключает алгоритм Нагла (Nagle's Algorithm).\n\nПозволяет отправлять пакеты и чанки медиафайлов немедленно в сеть, устраняя задержки 40–200 мс при отсылке сообщений и загрузке файлов в Telegram."
+                "Управление алгоритмом Нагла (Nagle's Algorithm) для TCP-сокетов:\n\n" +
+                "• Авто (рекомендуется):\n" +
+                "Автоматическая адаптация под качество соединения. Мгновенная отправка пакетов (TCP_NODELAY = true) активируется на скоростных каналах (от 50 Мбит/с) с низким пингом (до 140 мс). При слабом сигнале, высокой задержке или перегрузке сети включается склеивание пакетов для стабильности и защиты от потерь.\n\n" +
+                "• Включено (Мгновенная отдача):\n" +
+                "Пакеты отправляются в сеть немедленно в любых условиях. Минимизирует задержку отклика (минус 40–200 мс), но может увеличивать нагрузку на радиомодем при нестабильной связи.\n\n" +
+                "• Выключено (Склеивание пакетов):\n" +
+                "Ядро объединяет мелкие порции данных в полные TCP-сегменты перед передачей в сеть. Повышает стабильность на узких каналах связи."
             "disable_animations" -> "Отключение анимаций и частиц" to
                 "Оптимизирует энергопотребление и снижает нагрузку на процессор устройства.\n\nПри включении тумблера убираются фоновые визуальные частицы и тяжёлые анимации, что продлевает время автономной работы батареи и обеспечивает максимальную плавность на бюджетных устройствах."
             "protocols_info" -> "Режимы работы прокси" to
@@ -856,11 +878,16 @@ fun SettingsScreen(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         val currentSnapPool = snapToNearestPool(poolSize).toInt()
+                        val isAutoActive = selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
                         com.mirrly.tgproxy.core.SpeedPreset.values().forEach { preset ->
-                            val isSelected = currentSnapPool == preset.defaultPoolSize
+                            val isSelected = if (preset == com.mirrly.tgproxy.core.SpeedPreset.AUTO) {
+                                isAutoActive
+                            } else {
+                                !isAutoActive && (selectedSpeedPresetName == preset.name || (selectedSpeedPresetName == "CUSTOM" && currentSnapPool == preset.defaultPoolSize))
+                            }
                             val chipBg = Color.Transparent
                             val chipBorder by animateColorAsState(
                                 targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
@@ -879,39 +906,48 @@ fun SettingsScreen(
                                         indication = null
                                     ) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        selectedSpeedPresetName = preset.name
                                         config.applyPreset(preset)
-                                        poolSize = preset.defaultPoolSize.toFloat()
-                                        server.applyPoolSize(preset.defaultPoolSize)
+                                        if (preset == com.mirrly.tgproxy.core.SpeedPreset.AUTO) {
+                                            poolSize = config.poolSize.toFloat()
+                                        } else {
+                                            poolSize = preset.defaultPoolSize.toFloat()
+                                            server.applyPoolSize(preset.defaultPoolSize)
+                                        }
                                         app.saveConfig()
                                     }
-                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                                    .padding(vertical = 9.dp, horizontal = 2.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     val iconRes = when (preset) {
                                         com.mirrly.tgproxy.core.SpeedPreset.ECO -> R.drawable.ic_speed_eco
                                         com.mirrly.tgproxy.core.SpeedPreset.BALANCED -> R.drawable.ic_speed_balanced
                                         com.mirrly.tgproxy.core.SpeedPreset.TURBO -> R.drawable.ic_speed_turbo
+                                        com.mirrly.tgproxy.core.SpeedPreset.ULTRA -> R.drawable.ic_speed_ultra
+                                        com.mirrly.tgproxy.core.SpeedPreset.AUTO -> R.drawable.ic_speed_auto
                                     }
                                     val titleText = when (preset) {
                                         com.mirrly.tgproxy.core.SpeedPreset.ECO -> "Эко"
                                         com.mirrly.tgproxy.core.SpeedPreset.BALANCED -> "Баланс"
                                         com.mirrly.tgproxy.core.SpeedPreset.TURBO -> "Турбо"
+                                        com.mirrly.tgproxy.core.SpeedPreset.ULTRA -> "Ультра"
+                                        com.mirrly.tgproxy.core.SpeedPreset.AUTO -> "Авто"
                                     }
 
                                     Icon(
                                         painter = painterResource(id = iconRes),
                                         contentDescription = null,
                                         tint = if (isSelected) ActiveGreenLed else TextMuted,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(14.dp)
                                     )
 
                                     Text(
                                         text = titleText,
-                                        fontSize = 13.sp,
+                                        fontSize = 11.5.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                         color = if (isSelected) ActiveGreenLed else TextWhite
                                     )
@@ -937,8 +973,13 @@ fun SettingsScreen(
                         }
 
                         val activeDisplayValue = snapToNearestPool(poolSize).toInt()
+                        val poolDisplayLabel = if (selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name) {
+                            "$activeDisplayValue сокетов (Авто)"
+                        } else {
+                            "$activeDisplayValue сокетов"
+                        }
                         Text(
-                            text = "$activeDisplayValue сокетов",
+                            text = poolDisplayLabel,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             color = ActiveGreenLed
@@ -959,14 +1000,17 @@ fun SettingsScreen(
                             val snapped = snapToNearestPool(poolSize)
                             poolSize = snapped
                             val newSize = snapped.toInt()
-                            if (newSize != config.poolSize) {
+                            val isAuto = selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
+                            if (newSize != config.poolSize || isAuto) {
                                 config.poolSize = newSize
-                                val matchingPreset = com.mirrly.tgproxy.core.SpeedPreset.values().firstOrNull { it.defaultPoolSize == newSize }
+                                val matchingPreset = com.mirrly.tgproxy.core.SpeedPreset.values().firstOrNull { it != com.mirrly.tgproxy.core.SpeedPreset.AUTO && it.defaultPoolSize == newSize }
                                 if (matchingPreset != null) {
                                     config.speedPresetName = matchingPreset.name
+                                    selectedSpeedPresetName = matchingPreset.name
                                     config.bufferSizeBytes = matchingPreset.defaultBufferSizeBytes
                                 } else {
                                     config.speedPresetName = "CUSTOM"
+                                    selectedSpeedPresetName = "CUSTOM"
                                 }
                                 server.applyPoolSize(newSize)
                                 app.saveConfig()
@@ -1021,14 +1065,17 @@ fun SettingsScreen(
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         poolSize = option
                                         val newSize = option.toInt()
-                                        if (newSize != config.poolSize) {
+                                        val isAuto = selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
+                                        if (newSize != config.poolSize || isAuto) {
                                             config.poolSize = newSize
-                                            val matchingPreset = com.mirrly.tgproxy.core.SpeedPreset.values().firstOrNull { it.defaultPoolSize == newSize }
+                                            val matchingPreset = com.mirrly.tgproxy.core.SpeedPreset.values().firstOrNull { it != com.mirrly.tgproxy.core.SpeedPreset.AUTO && it.defaultPoolSize == newSize }
                                             if (matchingPreset != null) {
                                                 config.speedPresetName = matchingPreset.name
+                                                selectedSpeedPresetName = matchingPreset.name
                                                 config.bufferSizeBytes = matchingPreset.defaultBufferSizeBytes
                                             } else {
                                                 config.speedPresetName = "CUSTOM"
+                                                selectedSpeedPresetName = "CUSTOM"
                                             }
                                             server.applyPoolSize(newSize)
                                             app.saveConfig()
@@ -1039,14 +1086,43 @@ fun SettingsScreen(
                     }
                 }
 
-                // TCP_NODELAY Switch
-                var tcpNoDelayState by remember { mutableStateOf(config.tcpNoDelay) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                // TCP_NODELAY 3-Mode Selector (АВТО / ВКЛ / ВЫКЛ)
+                var tcpNoDelayModeState by remember { mutableStateOf(config.tcpNoDelayMode) }
+                val context = LocalContext.current
+
+                val autoEvaluation by produceState(
+                    initialValue = NetworkConditionEvaluator.evaluate(
+                        context = context,
+                        capabilities = null,
+                        currentPingMs = server.currentPingMs,
+                        currentThroughputBps = server.stats.downloadSpeedBps + server.stats.uploadSpeedBps
+                    ),
+                    key1 = server.currentPingMs,
+                    key2 = server.stats.downloadSpeedBps
                 ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    value = NetworkConditionEvaluator.evaluate(
+                        context = context,
+                        capabilities = null,
+                        currentPingMs = server.currentPingMs,
+                        currentThroughputBps = server.stats.downloadSpeedBps + server.stats.uploadSpeedBps
+                    )
+                }
+
+                val tcpNoDelayStatusText = when (tcpNoDelayModeState) {
+                    TcpNoDelayMode.AUTO -> autoEvaluation.statusDescription
+                    TcpNoDelayMode.ON -> "Включено: Мгновенная отправка (все сети)"
+                    TcpNoDelayMode.OFF -> "Выключено: Склеивание пакетов Nagle (все сети)"
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1054,15 +1130,72 @@ fun SettingsScreen(
                             Text("Мгновенная отдача (TCP_NODELAY)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                             InfoButton { infoKey = "tcp_nodelay" }
                         }
-                        Text("Отключение буферизации Нагла для минимальных сетевых задержек", color = TextMuted, fontSize = 11.5.sp)
                     }
-                    InertialSpringSwitch(
-                        checked = tcpNoDelayState,
-                        onCheckedChange = { newValue ->
-                            tcpNoDelayState = newValue
-                            config.tcpNoDelay = newValue
-                            app.saveConfig()
+
+                    // 3-режимный селектор чипов
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(TcpNoDelayMode.AUTO, TcpNoDelayMode.ON, TcpNoDelayMode.OFF).forEach { mode ->
+                            val isSelected = tcpNoDelayModeState == mode
+                            val chipBorder by animateColorAsState(
+                                targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
+                                animationSpec = tween(200),
+                                label = "tcpBorder_${mode.name}"
+                            )
+                            val chipBg by animateColorAsState(
+                                targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
+                                animationSpec = tween(200),
+                                label = "tcpBg_${mode.name}"
+                            )
+                            val chipTextColor by animateColorAsState(
+                                targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                                animationSpec = tween(200),
+                                label = "tcpText_${mode.name}"
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(chipBg)
+                                    .border(1.dp, chipBorder, RoundedCornerShape(12.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        tcpNoDelayModeState = mode
+                                        config.tcpNoDelayModeName = mode.name
+                                        val effective = when (mode) {
+                                            TcpNoDelayMode.ON -> true
+                                            TcpNoDelayMode.OFF -> false
+                                            TcpNoDelayMode.AUTO -> autoEvaluation.isInstantSendRecommended
+                                        }
+                                        config.tcpNoDelay = effective
+                                        server.applyTcpNoDelay(effective)
+                                        app.saveConfig()
+                                    }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = mode.displayName,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = chipTextColor
+                                )
+                            }
                         }
+                    }
+
+                    // Динамическая подпись статуса
+                    Text(
+                        text = tcpNoDelayStatusText,
+                        color = if (tcpNoDelayModeState == TcpNoDelayMode.AUTO && autoEvaluation.isInstantSendRecommended) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
                     )
                 }
             }
@@ -1212,6 +1345,34 @@ fun SettingsScreen(
                             )
                         }
                     }
+                }
+
+                // MTProto Apply Worker Toggle
+                var applyWorkerToMtproto by remember { mutableStateOf(config.applyWorkerToMtproto) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Применять к MTProto", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { infoKey = "worker_mtproto" }
+                        }
+                        Text("Использовать выбранный Cloudflare Worker для протокола MTProto. Если отключено — используется быстрый пул Anycast CDN.", color = TextMuted, fontSize = 11.5.sp)
+                    }
+                    InertialSpringSwitch(
+                        checked = applyWorkerToMtproto,
+                        onCheckedChange = { newValue ->
+                            applyWorkerToMtproto = newValue
+                            config.applyWorkerToMtproto = newValue
+                            app.saveConfig()
+                            restartProxyIfNeeded()
+                        }
+                    )
                 }
 
                 // SOCKS5 Default Worker Toggle

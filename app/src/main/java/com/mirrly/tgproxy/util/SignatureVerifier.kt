@@ -75,7 +75,8 @@ object SignatureVerifier {
         val status = try {
             val signatures = getAppSignatures(context)
             if (signatures.isEmpty()) {
-                SignatureStatus.OFFICIAL_RELEASE
+                AppLogger.w(TAG, "No signatures found during Kotlin fallback verification: marking UNOFFICIAL_MODIFIED")
+                SignatureStatus.UNOFFICIAL_MODIFIED
             } else {
                 val currentSha256WithColons = hashSha256(signatures[0])
                 val currentSha256Clean = currentSha256WithColons.replace(":", "").uppercase()
@@ -104,7 +105,7 @@ object SignatureVerifier {
             }
         } catch (e: Exception) {
             AppLogger.w(TAG, "Error verifying APK signature: ${e.message}")
-            SignatureStatus.OFFICIAL_RELEASE
+            SignatureStatus.UNOFFICIAL_MODIFIED
         }
         return status
     }
@@ -114,33 +115,47 @@ object SignatureVerifier {
      * Guarantees that only authentic APKs signed with the official release key can be installed.
      */
     fun verifyApkFile(context: Context, apkFile: File, expectedRemoteHashes: List<String>? = null): SignatureStatus {
-        val signatures = getApkFileSignatures(context, apkFile)
-        if (signatures.isEmpty()) {
-            AppLogger.e(TAG, "verifyApkFile: No signatures found in ${apkFile.name}")
-            return SignatureStatus.UNOFFICIAL_MODIFIED
-        }
+        return try {
+            val signatures = getApkFileSignatures(context, apkFile)
+            if (signatures.isEmpty()) {
+                AppLogger.e(TAG, "verifyApkFile: No signatures found in ${apkFile.name}")
+                return SignatureStatus.UNOFFICIAL_MODIFIED
+            }
 
-        val apkSha256WithColons = hashSha256(signatures[0])
-        val apkSha256Clean = apkSha256WithColons.replace(":", "").uppercase()
-        AppLogger.i(TAG, "Downloaded APK Certificate SHA-256: $apkSha256WithColons")
+            val apkSha256WithColons = hashSha256(signatures[0])
+            val apkSha256Clean = apkSha256WithColons.replace(":", "").uppercase()
+            AppLogger.i(TAG, "Downloaded APK Certificate SHA-256: $apkSha256WithColons")
 
-        val cleanOfficial = OFFICIAL_RELEASE_SHA256.replace(":", "").uppercase()
-        val isKnownOfficialKey = apkSha256Clean == cleanOfficial
+            val cleanOfficial = OFFICIAL_RELEASE_SHA256.replace(":", "").uppercase()
+            val isKnownOfficialKey = apkSha256Clean == cleanOfficial
 
-        val cleanExpectedList = expectedRemoteHashes?.mapNotNull { h ->
-            h.replace(":", "").uppercase().takeIf { it.isNotBlank() }
-        } ?: emptyList()
+            val cleanExpectedList = expectedRemoteHashes?.mapNotNull { h ->
+                h.replace(":", "").uppercase().takeIf { it.isNotBlank() }
+            } ?: emptyList()
 
-        val isRemoteMatch = cleanExpectedList.any { clean ->
-            apkSha256Clean == clean
-        }
+            val isRemoteMatch = cleanExpectedList.any { clean ->
+                apkSha256Clean == clean
+            }
 
-        val isCurrentDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            val isCurrentDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
-        return when {
-            isKnownOfficialKey || isRemoteMatch -> SignatureStatus.OFFICIAL_RELEASE
-            isCurrentDebug -> SignatureStatus.DEBUG_BUILD
-            else -> SignatureStatus.UNOFFICIAL_MODIFIED
+            // If running in debug mode, only accept debug certificate if it matches the current running app's debug certificate
+            val isMatchingDebugSignature = if (isCurrentDebug) {
+                val currentSignatures = getAppSignatures(context)
+                if (currentSignatures.isNotEmpty()) {
+                    val currentClean = hashSha256(currentSignatures[0]).replace(":", "").uppercase()
+                    currentClean == apkSha256Clean
+                } else false
+            } else false
+
+            when {
+                isKnownOfficialKey || isRemoteMatch -> SignatureStatus.OFFICIAL_RELEASE
+                isMatchingDebugSignature -> SignatureStatus.DEBUG_BUILD
+                else -> SignatureStatus.UNOFFICIAL_MODIFIED
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "verifyApkFile exception: ${e.message}")
+            SignatureStatus.UNOFFICIAL_MODIFIED
         }
     }
 

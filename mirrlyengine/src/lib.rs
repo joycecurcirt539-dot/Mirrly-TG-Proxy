@@ -2,6 +2,7 @@ pub mod balancer;
 pub mod cfproxy;
 pub mod config;
 pub mod crypto;
+pub mod faketls;
 pub mod proxy;
 pub mod socks5;
 pub mod ws;
@@ -25,6 +26,7 @@ struct ProxyState {
     pool: Option<Arc<WsPool>>,
     handle: tokio::task::JoinHandle<()>,
     cancel_tasks: CancellationToken,
+    cancel_sessions: Arc<parking_lot::RwLock<CancellationToken>>,
 }
 
 static STATE: OnceCell<Mutex<Option<ProxyState>>> = OnceCell::new();
@@ -91,6 +93,8 @@ pub unsafe extern "C" fn StartProxy(
 
     init_logging(is_verbose);
     cfproxy::clear_cfproxy_429_cooldowns();
+    cfproxy::clear_doh_cache();
+    balancer::BALANCER.write().reset_ranking();
 
     if secret_str.len() == 32 {
         if hex::decode(&secret_str).is_ok() {
@@ -104,6 +108,7 @@ pub unsafe extern "C" fn StartProxy(
 
     let rt = runtime();
     let cancel_tasks = CancellationToken::new();
+    let cancel_sessions = Arc::new(parking_lot::RwLock::new(cancel_tasks.child_token()));
     let pool = Arc::new(WsPool::new(cancel_tasks.clone()));
 
     let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
@@ -112,6 +117,7 @@ pub unsafe extern "C" fn StartProxy(
     let host_task = host.clone();
     let map_task = dc_opt_map.clone();
     let cancel_root = cancel_tasks.clone();
+    let cancel_sessions_task = cancel_sessions.clone();
 
     let handle = rt.spawn(async move {
         let addr = format!("{}:{}", host_task, go_port);
@@ -119,7 +125,7 @@ pub unsafe extern "C" fn StartProxy(
             Ok(listener) => {
                 let _ = tx.send(Ok(()));
                 if let Err(e) =
-                    run_proxy(pool_task, host_task, go_port, map_task, cancel_root, listener).await
+                    run_proxy(pool_task, host_task, go_port, map_task, cancel_root, cancel_sessions_task, listener).await
                 {
                     crate::lerror!("listen on {}: {}", addr, e);
                 }
@@ -147,6 +153,7 @@ pub unsafe extern "C" fn StartProxy(
         pool: Some(pool),
         handle,
         cancel_tasks,
+        cancel_sessions,
     });
 
     0
@@ -173,22 +180,27 @@ pub unsafe extern "C" fn StartSocks5Proxy(
 
     init_logging(is_verbose);
     cfproxy::clear_cfproxy_429_cooldowns();
+    cfproxy::clear_doh_cache();
+    balancer::BALANCER.write().reset_ranking();
+    *LAST_SOCKS5_WORKER.write() = String::new();
     cfproxy::init_cfproxy_domains();
 
     let rt = runtime();
     let cancel_tasks = CancellationToken::new();
+    let cancel_sessions = Arc::new(parking_lot::RwLock::new(cancel_tasks.child_token()));
 
     let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
     let host_task = host.clone();
     let cancel_root = cancel_tasks.clone();
+    let cancel_sessions_task = cancel_sessions.clone();
 
     let handle = rt.spawn(async move {
         let addr = format!("{}:{}", host_task, go_port);
         match tokio::net::TcpListener::bind(&addr).await {
             Ok(listener) => {
                 let _ = tx.send(Ok(()));
-                if let Err(e) = run_socks5_server(host_task, go_port, cancel_root, listener).await {
+                if let Err(e) = run_socks5_server(host_task, go_port, cancel_root, cancel_sessions_task, listener).await {
                     crate::lerror!("listen socks5 on {}: {}", addr, e);
                 }
             }
@@ -215,6 +227,7 @@ pub unsafe extern "C" fn StartSocks5Proxy(
         pool: None,
         handle,
         cancel_tasks,
+        cancel_sessions,
     });
 
     0
@@ -247,6 +260,9 @@ pub extern "C" fn StopProxy() -> c_int {
     WS_BLACKLIST.write().clear();
     DC_FAIL_UNTIL.write().clear();
     cfproxy::clear_cfproxy_429_cooldowns();
+    cfproxy::clear_doh_cache();
+    balancer::BALANCER.write().reset_ranking();
+    *LAST_SOCKS5_WORKER.write() = String::new();
 
     crate::linfo!("StopProxy: stopped successfully");
     0
@@ -257,11 +273,38 @@ pub extern "C" fn ResetNetworkSockets() {
     let cell = state_cell();
     let guard = cell.lock();
     if let Some(state) = guard.as_ref() {
+        crate::linfo!("ResetNetworkSockets: resetting all active sessions, DoH cache, 429 limits, and balancer ranking");
+
+        // 1. Atomically rotate the sessions token and cancel the old token (cancels all active bridge sessions)
+        let old_token = {
+            let mut lock = state.cancel_sessions.write();
+            let old = lock.clone();
+            *lock = state.cancel_tasks.child_token();
+            old
+        };
+        old_token.cancel();
+
+        // 2. Clear DoH cache, failure cooldowns, 429 limits, and reset balancer ranking so the new network interface gets a fresh start
+        cfproxy::clear_doh_cache();
+        cfproxy::clear_cfproxy_429_cooldowns();
+        DC_FAIL_UNTIL.write().clear();
+        WS_BLACKLIST.write().clear();
+        balancer::BALANCER.write().reset_ranking();
+        *LAST_SOCKS5_WORKER.write() = String::new();
+
+        // 3. Trigger immediate Fast Anycast Race in the background to rank domains on the new network interface
+        let rt = runtime();
+        rt.spawn(async move {
+            cfproxy::race_all_primary_dcs().await;
+        });
+
+        // 4. If pool exists (MTProto mode), cleanly reset pool epoch, close all idle sockets and warmup on the new network interface
         if let Some(ref pool) = state.pool {
             let p = pool.clone();
             let rt = runtime();
             rt.spawn(async move {
-                p.close_all().await;
+                let map = DC_OPT.read().clone();
+                p.reset_and_warmup(&map).await;
             });
         }
     }
@@ -280,6 +323,13 @@ pub extern "C" fn SetPoolSize(size: c_int) {
 }
 
 #[no_mangle]
+pub extern "C" fn SetTcpNoDelay(enabled: c_int) {
+    let nodelay = enabled != 0;
+    TCP_NODELAY.store(nodelay, Ordering::Relaxed);
+    crate::linfo!("SetTcpNoDelay: set to {}", nodelay);
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn SetCfProxyCacheDir(c_cache_dir: *const c_char) {
     let dir = cstr_to_string(c_cache_dir);
     CFPROXY.write().cache_dir = dir.trim().to_string();
@@ -294,10 +344,7 @@ pub unsafe extern "C" fn SetCfProxyConfig(
     let user_domain = cstr_to_string(c_user_domain);
     let mut cfg = CFPROXY.write();
     cfg.user_domain = user_domain.clone();
-    if !user_domain.is_empty() {
-        cfg.domains = vec![user_domain.clone()];
-        cfg.active = user_domain;
-    }
+    cfg.active = user_domain;
 }
 
 #[no_mangle]

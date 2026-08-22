@@ -18,12 +18,16 @@
 
 package com.mirrly.tgproxy.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,41 +35,60 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.WorkerProfile
 import com.mirrly.tgproxy.core.WorkerStatus
 import com.mirrly.tgproxy.service.PreferencesManager
 import com.mirrly.tgproxy.service.WorkerPingTester
+import com.mirrly.tgproxy.ui.theme.LocalProtocolColors
 import com.mirrly.tgproxy.ui.theme.TextMuted
 import com.mirrly.tgproxy.ui.theme.TextWhite
+import com.mirrly.tgproxy.ui.theme.fadingEdges
+import com.mirrly.tgproxy.ui.theme.springPress
+import com.mirrly.tgproxy.ui.theme.staggeredEntrance
 import kotlinx.coroutines.launch
-import java.net.URLEncoder
+
+private enum class WorkerFilterType {
+    ALL,
+    DEVELOPER,
+    CUSTOM
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,7 +99,13 @@ fun WorkerManagerScreen(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    val isSocks5 by prefs.isSocks5Flow.collectAsState(initial = false)
+    val protoColors = LocalProtocolColors.current
+    val activeProtoColor = protoColors.primary
 
     var activeWorkerId by remember { mutableStateOf(prefs.getActiveWorkerId()) }
     var customWorkers by remember { mutableStateOf(prefs.getCustomWorkers()) }
@@ -85,6 +114,12 @@ fun WorkerManagerScreen(
     var pingResults by remember { mutableStateOf<Map<String, Pair<WorkerStatus, Long?>>>(emptyMap()) }
     var isPinging by remember { mutableStateOf(false) }
 
+    var selectedFilter by remember { mutableStateOf(WorkerFilterType.ALL) }
+    var isSearchVisible by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    val searchFocusRequester = remember { FocusRequester() }
+
+    var headerHeightDp by remember { mutableStateOf(180.dp) }
     var showAddDialog by remember { mutableStateOf(false) }
     var workerToDelete by remember { mutableStateOf<WorkerProfile?>(null) }
 
@@ -102,16 +137,25 @@ fun WorkerManagerScreen(
             for (w in all) {
                 val res = WorkerPingTester.pingWorker(w.domain)
                 newResults[w.domain] = res
+                pingResults = newResults.toMap()
             }
-            pingResults = newResults
             isPinging = false
             Toast.makeText(context, "Замер пинга завершен", Toast.LENGTH_SHORT).show()
         }
     }
 
+    fun pingSingleWorker(domain: String) {
+        scope.launch {
+            val res = WorkerPingTester.pingWorker(domain)
+            val newResults = pingResults.toMutableMap()
+            newResults[domain] = res
+            pingResults = newResults
+        }
+    }
+
     fun shareWorker(worker: WorkerProfile) {
         if (worker.isDeveloperWorker) {
-            Toast.makeText(context, "Воркером разработчика нельзя делиться", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Официальным узлом нельзя делиться", Toast.LENGTH_SHORT).show()
             return
         }
         val encodedDomain = Uri.encode(worker.domain)
@@ -119,12 +163,12 @@ fun WorkerManagerScreen(
         val link = "https://mirrly.app/worker?domain=$encodedDomain&name=$encodedName"
 
         val shareText = buildString {
-            append("Подключи мой Cloudflare Worker в Mirrly TG Proxy в 1 клик:\n\n")
-            append("⚡ Ссылка для импорта:\n")
+            append("Подключение Cloudflare Worker для Mirrly TG Proxy:\n\n")
+            append("Ссылка для импорта:\n")
             append("$link\n\n")
-            append("• Домен: ${worker.domain}\n\n")
-            append("📱 Если приложение еще не установлено:\n")
-            append("Скачать APK: https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases")
+            append("Домен: ${worker.domain}\n\n")
+            append("Релизы приложения:\n")
+            append("https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases")
         }
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -136,369 +180,551 @@ fun WorkerManagerScreen(
 
     val hasRateLimitedWorkers = pingResults.values.any { it.first == WorkerStatus.RATE_LIMITED_429 }
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "Менеджер воркеров",
-                            color = TextWhite,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
-                        Text(
-                            text = "Управление узлами Cloudflare SOCKS5",
-                            color = Color(0xFF00E5FF),
-                            fontSize = 11.5.sp
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onBack()
-                        },
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Назад",
-                            tint = TextWhite,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            startPingAll()
-                        },
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Пинг всех",
-                            tint = if (isPinging) Color(0xFF00E5FF) else TextWhite,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
-            )
-        },
-        containerColor = Color.Transparent
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            // Action Buttons Card
-            item {
-                Spacer(modifier = Modifier.height(2.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Add custom worker button
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            showAddDialog = true
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(46.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF00E676).copy(alpha = 0.18f),
-                            contentColor = Color(0xFF00E676)
-                        ),
-                        border = BorderStroke(1.dp, Color(0xFF00E676).copy(alpha = 0.6f))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(17.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Добавить", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-                    }
+    val pingRotation by animateFloatAsState(
+        targetValue = if (isPinging) 360f else 0f,
+        animationSpec = if (isPinging) infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ) else tween(300),
+        label = "pingRotation"
+    )
 
-                    // Worker Guide button
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onOpenWorkerGuide()
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(46.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFF38020).copy(alpha = 0.18f),
-                            contentColor = Color(0xFFFFA726)
-                        ),
-                        border = BorderStroke(1.dp, Color(0xFFF38020).copy(alpha = 0.6f))
-                    ) {
-                        Text("⚡ Инструкция", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+    LaunchedEffect(isSearchVisible) {
+        if (isSearchVisible) {
+            searchFocusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
+
+    // Filtered lists calculation
+    val allWorkers = remember(devWorkers, customWorkers) { devWorkers + customWorkers }
+    val filteredWorkers = remember(allWorkers, selectedFilter, searchQuery) {
+        val trimmed = searchQuery.trim()
+        allWorkers.filter { worker ->
+            val matchesFilter = when (selectedFilter) {
+                WorkerFilterType.ALL -> true
+                WorkerFilterType.DEVELOPER -> worker.isDeveloperWorker
+                WorkerFilterType.CUSTOM -> !worker.isDeveloperWorker
+            }
+            val matchesQuery = if (trimmed.isEmpty()) true else {
+                worker.name.contains(trimmed, ignoreCase = true) ||
+                        worker.domain.contains(trimmed, ignoreCase = true)
+            }
+            matchesFilter && matchesQuery
+        }
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // 1. SCROLLABLE WORKERS FEED
+        if (filteredWorkers.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_shield),
+                        contentDescription = null,
+                        tint = TextMuted.copy(alpha = 0.4f),
+                        modifier = Modifier.size(52.dp)
+                    )
+                    Text(
+                        text = if (searchQuery.isNotEmpty()) "Узлы не найдены" else "Список воркеров пуст",
+                        color = TextMuted,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    if (selectedFilter == WorkerFilterType.CUSTOM && customWorkers.isEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = activeProtoColor.copy(alpha = 0.1f),
+                            border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.35f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    showAddDialog = true
+                                })
+                        ) {
+                            Text(
+                                text = "Добавить",
+                                color = activeProtoColor,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                        }
                     }
                 }
             }
-
-            // 429 Rate Limit Warning Card
-            if (hasRateLimitedWorkers) {
-                item {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color(0xFFFF5252).copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.65f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.Top,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .fadingEdges(topFadeHeight = 28.dp, bottomFadeHeight = 40.dp),
+                contentPadding = PaddingValues(
+                    top = headerHeightDp + 12.dp,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
+                    start = 16.dp,
+                    end = 16.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Rate-limited Cloudflare 429 warning banner
+                if (hasRateLimitedWorkers) {
+                    item(key = "rate_limit_banner") {
+                        Surface(
+                            shape = RoundedCornerShape(13.dp),
+                            color = Color(0xFF1A1408).copy(alpha = 0.7f),
+                            border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = Color(0xFFFF5252),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Column {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFF59E0B))
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(5.dp),
+                                        color = Color.Transparent,
+                                        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
+                                    ) {
+                                        Text(
+                                            text = "Лимит 429",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFF59E0B),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = "Cloudflare Rate Limit",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFFF59E0B)
+                                    )
+                                }
                                 Text(
-                                    text = "Исчерпан суточный лимит запросов (429)",
-                                    color = Color(0xFFFF5252),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(
-                                    text = "На узле со статусом 429 закончилась бесплатная квота Cloudflare (100 000 запросов/день). Лимиты обновляются каждые 24 часа (00:00 UTC). Рекомендуем создать личный воркер по инструкции выше.",
-                                    color = TextWhite.copy(alpha = 0.8f),
-                                    fontSize = 11.5.sp,
-                                    lineHeight = 16.sp
+                                    text = "На бесплатном тарифе Cloudflare выделяет 100 000 запросов в сутки на домен. Лимит сбрасывается в 00:00 UTC. Выберите другой узел или подключите персональный воркер.",
+                                    fontSize = 12.sp,
+                                    color = TextWhite.copy(alpha = 0.85f),
+                                    lineHeight = 16.5.sp
                                 )
                             }
                         }
                     }
                 }
-            }
 
-            // ── Section 1: Developer Nodes ──
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 4.dp, top = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "ОФИЦИАЛЬНЫЕ УЗЛЫ РАЗРАБОТЧИКА",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF00E5FF),
-                        letterSpacing = 1.sp
-                    )
-                    Text(
-                        text = "${devWorkers.size}",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF00E5FF).copy(alpha = 0.7f)
-                    )
-                }
-            }
-
-            items(devWorkers, key = { it.id }) { worker ->
-                WorkerProfileCard(
-                    worker = worker,
-                    isActive = worker.id == activeWorkerId,
-                    pingInfo = pingResults[worker.domain],
-                    onSelect = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        prefs.setActiveWorkerId(worker.id)
-                        activeWorkerId = worker.id
-                        Toast.makeText(context, "Активирован: ${worker.name}", Toast.LENGTH_SHORT).show()
-                    },
-                    onPing = {
-                        scope.launch {
-                            val res = WorkerPingTester.pingWorker(worker.domain)
-                            pingResults = pingResults + (worker.domain to res)
-                        }
-                    },
-                    onShare = null, // Disabled for Developer worker
-                    onDelete = null  // Built-in
-                )
-            }
-
-            // ── Section 2: Custom User Nodes ──
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 4.dp, top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "ЛИЧНЫЕ И ДОБАВЛЕННЫЕ ВОРКЕРЫ",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFB388FF),
-                        letterSpacing = 1.sp
-                    )
-                    Text(
-                        text = "${customWorkers.size}",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextMuted
-                    )
-                }
-            }
-
-            if (customWorkers.isEmpty()) {
-                item {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color.White.copy(alpha = 0.03f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "У вас пока нет добавленных воркеров",
-                                color = TextWhite.copy(alpha = 0.8f),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Создайте свой персональный Cloudflare Worker или импортируйте ссылку от друга в 1 клик",
-                                color = TextMuted,
-                                fontSize = 11.5.sp,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                        }
-                    }
-                }
-            } else {
-                items(customWorkers, key = { it.id }) { worker ->
-                    WorkerProfileCard(
+                itemsIndexed(
+                    items = filteredWorkers,
+                    key = { _, item -> item.id }
+                ) { index, worker ->
+                    val isActive = worker.id == activeWorkerId
+                    GlassWorkerCard(
+                        modifier = Modifier.staggeredEntrance(index = index),
                         worker = worker,
-                        isActive = worker.id == activeWorkerId,
+                        isActive = isActive,
+                        activeAccentColor = activeProtoColor,
                         pingInfo = pingResults[worker.domain],
                         onSelect = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             prefs.setActiveWorkerId(worker.id)
                             activeWorkerId = worker.id
                             Toast.makeText(context, "Активирован: ${worker.name}", Toast.LENGTH_SHORT).show()
                         },
                         onPing = {
-                            scope.launch {
-                                val res = WorkerPingTester.pingWorker(worker.domain)
-                                pingResults = pingResults + (worker.domain to res)
+                            pingSingleWorker(worker.domain)
+                        },
+                        onShare = if (!worker.isDeveloperWorker) {
+                            { shareWorker(worker) }
+                        } else null,
+                        onDelete = if (!worker.isDeveloperWorker) {
+                            {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                workerToDelete = worker
                             }
-                        },
-                        onShare = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            shareWorker(worker)
-                        },
-                        onDelete = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            workerToDelete = worker
-                        }
+                        } else null
                     )
                 }
-            }
 
-            item {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.White.copy(alpha = 0.03f),
-                    border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.25f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
+                // App Links Integration Card at bottom
+                item(key = "app_links_card") {
+                    Surface(
+                        shape = RoundedCornerShape(13.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, Color(0xFF181E2E)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .padding(top = 4.dp)
                     ) {
-                        Text(
-                            text = "ОТКРЫТИЕ ССЫЛОК В ПРИЛОЖЕНИИ",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00E5FF),
-                            letterSpacing = 0.8.sp
-                        )
-                        Text(
-                            text = "Чтобы ссылки https://mirrly.app/worker?... открывались напрямую в Mirrly TG Proxy, разрешите приложению открывать поддерживаемые ссылки в системных настройках Android.",
-                            fontSize = 11.5.sp,
-                            color = TextMuted,
-                            lineHeight = 16.sp
-                        )
-                        Button(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                try {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                        val intent = Intent(
-                                            android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
-                                            Uri.parse("package:${context.packageName}")
-                                        )
-                                        context.startActivity(intent)
-                                    } else {
-                                        val intent = Intent(
-                                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                            Uri.parse("package:${context.packageName}")
-                                        )
-                                        context.startActivity(intent)
-                                    }
-                                } catch (_: Exception) {
-                                    val intent = Intent(
-                                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                        Uri.parse("package:${context.packageName}")
-                                    )
-                                    context.startActivity(intent)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.Transparent,
-                                contentColor = Color(0xFF00E5FF)
-                            ),
-                            border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(38.dp)
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("Разрешить открытие ссылок в Настройках", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(activeProtoColor)
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(5.dp),
+                                    color = Color.Transparent,
+                                    border = BorderStroke(1.dp, Color(0xFF1E283D))
+                                ) {
+                                    Text(
+                                        text = "Интеграция",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextMuted,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "Открытие ссылок в приложении",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextWhite
+                                )
+                            }
+                            Text(
+                                text = "Чтобы ссылки вида https://mirrly.app/worker?... открывались напрямую в приложении, включите поддержку ссылок в системных параметрах Android.",
+                                fontSize = 12.sp,
+                                color = TextMuted,
+                                lineHeight = 16.sp
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = activeProtoColor.copy(alpha = 0.08f),
+                                border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.35f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .springPress(onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        try {
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                                val intent = Intent(
+                                                    android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
+                                                    Uri.parse("package:${context.packageName}")
+                                                )
+                                                context.startActivity(intent)
+                                            } else {
+                                                val intent = Intent(
+                                                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                    Uri.parse("package:${context.packageName}")
+                                                )
+                                                context.startActivity(intent)
+                                            }
+                                        } catch (_: Exception) {
+                                            val intent = Intent(
+                                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                Uri.parse("package:${context.packageName}")
+                                            )
+                                            context.startActivity(intent)
+                                        }
+                                    })
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Открыть настройки ссылок",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = activeProtoColor
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
+        }
 
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
+        // 2. PINNED FROSTED GLASS HEADER (Title Bar + Search + Filter Chips + Strict Action Buttons)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .onGloballyPositioned { coordinates ->
+                    val heightInDp = with(density) { coordinates.size.height.toDp() }
+                    if (heightInDp > 0.dp && heightInDp != headerHeightDp) {
+                        headerHeightDp = heightInDp
+                    }
+                }
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.99f),
+                            Color.Black.copy(alpha = 0.98f),
+                            Color.Black.copy(alpha = 0.96f),
+                            Color.Black.copy(alpha = 0.88f),
+                            Color.Black.copy(alpha = 0.00f)
+                        )
+                    )
+                )
+                .padding(bottom = 18.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Top App Bar
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = "Менеджер воркеров",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = TextWhite,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (isSocks5) "SOCKS5 Cloudflare Туннели" else "MTProto Cloudflare Туннели",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = activeProtoColor
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onBack()
+                        }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_arrow_left),
+                                contentDescription = "Назад",
+                                tint = TextWhite,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    },
+                    actions = {
+                        // Toggle Search Bar
+                        IconButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            if (isSearchVisible && searchQuery.isNotEmpty()) {
+                                searchQuery = ""
+                            }
+                            isSearchVisible = !isSearchVisible
+                            if (!isSearchVisible) {
+                                keyboardController?.hide()
+                            }
+                        }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_search),
+                                contentDescription = "Поиск",
+                                tint = if (isSearchVisible || searchQuery.isNotEmpty()) activeProtoColor else TextWhite,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        // Ping All Workers (ic_refresh with rotation)
+                        IconButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            startPingAll()
+                        }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_refresh),
+                                contentDescription = "Замерить пинг",
+                                tint = if (isPinging) activeProtoColor else TextWhite,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .rotate(pingRotation)
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                )
+
+                // Animated Search Bar
+                AnimatedVisibility(
+                    visible = isSearchVisible,
+                    enter = expandVertically(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
+                            fadeIn(animationSpec = tween(220)),
+                    exit = shrinkVertically(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
+                            fadeOut(animationSpec = tween(180))
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(searchFocusRequester),
+                        placeholder = {
+                            Text(
+                                text = "Поиск по названию или домену...",
+                                color = TextMuted,
+                                fontSize = 13.sp
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_search),
+                                contentDescription = null,
+                                tint = if (searchQuery.isNotEmpty()) activeProtoColor else TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = {
+                                    searchQuery = ""
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }) {
+                                    Text("✕", color = TextMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
+                        shape = RoundedCornerShape(13.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedBorderColor = activeProtoColor.copy(alpha = 0.85f),
+                            unfocusedBorderColor = Color(0xFF1E283D),
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite
+                        )
+                    )
+                }
+
+                // 3 Fixed-Width Segmented Filter Chips (Logs style)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    SegmentedFilterChip(
+                        title = "Все",
+                        count = allWorkers.size,
+                        isSelected = selectedFilter == WorkerFilterType.ALL,
+                        activeColor = activeProtoColor,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            selectedFilter = WorkerFilterType.ALL
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    )
+                    SegmentedFilterChip(
+                        title = "Официальные",
+                        count = devWorkers.size,
+                        isSelected = selectedFilter == WorkerFilterType.DEVELOPER,
+                        activeColor = activeProtoColor,
+                        modifier = Modifier.weight(1.3f),
+                        onClick = {
+                            selectedFilter = WorkerFilterType.DEVELOPER
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    )
+                    SegmentedFilterChip(
+                        title = "Личные",
+                        count = customWorkers.size,
+                        isSelected = selectedFilter == WorkerFilterType.CUSTOM,
+                        activeColor = activeProtoColor,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            selectedFilter = WorkerFilterType.CUSTOM
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    )
+                }
+
+                // Action Buttons Row ("Добавить" and "Инструкция" - strict, no emojis)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(11.dp),
+                        color = activeProtoColor.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .springPress(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showAddDialog = true
+                            })
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Добавить",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp,
+                                color = activeProtoColor
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(11.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, Color(0xFF1E283D)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .springPress(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onOpenWorkerGuide()
+                            })
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Инструкция",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.5.sp,
+                                color = TextWhite.copy(alpha = 0.85f)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 
-    // Add Worker Dialog
     if (showAddDialog) {
         AddWorkerDialog(
+            activeAccentColor = activeProtoColor,
             onDismiss = { showAddDialog = false },
             onAdd = { name, domain ->
                 val res = prefs.addCustomWorker(name, domain)
@@ -507,7 +733,7 @@ fun WorkerManagerScreen(
                         prefs.setActiveWorkerId(added.id)
                         refreshWorkers()
                         showAddDialog = false
-                        Toast.makeText(context, "Воркер «${added.name}» добавлен и активирован ⚡", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Воркер «${added.name}» добавлен и активирован", Toast.LENGTH_SHORT).show()
                     },
                     onFailure = { err ->
                         Toast.makeText(context, err.message ?: "Ошибка добавления", Toast.LENGTH_SHORT).show()
@@ -517,249 +743,301 @@ fun WorkerManagerScreen(
         )
     }
 
-    // Delete Confirmation Dialog
     workerToDelete?.let { worker ->
-        AlertDialog(
-            onDismissRequest = { workerToDelete = null },
-            containerColor = Color(0xFF0F172A),
-            shape = RoundedCornerShape(20.dp),
-            title = {
-                Text("Удалить воркер?", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            },
-            text = {
-                Text(
-                    "Вы действительно хотите удалить узел «${worker.name}» (${worker.domain}) из списка?",
-                    color = TextWhite.copy(alpha = 0.75f),
-                    fontSize = 13.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        prefs.deleteCustomWorker(worker.id)
-                        refreshWorkers()
-                        workerToDelete = null
-                        Toast.makeText(context, "Воркер удален", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5252)),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("Удалить", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { workerToDelete = null }) {
-                    Text("Отмена", color = TextWhite.copy(alpha = 0.7f))
-                }
+        DeleteWorkerConfirmDialog(
+            worker = worker,
+            onDismiss = { workerToDelete = null },
+            onConfirm = {
+                prefs.deleteCustomWorker(worker.id)
+                refreshWorkers()
+                workerToDelete = null
+                Toast.makeText(context, "Воркер удален", Toast.LENGTH_SHORT).show()
             }
         )
     }
 }
 
 @Composable
-fun WorkerProfileCard(
+private fun SegmentedFilterChip(
+    title: String,
+    count: Int,
+    isSelected: Boolean,
+    activeColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected) activeColor.copy(alpha = 0.85f) else Color(0xFF1E283D),
+        animationSpec = tween(180),
+        label = "chipBorder"
+    )
+    val titleColor by animateColorAsState(
+        targetValue = if (isSelected) activeColor else TextWhite.copy(alpha = 0.85f),
+        animationSpec = tween(180),
+        label = "chipTitle"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(11.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, borderColor),
+        modifier = modifier
+            .height(34.dp)
+            .springPress(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                color = titleColor,
+                fontSize = 11.5.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = count.toString(),
+                color = if (isSelected) activeColor else TextMuted,
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+/**
+ * Clean Frosted Glass Worker Card (styled consistently with GlassLogCard)
+ */
+@Composable
+private fun GlassWorkerCard(
+    modifier: Modifier = Modifier,
     worker: WorkerProfile,
     isActive: Boolean,
+    activeAccentColor: Color,
     pingInfo: Pair<WorkerStatus, Long?>?,
     onSelect: () -> Unit,
     onPing: () -> Unit,
     onShare: (() -> Unit)?,
     onDelete: (() -> Unit)?
 ) {
+    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val borderColor = if (isActive) {
-        if (worker.isDeveloperWorker) Color(0xFF00E5FF) else Color(0xFF00E676)
-    } else {
-        Color.White.copy(alpha = 0.08f)
+
+    val status = pingInfo?.first ?: WorkerStatus.UNKNOWN
+    val pingMs = pingInfo?.second
+
+    val statusColor = when (status) {
+        WorkerStatus.ONLINE -> if ((pingMs ?: 0) < 250) Color(0xFF00E676) else Color(0xFFF59E0B)
+        WorkerStatus.RATE_LIMITED_429 -> Color(0xFFEF4444)
+        WorkerStatus.ERROR_UNREACHABLE -> Color(0xFFF59E0B)
+        WorkerStatus.UNKNOWN -> TextMuted
     }
 
-    val cardBg = if (isActive) {
-        if (worker.isDeveloperWorker) Color(0xFF00E5FF).copy(alpha = 0.07f) else Color(0xFF00E676).copy(alpha = 0.07f)
+    val statusText = when (status) {
+        WorkerStatus.ONLINE -> "${pingMs ?: 0} мс"
+        WorkerStatus.RATE_LIMITED_429 -> "429 Лимит"
+        WorkerStatus.ERROR_UNREACHABLE -> "Недоступен"
+        WorkerStatus.UNKNOWN -> "Не проверен"
+    }
+
+    val cardBorderColor = if (isActive) {
+        activeAccentColor.copy(alpha = 0.85f)
     } else {
-        Color.White.copy(alpha = 0.035f)
+        Color(0xFF181E2E)
+    }
+
+    val cardBackground = if (isActive) {
+        Brush.verticalGradient(
+            listOf(
+                activeAccentColor.copy(alpha = 0.08f),
+                Color(0xFF0B101D).copy(alpha = 0.75f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFF121828).copy(alpha = 0.65f),
+                Color(0xFF0A0F1A).copy(alpha = 0.75f)
+            )
+        )
     }
 
     Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = cardBg,
-        border = BorderStroke(if (isActive) 1.5.dp else 1.dp, borderColor),
-        modifier = Modifier
+        shape = RoundedCornerShape(13.dp),
+        color = Color.Transparent,
+        border = BorderStroke(if (isActive) 1.2.dp else 1.dp, cardBorderColor),
+        modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                onSelect()
-            }
+            .clip(RoundedCornerShape(13.dp))
+            .background(cardBackground)
+            .springPress(onClick = onSelect)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            // Header Row: Active Radio Glow + Name + Badges
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            // Header Row: Status Dot + Category Badge + Active Pill + Monospace Ping
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    // Radio indicator
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isActive) {
-                                    if (worker.isDeveloperWorker) Color(0xFF00E5FF) else Color(0xFF00E676)
-                                } else {
-                                    Color.Transparent
-                                }
-                            )
-                            .border(
-                                1.5.dp,
-                                if (isActive) {
-                                    if (worker.isDeveloperWorker) Color(0xFF00E5FF) else Color(0xFF00E676)
-                                } else {
-                                    Color.White.copy(alpha = 0.3f)
-                                },
-                                CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isActive) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color(0xFF0A0E1A),
-                                modifier = Modifier.size(13.dp)
-                            )
-                        }
-                    }
-
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = worker.name,
-                                color = TextWhite,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
-                            if (isActive) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = (if (worker.isDeveloperWorker) Color(0xFF00E5FF) else Color(0xFF00E676)).copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        text = "АКТИВЕН",
-                                        color = if (worker.isDeveloperWorker) Color(0xFF00E5FF) else Color(0xFF00E676),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Black,
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                        }
-                        Text(
-                            text = worker.domain,
-                            color = TextMuted,
-                            fontSize = 11.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Footer Row: Ping Status Pill + Action Buttons (Ping, Share, Delete)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Ping status indicator
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    val status = pingInfo?.first ?: WorkerStatus.UNKNOWN
-                    val pingMs = pingInfo?.second
-
-                    val statusColor = when (status) {
-                        WorkerStatus.ONLINE -> Color(0xFF00E676)
-                        WorkerStatus.RATE_LIMITED_429 -> Color(0xFFFF5252)
-                        WorkerStatus.ERROR_UNREACHABLE -> Color(0xFFFF9100)
-                        WorkerStatus.UNKNOWN -> TextMuted
-                    }
-
-                    val statusText = when (status) {
-                        WorkerStatus.ONLINE -> "${pingMs ?: 0} мс"
-                        WorkerStatus.RATE_LIMITED_429 -> "429 Лимит"
-                        WorkerStatus.ERROR_UNREACHABLE -> "Недоступен"
-                        WorkerStatus.UNKNOWN -> "Не проверен"
-                    }
-
+                    // Status Indicator Dot
                     Box(
                         modifier = Modifier
-                            .size(7.dp)
+                            .size(6.dp)
                             .clip(CircleShape)
                             .background(statusColor)
                     )
-                    Text(
-                        text = statusText,
-                        color = statusColor,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+
+                    // Category Badge
+                    Surface(
+                        shape = RoundedCornerShape(5.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, Color(0xFF1E283D))
+                    ) {
+                        Text(
+                            text = if (worker.isDeveloperWorker) "Официальный" else "Личный",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                        )
+                    }
+
+                    // Active Badge
+                    if (isActive) {
+                        Surface(
+                            shape = RoundedCornerShape(5.dp),
+                            color = activeAccentColor.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.45f))
+                        ) {
+                            Text(
+                                text = "АКТИВЕН",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Black,
+                                color = activeAccentColor,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                            )
+                        }
+                    }
                 }
 
-                // Action buttons row
+                // Monospace Ping Status
+                Text(
+                    text = statusText,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = statusColor
+                )
+            }
+
+            // Worker Name & Subtitle
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                Text(
+                    text = worker.name,
+                    color = TextWhite,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (worker.isDeveloperWorker) {
+                    Text(
+                        text = "Официальный узел Cloudflare",
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                } else {
+                    Text(
+                        text = worker.domain,
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            val clip = ClipData.newPlainText("Worker Domain", worker.domain)
+                            clipboard?.setPrimaryClip(clip)
+                            Toast.makeText(context, "Домен скопирован", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+            }
+
+            // Bottom Actions Row (Ping / Share / Delete)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Ping button with ic_refresh
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, Color(0xFF1E283D)),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onPing()
+                        })
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_refresh),
+                            contentDescription = "Пинг",
+                            tint = TextWhite,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = "Пинг",
+                            color = TextWhite,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Manual Ping button
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.White.copy(alpha = 0.06f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onPing()
-                            }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(text = "⚡", fontSize = 10.sp)
-                            Text(
-                                text = "Пинг",
-                                color = TextWhite,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-
-                    // Share button (ONLY FOR CUSTOM WORKERS)
-                    if (onShare != null && !worker.isDeveloperWorker) {
+                    if (onShare != null) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF00E5FF).copy(alpha = 0.1f),
-                            border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f)),
+                            color = activeAccentColor.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.35f)),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .clickable {
+                                .springPress(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     onShare()
-                                }
+                                })
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -769,12 +1047,12 @@ fun WorkerProfileCard(
                                 Icon(
                                     imageVector = Icons.Default.Share,
                                     contentDescription = "Поделиться",
-                                    tint = Color(0xFF00E5FF),
-                                    modifier = Modifier.size(11.dp)
+                                    tint = activeAccentColor,
+                                    modifier = Modifier.size(12.dp)
                                 )
                                 Text(
                                     text = "Поделиться",
-                                    color = Color(0xFF00E5FF),
+                                    color = activeAccentColor,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -782,18 +1060,29 @@ fun WorkerProfileCard(
                         }
                     }
 
-                    // Delete button (ONLY FOR CUSTOM WORKERS)
-                    if (onDelete != null && !worker.isDeveloperWorker) {
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.size(28.dp)
+                    if (onDelete != null) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFEF4444).copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.3f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onDelete()
+                                })
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Удалить",
-                                tint = Color(0xFFFF5252).copy(alpha = 0.75f),
-                                modifier = Modifier.size(15.dp)
-                            )
+                            Box(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_trash),
+                                    contentDescription = "Удалить",
+                                    tint = Color(0xFFEF4444),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -802,79 +1091,362 @@ fun WorkerProfileCard(
     }
 }
 
+/**
+ * Frosted Matte Glass Add Worker Modal Dialog (Logs style, no emojis)
+ */
 @Composable
-fun AddWorkerDialog(
+private fun AddWorkerDialog(
+    activeAccentColor: Color,
     onDismiss: () -> Unit,
     onAdd: (name: String, domain: String) -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     var nameText by remember { mutableStateOf("") }
     var domainText by remember { mutableStateOf("") }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF0F172A),
-        shape = RoundedCornerShape(20.dp),
-        title = {
-            Text("Добавить Cloudflare Worker", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    "Укажите название и домен созданного вами Cloudflare Worker.",
-                    color = TextWhite.copy(alpha = 0.7f),
-                    fontSize = 12.5.sp
-                )
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        val view = LocalView.current
+        SideEffect {
+            try {
+                val window = (view.parent as? DialogWindowProvider)?.window
+                if (window != null) {
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                        window.attributes = window.attributes.apply {
+                            blurBehindRadius = 75
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
 
-                OutlinedTextField(
-                    value = nameText,
-                    onValueChange = { nameText = it },
-                    label = { Text("Название (например: Мой домашний)") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF00E676),
-                        unfocusedBorderColor = Color(0xFF334155),
-                        focusedTextColor = TextWhite,
-                        unfocusedTextColor = TextWhite
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = domainText,
-                    onValueChange = { domainText = it },
-                    label = { Text("Домен воркера") },
-                    placeholder = { Text("my-proxy.username.workers.dev", color = TextMuted, fontSize = 12.sp) },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF00E676),
-                        unfocusedBorderColor = Color(0xFF334155),
-                        focusedTextColor = TextWhite,
-                        unfocusedTextColor = TextWhite
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    onAdd(nameText, domainText)
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF00E676),
-                    contentColor = Color(0xFF0A0E1A)
-                ),
-                shape = RoundedCornerShape(10.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.45f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onDismiss() }
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.2.dp, activeAccentColor.copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color(0xFF141C2E).copy(alpha = 0.94f),
+                                Color(0xFF0A0F1A).copy(alpha = 0.96f)
+                            )
+                        )
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
+                    .padding(20.dp)
             ) {
-                Text("Сохранить ⚡", fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Отмена", color = TextWhite.copy(alpha = 0.7f))
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Category Pill
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = activeAccentColor.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = "ДОБАВЛЕНИЕ ВОРКЕРА",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = activeAccentColor,
+                            letterSpacing = 0.8.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    Text(
+                        text = "Новый Cloudflare Worker",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Text(
+                        text = "Укажите название и домен созданного вами Cloudflare Worker.",
+                        fontSize = 12.sp,
+                        color = TextWhite.copy(alpha = 0.75f),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 16.5.sp
+                    )
+
+                    OutlinedTextField(
+                        value = nameText,
+                        onValueChange = { nameText = it },
+                        label = { Text("Название (например: Мой домашний)") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = activeAccentColor,
+                            unfocusedBorderColor = Color(0xFF223048),
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite,
+                            focusedLabelColor = activeAccentColor,
+                            unfocusedLabelColor = TextMuted
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = domainText,
+                        onValueChange = { domainText = it },
+                        label = { Text("Домен воркера") },
+                        placeholder = { Text("my-proxy.username.workers.dev", color = TextMuted.copy(alpha = 0.6f), fontSize = 12.sp) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = activeAccentColor,
+                            unfocusedBorderColor = Color(0xFF223048),
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite,
+                            focusedLabelColor = activeAccentColor,
+                            unfocusedLabelColor = TextMuted
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Buttons
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = activeAccentColor,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onAdd(nameText, domainText)
+                                })
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "Сохранить и активировать",
+                                    color = Color(0xFF0A0E1A),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.5.sp
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onDismiss()
+                                })
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "Отмена",
+                                    color = TextWhite.copy(alpha = 0.8f),
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
-    )
+    }
+}
+
+/**
+ * Frosted Matte Glass Delete Confirmation Modal Dialog (Logs style, no emojis)
+ */
+@Composable
+private fun DeleteWorkerConfirmDialog(
+    worker: WorkerProfile,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        val view = LocalView.current
+        SideEffect {
+            try {
+                val window = (view.parent as? DialogWindowProvider)?.window
+                if (window != null) {
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                        window.attributes = window.attributes.apply {
+                            blurBehindRadius = 75
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.45f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onDismiss() }
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.2.dp, Color(0xFFEF4444).copy(alpha = 0.4f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color(0xFF1E1418).copy(alpha = 0.95f),
+                                Color(0xFF0F0A0E).copy(alpha = 0.96f)
+                            )
+                        )
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
+                    .padding(20.dp)
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Category Pill
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFFEF4444).copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = "УДАЛЕНИЕ ВОРКЕРА",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFEF4444),
+                            letterSpacing = 0.8.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    Text(
+                        text = "Удалить узел из списка?",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Text(
+                        text = "Вы действительно хотите удалить узел «${worker.name}» (${worker.domain}) из вашего списка воркеров?",
+                        fontSize = 12.5.sp,
+                        color = TextWhite.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 17.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFEF4444),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onConfirm()
+                                })
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "Удалить узел",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.5.sp
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onDismiss()
+                                })
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "Отмена",
+                                    color = TextWhite.copy(alpha = 0.8f),
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

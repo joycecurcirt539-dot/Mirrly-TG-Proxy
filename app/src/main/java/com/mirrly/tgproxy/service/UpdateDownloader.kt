@@ -256,8 +256,11 @@ object UpdateDownloader {
 
                 // Step 4: Cryptographic signature verification of the downloaded APK BEFORE installation
                 val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile, expectedSha256List)
-                if (signatureStatus == SignatureStatus.UNOFFICIAL_MODIFIED) {
-                    AppLogger.e(TAG, "Downloaded APK signature verification failed! Signature does not match official release key.")
+                val isCurrentDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                val isAccepted = signatureStatus == SignatureStatus.OFFICIAL_RELEASE || (signatureStatus == SignatureStatus.DEBUG_BUILD && isCurrentDebug)
+
+                if (!isAccepted) {
+                    AppLogger.e(TAG, "Downloaded APK signature verification failed! Status: $signatureStatus")
                     destFile.delete()
                     _status.value = DownloadStatus.Error("Ошибка безопасности: цифровая подпись APK не совпадает с официальным ключом разработчика!")
                     return@withContext false

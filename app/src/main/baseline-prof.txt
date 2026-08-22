@@ -12,9 +12,6 @@ HSPLcom/mirrly/tgproxy/ui/LogsScreenKt;->LogsScreen(Lkotlin/jvm/functions/Functi
 HSPLcom/mirrly/tgproxy/ui/SettingsScreenKt;->SettingsScreen(Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;)V
 HSPLcom/mirrly/tgproxy/core/LocalProxyServer;->start(Ljava/io/File;)Z
 HSPLcom/mirrly/tgproxy/core/LocalProxyServer;->stop()V
-HSPLcom/mirrly/tgproxy/core/Socks5WsBridge;->handleConnection()V
-HSPLcom/mirrly/tgproxy/core/TgWsBridge;->handleConnection()V
-HSPLcom/mirrly/tgproxy/core/RawWebSocketClient;->connect()V
 HSPLcom/mirrly/tgproxy/service/ProxyForegroundService;->onStartCommand(Landroid/content/Intent;II)I
 
 # Core Class Descriptors for AOT Pre-compilation
@@ -25,10 +22,6 @@ Lcom/mirrly/tgproxy/ui/CyberEnergyCanvasKt;
 Lcom/mirrly/tgproxy/ui/LogsScreenKt;
 Lcom/mirrly/tgproxy/ui/SettingsScreenKt;
 Lcom/mirrly/tgproxy/core/LocalProxyServer;
-Lcom/mirrly/tgproxy/core/Socks5WsBridge;
-Lcom/mirrly/tgproxy/core/TgWsBridge;
-Lcom/mirrly/tgproxy/core/RawWebSocketClient;
-Lcom/mirrly/tgproxy/core/WsPool;
 Lcom/mirrly/tgproxy/service/ProxyForegroundService;
 Landroidx/profileinstaller/ProfileInstallReceiver;
 

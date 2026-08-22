@@ -1,18 +1,19 @@
-name: Android CI
+name: Android CI & Engine Verification
 
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-    name: Build (assembleDebug)
+    name: Build & Verify (Rust Engine + APKs)
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -20,6 +21,30 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Set up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android
+
+      - name: Set up Android SDK & NDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 35
+          ndk: '27.1.12297006'
+
+      - name: Cache Cargo & Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            mirrlyengine/target/
+          key: cargo-${{ runner.os }}-${{ hashFiles('mirrlyengine/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -31,14 +56,51 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
-      - name: Set up Android SDK (API 34) and NDK
-        uses: android-actions/setup-android@v2
+      - name: Grant execute permissions
+        run: chmod +x ./gradlew ./build_native.sh
+
+      - name: Build Native Rust Engine (mirrlyengine for 4 ABIs)
+        run: ./build_native.sh
+
+      - name: Setup Release Keystore (if secret is configured)
+        if: ${{ env.HAVE_KEYSTORE == 'true' }}
+        run: |
+          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > release.jks
+        env:
+          HAVE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+
+      - name: Run Unit Tests
+        run: ./gradlew test --no-daemon --stacktrace
+
+      - name: Build APKs (assembleRelease & assembleDebug)
+        run: ./gradlew assembleRelease assembleDebug --no-daemon --stacktrace
+        env:
+          RELEASE_KEYSTORE_PATH: ${{ github.workspace }}/release.jks
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
+      - name: Verify and Print SHA-256 Hashes
+        run: |
+          echo "============================================="
+          echo "Generated Release APKs SHA-256 Checksums"
+          echo "============================================="
+          if [ -d "app/build/outputs/apk/release" ]; then
+            sha256sum app/build/outputs/apk/release/*.apk
+          fi
+
+      - name: Upload Release APKs Artifacts
+        uses: actions/upload-artifact@v4
+        if: success()
         with:
-          api-level: 34
-          ndk: '25'
+          name: mirrly-proxy-release-apks
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x ./gradlew
-
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Upload Debug APKs Artifacts
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: mirrly-proxy-debug-apks
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn

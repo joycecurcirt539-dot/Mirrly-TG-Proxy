@@ -18,6 +18,7 @@
 
 package com.mirrly.tgproxy.service
 
+import com.mirrly.tgproxy.BuildConfig
 import com.mirrly.tgproxy.core.WorkerStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,11 +29,11 @@ import java.util.concurrent.TimeUnit
 object WorkerPingTester {
     private val client by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(2000, TimeUnit.MILLISECONDS)
-            .readTimeout(2000, TimeUnit.MILLISECONDS)
-            .callTimeout(2500, TimeUnit.MILLISECONDS)
+            .connectTimeout(5000, TimeUnit.MILLISECONDS)
+            .readTimeout(5000, TimeUnit.MILLISECONDS)
+            .callTimeout(6000, TimeUnit.MILLISECONDS)
             .followRedirects(true)
-            .retryOnConnectionFailure(false)
+            .retryOnConnectionFailure(true)
             .build()
     }
 
@@ -45,7 +46,7 @@ object WorkerPingTester {
         val url = "https://$cleanDomain/"
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "MirrlyTGProxy/1.1.3")
+            .header("User-Agent", "MirrlyTGProxy/${BuildConfig.VERSION_NAME}")
             .header("Accept", "*/*")
             .build()
 

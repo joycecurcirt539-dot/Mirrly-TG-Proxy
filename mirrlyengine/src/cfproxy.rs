@@ -1,7 +1,9 @@
 use crate::config::*;
-use crate::ws::{is_http_status_error, ws_connect_once, RawWebSocket, WsError};
+use crate::ws::{is_http_status_error, ws_connect_happy_eyeballs, RawWebSocket, WsError};
 use crate::{ldebug, lerror, linfo, lwarn};
 use serde::Deserialize;
+use std::collections::HashSet;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
@@ -277,13 +279,6 @@ pub fn init_cfproxy_domains() {
     let cached = load_cfproxy_domains_from_cache();
 
     let mut cfg = CFPROXY.write();
-    if !cfg.user_domain.is_empty() {
-        let ud = cfg.user_domain.clone();
-        cfg.domains = vec![ud.clone()];
-        crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
-        return;
-    }
-
     if !cached.is_empty() {
         let n = cached.len();
         cfg.domains = merge_cfproxy_domains(&[cached, defaults]);
@@ -380,7 +375,7 @@ pub async fn try_refresh_cfproxy_domains() -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// DNS over HTTPS (DoH) resolve
+// Dual-Stack DNS over HTTPS (DoH) & System DNS Resolver (RFC 8305 Dual-Stack)
 // ---------------------------------------------------------------------------
 
 #[derive(Deserialize)]
@@ -396,31 +391,76 @@ struct DohResponse {
     answer: Vec<DohAnswer>,
 }
 
-static DOH_CACHE: Lazy<parking_lot::RwLock<std::collections::HashMap<String, (String, Instant)>>> =
-    Lazy::new(|| parking_lot::RwLock::new(std::collections::HashMap::new()));
+pub const CF_ANYCAST_IPS_V4: &[&str] = &[
+    "188.114.96.1",
+    "188.114.97.1",
+    "172.67.153.159",
+    "172.67.74.152",
+    "104.21.234.180",
+    "162.159.153.4",
+];
 
-fn pick_preferred_ip(candidates: &[String]) -> String {
-    let mut fallback_v6 = String::new();
-    for c in candidates {
-        let c = c.trim();
-        if let Ok(ip) = c.parse::<std::net::IpAddr>() {
-            match ip {
-                std::net::IpAddr::V4(v4) => return v4.to_string(),
-                std::net::IpAddr::V6(v6) => {
-                    if fallback_v6.is_empty() {
-                        fallback_v6 = v6.to_string();
-                    }
-                }
-            }
+pub const CF_ANYCAST_IPS_V6: &[&str] = &[
+    "2606:4700:4700::1111",
+    "2606:4700:4700::1001",
+    "2a06:98c1:3121::1",
+    "2a06:98c1:3120::1",
+    "2606:4700:3033::ac43:999f",
+    "2606:4700:3037::6815:eab4",
+];
+
+pub fn default_cf_anycast_dual_stack() -> Vec<IpAddr> {
+    let mut v6 = Vec::new();
+    for s in CF_ANYCAST_IPS_V6 {
+        if let Ok(ip) = s.parse::<IpAddr>() {
+            v6.push(ip);
         }
     }
-    fallback_v6
+    let mut v4 = Vec::new();
+    for s in CF_ANYCAST_IPS_V4 {
+        if let Ok(ip) = s.parse::<IpAddr>() {
+            v4.push(ip);
+        }
+    }
+    interleave_dual_stack_ips(v6, v4)
 }
 
-pub async fn resolve_doh(domain: &str) -> Option<String> {
-    if let Some((ip, exp)) = DOH_CACHE.read().get(domain).cloned() {
-        if Instant::now() < exp {
-            return Some(ip);
+pub fn interleave_dual_stack_ips(v6: Vec<IpAddr>, v4: Vec<IpAddr>) -> Vec<IpAddr> {
+    let mut interleaved = Vec::with_capacity(v6.len() + v4.len());
+    let max_len = v6.len().max(v4.len());
+    for i in 0..max_len {
+        if i < v6.len() {
+            interleaved.push(v6[i]);
+        }
+        if i < v4.len() {
+            interleaved.push(v4[i]);
+        }
+    }
+    interleaved
+}
+
+static DOH_CACHE: Lazy<parking_lot::RwLock<std::collections::HashMap<String, (Vec<IpAddr>, Instant)>>> =
+    Lazy::new(|| parking_lot::RwLock::new(std::collections::HashMap::new()));
+
+pub fn clear_doh_cache() {
+    DOH_CACHE.write().clear();
+}
+
+pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
+    let domain = domain.trim();
+    if domain.is_empty() {
+        return Vec::new();
+    }
+
+    // 1. Direct IP check
+    if let Ok(ip) = domain.parse::<IpAddr>() {
+        return vec![ip];
+    }
+
+    // 2. Cache hit (0 ms)
+    if let Some((ips, exp)) = DOH_CACHE.read().get(domain).cloned() {
+        if Instant::now() < exp && !ips.is_empty() {
+            return ips;
         }
     }
 
@@ -432,78 +472,112 @@ pub async fn resolve_doh(domain: &str) -> Option<String> {
     ];
 
     let client = HTTP_CLIENT.clone();
-
-    let (tx, mut rx) = tokio::sync::mpsc::channel(endpoints.len() + 1);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<IpAddr>(32);
     let mut tasks = Vec::new();
 
+    // 3. Parallel DoH A (IPv4) and AAAA (IPv6) queries
     for u in endpoints {
-        let client = client.clone();
-        let domain = domain.to_string();
-        let tx = tx.clone();
-        tasks.push(tokio::spawn(async move {
-            let full = format!("{}?name={}&type=A", u, domain);
-            if let Ok(resp) = client
-                .get(&full)
-                .header("Accept", "application/dns-json")
-                .send()
-                .await
-            {
-                if resp.status().as_u16() == 200 {
-                    if let Ok(r) = resp.json::<DohResponse>().await {
-                        for ans in r.answer {
-                            if ans.type_ == 1 {
-                                let _ = tx.send(Some(ans.data)).await;
-                                return;
+        // Query A (IPv4)
+        {
+            let client = client.clone();
+            let domain = domain.to_string();
+            let tx = tx.clone();
+            tasks.push(tokio::spawn(async move {
+                let full = format!("{}?name={}&type=A", u, domain);
+                if let Ok(resp) = client
+                    .get(&full)
+                    .header("Accept", "application/dns-json")
+                    .send()
+                    .await
+                {
+                    if resp.status().as_u16() == 200 {
+                        if let Ok(r) = resp.json::<DohResponse>().await {
+                            for ans in r.answer {
+                                if ans.type_ == 1 {
+                                    if let Ok(ip) = ans.data.trim().parse::<Ipv4Addr>() {
+                                        let _ = tx.send(IpAddr::V4(ip)).await;
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
-            let _ = tx.send(None).await;
-        }));
+            }));
+        }
+
+        // Query AAAA (IPv6)
+        {
+            let client = client.clone();
+            let domain = domain.to_string();
+            let tx = tx.clone();
+            tasks.push(tokio::spawn(async move {
+                let full = format!("{}?name={}&type=AAAA", u, domain);
+                if let Ok(resp) = client
+                    .get(&full)
+                    .header("Accept", "application/dns-json")
+                    .send()
+                    .await
+                {
+                    if resp.status().as_u16() == 200 {
+                        if let Ok(r) = resp.json::<DohResponse>().await {
+                            for ans in r.answer {
+                                if ans.type_ == 28 {
+                                    if let Ok(ip) = ans.data.trim().parse::<Ipv6Addr>() {
+                                        let _ = tx.send(IpAddr::V6(ip)).await;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }));
+        }
     }
 
-    // UDP-lookup
+    // 4. Concurrent fast system DNS lookup
     {
-        let domain2 = domain.to_string();
+        let domain_str = domain.to_string();
         let tx = tx.clone();
         tasks.push(tokio::spawn(async move {
-            let host = format!("{}:443", domain2);
+            let host = format!("{}:443", domain_str);
             if let Ok(Ok(addrs)) = tokio::time::timeout(
-                Duration::from_millis(1500),
+                Duration::from_millis(600),
                 tokio::net::lookup_host(host),
             )
             .await
             {
-                let ips: Vec<String> = addrs.map(|a| a.ip().to_string()).collect();
-                let p = pick_preferred_ip(&ips);
-                if !p.is_empty() {
-                    let _ = tx.send(Some(p)).await;
-                    return;
+                for a in addrs {
+                    let _ = tx.send(a.ip()).await;
                 }
             }
-            let _ = tx.send(None).await;
         }));
     }
 
     drop(tx);
 
-    let deadline = tokio::time::sleep(Duration::from_millis(1500));
+    let deadline = tokio::time::sleep(Duration::from_millis(1200));
     tokio::pin!(deadline);
 
-    let mut final_ip = None;
+    let mut seen = HashSet::new();
+    let mut v6 = Vec::new();
+    let mut v4 = Vec::new();
+
     loop {
         tokio::select! {
-            _ = &mut deadline => {
-                break;
-            }
+            _ = &mut deadline => break,
             msg = rx.recv() => {
                 match msg {
-                    Some(Some(ip)) => {
-                        final_ip = Some(ip);
-                        break;
+                    Some(ip) => {
+                        if seen.insert(ip) {
+                            match ip {
+                                IpAddr::V6(_) => v6.push(ip),
+                                IpAddr::V4(_) => v4.push(ip),
+                            }
+                            if !v6.is_empty() && !v4.is_empty() && seen.len() >= 4 {
+                                break;
+                            }
+                        }
                     }
-                    Some(None) => {}
                     None => break,
                 }
             }
@@ -514,30 +588,27 @@ pub async fn resolve_doh(domain: &str) -> Option<String> {
         t.abort();
     }
 
-    if let Some(ip) = &final_ip {
-        DOH_CACHE.write().insert(
-            domain.to_string(),
-            (ip.clone(), Instant::now() + Duration::from_secs(300)),
-        );
+    let mut interleaved = interleave_dual_stack_ips(v6, v4);
+    if interleaved.is_empty() {
+        interleaved = default_cf_anycast_dual_stack();
     }
-    
-    final_ip
+
+    DOH_CACHE.write().insert(
+        domain.to_string(),
+        (interleaved.clone(), Instant::now() + Duration::from_secs(300)),
+    );
+
+    interleaved
+}
+
+pub async fn resolve_doh(domain: &str) -> Option<String> {
+    let ips = resolve_dual_stack_ips(domain).await;
+    ips.first().map(|ip| ip.to_string())
 }
 
 // ---------------------------------------------------------------------------
-// cfConnectDomain
+// cfConnectDomain (RFC 8305 Happy Eyeballs Dual-Stack Connection)
 // ---------------------------------------------------------------------------
-
-fn new_timed_attempt_timeout(base: Duration, phase: Duration) -> Duration {
-    let mut eff = base;
-    if eff <= Duration::ZERO {
-        eff = Duration::from_secs(5);
-    }
-    if eff > phase {
-        eff = phase;
-    }
-    eff
-}
 
 pub async fn cf_connect_domain(
     domain: &str,
@@ -552,24 +623,26 @@ pub async fn cf_connect_domain(
         phase_timeout = CFPROXY_DIAL_PHASE_TIMEOUT;
     }
 
-    let host_timeout = new_timed_attempt_timeout(phase_timeout, phase_timeout);
-    match ws_connect_once(domain, domain, path, host_timeout).await {
-        Ok(ws) => (Some(ws), String::new(), None),
-        Err(host_err) => {
-            if is_http_status_error(&host_err, 429) {
-                return (None, String::new(), Some(host_err));
-            }
-            let resolved_ip = resolve_doh(domain).await.unwrap_or_default();
-            if resolved_ip.is_empty() {
-                ldebug!(" CF DNS {} -> no result", domain);
-                return (None, String::new(), Some(host_err));
-            }
-            ldebug!(" CF DNS {} -> {}", domain, resolved_ip);
-            let ip_timeout = new_timed_attempt_timeout(phase_timeout, phase_timeout);
-            match ws_connect_once(&resolved_ip, domain, path, ip_timeout).await {
-                Ok(ws) => (Some(ws), resolved_ip, None),
-                Err(e) => (None, resolved_ip, Some(e)),
-            }
+    let candidate_ips = resolve_dual_stack_ips(domain).await;
+    let candidate_addrs: Vec<SocketAddr> = candidate_ips
+        .into_iter()
+        .map(|ip| SocketAddr::new(ip, 443))
+        .collect();
+
+    if candidate_addrs.is_empty() {
+        return (None, String::new(), Some(WsError::Other("no candidate addresses resolved".to_string())));
+    }
+
+    ldebug!(" CF Happy Eyeballs dial {} with {} dual-stack IPs", domain, candidate_addrs.len());
+
+    match ws_connect_happy_eyeballs(domain, path, &candidate_addrs, phase_timeout).await {
+        Ok((ws, winner_addr)) => {
+            let winner_ip = winner_addr.ip().to_string();
+            ldebug!(" CF Happy Eyeballs connected {} -> {}", domain, winner_ip);
+            (Some(ws), winner_ip, None)
+        }
+        Err(e) => {
+            (None, String::new(), Some(e))
         }
     }
 }
@@ -600,10 +673,20 @@ pub async fn probe_domain_latency(domain: &str, dc: i32, timeout: Duration) -> O
         return None;
     }
     let target_host = format!("kws{}.{}", dc, base_domain);
+    let candidate_ips = resolve_dual_stack_ips(&target_host).await;
+    let candidate_addrs: Vec<SocketAddr> = candidate_ips
+        .into_iter()
+        .map(|ip| SocketAddr::new(ip, 443))
+        .collect();
+
+    if candidate_addrs.is_empty() {
+        return None;
+    }
+
     let start = Instant::now();
 
-    match ws_connect_once(&target_host, &target_host, "/apiws", timeout).await {
-        Ok(ws) => {
+    match ws_connect_happy_eyeballs(&target_host, "/apiws", &candidate_addrs, timeout).await {
+        Ok((ws, _winner)) => {
             let rtt = start.elapsed().as_millis() as u64;
             tokio::spawn(async move {
                 let _ = ws.close().await;
@@ -640,16 +723,22 @@ pub async fn race_rank_domains(dc: i32) {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, u64)>(domains.len());
     let mut handles = Vec::new();
 
-    let stagger_step = Duration::from_millis(25);
+    let stagger_step = Duration::from_millis(100);
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(CFPROXY_FALLBACK_PARALLEL));
     for (i, d) in domains.iter().enumerate() {
         let domain = d.clone();
         let tx = tx.clone();
+        let sem = sem.clone();
         let delay = stagger_step * (i as u32);
 
         handles.push(tokio::spawn(async move {
             if delay > Duration::ZERO {
                 tokio::time::sleep(delay).await;
             }
+            let _permit = match sem.acquire().await {
+                Ok(p) => p,
+                Err(_) => return,
+            };
             if let Some(latency_ms) = probe_domain_latency(&domain, dc, CFPROXY_RACE_TIMEOUT).await {
                 let _ = tx.send((domain, latency_ms)).await;
             }
@@ -658,7 +747,7 @@ pub async fn race_rank_domains(dc: i32) {
 
     drop(tx);
 
-    let race_deadline = tokio::time::sleep(Duration::from_millis(1500));
+    let race_deadline = tokio::time::sleep(Duration::from_millis(4000));
     tokio::pin!(race_deadline);
 
     let mut ranked = Vec::new();
@@ -671,9 +760,11 @@ pub async fn race_rank_domains(dc: i32) {
                 match msg {
                     Some((domain, latency_ms)) => {
                         if !first_winner_set {
-                            // Immediately set the fastest domain to balancer for instant 0ms start
-                            crate::balancer::BALANCER.write().update_domain_for_dc(dc, &domain);
-                            linfo!("⚡ Быстрый лидер гонки Anycast: {} ({} ms)", domain, latency_ms);
+                            let current_active = crate::balancer::BALANCER.read().get_active_domain_for_dc(dc);
+                            if current_active.is_none() {
+                                crate::balancer::BALANCER.write().update_domain_for_dc(dc, &domain);
+                                linfo!("⚡ Быстрый лидер гонки Anycast (DC{}, холодный старт): {} ({} ms)", dc, domain, latency_ms);
+                            }
                             first_winner_set = true;
                         }
                         ranked.push((domain, latency_ms));
@@ -690,18 +781,63 @@ pub async fn race_rank_domains(dc: i32) {
 
     if !ranked.is_empty() {
         ranked.sort_by_key(|(_, l)| *l);
-        linfo!("🏁 Итоги Fast Anycast Race (топ-3): {:?}",
+        linfo!("🏁 Итоги Fast Anycast Race (DC{}, топ-3): {:?}", dc,
             ranked.iter().take(3).map(|(d, l)| format!("{}: {}ms", d, l)).collect::<Vec<_>>()
         );
-        crate::balancer::BALANCER.write().update_ranked_domains(ranked);
+        crate::balancer::BALANCER.write().update_ranked_domains_for_dc(dc, ranked);
     }
 }
 
-pub async fn start_background_balancer_loop(cancel_token: tokio_util::sync::CancellationToken) {
-    // 1. Immediate race at startup for 0ms response
+pub async fn race_all_primary_dcs() {
+    let has_user_worker = !CFPROXY.read().user_domain.is_empty();
+    if has_user_worker {
+        return;
+    }
+
+    // 1. DC2 (Core/Chats)
     race_rank_domains(2).await;
 
-    // 2. Periodic race every 60 minutes
+    // 2. DC4 (Media/Files)
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    race_rank_domains(4).await;
+
+    // 3. DC5 (Asia)
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    race_rank_domains(5).await;
+
+    // 4. DC1 (US)
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    race_rank_domains(1).await;
+}
+
+pub async fn start_background_balancer_loop(cancel_token: tokio_util::sync::CancellationToken) {
+    // 1. Immediate race at startup for DC2 (0ms fast start)
+    race_rank_domains(2).await;
+
+    // 2. Background staggered initial race for remaining primary DCs (DC4, DC5, DC1)
+    let cancel_init = cancel_token.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = cancel_init.cancelled() => return,
+            _ = tokio::time::sleep(Duration::from_millis(600)) => {
+                race_rank_domains(4).await;
+            }
+        }
+        tokio::select! {
+            _ = cancel_init.cancelled() => return,
+            _ = tokio::time::sleep(Duration::from_millis(600)) => {
+                race_rank_domains(5).await;
+            }
+        }
+        tokio::select! {
+            _ = cancel_init.cancelled() => return,
+            _ = tokio::time::sleep(Duration::from_millis(600)) => {
+                race_rank_domains(1).await;
+            }
+        }
+    });
+
+    // 3. Periodic race every 60 minutes for all primary DCs
     let mut interval = tokio::time::interval(CFPROXY_RACE_INTERVAL);
     // consume the initial instant tick
     interval.tick().await;
@@ -710,9 +846,53 @@ pub async fn start_background_balancer_loop(cancel_token: tokio_util::sync::Canc
         tokio::select! {
             _ = cancel_token.cancelled() => break,
             _ = interval.tick() => {
-                ldebug!("Плановый запуск Fast Anycast Race (1 раз в 60 минут)...");
-                race_rank_domains(2).await;
+                ldebug!("Плановый запуск Fast Anycast Race для всех DC (1 раз в 60 минут)...");
+                race_all_primary_dcs().await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_doh_cache_clear() {
+        let test_ip = "1.2.3.4".parse::<IpAddr>().unwrap();
+        DOH_CACHE.write().insert(
+            "test.worker.dev".to_string(),
+            (vec![test_ip], Instant::now() + Duration::from_secs(300)),
+        );
+        assert!(DOH_CACHE.read().contains_key("test.worker.dev"));
+
+        clear_doh_cache();
+        assert!(!DOH_CACHE.read().contains_key("test.worker.dev"));
+    }
+
+    #[test]
+    fn test_cfproxy_429_cooldown_clear() {
+        CFPROXY_429.write().insert(
+            "test429.worker.dev".to_string(),
+            crate::config::Cfproxy429State {
+                until: Some(Instant::now() + Duration::from_secs(60)),
+                strikes: 1,
+            },
+        );
+        assert!(cfproxy_429_cooldown_remaining("test429.worker.dev") > Duration::ZERO);
+
+        clear_cfproxy_429_cooldowns();
+        assert_eq!(cfproxy_429_cooldown_remaining("test429.worker.dev"), Duration::ZERO);
+    }
+
+    #[test]
+    fn test_interleave_dual_stack_ips() {
+        let v6_1 = "2606:4700::1".parse::<IpAddr>().unwrap();
+        let v6_2 = "2606:4700::2".parse::<IpAddr>().unwrap();
+        let v4_1 = "1.1.1.1".parse::<IpAddr>().unwrap();
+        let v4_2 = "1.0.0.1".parse::<IpAddr>().unwrap();
+
+        let interleaved = interleave_dual_stack_ips(vec![v6_1, v6_2], vec![v4_1, v4_2]);
+        assert_eq!(interleaved, vec![v6_1, v4_1, v6_2, v4_2]);
     }
 }
