@@ -25,6 +25,10 @@ class UpdateCheckerTest {
         assertEquals("1.1.4", UpdateChecker.cleanVersionString("1.1.4"))
         assertEquals("1.1.4", UpdateChecker.cleanVersionString("Mirrly TG Proxy v1.1.4"))
         assertEquals("1.1.4", UpdateChecker.cleanVersionString("v1.1.4-release"))
+        assertEquals("1.1.5", UpdateChecker.cleanVersionString("v1.1.5"))
+        assertEquals("1.1.5", UpdateChecker.cleanVersionString("1.1.5"))
+        assertEquals("1.1.5", UpdateChecker.cleanVersionString("Mirrly TG Proxy v1.1.5"))
+        assertEquals("1.1.5", UpdateChecker.cleanVersionString("v1.1.5-release"))
     }
 
     @Test
@@ -37,8 +41,10 @@ class UpdateCheckerTest {
         assertTrue(UpdateChecker.isVersionNewer("1.1.4", "1.1.3.1"))
         assertTrue(UpdateChecker.isVersionNewer("v1.1.4", "1.1.3.1"))
         assertTrue(UpdateChecker.isVersionNewer("1.1.5", "1.1.4"))
-        assertTrue(UpdateChecker.isVersionNewer("1.2.0", "1.1.4"))
-        assertTrue(UpdateChecker.isVersionNewer("2.0.0", "1.1.4"))
+        assertTrue(UpdateChecker.isVersionNewer("1.1.6", "1.1.5"))
+        assertTrue(UpdateChecker.isVersionNewer("v1.1.6", "1.1.5"))
+        assertTrue(UpdateChecker.isVersionNewer("1.2.0", "1.1.5"))
+        assertTrue(UpdateChecker.isVersionNewer("2.0.0", "1.1.5"))
         assertTrue(UpdateChecker.isVersionNewer("1.1.10", "1.1.9"))
 
         // Self-update prevention and older version checks
@@ -62,7 +68,13 @@ class UpdateCheckerTest {
         assertFalse(UpdateChecker.isVersionNewer("v1.1.4", "1.1.4"))
         assertFalse(UpdateChecker.isVersionNewer("1.1.4", "v1.1.4"))
         assertFalse(UpdateChecker.isVersionNewer("v1.1.4-release", "1.1.4"))
+        assertFalse(UpdateChecker.isVersionNewer("1.1.4", "1.1.5"))
+        assertFalse(UpdateChecker.isVersionNewer("v1.1.4", "1.1.5"))
+        assertFalse(UpdateChecker.isVersionNewer("1.1.5", "1.1.5"))
+        assertFalse(UpdateChecker.isVersionNewer("v1.1.5", "1.1.5"))
+        assertFalse(UpdateChecker.isVersionNewer("1.1.5", "v1.1.5"))
+        assertFalse(UpdateChecker.isVersionNewer("v1.1.5-release", "1.1.5"))
         assertFalse(UpdateChecker.isVersionNewer("", "1.0.5"))
-        assertFalse(UpdateChecker.isVersionNewer("1.1.4", ""))
+        assertFalse(UpdateChecker.isVersionNewer("1.1.5", ""))
     }
 }

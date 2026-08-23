@@ -41,7 +41,7 @@ data class ProxyConfig(
     var autostartOnBoot: Boolean = true,
     var verboseLogs: Boolean = true,
     var isTestEnvironment: Boolean = false,
-    var speedPresetName: String = SpeedPreset.BALANCED.name,
+    var speedPresetName: String = SpeedPreset.AUTO.name,
     var tcpNoDelayModeName: String = TcpNoDelayMode.AUTO.name,
     var tcpNoDelay: Boolean = true,
     var bufferSizeBytes: Int = 262144, // 256KB default buffer
@@ -52,7 +52,7 @@ data class ProxyConfig(
     var proxyModeName: String = ProxyMode.MTPROTO.name
 ) {
     val speedPreset: SpeedPreset
-        get() = try { SpeedPreset.valueOf(speedPresetName) } catch (_: Exception) { SpeedPreset.BALANCED }
+        get() = try { SpeedPreset.valueOf(speedPresetName) } catch (_: Exception) { SpeedPreset.AUTO }
 
     val isAutoSpeedPreset: Boolean
         get() = speedPreset == SpeedPreset.AUTO
@@ -81,20 +81,18 @@ data class ProxyConfig(
     }
 
     /** Возвращает эффективный CF-домен:
-     *  - В режиме SOCKS5: используется пользовательский воркер (100% приоритет) или дефолтный SOCKS5 воркер (если включен useDefaultWorkerSocks5).
+     *  - В режиме SOCKS5: используется пользовательский воркер (100% приоритет) или дефолтный узел разработчика.
      *  - В режиме MTProto: домен воркера используется ТОЛЬКО если пользователь включил переключатель applyWorkerToMtproto; иначе MTProto туннелируется через Anycast CDN пул.
      */
     fun getEffectiveCfDomain(): String {
         val userDomain = sanitizeDomain(customCfDomain)
         if (isSocks5Mode) {
             if (userDomain.isNotEmpty()) return userDomain
-            if (useDefaultWorkerSocks5) {
-                return TgConstants.DEFAULT_SOCKS5_DEV_WORKER
-            }
-            return ""
+            return TgConstants.DEFAULT_SOCKS5_DEV_WORKER
         } else {
-            if (applyWorkerToMtproto && userDomain.isNotEmpty()) {
-                return userDomain
+            if (applyWorkerToMtproto) {
+                if (userDomain.isNotEmpty()) return userDomain
+                return TgConstants.DEFAULT_SOCKS5_DEV_WORKER
             }
             return ""
         }

@@ -436,7 +436,9 @@ fun SettingsScreen(
     var showSecret by remember { mutableStateOf(false) }
     var customDomainText by remember { mutableStateOf(config.customCfDomain) }
 
-    var selectedMode by remember { mutableStateOf(config.proxyMode) }
+    val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
+    val isSwitching by com.mirrly.tgproxy.service.ProtocolSwitchManager.isSwitching.collectAsState()
+    val selectedMode = if (isSocks5) ProxyMode.SOCKS5 else ProxyMode.MTPROTO
 
     val poolOptions = remember { listOf(2f, 4f, 8f, 16f) }
     var poolSize by remember { mutableFloatStateOf(config.poolSize.toFloat()) }
@@ -543,10 +545,6 @@ fun SettingsScreen(
                 "Управляет маршрутизацией нативного протокола MTProto через Cloudflare Worker:\n\n" +
                 "• Включено:\nТрафик MTProto туннелируется через активный воркер (из Менеджера воркеров или ваш личный узел). Рекомендуется, если у вас развернут собственный воркер для максимальной приватности.\n\n" +
                 "• Выключено (по умолчанию):\nИспользуется глобальный пул Anycast CDN Cloudflare (20 встроенных балансируемых узлов). Это не расходует дневной лимит запросов вашего воркера и обеспечивает максимальную скорость."
-            "worker_socks5" -> "Воркер по умолчанию (SOCKS5)" to
-                "Включает использование встроенного Cloudflare Worker для режима SOCKS5.\n\n" +
-                "• SOCKS5 требует открытия произвольных TCP-соединений (в том числе к серверам звонков Telegram VoIP Reflectors), что возможно только через Cloudflare Worker с API cloudflare:sockets.\n\n" +
-                "• При наличии указанного личного кастомного воркера он автоматически используется с 100% приоритетом."
             "pool" -> "Размер пула сокетов" to
                 "Количество WebSocket-соединений, которые прокси держит открытыми заранее (pre-warming).\n\nБольший пул = меньше задержка при открытии чата и загрузке медиа:\n• 2 — минимальный расход батареи и RAM (Эко)\n• 4 — баланс скорости и экономии (Баланс, рекомендуется)\n• 8 — быстрый отклик, умеренный расход (Турбо)\n• 16 — максимальная параллелизация соединений (Ультра)\n\nКаждое соединение занимает ~50–100 КБ RAM и поддерживает фоновое соединение с Cloudflare."
             "autostart" -> "Автозапуск при загрузке" to
@@ -655,10 +653,9 @@ fun SettingsScreen(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null
                                 ) {
+                                    if (isSwitching || selectedMode == mode) return@clickable
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    selectedMode = mode
-                                    config.proxyModeName = mode.name
-                                    restartProxyIfNeeded()
+                                    com.mirrly.tgproxy.service.ProtocolSwitchManager.switchProtocol(context, mode)
                                 }
                                 .padding(vertical = 12.dp),
                             contentAlignment = Alignment.Center
@@ -1369,34 +1366,6 @@ fun SettingsScreen(
                         onCheckedChange = { newValue ->
                             applyWorkerToMtproto = newValue
                             config.applyWorkerToMtproto = newValue
-                            app.saveConfig()
-                            restartProxyIfNeeded()
-                        }
-                    )
-                }
-
-                // SOCKS5 Default Worker Toggle
-                var useDefaultWorkerSocks5 by remember { mutableStateOf(config.useDefaultWorkerSocks5) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Воркер по умолчанию (SOCKS5)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "worker_socks5" }
-                        }
-                        Text("Использовать встроенный Cloudflare воркер для звонков и чатов в SOCKS5 режиме. При наличии кастомного воркера он имеет приоритет.", color = TextMuted, fontSize = 11.5.sp)
-                    }
-                    InertialSpringSwitch(
-                        checked = useDefaultWorkerSocks5,
-                        onCheckedChange = { newValue ->
-                            useDefaultWorkerSocks5 = newValue
-                            config.useDefaultWorkerSocks5 = newValue
                             app.saveConfig()
                             restartProxyIfNeeded()
                         }

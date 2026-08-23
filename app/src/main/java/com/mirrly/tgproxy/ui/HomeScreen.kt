@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,7 +56,9 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -82,6 +85,7 @@ import com.mirrly.tgproxy.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class ProxyUiState {
@@ -100,10 +104,13 @@ fun HomeScreen(
     onOpenUpdate: () -> Unit = {},
     onOpenWorkerGuide: () -> Unit = {},
     onOpenWorkerManager: () -> Unit = {},
+    onDragWorkerManager: (Float) -> Unit = {},
+    onSettleWorkerManager: (Float) -> Unit = {},
     onUiHiddenChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
     val app = MirrlyApplication.instance
     val server = app.proxyServer
 
@@ -144,7 +151,15 @@ fun HomeScreen(
     var pendingState by remember { mutableStateOf<ProxyUiState?>(null) }
     var lastPowerClickMs by remember { mutableLongStateOf(0L) }
 
-    val currentState = pendingState ?: if (isRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
+    val isSwitching by com.mirrly.tgproxy.service.ProtocolSwitchManager.isSwitching.collectAsState()
+    val switchPhase by com.mirrly.tgproxy.service.ProtocolSwitchManager.switchPhase.collectAsState()
+
+    val currentState = when (switchPhase) {
+        com.mirrly.tgproxy.service.SwitchPhase.DISCONNECTING -> ProxyUiState.DISCONNECTING
+        com.mirrly.tgproxy.service.SwitchPhase.SWITCHING_ACCENT -> ProxyUiState.DISCONNECTED
+        com.mirrly.tgproxy.service.SwitchPhase.RECONNECTING -> ProxyUiState.CONNECTING
+        com.mirrly.tgproxy.service.SwitchPhase.IDLE -> pendingState ?: if (isRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
+    }
 
     var dlSpeed by remember { mutableStateOf("0 Б/с") }
     var ulSpeed by remember { mutableStateOf("0 Б/с") }
@@ -237,6 +252,11 @@ fun HomeScreen(
         label = "pulseAlpha"
     )
 
+    fun switchProtocol(target: com.mirrly.tgproxy.core.ProxyMode? = null) {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        com.mirrly.tgproxy.service.ProtocolSwitchManager.switchProtocol(context, target)
+    }
+
     val pureBlack = Color(0xFF000000)
 
     Scaffold(
@@ -248,61 +268,17 @@ fun HomeScreen(
                 },
                 title = {
                     val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onOpenWorkerManager()
-                            }
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = "Mirrly",
-                                color = TextWhite,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 15.sp,
-                                letterSpacing = 0.5.sp
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (isSocks5) "SOCKS5" else "MTProto",
-                                color = protoColors.primary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.5.sp,
-                                letterSpacing = 0.2.sp
-                            )
-                        }
 
-                        if (isSocks5) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier
-                                    .padding(top = 2.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.White.copy(alpha = 0.08f))
-                                    .padding(horizontal = 10.dp, vertical = 2.5.dp)
-                            ) {
-                                Text(
-                                    text = activeWorker.name,
-                                    color = protoColors.primary,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
+                    ProtocolSwitcherHeader(
+                        isSocks5 = isSocks5,
+                        activeWorker = activeWorker,
+                        protoColors = protoColors,
+                        isSwitching = isSwitching,
+                        onSwitchProtocol = { target ->
+                            switchProtocol(target)
+                        },
+                        onOpenWorkerManager = onOpenWorkerManager
+                    )
                 },
                 navigationIcon = {
                     Row(
@@ -457,7 +433,29 @@ fun HomeScreen(
                                 }
                             )
                         }
-                    } else Modifier
+                    } else {
+                        Modifier.pointerInput(Unit) {
+                            var totalDragY = 0f
+                            detectVerticalDragGestures(
+                                onDragStart = { totalDragY = 0f },
+                                onDragEnd = {
+                                    onSettleWorkerManager(totalDragY)
+                                    totalDragY = 0f
+                                },
+                                onDragCancel = {
+                                    onSettleWorkerManager(0f)
+                                    totalDragY = 0f
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    if (dragAmount > 0f || totalDragY > 0f) {
+                                        change.consume()
+                                    }
+                                    totalDragY += dragAmount
+                                    onDragWorkerManager(totalDragY)
+                                }
+                            )
+                        }
+                    }
                 )
         ) {
             val screenHeight = maxHeight
@@ -628,7 +626,7 @@ fun HomeScreen(
                                 interactionSource = powerInteractionSource,
                                 indication = null
                             ) {
-                                if (pendingState != null) return@clickable
+                                if (pendingState != null || isSwitching) return@clickable
                                 val now = System.currentTimeMillis()
                                 if (now - lastPowerClickMs < 450L) return@clickable
                                 lastPowerClickMs = now
@@ -702,13 +700,6 @@ fun HomeScreen(
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp)
                                 .padding(bottom = if (isCompactHeight) 5.dp else 7.dp)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onOpenWorkerManager()
-                                }
                         ) {
                             Text(
                                 text = "${activeWorker.name} (Общий пул)",
@@ -1730,6 +1721,254 @@ fun WsPoolStabilityGraph(
             fontWeight = FontWeight.Bold,
             letterSpacing = 1.2.sp
         )
+    }
+}
+
+/**
+ * Modern tactile Protocol Switcher Header.
+ * Supports smooth horizontal drag gestures with physics resistance,
+ * instant tap switching, sliding pill indicator, anti-spam locking,
+ * static pill position, app title "Мирли", and elegant drop-down active worker badge in SOCKS5 mode.
+ */
+@Composable
+fun ProtocolSwitcherHeader(
+    isSocks5: Boolean,
+    activeWorker: com.mirrly.tgproxy.core.WorkerProfile,
+    protoColors: ProtocolColors,
+    isSwitching: Boolean,
+    onSwitchProtocol: (com.mirrly.tgproxy.core.ProxyMode) -> Unit,
+    onOpenWorkerManager: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+
+    // Drag offset for tactile horizontal swipe gesture
+    val dragOffsetX = remember { Animatable(0f) }
+    val badgeInteractionSource = remember { MutableInteractionSource() }
+    val capsuleWidth = 168.dp
+    val capsuleHeight = 31.dp
+    val tabWidth = capsuleWidth / 2
+    val badgeOffsetY = with(density) { (capsuleHeight + 3.dp).roundToPx() }
+
+    val animatedPillOffset by animateDpAsState(
+        targetValue = if (isSocks5) tabWidth else 0.dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "protoPillOffset"
+    )
+
+    val totalOffsetX = animatedPillOffset + with(density) { dragOffsetX.value.toDp() }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+    ) {
+        // App Title "Мирли" placed cleanly above the switcher
+        Text(
+            text = "Мирли",
+            color = TextWhite,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 0.6.sp,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(2.5.dp))
+
+        // Switcher Pill and Dropdown Container (anchored so height does NOT shift pill/title position)
+        Box(
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(capsuleWidth)
+                    .height(capsuleHeight)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF0D1017).copy(alpha = 0.95f))
+                    .border(
+                        width = 1.dp,
+                        color = Color(0xFF1E2434),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    .pointerInput(isSocks5, isSwitching) {
+                        if (isSwitching) return@pointerInput
+                        detectHorizontalDragGestures(
+                            onDragStart = {
+                                scope.launch { dragOffsetX.stop() }
+                            },
+                            onDragEnd = {
+                                val currentDrag = dragOffsetX.value
+                                val thresholdPx = with(density) { 18.dp.toPx() }
+                                scope.launch {
+                                    if (!isSocks5 && currentDrag > thresholdPx) {
+                                        onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
+                                    } else if (isSocks5 && currentDrag < -thresholdPx) {
+                                        onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
+                                    }
+                                    dragOffsetX.animateTo(
+                                        0f,
+                                        spring(
+                                            dampingRatio = Spring.DampingRatioLowBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    )
+                                }
+                            },
+                            onDragCancel = {
+                                scope.launch {
+                                    dragOffsetX.animateTo(
+                                        0f,
+                                        spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    )
+                                }
+                            },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                val current = dragOffsetX.value
+                                val damped = dragAmount * 0.40f
+                                val newOffset = if (!isSocks5) {
+                                    (current + damped).coerceIn(-6f, with(density) { tabWidth.toPx() } + 6f)
+                                } else {
+                                    (current + damped).coerceIn(-with(density) { tabWidth.toPx() } - 6f, 6f)
+                                }
+                                scope.launch { dragOffsetX.snapTo(newOffset) }
+                            }
+                        )
+                    }
+            ) {
+                // Sliding Glowing Indicator Pill
+                Box(
+                    modifier = Modifier
+                        .offset(x = totalOffsetX.coerceIn(0.dp, tabWidth))
+                        .width(tabWidth)
+                        .fillMaxHeight()
+                        .padding(2.5.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(protoColors.primary.copy(alpha = 0.16f))
+                        .border(
+                            1.dp,
+                            protoColors.primary.copy(alpha = 0.55f),
+                            RoundedCornerShape(13.dp)
+                        )
+                )
+
+                // Segment Labels Row
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // MTProto Tab
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                if (!isSwitching && isSocks5) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "MTProto",
+                            color = if (!isSocks5) protoColors.primary else TextMuted,
+                            fontSize = 12.sp,
+                            fontWeight = if (!isSocks5) FontWeight.Bold else FontWeight.Medium,
+                            letterSpacing = 0.3.sp
+                        )
+                    }
+
+                    // SOCKS5 Tab
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                if (!isSwitching && !isSocks5) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "SOCKS5",
+                            color = if (isSocks5) protoColors.primary else TextMuted,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSocks5) FontWeight.Bold else FontWeight.Medium,
+                            letterSpacing = 0.3.sp
+                        )
+                    }
+                }
+            }
+
+            // SOCKS5 Active Worker Indicator Dropdown Badge
+            // Rendered below the pill without modifying the parent Box measured bounds,
+            // preventing any upward shifting of the pill or title.
+            Box(
+                modifier = Modifier
+                    .layout { measurable, constraints ->
+                        val placeable = measurable.measure(constraints)
+                        layout(placeable.width, 0) {
+                            placeable.placeRelative(0, badgeOffsetY)
+                        }
+                    }
+            ) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = isSocks5,
+                    enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(160)) + shrinkVertically(tween(160))
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF10141D).copy(alpha = 0.96f))
+                            .border(0.8.dp, protoColors.primary.copy(alpha = 0.30f), RoundedCornerShape(8.dp))
+                            .clickable(
+                                interactionSource = badgeInteractionSource,
+                                indication = null
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onOpenWorkerManager()
+                            }
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(4.5.dp)
+                                .clip(CircleShape)
+                                .background(protoColors.primary)
+                        )
+                        Spacer(modifier = Modifier.width(4.5.dp))
+                        Text(
+                            text = activeWorker.name,
+                            color = protoColors.primary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

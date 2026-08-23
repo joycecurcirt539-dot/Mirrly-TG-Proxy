@@ -27,6 +27,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
+import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -146,16 +147,66 @@ class MainActivity : ComponentActivity() {
                 val screenStack = remember { mutableStateListOf("home") }
                 val currentScreen = screenStack.lastOrNull() ?: "home"
                 var lastBackTime by remember { mutableLongStateOf(0L) }
+                val scope = rememberCoroutineScope()
+
+                val workerManagerOpenProgress = remember { Animatable(0f) }
+                val isWorkerManager = currentScreen == "worker_manager"
+                val isWorkerGuide = currentScreen == "worker_guide"
+
+                // Synchronize workerManagerOpenProgress with current screen
+                LaunchedEffect(currentScreen) {
+                    if (isWorkerManager) {
+                        if (workerManagerOpenProgress.value < 0.99f) {
+                            workerManagerOpenProgress.animateTo(
+                                1f,
+                                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                            )
+                        }
+                    } else if (currentScreen == "home") {
+                        if (workerManagerOpenProgress.value > 0.01f) {
+                            workerManagerOpenProgress.animateTo(
+                                0f,
+                                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                            )
+                        }
+                    }
+                }
 
                 fun navigateTo(screen: String) {
                     if (screenStack.lastOrNull() != screen) {
                         screenStack.add(screen)
+                        if (screen == "worker_manager") {
+                            scope.launch {
+                                workerManagerOpenProgress.animateTo(
+                                    1f,
+                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                )
+                            }
+                        }
                     }
                 }
 
+                var isNavigatingBack by remember { mutableStateOf(false) }
+
                 fun navigateBack() {
+                    if (isNavigatingBack) return
                     if (screenStack.size > 1) {
-                        screenStack.removeAt(screenStack.size - 1)
+                        isNavigatingBack = true
+                        val topScreen = screenStack.removeAt(screenStack.size - 1)
+                        if (topScreen == "worker_manager") {
+                            scope.launch {
+                                workerManagerOpenProgress.animateTo(
+                                    0f,
+                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                )
+                                isNavigatingBack = false
+                            }
+                        } else {
+                            scope.launch {
+                                delay(250)
+                                isNavigatingBack = false
+                            }
+                        }
                     } else {
                         val now = System.currentTimeMillis()
                         if (now - lastBackTime < 2000) {
@@ -171,17 +222,24 @@ class MainActivity : ComponentActivity() {
                     navigateBack()
                 }
 
-                val blurRadius by animateDpAsState(
-                    targetValue = if (currentScreen == "home") 0.dp else 12.dp,
+                val standardBlurRadius by animateDpAsState(
+                    targetValue = if (currentScreen == "home") 0.dp else 16.dp,
                     animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
                     label = "canvasBlur"
                 )
 
-                val backdropAlpha by animateFloatAsState(
-                    targetValue = if (currentScreen == "home") 0f else 0.45f,
+                val standardBackdropAlpha by animateFloatAsState(
+                    targetValue = if (currentScreen == "home") 0f else 0.48f,
                     animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
                     label = "backdropAlpha"
                 )
+
+                val wmProgress = workerManagerOpenProgress.value
+                val isInteractiveWm = (currentScreen == "home" || isWorkerManager) && !isWorkerGuide
+
+                val activeBlurRadius = if (currentScreen == "home") (wmProgress * 16f).dp else 16.dp
+                val activeBackdropAlpha = if (currentScreen == "home") (wmProgress * 0.48f) else 0.48f
+                val homeBlurRadius = if (currentScreen == "home") (wmProgress * 16f).dp else 16.dp
 
                 var isUiHidden by remember { mutableStateOf(false) }
                 val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
@@ -193,8 +251,8 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .graphicsLayer {
                                 compositingStrategy = CompositingStrategy.Offscreen
-                                if (blurRadius > 0.5.dp && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    val radiusPx = blurRadius.toPx()
+                                if (activeBlurRadius > 0.5.dp && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    val radiusPx = activeBlurRadius.toPx()
                                     renderEffect = RenderEffect.createBlurEffect(
                                         radiusPx,
                                         radiusPx,
@@ -205,8 +263,8 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             .then(
-                                if (blurRadius > 0.5.dp && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                                    Modifier.blur(blurRadius)
+                                if (activeBlurRadius > 0.5.dp && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                                    Modifier.blur(activeBlurRadius)
                                 } else {
                                     Modifier
                                 }
@@ -220,11 +278,11 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // Gaussian Frosted Dark Backdrop Overlay for Non-Home Tabs
-                    if (backdropAlpha > 0.01f) {
+                    if (activeBackdropAlpha > 0.01f) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color.Black.copy(alpha = backdropAlpha))
+                                .background(Color.Black.copy(alpha = activeBackdropAlpha))
                         )
                     }
 
@@ -240,8 +298,6 @@ class MainActivity : ComponentActivity() {
                     val isLicense = currentScreen == "license"
                     val isTerms = currentScreen == "terms"
                     val isUpdate = currentScreen == "update"
-                    val isWorkerGuide = currentScreen == "worker_guide"
-                    val isWorkerManager = currentScreen == "worker_manager"
 
                     // Animated offsets & scales for Update screen
                     val updateOffsetFraction by animateFloatAsState(
@@ -279,38 +335,11 @@ class MainActivity : ComponentActivity() {
 
                     val heightPx = constraints.maxHeight.toFloat()
 
-                    // Animated offsets & scales for Worker Manager screen (Top-to-bottom slide dropdown)
-                    val workerManagerOffsetYFraction by animateFloatAsState(
-                        targetValue = when {
-                            isWorkerManager -> 0f
-                            isWorkerGuide -> -0.15f
-                            else -> -1.0f
-                        },
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        ),
-                        label = "workerManagerOffsetY"
-                    )
-                    val workerManagerScale by animateFloatAsState(
-                        targetValue = if (isWorkerManager) 1.0f else 0.93f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        ),
-                        label = "workerManagerScale"
-                    )
-                    val workerManagerAlpha by animateFloatAsState(
-                        targetValue = if (isWorkerManager) 1.0f else 0.0f,
-                        animationSpec = tween(260, easing = FastOutSlowInEasing),
-                        label = "workerManagerAlpha"
-                    )
-
                     // Animated offsets & scales for Home screen
                     val homeOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings || isAbout || isLicense || isTerms || isUpdate || isWorkerGuide || isWorkerManager -> -0.15f
+                            isSettings || isAbout || isLicense || isTerms || isUpdate || isWorkerGuide -> -0.15f
                             isLogs || isHistory -> 0.15f
                             else -> 0f
                         },
@@ -442,16 +471,36 @@ class MainActivity : ComponentActivity() {
                         label = "termsAlpha"
                     )
 
-                    // 1. HOME SCREEN (Pre-warmed & persistent)
+                    // 1. HOME SCREEN (Pre-warmed & persistent with real-time blur)
+                    val homeScaleEffective = if (isInteractiveWm) (1.0f - 0.04f * wmProgress) else homeScale
+                    val homeAlphaEffective = if (isInteractiveWm) (1.0f - 0.25f * wmProgress) else homeAlpha
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
                                 translationX = widthPx * homeOffsetFraction
-                                scaleX = homeScale
-                                scaleY = homeScale
-                                alpha = homeAlpha
+                                scaleX = homeScaleEffective
+                                scaleY = homeScaleEffective
+                                alpha = homeAlphaEffective
+                                if (homeBlurRadius > 0.5.dp && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    val radiusPx = homeBlurRadius.toPx()
+                                    renderEffect = RenderEffect.createBlurEffect(
+                                        radiusPx,
+                                        radiusPx,
+                                        Shader.TileMode.CLAMP
+                                    ).asComposeRenderEffect()
+                                } else {
+                                    renderEffect = null
+                                }
                             }
+                            .then(
+                                if (homeBlurRadius > 0.5.dp && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                                    Modifier.blur(homeBlurRadius)
+                                } else {
+                                    Modifier
+                                }
+                            )
                     ) {
                         HomeScreen(
                             onOpenSettings = { navigateTo("settings") },
@@ -460,6 +509,42 @@ class MainActivity : ComponentActivity() {
                             onOpenUpdate = { navigateTo("update") },
                             onOpenWorkerGuide = { navigateTo("worker_guide") },
                             onOpenWorkerManager = { navigateTo("worker_manager") },
+                            onDragWorkerManager = { totalDragY ->
+                                if (totalDragY > 0f) {
+                                    val fraction = (totalDragY / (heightPx * 0.35f)).coerceIn(0f, 1f)
+                                    scope.launch { workerManagerOpenProgress.snapTo(fraction) }
+                                } else {
+                                    scope.launch { workerManagerOpenProgress.snapTo(0f) }
+                                }
+                            },
+                            onSettleWorkerManager = { totalDragY ->
+                                if (totalDragY > 0f) {
+                                    val fraction = (totalDragY / (heightPx * 0.35f)).coerceIn(0f, 1f)
+                                    if (fraction > 0.18f) {
+                                        scope.launch {
+                                            workerManagerOpenProgress.animateTo(
+                                                1f,
+                                                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                            )
+                                            navigateTo("worker_manager")
+                                        }
+                                    } else {
+                                        scope.launch {
+                                            workerManagerOpenProgress.animateTo(
+                                                0f,
+                                                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    scope.launch {
+                                        workerManagerOpenProgress.animateTo(
+                                            0f,
+                                            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                        )
+                                    }
+                                }
+                            },
                             onUiHiddenChange = { hidden ->
                                 isUiHidden = hidden
                             }
@@ -519,16 +604,47 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // WORKER MANAGER SCREEN (Top-to-bottom slide dropdown)
+                    // WORKER MANAGER SCREEN (Interactive Bottom-to-Top slide up sheet with blur when guide is open)
+                    val wmOffsetYFraction = when {
+                        isWorkerGuide -> -0.15f
+                        else -> (1.0f - wmProgress)
+                    }
+                    val wmScale = when {
+                        isWorkerGuide -> 0.94f
+                        else -> 0.94f + 0.06f * wmProgress
+                    }
+                    val wmAlpha = when {
+                        isWorkerGuide -> (1.0f - workerGuideOffsetFraction).coerceIn(0f, 1f)
+                        else -> (wmProgress * 1.5f).coerceIn(0f, 1f)
+                    }
+                    val wmGuideBlurRadius = if (isWorkerGuide) 16.dp else 0.dp
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                translationY = heightPx * workerManagerOffsetYFraction
-                                scaleX = workerManagerScale
-                                scaleY = workerManagerScale
-                                alpha = workerManagerAlpha
+                                translationY = heightPx * wmOffsetYFraction
+                                scaleX = wmScale
+                                scaleY = wmScale
+                                alpha = wmAlpha
+                                if (wmGuideBlurRadius > 0.5.dp && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    val radiusPx = wmGuideBlurRadius.toPx()
+                                    renderEffect = RenderEffect.createBlurEffect(
+                                        radiusPx,
+                                        radiusPx,
+                                        Shader.TileMode.CLAMP
+                                    ).asComposeRenderEffect()
+                                } else {
+                                    renderEffect = null
+                                }
                             }
+                            .then(
+                                if (wmGuideBlurRadius > 0.5.dp && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                                    Modifier.blur(wmGuideBlurRadius)
+                                } else {
+                                    Modifier
+                                }
+                            )
                     ) {
                         WorkerManagerScreen(
                             prefs = app.prefsManager,
@@ -666,7 +782,7 @@ class MainActivity : ComponentActivity() {
                                     onSuccess = { added ->
                                         app.prefsManager.setActiveWorkerId(added.id)
                                         pendingImportWorker = null
-                                        Toast.makeText(applicationContext, "Воркер «${added.name}» импортирован и активирован ⚡", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(applicationContext, "Воркер «${added.name}» импортирован и активирован", Toast.LENGTH_LONG).show()
                                     },
                                     onFailure = { err ->
                                         // If already exists, activate it
@@ -674,7 +790,7 @@ class MainActivity : ComponentActivity() {
                                         if (existing != null) {
                                             app.prefsManager.setActiveWorkerId(existing.id)
                                             pendingImportWorker = null
-                                            Toast.makeText(applicationContext, "Воркер уже был в списке и теперь активирован ⚡", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(applicationContext, "Воркер уже был в списке и теперь активирован", Toast.LENGTH_LONG).show()
                                         } else {
                                             Toast.makeText(applicationContext, err.message ?: "Ошибка импорта", Toast.LENGTH_SHORT).show()
                                         }
@@ -750,97 +866,4 @@ class MainActivity : ComponentActivity() {
             }
         } catch (_: Exception) {}
     }
-}
-
-@Composable
-fun ImportWorkerDialog(
-    name: String,
-    domain: String,
-    onDismiss: () -> Unit,
-    onImport: (name: String, domain: String) -> Unit
-) {
-    var editName by remember { mutableStateOf(name) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF0F172A),
-        shape = RoundedCornerShape(20.dp),
-        title = {
-            Text(
-                text = "📥 Импорт Cloudflare Worker",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Вы открыли ссылку для подключения Cloudflare Worker. Хотите добавить этот узел в список и сразу активировать?",
-                    color = Color.White.copy(alpha = 0.75f),
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp
-                )
-
-                OutlinedTextField(
-                    value = editName,
-                    onValueChange = { editName = it },
-                    label = { Text("Название воркера (не обязательно)") },
-                    placeholder = { Text("например: От друга (опционально)", color = Color.White.copy(alpha = 0.35f)) },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF00E676),
-                        unfocusedBorderColor = Color(0xFF334155),
-                        focusedLabelColor = Color(0xFF00E676),
-                        unfocusedLabelColor = Color.White.copy(alpha = 0.5f),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF1E293B).copy(alpha = 0.5f),
-                    border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = "ДОМЕН УЗЛА",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00E5FF),
-                            letterSpacing = 0.8.sp
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = domain,
-                            fontSize = 13.sp,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            color = Color.White
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onImport(editName, domain) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF00E676),
-                    contentColor = Color(0xFF0A0E1A)
-                ),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text("Импортировать ⚡", fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Отмена", color = Color.White.copy(alpha = 0.7f))
-            }
-        }
-    )
 }

@@ -89,6 +89,7 @@ object AppLogger {
         _logEvents.tryEmit(LogEvent.Added(entry))
     }
 
+    fun d(tag: String, message: String) = log(LogLevel.INFO, tag, message)
     fun i(tag: String, message: String) = log(LogLevel.INFO, tag, message)
     fun w(tag: String, message: String) = log(LogLevel.WARN, tag, message)
     fun e(tag: String, message: String) = log(LogLevel.ERROR, tag, message)

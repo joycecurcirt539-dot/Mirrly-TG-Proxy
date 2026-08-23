@@ -88,29 +88,29 @@ class ProxyConfigTest {
     fun testGetEffectiveCfDomainMtprotoDefaultEmpty() {
         val config = ProxyConfig(
             proxyModeName = ProxyMode.MTPROTO.name,
-            customCfDomain = ""
+            customCfDomain = "",
+            applyWorkerToMtproto = false
         )
         assertEquals("", config.getEffectiveCfDomain())
+    }
+
+    @Test
+    fun testGetEffectiveCfDomainMtprotoEnabledWithEmptyDomainUsesDevWorker() {
+        val config = ProxyConfig(
+            proxyModeName = ProxyMode.MTPROTO.name,
+            customCfDomain = "",
+            applyWorkerToMtproto = true
+        )
+        assertEquals(TgConstants.DEFAULT_SOCKS5_DEV_WORKER, config.getEffectiveCfDomain())
     }
 
     @Test
     fun testGetEffectiveCfDomainSocks5DefaultUsesDevWorker() {
         val config = ProxyConfig(
             proxyModeName = ProxyMode.SOCKS5.name,
-            customCfDomain = "",
-            useDefaultWorkerSocks5 = true
+            customCfDomain = ""
         )
         assertEquals(TgConstants.DEFAULT_SOCKS5_DEV_WORKER, config.getEffectiveCfDomain())
-    }
-
-    @Test
-    fun testGetEffectiveCfDomainSocks5DisabledWorkerEmpty() {
-        val config = ProxyConfig(
-            proxyModeName = ProxyMode.SOCKS5.name,
-            customCfDomain = "",
-            useDefaultWorkerSocks5 = false
-        )
-        assertEquals("", config.getEffectiveCfDomain())
     }
 
     @Test
@@ -136,12 +136,12 @@ class ProxyConfigTest {
     }
 
     @Test
-    fun testDefaultPoolSizeAndBalancedPreset() {
+    fun testDefaultPoolSizeAndAutoPreset() {
         val config = ProxyConfig()
         assertEquals(4, config.poolSize, "Default poolSize should be 4 sockets per DC to prevent battery drain")
-        assertEquals(SpeedPreset.BALANCED, config.speedPreset)
-        assertEquals(4, SpeedPreset.BALANCED.defaultPoolSize)
-        assertEquals(262144, SpeedPreset.BALANCED.defaultBufferSizeBytes)
+        assertEquals(SpeedPreset.AUTO, config.speedPreset)
+        assertEquals(4, SpeedPreset.AUTO.defaultPoolSize)
+        assertEquals(262144, SpeedPreset.AUTO.defaultBufferSizeBytes)
     }
 
     @Test

@@ -400,7 +400,6 @@ pub async fn bridge_ws(
     _dst: String,
     _port: u16,
     _is_media: bool,
-    mut splitter: Option<MsgSplitter>,
     mut clt_dec: TrackedStream,
     mut clt_enc: TrackedStream,
     mut tg_enc: TrackedStream,
@@ -455,21 +454,7 @@ pub async fn bridge_ws(
             clt_dec.xor(&mut init_chunk);
             tg_enc.xor(&mut init_chunk);
 
-            let send_err = {
-                if let Some(sp) = splitter.as_mut() {
-                    let parts = sp.split(&init_chunk);
-                    if parts.len() > 1 {
-                        ws_up.send_batch(&parts).await.is_err()
-                    } else if parts.len() == 1 {
-                        ws_up.send(&parts[0]).await.is_err()
-                    } else {
-                        false
-                    }
-                } else {
-                    ws_up.send(&init_chunk).await.is_err()
-                }
-            };
-            if send_err {
+            if ws_up.send(&init_chunk).await.is_err() {
                 cancel_up.notify_waiters();
                 return;
             }
@@ -485,22 +470,7 @@ pub async fn bridge_ws(
                 };
                 match read_res {
                     Ok(Ok(d)) if !d.is_empty() => d,
-                    _ => {
-                        if let Some(sp) = splitter.as_mut() {
-                            let tail = sp.flush();
-                            if !tail.is_empty() {
-                                let r = if tail.len() > 1 {
-                                    ws_up.send_batch(&tail).await
-                                } else {
-                                    ws_up.send(&tail[0]).await
-                                };
-                                if r.is_err() {
-                                    break;
-                                }
-                            }
-                        }
-                        break;
-                    }
+                    _ => break,
                 }
             } else {
                 let read_res = tokio::select! {
@@ -509,25 +479,8 @@ pub async fn bridge_ws(
                     r = tokio::time::timeout(BRIDGE_READ_TIMEOUT, conn_read.read(&mut buf)) => r,
                 };
                 let n = match read_res {
-                    Ok(Ok(0)) => {
-                        if let Some(sp) = splitter.as_mut() {
-                            let tail = sp.flush();
-                            if !tail.is_empty() {
-                                let r = if tail.len() > 1 {
-                                    ws_up.send_batch(&tail).await
-                                } else {
-                                    ws_up.send(&tail[0]).await
-                                };
-                                if r.is_err() {
-                                    break;
-                                }
-                            }
-                        }
-                        break;
-                    }
+                    Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
                     Ok(Ok(n)) => n,
-                    Ok(Err(_)) => break,
-                    Err(_) => break,
                 };
                 buf[..n].to_vec()
             };
@@ -540,21 +493,7 @@ pub async fn bridge_ws(
             clt_dec.xor(&mut chunk);
             tg_enc.xor(&mut chunk);
 
-            let send_err = {
-                if let Some(sp) = splitter.as_mut() {
-                    let parts = sp.split(&chunk);
-                    if parts.len() > 1 {
-                        ws_up.send_batch(&parts).await.is_err()
-                    } else if parts.len() == 1 {
-                        ws_up.send(&parts[0]).await.is_err()
-                    } else {
-                        false
-                    }
-                } else {
-                    ws_up.send(&chunk).await.is_err()
-                }
-            };
-            if send_err {
+            if ws_up.send(&chunk).await.is_err() {
                 break;
             }
         }
@@ -656,6 +595,30 @@ async fn try_cfproxy_base_domain(dc: i32, base_domain: &str) -> (Option<RawWebSo
     (ws, base_domain)
 }
 
+pub fn get_dc_target_ip(dc: i32, is_media: bool) -> &'static str {
+    if is_media {
+        match dc {
+            1 => "149.154.175.51",
+            2 => "149.154.167.52",
+            3 => "149.154.175.101",
+            4 => "149.154.167.92",
+            5 => "91.108.56.165",
+            203 => "91.105.192.100",
+            _ => "149.154.167.52",
+        }
+    } else {
+        match dc {
+            1 => "149.154.175.50",
+            2 => "149.154.167.51",
+            3 => "149.154.175.100",
+            4 => "149.154.167.91",
+            5 => "91.108.56.130",
+            203 => "91.105.192.100",
+            _ => "149.154.167.51",
+        }
+    }
+}
+
 async fn cfproxy_acquire_ws(
     dc: i32,
     is_media: bool,
@@ -673,46 +636,180 @@ async fn cfproxy_acquire_ws(
         return None;
     }
 
+    let target_ip = get_dc_target_ip(dc, is_media);
+    let path = format!("/tcp?target={}:443", target_ip);
+
     // 1. Priority 1: User-configured or active Cloudflare Worker (100% priority)
     if !user_domain.is_empty() {
-        let target_ip = if is_media {
-            match dc {
-                1 => "149.154.175.51",
-                2 => "149.154.167.52",
-                3 => "149.154.175.101",
-                4 => "149.154.167.92",
-                5 => "91.108.56.165",
-                203 => "91.105.192.100",
-                _ => "149.154.167.52",
-            }
+        let remaining = cfproxy_429_cooldown_remaining(&user_domain);
+        if remaining > Duration::ZERO {
+            ldebug!(
+                "MTProto custom worker {} skip: 429 cooldown {:.0}s",
+                user_domain,
+                remaining.as_secs_f64().ceil()
+            );
         } else {
-            match dc {
-                1 => "149.154.175.50",
-                2 => "149.154.167.51",
-                3 => "149.154.175.100",
-                4 => "149.154.167.91",
-                5 => "91.108.56.130",
-                203 => "91.105.192.100",
-                _ => "149.154.167.51",
+            ldebug!("MTProto custom worker try {} -> {}", user_domain, target_ip);
+            let dial_res = tokio::select! {
+                _ = cancel_token.cancelled() => return None,
+                res = cf_connect_domain(&user_domain, &path, 5.0) => res,
+            };
+            let (ws, resolved_ip, err) = dial_res;
+            if let Some(w) = ws {
+                if !resolved_ip.is_empty() {
+                    ldebug!("MTProto custom worker ok {} via {}", user_domain, resolved_ip);
+                } else {
+                    ldebug!("MTProto custom worker ok {}", user_domain);
+                }
+                clear_cfproxy_429_cooldown(&user_domain);
+                return Some((w, user_domain));
             }
-        };
-        let path = format!("/tcp?target={}:443", target_ip);
-        ldebug!(" CF Worker try {} via {}", target_ip, user_domain);
-        let (ws, resolved_ip, err) = cf_connect_domain(&user_domain, &path, 5.0).await;
-        if let Some(w) = ws {
-            if !resolved_ip.is_empty() {
-                ldebug!(" CF Worker ok {} via {}", user_domain, resolved_ip);
-            } else {
-                ldebug!(" CF Worker ok {}", user_domain);
+            if let Some(e) = err {
+                if is_http_status_error(&e, 429) {
+                    mark_cfproxy_429_cooldown(&user_domain, &e);
+                }
+                if !resolved_ip.is_empty() {
+                    log_cf_conn_error(
+                        &format!("MTProto custom worker fail {} via {}: {}", user_domain, resolved_ip, e.compact()),
+                        &e,
+                    );
+                } else {
+                    log_cf_conn_error(
+                        &format!("MTProto custom worker fail {}: {}", user_domain, e.compact()),
+                        &e,
+                    );
+                }
             }
-            return Some((w, user_domain));
-        }
-        if let Some(e) = err {
-            log_cf_conn_error(&format!(" CF Worker fail {}: {}", user_domain, e.compact()), &e);
         }
     }
 
-    // 2. Priority 2: Built-in Anycast CDN domains (Flowseal / Telegram CDN fallback)
+    // 2. Priority 2: Staggered Concurrent Race across developer fallback workers
+    let last_worker = LAST_SOCKS5_WORKER.read().clone();
+    let mut candidate_workers: Vec<String> = Vec::with_capacity(DEV_SOCKS5_WORKERS.len());
+
+    if !last_worker.is_empty()
+        && !user_domain.eq_ignore_ascii_case(&last_worker)
+        && DEV_SOCKS5_WORKERS.iter().any(|&w| w.eq_ignore_ascii_case(&last_worker))
+    {
+        candidate_workers.push(last_worker.clone());
+    }
+
+    for &w in DEV_SOCKS5_WORKERS {
+        if !user_domain.is_empty() && w.eq_ignore_ascii_case(&user_domain) {
+            continue;
+        }
+        if candidate_workers.iter().any(|cw| cw.eq_ignore_ascii_case(w)) {
+            continue;
+        }
+        candidate_workers.push(w.to_string());
+    }
+
+    let mut active_workers: Vec<String> = Vec::with_capacity(candidate_workers.len());
+    for w in candidate_workers {
+        let remaining = cfproxy_429_cooldown_remaining(&w);
+        if remaining > Duration::ZERO {
+            ldebug!(
+                "MTProto worker skip {}: 429 cooldown {:.0}s",
+                w,
+                remaining.as_secs_f64().ceil()
+            );
+        } else {
+            active_workers.push(w);
+        }
+    }
+
+    if !active_workers.is_empty() {
+        ldebug!(
+            "MTProto Worker Happy Eyeballs Race: {} воркеров для DC{}{}",
+            active_workers.len(),
+            dc,
+            media_tag(is_media)
+        );
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(RawWebSocket, String)>(active_workers.len());
+        let mut handles = Vec::with_capacity(active_workers.len());
+        let stagger_step = Duration::from_millis(100);
+        let sem = Arc::new(tokio::sync::Semaphore::new(CFPROXY_FALLBACK_PARALLEL));
+
+        for (i, worker) in active_workers.into_iter().enumerate() {
+            let tx = tx.clone();
+            let sem = sem.clone();
+            let cancel = cancel_token.clone();
+            let path = path.clone();
+            let delay = stagger_step * (i as u32);
+
+            handles.push(tokio::spawn(async move {
+                tokio::select! {
+                    _ = cancel.cancelled() => {}
+                    _ = tokio::time::sleep(delay) => {
+                        let _permit = match sem.acquire().await {
+                            Ok(p) => p,
+                            Err(_) => return,
+                        };
+                        let (ws, resolved_ip, err) = cf_connect_domain(&worker, &path, 3.5).await;
+                        if let Some(w) = ws {
+                            if !resolved_ip.is_empty() {
+                                ldebug!("MTProto race ok {} via {}", worker, resolved_ip);
+                            } else {
+                                ldebug!("MTProto race ok {}", worker);
+                            }
+                            let _ = tx.send((w, worker)).await;
+                        } else if let Some(e) = err {
+                            if is_http_status_error(&e, 429) {
+                                mark_cfproxy_429_cooldown(&worker, &e);
+                            }
+                            if !resolved_ip.is_empty() {
+                                log_cf_conn_error(
+                                    &format!("MTProto race fail {} via {}: {}", worker, resolved_ip, e.compact()),
+                                    &e,
+                                );
+                            } else {
+                                log_cf_conn_error(
+                                    &format!("MTProto race fail {}: {}", worker, e.compact()),
+                                    &e,
+                                );
+                            }
+                        }
+                    }
+                }
+            }));
+        }
+
+        drop(tx);
+
+        let mut winning_res: Option<(RawWebSocket, String)> = None;
+
+        tokio::select! {
+            _ = cancel_token.cancelled() => {
+                ldebug!("MTProto worker connection race cancelled");
+            }
+            msg = rx.recv() => {
+                if let Some((ws, winner_domain)) = msg {
+                    linfo!("⚡ MTProto воркер выбран: {}", winner_domain);
+                    *LAST_SOCKS5_WORKER.write() = winner_domain.clone();
+                    clear_cfproxy_429_cooldown(&winner_domain);
+                    winning_res = Some((ws, winner_domain));
+                }
+            }
+        }
+
+        for h in handles {
+            h.abort();
+        }
+
+        while let Ok((extra_ws, extra_domain)) = rx.try_recv() {
+            ldebug!("MTProto closing runner-up connection to {}", extra_domain);
+            tokio::spawn(async move {
+                let _ = extra_ws.close().await;
+            });
+        }
+
+        if let Some(res) = winning_res {
+            return Some(res);
+        }
+    }
+
+    // 3. Priority 3: Built-in Anycast CDN domains (Flowseal / Telegram CDN fallback)
     if domains.is_empty() {
         return None;
     }
@@ -792,7 +889,6 @@ pub async fn do_fallback(
     label: String,
     dc: i32,
     is_media: bool,
-    splitter: Option<MsgSplitter>,
     clt_dec: &TrackedStream,
     clt_enc: &TrackedStream,
     tg_enc: &TrackedStream,
@@ -828,7 +924,6 @@ pub async fn do_fallback(
                 chosen_domain,
                 443,
                 is_media,
-                splitter,
                 clt_dec,
                 clt_enc,
                 tg_enc,
@@ -1037,8 +1132,6 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
     let dc_key = (dc, is_media_int(is_media));
     let now = now_unix_f64();
 
-    let splitter = MsgSplitter::new(&relay_init, proto);
-
     let target_opt = resolve_configured_target(dc, is_media);
     let dc_configured = target_opt.is_some();
     let target = target_opt.unwrap_or_default();
@@ -1052,7 +1145,6 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
             label,
             dc,
             is_media,
-            splitter,
             &clt_decryptor,
             &clt_encryptor,
             &tg_encryptor,
@@ -1095,14 +1187,12 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
         } else {
             DC_FAIL_UNTIL.write().insert(dc_key, now + DC_FAIL_COOLDOWN);
         }
-        let splitter_fb = MsgSplitter::new(&relay_init, proto);
         do_fallback(
             conn,
             &relay_init,
             label,
             dc,
             is_media,
-            splitter_fb,
             &clt_decryptor,
             &clt_encryptor,
             &tg_encryptor,
@@ -1140,14 +1230,12 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
                     DC_FAIL_UNTIL.write().insert(dc_key, now + DC_FAIL_COOLDOWN);
                 }
                 lwarn!(" direct fallback DC{}{}", dc, m_tag);
-                let splitter_fb = MsgSplitter::new(&relay_init, proto);
                 do_fallback(
                     conn,
                     &relay_init,
                     label,
                     dc,
                     is_media,
-                    splitter_fb,
                     &clt_decryptor,
                     &clt_encryptor,
                     &tg_encryptor,
@@ -1166,14 +1254,12 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
                     rws.close().await;
                     DC_FAIL_UNTIL.write().insert(dc_key, now + DC_FAIL_COOLDOWN);
                     lwarn!(" direct fallback DC{}{}", dc, m_tag);
-                    let splitter_fb = MsgSplitter::new(&relay_init, proto);
                     do_fallback(
                         conn,
                         &relay_init,
                         label,
                         dc,
                         is_media,
-                        splitter_fb,
                         &clt_decryptor,
                         &clt_encryptor,
                         &tg_encryptor,
@@ -1204,7 +1290,6 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
         target,
         443,
         is_media,
-        splitter,
         clt_decryptor,
         clt_encryptor,
         tg_encryptor,

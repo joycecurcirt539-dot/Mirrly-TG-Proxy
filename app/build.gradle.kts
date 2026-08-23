@@ -15,8 +15,8 @@ android {
         applicationId = "com.mirrly.tgproxy"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.1.4"
+        versionCode = 18
+        versionName = "1.1.5"
 
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
