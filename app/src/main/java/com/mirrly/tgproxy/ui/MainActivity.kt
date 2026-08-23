@@ -186,12 +186,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                var isNavigatingBack by remember { mutableStateOf(false) }
+                var lastNavigateBackTime by remember { mutableLongStateOf(0L) }
 
                 fun navigateBack() {
-                    if (isNavigatingBack) return
+                    val now = System.currentTimeMillis()
+                    if (now - lastNavigateBackTime < 280) return
+                    lastNavigateBackTime = now
+
                     if (screenStack.size > 1) {
-                        isNavigatingBack = true
                         val topScreen = screenStack.removeAt(screenStack.size - 1)
                         if (topScreen == "worker_manager") {
                             scope.launch {
@@ -199,16 +201,9 @@ class MainActivity : ComponentActivity() {
                                     0f,
                                     spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
                                 )
-                                isNavigatingBack = false
-                            }
-                        } else {
-                            scope.launch {
-                                delay(250)
-                                isNavigatingBack = false
                             }
                         }
                     } else {
-                        val now = System.currentTimeMillis()
                         if (now - lastBackTime < 2000) {
                             finish()
                         } else {
@@ -604,18 +599,18 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // WORKER MANAGER SCREEN (Interactive Bottom-to-Top slide up sheet with blur when guide is open)
+                    // WORKER MANAGER SCREEN (Interactive Top-to-Bottom slide down sheet with blur when guide is open)
                     val wmOffsetYFraction = when {
                         isWorkerGuide -> -0.15f
-                        else -> (1.0f - wmProgress)
+                        else -> -(1.0f - wmProgress)
                     }
                     val wmScale = when {
                         isWorkerGuide -> 0.94f
-                        else -> 0.94f + 0.06f * wmProgress
+                        else -> 0.96f + 0.04f * wmProgress
                     }
                     val wmAlpha = when {
                         isWorkerGuide -> (1.0f - workerGuideOffsetFraction).coerceIn(0f, 1f)
-                        else -> (wmProgress * 1.5f).coerceIn(0f, 1f)
+                        else -> wmProgress.coerceIn(0f, 1f)
                     }
                     val wmGuideBlurRadius = if (isWorkerGuide) 16.dp else 0.dp
 
