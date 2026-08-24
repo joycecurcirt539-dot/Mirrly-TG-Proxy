@@ -106,7 +106,8 @@ fun HomeScreen(
     onOpenWorkerManager: () -> Unit = {},
     onDragWorkerManager: (Float) -> Unit = {},
     onSettleWorkerManager: (Float) -> Unit = {},
-    onUiHiddenChange: (Boolean) -> Unit = {}
+    onUiHiddenChange: (Boolean) -> Unit = {},
+    isInteractive: Boolean = true
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -261,30 +262,33 @@ fun HomeScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                modifier = Modifier.graphicsLayer {
-                    translationY = -120.dp.toPx() * uiAnimProgress
-                    alpha = (1f - uiAnimProgress * 2f).coerceIn(0f, 1f)
-                },
-                title = {
-                    val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
+            val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
 
-                    ProtocolSwitcherHeader(
-                        isSocks5 = isSocks5,
-                        activeWorker = activeWorker,
-                        protoColors = protoColors,
-                        isSwitching = isSwitching,
-                        onSwitchProtocol = { target ->
-                            switchProtocol(target)
-                        },
-                        onOpenWorkerManager = onOpenWorkerManager
-                    )
-                },
-                navigationIcon = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .graphicsLayer {
+                        translationY = -120.dp.toPx() * uiAnimProgress
+                        alpha = (1f - uiAnimProgress * 2f).coerceIn(0f, 1f)
+                    }
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                // =========================================================================
+                // УРОВЕНЬ 1: Верхняя строка (~38-40 dp, verticalAlignment = CenterVertically)
+                // =========================================================================
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // Navigation Icons (Left) - Logs, History, SleepTimer
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(1.dp),
-                        modifier = Modifier.padding(start = 4.dp)
+                        modifier = Modifier.align(Alignment.CenterStart)
                     ) {
                         // 1. Logs (Диагностика)
                         IconButton(
@@ -344,12 +348,23 @@ fun HomeScreen(
                             }
                         }
                     }
-                },
-                actions = {
+
+                    // Строго по центру: заголовок «Mirrly» (на той же высоте и горизонтальной оси, что и иконки)
+                    Text(
+                        text = "Mirrly",
+                        color = TextWhite,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.6.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+
+                    // Actions (Right) - Stealth/Eye, Update, Settings
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(1.dp),
-                        modifier = Modifier.padding(end = 4.dp)
+                        modifier = Modifier.align(Alignment.CenterEnd)
                     ) {
                         // 4. Stealth Mode / Eye (Скрытие интерфейса)
                         IconButton(
@@ -410,9 +425,24 @@ fun HomeScreen(
                             )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
-            )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // =========================================================================
+                // УРОВЕНЬ 2: Нижний подуровень шапки (Таблетка MTProto | SOCKS5 + Бейдж воркера)
+                // =========================================================================
+                ProtocolSwitcherHeader(
+                    isSocks5 = isSocks5,
+                    activeWorker = activeWorker,
+                    protoColors = protoColors,
+                    isSwitching = isSwitching,
+                    onSwitchProtocol = { target ->
+                        switchProtocol(target)
+                    },
+                    onOpenWorkerManager = onOpenWorkerManager
+                )
+            }
         },
         containerColor = Color.Transparent
     ) { padding ->
@@ -433,8 +463,8 @@ fun HomeScreen(
                                 }
                             )
                         }
-                    } else {
-                        Modifier.pointerInput(Unit) {
+                    } else if (isInteractive) {
+                        Modifier.pointerInput(isInteractive) {
                             var totalDragY = 0f
                             detectVerticalDragGestures(
                                 onDragStart = { totalDragY = 0f },
@@ -455,6 +485,8 @@ fun HomeScreen(
                                 }
                             )
                         }
+                    } else {
+                        Modifier
                     }
                 )
         ) {
@@ -606,6 +638,29 @@ fun HomeScreen(
                 }
 
                 // ─── 2. CENTER SECTION (Power button) ───
+                val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
+                val shouldShowWorkerNotice = isSocks5 && activeWorker.isDeveloperWorker
+                var isWorkerNoticeVisible by remember { mutableStateOf(false) }
+
+                LaunchedEffect(shouldShowWorkerNotice) {
+                    if (shouldShowWorkerNotice) {
+                        delay(1800)
+                        isWorkerNoticeVisible = true
+                    } else {
+                        delay(1200)
+                        isWorkerNoticeVisible = false
+                    }
+                }
+
+                val buttonInertiaOffsetY by animateDpAsState(
+                    targetValue = if (isWorkerNoticeVisible) (-2).dp else 0.dp,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessLow
+                    ),
+                    label = "buttonInertiaOffsetY"
+                )
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -617,6 +672,7 @@ fun HomeScreen(
                 ) {
                     Box(
                         modifier = Modifier
+                            .offset(y = buttonInertiaOffsetY)
                             .size(ringSize)
                             .graphicsLayer {
                                 scaleX = springScale
@@ -688,12 +744,39 @@ fun HomeScreen(
                         .graphicsLayer {
                             translationY = 160.dp.toPx() * uiAnimProgress
                             alpha = (1f - uiAnimProgress * 1.5f).coerceIn(0f, 1f)
-                        },
+                        }
+                        .animateContentSize(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessLow
+                            )
+                        ),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // SOCKS5 Developer Worker Info Notice (Centered above Session Timer)
-                    val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
-                    if (isSocks5 && activeWorker.isDeveloperWorker) {
+                    // SOCKS5 Developer Worker Info Notice (Smooth expanding/shrinking from center with staggered delay)
+                    AnimatedVisibility(
+                        visible = isWorkerNoticeVisible,
+                        enter = scaleIn(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessLow
+                            ),
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
+                        ) + expandVertically(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessLow
+                            ),
+                            expandFrom = Alignment.CenterVertically
+                        ) + fadeIn(animationSpec = tween(450)),
+                        exit = scaleOut(
+                            animationSpec = tween(400, easing = FastOutSlowInEasing),
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
+                        ) + shrinkVertically(
+                            animationSpec = tween(400, easing = FastOutSlowInEasing),
+                            shrinkTowards = Alignment.CenterVertically
+                        ) + fadeOut(animationSpec = tween(300))
+                    ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
@@ -813,12 +896,7 @@ fun HomeScreen(
                     val statusSubtitle = when (currentState) {
                         ProxyUiState.CONNECTED -> {
                             if (app.config.cfProxyEnabled) {
-                                val effDomain = app.config.getEffectiveCfDomain()
-                                if (effDomain.isNotBlank()) {
-                                    "Cloudflare WSS (${effDomain.trim()}) • Защищено"
-                                } else {
-                                    "Cloudflare Anycast CDN • Защищено"
-                                }
+                                "Cloudflare WSS • Защищено"
                             } else {
                                 "Локальный прокси • Защищено"
                             }
@@ -1752,8 +1830,11 @@ fun ProtocolSwitcherHeader(
     val tabWidth = capsuleWidth / 2
     val badgeOffsetY = with(density) { (capsuleHeight + 3.dp).roundToPx() }
 
+    // Optimistic UI state for instant 0ms response
+    var optimisticIsSocks5 by remember(isSocks5) { mutableStateOf(isSocks5) }
+
     val animatedPillOffset by animateDpAsState(
-        targetValue = if (isSocks5) tabWidth else 0.dp,
+        targetValue = if (optimisticIsSocks5) tabWidth else 0.dp,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioLowBouncy,
             stiffness = Spring.StiffnessMediumLow
@@ -1767,19 +1848,7 @@ fun ProtocolSwitcherHeader(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
     ) {
-        // App Title "Мирли" placed cleanly above the switcher
-        Text(
-            text = "Мирли",
-            color = TextWhite,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 0.6.sp,
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(2.5.dp))
-
-        // Switcher Pill and Dropdown Container (anchored so height does NOT shift pill/title position)
+        // Switcher Pill and Dropdown Container (anchored so height does NOT shift pill position)
         Box(
             contentAlignment = Alignment.TopCenter
         ) {
@@ -1788,14 +1857,13 @@ fun ProtocolSwitcherHeader(
                     .width(capsuleWidth)
                     .height(capsuleHeight)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF0D1017).copy(alpha = 0.95f))
+                    .background(Color.Transparent)
                     .border(
                         width = 1.dp,
-                        color = Color(0xFF1E2434),
+                        color = Color(0xFF1E283D),
                         shape = RoundedCornerShape(16.dp)
                     )
-                    .pointerInput(isSocks5, isSwitching) {
-                        if (isSwitching) return@pointerInput
+                    .pointerInput(Unit) {
                         detectHorizontalDragGestures(
                             onDragStart = {
                                 scope.launch { dragOffsetX.stop() }
@@ -1804,9 +1872,13 @@ fun ProtocolSwitcherHeader(
                                 val currentDrag = dragOffsetX.value
                                 val thresholdPx = with(density) { 18.dp.toPx() }
                                 scope.launch {
-                                    if (!isSocks5 && currentDrag > thresholdPx) {
+                                    if (!optimisticIsSocks5 && currentDrag > thresholdPx) {
+                                        optimisticIsSocks5 = true
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
-                                    } else if (isSocks5 && currentDrag < -thresholdPx) {
+                                    } else if (optimisticIsSocks5 && currentDrag < -thresholdPx) {
+                                        optimisticIsSocks5 = false
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
                                     }
                                     dragOffsetX.animateTo(
@@ -1833,7 +1905,7 @@ fun ProtocolSwitcherHeader(
                                 change.consume()
                                 val current = dragOffsetX.value
                                 val damped = dragAmount * 0.40f
-                                val newOffset = if (!isSocks5) {
+                                val newOffset = if (!optimisticIsSocks5) {
                                     (current + damped).coerceIn(-6f, with(density) { tabWidth.toPx() } + 6f)
                                 } else {
                                     (current + damped).coerceIn(-with(density) { tabWidth.toPx() } - 6f, 6f)
@@ -1874,8 +1946,9 @@ fun ProtocolSwitcherHeader(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                if (!isSwitching && isSocks5) {
+                                if (optimisticIsSocks5) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    optimisticIsSocks5 = false
                                     onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
                                 }
                             },
@@ -1883,9 +1956,9 @@ fun ProtocolSwitcherHeader(
                     ) {
                         Text(
                             text = "MTProto",
-                            color = if (!isSocks5) protoColors.primary else TextMuted,
+                            color = if (!optimisticIsSocks5) protoColors.primary else TextMuted,
                             fontSize = 12.sp,
-                            fontWeight = if (!isSocks5) FontWeight.Bold else FontWeight.Medium,
+                            fontWeight = if (!optimisticIsSocks5) FontWeight.Bold else FontWeight.Medium,
                             letterSpacing = 0.3.sp
                         )
                     }
@@ -1900,8 +1973,9 @@ fun ProtocolSwitcherHeader(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                if (!isSwitching && !isSocks5) {
+                                if (!optimisticIsSocks5) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    optimisticIsSocks5 = true
                                     onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
                                 }
                             },
@@ -1909,9 +1983,9 @@ fun ProtocolSwitcherHeader(
                     ) {
                         Text(
                             text = "SOCKS5",
-                            color = if (isSocks5) protoColors.primary else TextMuted,
+                            color = if (optimisticIsSocks5) protoColors.primary else TextMuted,
                             fontSize = 12.sp,
-                            fontWeight = if (isSocks5) FontWeight.Bold else FontWeight.Medium,
+                            fontWeight = if (optimisticIsSocks5) FontWeight.Bold else FontWeight.Medium,
                             letterSpacing = 0.3.sp
                         )
                     }
@@ -1931,7 +2005,7 @@ fun ProtocolSwitcherHeader(
                     }
             ) {
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = isSocks5,
+                    visible = optimisticIsSocks5,
                     enter = fadeIn(tween(220)) + expandVertically(tween(220)),
                     exit = fadeOut(tween(160)) + shrinkVertically(tween(160))
                 ) {
@@ -1940,8 +2014,8 @@ fun ProtocolSwitcherHeader(
                         horizontalArrangement = Arrangement.Center,
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF10141D).copy(alpha = 0.96f))
-                            .border(0.8.dp, protoColors.primary.copy(alpha = 0.30f), RoundedCornerShape(8.dp))
+                            .background(Color.Transparent)
+                            .border(0.8.dp, protoColors.primary.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
                             .clickable(
                                 interactionSource = badgeInteractionSource,
                                 indication = null

@@ -32,23 +32,19 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
@@ -59,9 +55,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -81,30 +82,52 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.core.TgConstants
 import com.mirrly.tgproxy.core.WorkerProfile
 import com.mirrly.tgproxy.core.WorkerStatus
 import com.mirrly.tgproxy.service.PreferencesManager
 import com.mirrly.tgproxy.service.WorkerPingTester
-import com.mirrly.tgproxy.ui.theme.LocalProtocolColors
-import com.mirrly.tgproxy.ui.theme.TextMuted
-import com.mirrly.tgproxy.ui.theme.TextWhite
-import com.mirrly.tgproxy.ui.theme.fadingEdges
-import com.mirrly.tgproxy.ui.theme.springPress
-import com.mirrly.tgproxy.ui.theme.staggeredEntrance
+import com.mirrly.tgproxy.ui.theme.*
 import kotlinx.coroutines.launch
 
-private enum class WorkerFilterType {
+enum class ManagerSection(val title: String) {
+    WORKERS("Воркеры"),
+    GUIDE("Инструкция")
+}
+
+private enum class WmWorkerFilterType {
     ALL,
     DEVELOPER,
     CUSTOM
 }
+
+private enum class WmGuideTab(val title: String) {
+    PC("Компьютер"),
+    PHONE("Андроид"),
+    SCRIPT("Скрипт воркера"),
+    FAQ("Преимущества и FAQ")
+}
+
+private data class WmGuideStepItem(
+    val stepNumber: String,
+    val title: String,
+    val description: String,
+    val actionText: String? = null,
+    val isCopyAction: Boolean = false,
+    val isDashAction: Boolean = false
+)
+
+private data class WmFaqItem(
+    val title: String,
+    val description: String
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkerManagerScreen(
     prefs: PreferencesManager,
     onBack: () -> Unit,
-    onOpenWorkerGuide: () -> Unit
+    initialSection: ManagerSection = ManagerSection.WORKERS
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -116,6 +139,9 @@ fun WorkerManagerScreen(
     val protoColors = LocalProtocolColors.current
     val activeProtoColor = protoColors.primary
 
+    var currentSection by remember(initialSection) { mutableStateOf(initialSection) }
+
+    // Workers State
     var activeWorkerId by remember { mutableStateOf(prefs.getActiveWorkerId()) }
     var customWorkers by remember { mutableStateOf(prefs.getCustomWorkers()) }
     val devWorkers = remember { prefs.getDeveloperWorkers() }
@@ -123,35 +149,25 @@ fun WorkerManagerScreen(
     var pingResults by remember { mutableStateOf<Map<String, Pair<WorkerStatus, Long?>>>(emptyMap()) }
     var isPinging by remember { mutableStateOf(false) }
 
-    var selectedFilter by remember { mutableStateOf(WorkerFilterType.ALL) }
+    var selectedFilter by remember { mutableStateOf(WmWorkerFilterType.ALL) }
     var isSearchVisible by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     val searchFocusRequester = remember { FocusRequester() }
 
-    var headerHeightDp by remember { mutableStateOf(180.dp) }
     var showAddDialog by remember { mutableStateOf(false) }
     var workerToDelete by remember { mutableStateOf<WorkerProfile?>(null) }
 
-    val filterTypes = remember { listOf(WorkerFilterType.ALL, WorkerFilterType.DEVELOPER, WorkerFilterType.CUSTOM) }
+    // Guide State
+    var selectedGuideTab by remember { mutableStateOf(WmGuideTab.PC) }
+    var showDashboardConfirmDialog by remember { mutableStateOf(false) }
 
-    fun switchToNextFilter() {
-        val currentIndex = filterTypes.indexOf(selectedFilter)
-        if (currentIndex < filterTypes.size - 1) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            selectedFilter = filterTypes[currentIndex + 1]
-        }
-    }
+    var headerHeightDp by remember { mutableStateOf(210.dp) }
 
-    fun switchToPreviousFilter() {
-        val currentIndex = filterTypes.indexOf(selectedFilter)
-        if (currentIndex > 0) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            selectedFilter = filterTypes[currentIndex - 1]
-        }
-    }
+    val filterTypes = remember { listOf(WmWorkerFilterType.ALL, WmWorkerFilterType.DEVELOPER, WmWorkerFilterType.CUSTOM) }
+    val allGuideTabs = remember { listOf(WmGuideTab.PC, WmGuideTab.PHONE, WmGuideTab.SCRIPT, WmGuideTab.FAQ) }
 
     fun handleDismiss() {
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         onBack()
     }
 
@@ -162,11 +178,62 @@ fun WorkerManagerScreen(
                 available: Offset,
                 source: NestedScrollSource
             ): Offset {
-                val thresholdPx = with(density) { -24.dp.toPx() }
+                val thresholdPx = with(density) { -40.dp.toPx() }
                 if (available.y < thresholdPx) {
                     handleDismiss()
                 }
                 return Offset.Zero
+            }
+        }
+    }
+
+    fun copyScriptToClipboard() {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Cloudflare Worker Script", TgConstants.CLOUDFLARE_WORKER_JS_CODE)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(context, "Скрипт воркера скопирован в буфер обмена", Toast.LENGTH_SHORT).show()
+    }
+
+    fun openCloudflareDashboard() {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        showDashboardConfirmDialog = true
+    }
+
+    fun switchToNextSubTab() {
+        if (currentSection == ManagerSection.WORKERS) {
+            val currentIndex = filterTypes.indexOf(selectedFilter)
+            if (currentIndex < filterTypes.size - 1) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                selectedFilter = filterTypes[currentIndex + 1]
+            } else {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                currentSection = ManagerSection.GUIDE
+            }
+        } else {
+            val currentIndex = allGuideTabs.indexOf(selectedGuideTab)
+            if (currentIndex < allGuideTabs.size - 1) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                selectedGuideTab = allGuideTabs[currentIndex + 1]
+            }
+        }
+    }
+
+    fun switchToPreviousSubTab() {
+        if (currentSection == ManagerSection.WORKERS) {
+            val currentIndex = filterTypes.indexOf(selectedFilter)
+            if (currentIndex > 0) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                selectedFilter = filterTypes[currentIndex - 1]
+            }
+        } else {
+            val currentIndex = allGuideTabs.indexOf(selectedGuideTab)
+            if (currentIndex > 0) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                selectedGuideTab = allGuideTabs[currentIndex - 1]
+            } else {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                currentSection = ManagerSection.WORKERS
             }
         }
     }
@@ -189,15 +256,6 @@ fun WorkerManagerScreen(
             }
             isPinging = false
             Toast.makeText(context, "Замер пинга завершен", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    fun pingSingleWorker(domain: String) {
-        scope.launch {
-            val res = WorkerPingTester.pingWorker(domain)
-            val newResults = pingResults.toMutableMap()
-            newResults[domain] = res
-            pingResults = newResults
         }
     }
 
@@ -250,9 +308,9 @@ fun WorkerManagerScreen(
         val trimmed = searchQuery.trim()
         allWorkers.filter { worker ->
             val matchesFilter = when (selectedFilter) {
-                WorkerFilterType.ALL -> true
-                WorkerFilterType.DEVELOPER -> worker.isDeveloperWorker
-                WorkerFilterType.CUSTOM -> !worker.isDeveloperWorker
+                WmWorkerFilterType.ALL -> true
+                WmWorkerFilterType.DEVELOPER -> worker.isDeveloperWorker
+                WmWorkerFilterType.CUSTOM -> !worker.isDeveloperWorker
             }
             val matchesQuery = if (trimmed.isEmpty()) true else {
                 worker.name.contains(trimmed, ignoreCase = true) ||
@@ -262,18 +320,133 @@ fun WorkerManagerScreen(
         }
     }
 
+    // Guide Step Items
+    val pcSteps = remember {
+        listOf(
+            WmGuideStepItem(
+                stepNumber = "1",
+                title = "Вход в Cloudflare Dashboard",
+                description = "Откройте браузер на компьютере и перейдите на dash.cloudflare.com. Авторизуйтесь или создайте бесплатный аккаунт (банковская карта не требуется).",
+                actionText = "Открыть Cloudflare Dashboard",
+                isDashAction = true
+            ),
+            WmGuideStepItem(
+                stepNumber = "2",
+                title = "Создание нового Worker",
+                description = "В левом боковом меню выберите раздел «Workers & Pages» (или «Compute (Workers)»). Нажмите синюю кнопку «Create Application», затем вкладку «Create Worker»."
+            ),
+            WmGuideStepItem(
+                stepNumber = "3",
+                title = "Базовое развертывание",
+                description = "В поле имени укажите любое название (например: my-tg-proxy) и нажмите кнопку «Deploy» внизу страницы."
+            ),
+            WmGuideStepItem(
+                stepNumber = "4",
+                title = "Вставка готового скрипта",
+                description = "На открывшейся странице созданного воркера нажмите кнопку «Edit Code» (Редактировать код). Полностью удалите стандартный шаблонный код из окна редактора.",
+                actionText = "Скопировать скрипт воркера",
+                isCopyAction = true
+            ),
+            WmGuideStepItem(
+                stepNumber = "5",
+                title = "Сохранение и публикация",
+                description = "Вставьте скопированный код в редактор Cloudflare и в правом верхнем углу нажмите «Deploy» (или «Save and Deploy»)."
+            ),
+            WmGuideStepItem(
+                stepNumber = "6",
+                title = "Копирование адреса и вставка в Mirrly",
+                description = "Скопируйте полученный публичный адрес (например: my-tg-proxy.yourname.workers.dev) и добавьте его в Менеджере воркеров приложения Mirrly TG Proxy."
+            )
+        )
+    }
+
+    val phoneSteps = remember {
+        listOf(
+            WmGuideStepItem(
+                stepNumber = "1",
+                title = "Откройте сайт Cloudflare на смартфоне",
+                description = "Перейдите на dash.cloudflare.com в браузере телефона и войдите в свой аккаунт.",
+                actionText = "Перейти на Cloudflare",
+                isDashAction = true
+            ),
+            WmGuideStepItem(
+                stepNumber = "2",
+                title = "Перейдите в Workers & Pages",
+                description = "В боковом меню выберите «Workers & Pages» -> нажмите «Create Application» -> «Create Worker»."
+            ),
+            WmGuideStepItem(
+                stepNumber = "3",
+                title = "Нажмите Deploy и Edit Code",
+                description = "Нажмите кнопку «Deploy», затем «Edit Code» для открытия онлайн-редактора кода."
+            ),
+            WmGuideStepItem(
+                stepNumber = "4",
+                title = "Скопируйте и вставьте скрипт",
+                description = "Нажмите кнопку ниже, чтобы скопировать скрипт, выделите весь текст в мобильном редакторе и вставьте скопированный код.",
+                actionText = "Скопировать скрипт",
+                isCopyAction = true
+            ),
+            WmGuideStepItem(
+                stepNumber = "5",
+                title = "Сохраните и вставьте домен в Mirrly",
+                description = "Нажмите «Deploy». Скопируйте домен *.workers.dev и добавьте его в Менеджере воркеров приложения Mirrly."
+            )
+        )
+    }
+
+    val faqItems = remember {
+        listOf(
+            WmFaqItem(
+                title = "100 000 бесплатных запросов каждый день",
+                description = "Бесплатный тариф Cloudflare выделяет 100 000 обращений в сутки лично на ваш аккаунт, чего с избытком хватает для непрерывной переписки, видеозвонков и загрузки медиа."
+            ),
+            WmFaqItem(
+                title = "Создание нескольких личных воркеров (до 100 узлов)",
+                description = "Вы можете бесплатно создать до 100 отдельных воркеров на одном аккаунте (например: для смартфона, ноутбука, планшета или близких), добавить их все в Менеджер воркеров Mirrly и переключаться между ними в 1 клик."
+            ),
+            WmFaqItem(
+                title = "100% Приватность и собственный шлюз",
+                description = "Трафик не проходит через чужие прокси-серверы. Ваш личный воркер открывает сокеты напрямую к Telegram DC через глобальную сеть Cloudflare Anycast (300+ дата-центров)."
+            ),
+            WmFaqItem(
+                title = "Работа звонков и аудио/видео (SOCKS5)",
+                description = "Благодаря API cloudflare:sockets личный воркер поддерживает универсальный TCP-туннель к Telegram VoIP узлам, обеспечивая стабильную работу звонков без системного VPN."
+            ),
+            WmFaqItem(
+                title = "Что делать, если Telegram долго подключается через воркер?",
+                description = "В Cloudflare Dashboard откройте ваш воркер -> Settings -> Runtime. Убедитесь, что Compatibility Date установлена не ранее 2023-05-18 и включена опция Node.js compatibility (флаг nodejs_compat)."
+            ),
+            WmFaqItem(
+                title = "Автоматический приоритет в приложении",
+                description = "При добавлении и выборе своего воркера приложение автоматически направляет весь трафик SOCKS5 и MTProto через ваш узел с наивысшим приоритетом."
+            )
+        )
+    }
+
+    val workersListState = rememberLazyListState()
+    val guideListState = rememberLazyListState()
+
+    if (showDashboardConfirmDialog) {
+        ExternalLinkConfirmDialog(
+            url = "https://dash.cloudflare.com/",
+            title = "Панель Cloudflare Dashboard",
+            description = "Ссылка ведет на официальную веб-панель управления Cloudflare (dash.cloudflare.com) для создания и редактирования скрипта Worker.",
+            onDismiss = { showDashboardConfirmDialog = false }
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(selectedFilter) {
+            .pointerInput(currentSection, selectedFilter, selectedGuideTab) {
                 var horizontalAccumulator = 0f
                 detectHorizontalDragGestures(
                     onDragStart = { horizontalAccumulator = 0f },
                     onDragEnd = {
                         if (horizontalAccumulator < -28.dp.toPx()) {
-                            switchToNextFilter()
+                            switchToNextSubTab()
                         } else if (horizontalAccumulator > 28.dp.toPx()) {
-                            switchToPreviousFilter()
+                            switchToPreviousSubTab()
                         }
                         horizontalAccumulator = 0f
                     },
@@ -285,261 +458,522 @@ fun WorkerManagerScreen(
                 )
             }
     ) {
-        // 1. SCROLLABLE WORKERS FEED
-        if (filteredWorkers.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        var verticalDragAccumulator = 0f
-                        detectVerticalDragGestures(
-                            onDragStart = { verticalDragAccumulator = 0f },
-                            onDragEnd = {
-                                if (verticalDragAccumulator < -28.dp.toPx()) {
-                                    handleDismiss()
-                                }
-                                verticalDragAccumulator = 0f
-                            },
-                            onDragCancel = { verticalDragAccumulator = 0f },
-                            onVerticalDrag = { change, dragAmount ->
-                                change.consume()
-                                verticalDragAccumulator += dragAmount
-                            }
-                        )
-                    }
-                    .padding(bottom = 40.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_shield),
-                        contentDescription = null,
-                        tint = TextMuted.copy(alpha = 0.4f),
-                        modifier = Modifier.size(52.dp)
+        // 1. SCROLLABLE BODY CONTENT (AnimatedContent between WORKERS and GUIDE)
+        AnimatedContent(
+            targetState = currentSection,
+            transitionSpec = {
+                if (targetState == ManagerSection.GUIDE) {
+                    (slideInHorizontally(
+                        animationSpec = spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow),
+                        initialOffsetX = { fullWidth -> (fullWidth * 0.28f).toInt() }
+                    ) + fadeIn(animationSpec = tween(220))).togetherWith(
+                        slideOutHorizontally(
+                            animationSpec = spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow),
+                            targetOffsetX = { fullWidth -> (-fullWidth * 0.28f).toInt() }
+                        ) + fadeOut(animationSpec = tween(180))
                     )
-                    Text(
-                        text = if (searchQuery.isNotEmpty()) "Узлы не найдены" else "Список воркеров пуст",
-                        color = TextMuted,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                } else {
+                    (slideInHorizontally(
+                        animationSpec = spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow),
+                        initialOffsetX = { fullWidth -> (-fullWidth * 0.28f).toInt() }
+                    ) + fadeIn(animationSpec = tween(220))).togetherWith(
+                        slideOutHorizontally(
+                            animationSpec = spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow),
+                            targetOffsetX = { fullWidth -> (fullWidth * 0.28f).toInt() }
+                        ) + fadeOut(animationSpec = tween(180))
                     )
-                    if (selectedFilter == WorkerFilterType.CUSTOM && customWorkers.isEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = activeProtoColor.copy(alpha = 0.1f),
-                            border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.35f)),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .springPress(onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    showAddDialog = true
-                                })
-                        ) {
-                            Text(
-                                text = "Добавить",
-                                color = activeProtoColor,
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
-                        }
-                    }
                 }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .nestedScroll(nestedScrollConnection),
-                contentPadding = PaddingValues(
-                    top = headerHeightDp + 8.dp,
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
-                    start = 16.dp,
-                    end = 16.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                // Warning Card for 429 Rate Limit (Pinned at top of list if present)
-                if (hasRateLimitedWorkers) {
-                    item(key = "rate_limit_warning") {
-                        Surface(
-                            shape = RoundedCornerShape(13.dp),
-                            color = Color(0xFFF59E0B).copy(alpha = 0.08f),
-                            border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
+            },
+            label = "managerBodySection"
+        ) { section ->
+            when (section) {
+                ManagerSection.WORKERS -> {
+                    if (filteredWorkers.isEmpty()) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 2.dp)
+                                .fillMaxSize()
+                                .pointerInput(Unit) {
+                                    var verticalDragAccumulator = 0f
+                                    detectVerticalDragGestures(
+                                        onDragStart = { verticalDragAccumulator = 0f },
+                                        onDragEnd = {
+                                            if (verticalDragAccumulator < -20.dp.toPx()) {
+                                                handleDismiss()
+                                            }
+                                            verticalDragAccumulator = 0f
+                                        },
+                                        onDragCancel = { verticalDragAccumulator = 0f },
+                                        onVerticalDrag = { change, dragAmount ->
+                                            change.consume()
+                                            verticalDragAccumulator += dragAmount
+                                        }
+                                    )
+                                }
+                                .padding(bottom = 40.dp),
+                            contentAlignment = Alignment.Center
                         ) {
                             Column(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFF59E0B))
-                                    )
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_shield),
+                                    contentDescription = null,
+                                    tint = TextMuted.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(52.dp)
+                                )
+                                Text(
+                                    text = if (searchQuery.isNotEmpty()) "Узлы не найдены" else "Список воркеров пуст",
+                                    color = TextMuted,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                if (selectedFilter == WmWorkerFilterType.CUSTOM && customWorkers.isEmpty()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     Surface(
-                                        shape = RoundedCornerShape(5.dp),
-                                        color = Color.Transparent,
-                                        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = activeProtoColor.copy(alpha = 0.1f),
+                                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.35f)),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .springPress(onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                showAddDialog = true
+                                            })
                                     ) {
                                         Text(
-                                            text = "Лимит 429",
-                                            fontSize = 10.sp,
+                                            text = "Добавить",
+                                            color = activeProtoColor,
+                                            fontSize = 12.5.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFF59E0B),
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                         )
                                     }
-                                    Text(
-                                        text = "Cloudflare Rate Limit",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        color = Color(0xFFF59E0B)
-                                    )
                                 }
-                                Text(
-                                    text = "На бесплатном тарифе Cloudflare выделяет 100 000 запросов в сутки на домен. Лимит сбрасывается в 00:00 UTC. Выберите другой узел или подключите персональный воркер.",
-                                    fontSize = 12.sp,
-                                    color = TextWhite.copy(alpha = 0.85f),
-                                    lineHeight = 16.5.sp
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            state = workersListState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .nestedScroll(nestedScrollConnection),
+                            contentPadding = PaddingValues(
+                                top = headerHeightDp + 8.dp,
+                                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
+                                start = 16.dp,
+                                end = 16.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // Warning Card for 429 Rate Limit
+                            if (hasRateLimitedWorkers) {
+                                item(key = "rate_limit_warning") {
+                                    Surface(
+                                        shape = RoundedCornerShape(13.dp),
+                                        color = Color(0xFFF59E0B).copy(alpha = 0.08f),
+                                        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 2.dp)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(6.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFFF59E0B))
+                                                )
+                                                Surface(
+                                                    shape = RoundedCornerShape(5.dp),
+                                                    color = Color.Transparent,
+                                                    border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
+                                                ) {
+                                                    Text(
+                                                        text = "Лимит 429",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFFF59E0B),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                                    )
+                                                }
+                                                Text(
+                                                    text = "Cloudflare Rate Limit",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = Color(0xFFF59E0B)
+                                                )
+                                            }
+                                            Text(
+                                                text = "На бесплатном тарифе Cloudflare выделяет 100 000 запросов в сутки на домен. Лимит сбрасывается в 00:00 UTC. Выберите другой узел или подключите персональный воркер.",
+                                                fontSize = 12.sp,
+                                                color = TextWhite.copy(alpha = 0.85f),
+                                                lineHeight = 16.5.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            itemsIndexed(
+                                items = filteredWorkers,
+                                key = { _, item -> item.id }
+                            ) { _, worker ->
+                                val isActive = worker.id == activeWorkerId
+                                GlassWorkerCard(
+                                    worker = worker,
+                                    isActive = isActive,
+                                    activeAccentColor = activeProtoColor,
+                                    pingInfo = pingResults[worker.domain],
+                                    onSelect = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        prefs.setActiveWorkerId(worker.id)
+                                        activeWorkerId = worker.id
+                                        Toast.makeText(context, "Активирован: ${worker.name}", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onShare = if (!worker.isDeveloperWorker) {
+                                        { shareWorker(worker) }
+                                    } else null,
+                                    onDelete = if (!worker.isDeveloperWorker) {
+                                        {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            workerToDelete = worker
+                                        }
+                                    } else null
                                 )
+                            }
+
+                            // App Links Integration Card at bottom
+                            item(key = "app_links_card") {
+                                Surface(
+                                    shape = RoundedCornerShape(13.dp),
+                                    color = Color.Transparent,
+                                    border = BorderStroke(1.dp, Color(0xFF181E2E)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .clip(CircleShape)
+                                                    .background(activeProtoColor)
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(5.dp),
+                                                color = Color.Transparent,
+                                                border = BorderStroke(1.dp, Color(0xFF1E283D))
+                                            ) {
+                                                Text(
+                                                    text = "Интеграция",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = TextMuted,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = "Открытие ссылок в приложении",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = TextWhite
+                                            )
+                                        }
+                                        Text(
+                                            text = "Чтобы ссылки вида https://mirrly.app/worker?... открывались напрямую в приложении, включите поддержку ссылок в системных параметрах Android.",
+                                            fontSize = 12.sp,
+                                            color = TextMuted,
+                                            lineHeight = 16.sp
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = activeProtoColor.copy(alpha = 0.08f),
+                                            border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.35f)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(36.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .springPress(onClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    try {
+                                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                                            val intent = Intent(
+                                                                android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
+                                                                Uri.parse("package:${context.packageName}")
+                                                            )
+                                                            context.startActivity(intent)
+                                                        } else {
+                                                            val intent = Intent(
+                                                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                                Uri.parse("package:${context.packageName}")
+                                                            )
+                                                            context.startActivity(intent)
+                                                        }
+                                                    } catch (_: Exception) {
+                                                        val intent = Intent(
+                                                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                            Uri.parse("package:${context.packageName}")
+                                                        )
+                                                        context.startActivity(intent)
+                                                    }
+                                                })
+                                        ) {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "Открыть настройки ссылок",
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = activeProtoColor
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
-
-                itemsIndexed(
-                    items = filteredWorkers,
-                    key = { _, item -> item.id }
-                ) { index, worker ->
-                    val isActive = worker.id == activeWorkerId
-                    GlassWorkerCard(
-                        worker = worker,
-                        isActive = isActive,
-                        activeAccentColor = activeProtoColor,
-                        pingInfo = pingResults[worker.domain],
-                        onSelect = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            prefs.setActiveWorkerId(worker.id)
-                            activeWorkerId = worker.id
-                            Toast.makeText(context, "Активирован: ${worker.name}", Toast.LENGTH_SHORT).show()
-                        },
-                        onShare = if (!worker.isDeveloperWorker) {
-                            { shareWorker(worker) }
-                        } else null,
-                        onDelete = if (!worker.isDeveloperWorker) {
-                            {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                workerToDelete = worker
-                            }
-                        } else null
-                    )
-                }
-
-                // App Links Integration Card at bottom
-                item(key = "app_links_card") {
-                    Surface(
-                        shape = RoundedCornerShape(13.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, Color(0xFF181E2E)),
+                ManagerSection.GUIDE -> {
+                    LazyColumn(
+                        state = guideListState,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp)
+                            .fillMaxSize()
+                            .nestedScroll(nestedScrollConnection),
+                        contentPadding = PaddingValues(
+                            top = headerHeightDp + 8.dp,
+                            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
+                            start = 16.dp,
+                            end = 16.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(activeProtoColor)
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(5.dp),
-                                    color = Color.Transparent,
-                                    border = BorderStroke(1.dp, Color(0xFF1E283D))
-                                ) {
-                                    Text(
-                                        text = "Интеграция",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextMuted,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                        when (selectedGuideTab) {
+                            WmGuideTab.PC -> {
+                                itemsIndexed(
+                                    items = pcSteps,
+                                    key = { _, item -> "pc_${item.stepNumber}" }
+                                ) { _, step ->
+                                    GlassGuideStepCard(
+                                        stepNumber = step.stepNumber,
+                                        title = step.title,
+                                        description = step.description,
+                                        activeAccentColor = activeProtoColor,
+                                        actionText = step.actionText,
+                                        onAction = when {
+                                            step.isCopyAction -> { { copyScriptToClipboard() } }
+                                            step.isDashAction -> { { openCloudflareDashboard() } }
+                                            else -> null
+                                        }
                                     )
                                 }
-                                Text(
-                                    text = "Открытие ссылок в приложении",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = TextWhite
-                                )
                             }
-                            Text(
-                                text = "Чтобы ссылки вида https://mirrly.app/worker?... открывались напрямую в приложении, включите поддержку ссылок в системных параметрах Android.",
-                                fontSize = 12.sp,
-                                color = TextMuted,
-                                lineHeight = 16.sp
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = activeProtoColor.copy(alpha = 0.08f),
-                                border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.35f)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(36.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .springPress(onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        try {
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                                val intent = Intent(
-                                                    android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
-                                                    Uri.parse("package:${context.packageName}")
+                            WmGuideTab.PHONE -> {
+                                item(key = "phone_tip") {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0xFF38BDF8).copy(alpha = 0.08f),
+                                        border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 2.dp)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(6.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF38BDF8))
                                                 )
-                                                context.startActivity(intent)
-                                            } else {
-                                                val intent = Intent(
-                                                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                                    Uri.parse("package:${context.packageName}")
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.5.dp),
+                                                    color = Color.Transparent,
+                                                    border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f))
+                                                ) {
+                                                    Text(
+                                                        text = "Совет",
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFF38BDF8),
+                                                        modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                                Text(
+                                                    text = "Мобильный браузер",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = Color(0xFF38BDF8)
                                                 )
-                                                context.startActivity(intent)
                                             }
-                                        } catch (_: Exception) {
-                                            val intent = Intent(
-                                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                                Uri.parse("package:${context.packageName}")
+                                            Text(
+                                                text = "В мобильном браузере (Chrome / Firefox) включите в меню флажок «Версия для ПК», если интерфейс редактора Cloudflare покажется компактным.",
+                                                fontSize = 11.5.sp,
+                                                color = TextWhite.copy(alpha = 0.85f),
+                                                lineHeight = 16.sp
                                             )
-                                            context.startActivity(intent)
                                         }
-                                    })
-                            ) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "Открыть настройки ссылок",
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = activeProtoColor
+                                    }
+                                }
+
+                                itemsIndexed(
+                                    items = phoneSteps,
+                                    key = { _, item -> "phone_${item.stepNumber}" }
+                                ) { _, step ->
+                                    GlassGuideStepCard(
+                                        stepNumber = step.stepNumber,
+                                        title = step.title,
+                                        description = step.description,
+                                        activeAccentColor = activeProtoColor,
+                                        actionText = step.actionText,
+                                        onAction = when {
+                                            step.isCopyAction -> { { copyScriptToClipboard() } }
+                                            step.isDashAction -> { { openCloudflareDashboard() } }
+                                            else -> null
+                                        }
                                     )
+                                }
+                            }
+                            WmGuideTab.SCRIPT -> {
+                                item(key = "script_header") {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color.Transparent,
+                                        border = BorderStroke(1.dp, Color(0xFF181E2E)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(6.dp)
+                                                            .clip(CircleShape)
+                                                            .background(activeProtoColor)
+                                                    )
+                                                    Text(
+                                                        text = "cloudflare_worker.js",
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = TextWhite
+                                                    )
+                                                }
+
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = activeProtoColor.copy(alpha = 0.12f),
+                                                    border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.45f)),
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .springPress(onClick = { copyScriptToClipboard() })
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        Icon(
+                                                            painter = painterResource(id = R.drawable.ic_copy),
+                                                            contentDescription = "Копировать",
+                                                            tint = activeProtoColor,
+                                                            modifier = Modifier.size(12.dp)
+                                                        )
+                                                        Text(
+                                                            text = "Копировать",
+                                                            color = activeProtoColor,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            Text(
+                                                text = TgConstants.CLOUDFLARE_WORKER_JS_CODE,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 10.5.sp,
+                                                color = TextWhite.copy(alpha = 0.8f),
+                                                lineHeight = 15.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            WmGuideTab.FAQ -> {
+                                itemsIndexed(
+                                    items = faqItems,
+                                    key = { index, _ -> "faq_item_$index" }
+                                ) { _, faq ->
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color.Transparent,
+                                        border = BorderStroke(1.dp, Color(0xFF181E2E)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(6.dp)
+                                                        .clip(CircleShape)
+                                                        .background(activeProtoColor)
+                                                )
+                                                Text(
+                                                    text = faq.title,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = TextWhite
+                                                )
+                                            }
+                                            Text(
+                                                text = faq.description,
+                                                fontSize = 11.5.sp,
+                                                color = TextMuted,
+                                                lineHeight = 16.sp,
+                                                modifier = Modifier.padding(start = 12.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -548,7 +982,7 @@ fun WorkerManagerScreen(
             }
         }
 
-        // 2. PINNED FROSTED GLASS HEADER (Title Bar + Search + Filter Chips + Strict Action Buttons)
+        // 2. PINNED FROSTED GLASS HEADER
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -574,15 +1008,21 @@ fun WorkerManagerScreen(
                     detectVerticalDragGestures(
                         onDragStart = { headerDragY = 0f },
                         onDragEnd = {
-                            if (headerDragY < -24.dp.toPx()) {
+                            if (headerDragY < -15.dp.toPx()) {
                                 handleDismiss()
                             }
                             headerDragY = 0f
                         },
                         onDragCancel = { headerDragY = 0f },
                         onVerticalDrag = { change, dragAmount ->
-                            change.consume()
+                            if (dragAmount < 0f || headerDragY < 0f) {
+                                change.consume()
+                            }
                             headerDragY += dragAmount
+                            if (headerDragY < -35.dp.toPx()) {
+                                handleDismiss()
+                                headerDragY = 0f
+                            }
                         }
                     )
                 }
@@ -594,6 +1034,22 @@ fun WorkerManagerScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Top Drag Handle Pill
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(36.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(alpha = 0.28f))
+                    )
+                }
+
                 // Top App Bar
                 TopAppBar(
                     title = {
@@ -608,7 +1064,11 @@ fun WorkerManagerScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = if (isSocks5) "SOCKS5 Cloudflare Туннели" else "MTProto Cloudflare Туннели",
+                                text = if (currentSection == ManagerSection.GUIDE) {
+                                    "Инструкция по настройке"
+                                } else {
+                                    if (isSocks5) "SOCKS5 Cloudflare Туннели" else "MTProto Cloudflare Туннели"
+                                },
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = activeProtoColor
@@ -628,191 +1088,379 @@ fun WorkerManagerScreen(
                         }
                     },
                     actions = {
-                        // Toggle Search Bar
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            if (isSearchVisible && searchQuery.isNotEmpty()) {
-                                searchQuery = ""
+                        if (currentSection == ManagerSection.WORKERS) {
+                            // Toggle Search Bar
+                            IconButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (isSearchVisible && searchQuery.isNotEmpty()) {
+                                    searchQuery = ""
+                                }
+                                isSearchVisible = !isSearchVisible
+                                if (!isSearchVisible) {
+                                    keyboardController?.hide()
+                                }
+                            }) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_search),
+                                    contentDescription = "Поиск",
+                                    tint = if (isSearchVisible || searchQuery.isNotEmpty()) activeProtoColor else TextWhite,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
-                            isSearchVisible = !isSearchVisible
-                            if (!isSearchVisible) {
-                                keyboardController?.hide()
-                            }
-                        }) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_search),
-                                contentDescription = "Поиск",
-                                tint = if (isSearchVisible || searchQuery.isNotEmpty()) activeProtoColor else TextWhite,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
 
-                        // Ping All Workers (ic_refresh with rotation)
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            startPingAll()
-                        }) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_refresh),
-                                contentDescription = "Замерить пинг",
-                                tint = if (isPinging) activeProtoColor else TextWhite,
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .rotate(pingRotation)
-                            )
+                            // Ping All Workers (ic_refresh with rotation)
+                            IconButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                startPingAll()
+                            }) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                    contentDescription = "Замерить пинг",
+                                    tint = if (isPinging) activeProtoColor else TextWhite,
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .rotate(pingRotation)
+                                )
+                            }
+                        } else {
+                            // Copy script shortcut in Guide
+                            IconButton(onClick = {
+                                copyScriptToClipboard()
+                            }) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_copy),
+                                    contentDescription = "Скопировать скрипт",
+                                    tint = activeProtoColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
 
-                // Animated Search Bar
-                AnimatedVisibility(
-                    visible = isSearchVisible,
-                    enter = expandVertically(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
-                            fadeIn(animationSpec = tween(220)),
-                    exit = shrinkVertically(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
-                            fadeOut(animationSpec = tween(180))
-                ) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(searchFocusRequester),
-                        placeholder = {
-                            Text(
-                                text = "Поиск по названию или домену...",
-                                color = TextMuted,
-                                fontSize = 13.sp
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_search),
-                                contentDescription = null,
-                                tint = if (searchQuery.isNotEmpty()) activeProtoColor else TextMuted,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = {
-                                    searchQuery = ""
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                }) {
-                                    Text("✕", color = TextMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-                        shape = RoundedCornerShape(13.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedBorderColor = activeProtoColor.copy(alpha = 0.85f),
-                            unfocusedBorderColor = Color(0xFF1E283D),
-                            focusedTextColor = TextWhite,
-                            unfocusedTextColor = TextWhite
-                        )
-                    )
-                }
+                // 2-Segment Primary Section Switcher Pill ([ Воркеры ] [ Инструкция ])
+                val sectionCapsuleWidth = 240.dp
+                val sectionCapsuleHeight = 34.dp
+                val sectionInnerPadding = 3.dp
+                val sectionTabWidth = (sectionCapsuleWidth - sectionInnerPadding * 2) / 2
 
-                // 3 Fixed-Width Segmented Filter Chips (Logs style)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    SegmentedFilterChip(
-                        title = "Все",
-                        count = allWorkers.size,
-                        isSelected = selectedFilter == WorkerFilterType.ALL,
-                        activeColor = activeProtoColor,
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            selectedFilter = WorkerFilterType.ALL
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
-                    )
-                    SegmentedFilterChip(
-                        title = "Официальные",
-                        count = devWorkers.size,
-                        isSelected = selectedFilter == WorkerFilterType.DEVELOPER,
-                        activeColor = activeProtoColor,
-                        modifier = Modifier.weight(1.3f),
-                        onClick = {
-                            selectedFilter = WorkerFilterType.DEVELOPER
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
-                    )
-                    SegmentedFilterChip(
-                        title = "Личные",
-                        count = customWorkers.size,
-                        isSelected = selectedFilter == WorkerFilterType.CUSTOM,
-                        activeColor = activeProtoColor,
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            selectedFilter = WorkerFilterType.CUSTOM
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
-                    )
-                }
+                val animatedSectionPillOffset by animateDpAsState(
+                    targetValue = if (currentSection == ManagerSection.GUIDE) sectionTabWidth else 0.dp,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "sectionPillOffset"
+                )
 
-                // Action Buttons Row ("Добавить" and "Инструкция" - strict, no emojis)
-                Row(
+                Box(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    contentAlignment = Alignment.Center
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(11.dp),
-                        color = activeProtoColor.copy(alpha = 0.08f),
-                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.45f)),
+                    Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .height(38.dp)
-                            .clip(RoundedCornerShape(11.dp))
-                            .springPress(onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                showAddDialog = true
-                            })
+                            .width(sectionCapsuleWidth)
+                            .height(sectionCapsuleHeight)
+                            .clip(RoundedCornerShape(17.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, Color(0xFF1E2434), RoundedCornerShape(17.dp))
+                            .padding(sectionInnerPadding)
                     ) {
+                        // Sliding Glowing Indicator Pill
                         Box(
+                            modifier = Modifier
+                                .offset(x = animatedSectionPillOffset)
+                                .width(sectionTabWidth)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(activeProtoColor.copy(alpha = 0.20f))
+                                .border(1.2.dp, activeProtoColor.copy(alpha = 0.85f), RoundedCornerShape(14.dp))
+                        )
+
+                        // Segment Labels Row
+                        Row(
                             modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Добавить",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.5.sp,
-                                color = activeProtoColor
-                            )
+                            // Workers Tab
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        if (currentSection != ManagerSection.WORKERS) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            currentSection = ManagerSection.WORKERS
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Воркеры",
+                                    color = if (currentSection == ManagerSection.WORKERS) activeProtoColor else TextMuted,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (currentSection == ManagerSection.WORKERS) FontWeight.Bold else FontWeight.Medium,
+                                    letterSpacing = 0.3.sp
+                                )
+                            }
+
+                            // Guide Tab
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        if (currentSection != ManagerSection.GUIDE) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            currentSection = ManagerSection.GUIDE
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Инструкция",
+                                    color = if (currentSection == ManagerSection.GUIDE) activeProtoColor else TextMuted,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (currentSection == ManagerSection.GUIDE) FontWeight.Bold else FontWeight.Medium,
+                                    letterSpacing = 0.3.sp
+                                )
+                            }
                         }
                     }
+                }
 
-                    Surface(
-                        shape = RoundedCornerShape(11.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, Color(0xFF1E283D)),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(38.dp)
-                            .clip(RoundedCornerShape(11.dp))
-                            .springPress(onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onOpenWorkerGuide()
-                            })
-                    ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Инструкция",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.5.sp,
-                                color = TextWhite.copy(alpha = 0.85f)
-                            )
+                // Sub-Controls depending on Active Section
+                AnimatedContent(
+                    targetState = currentSection,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(180)).togetherWith(fadeOut(animationSpec = tween(140)))
+                    },
+                    label = "managerHeaderSubControls"
+                ) { section ->
+                    when (section) {
+                        ManagerSection.WORKERS -> {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Animated Search Bar
+                                AnimatedVisibility(
+                                    visible = isSearchVisible,
+                                    enter = expandVertically(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
+                                            fadeIn(animationSpec = tween(220)),
+                                    exit = shrinkVertically(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
+                                            fadeOut(animationSpec = tween(180))
+                                ) {
+                                    OutlinedTextField(
+                                        value = searchQuery,
+                                        onValueChange = { searchQuery = it },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .focusRequester(searchFocusRequester),
+                                        placeholder = {
+                                            Text(
+                                                text = "Поиск по названию или домену...",
+                                                color = TextMuted,
+                                                fontSize = 13.sp
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_search),
+                                                contentDescription = null,
+                                                tint = if (searchQuery.isNotEmpty()) activeProtoColor else TextMuted,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        },
+                                        trailingIcon = {
+                                            if (searchQuery.isNotEmpty()) {
+                                                IconButton(onClick = {
+                                                    searchQuery = ""
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                }) {
+                                                    Text("✕", color = TextMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                        keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
+                                        shape = RoundedCornerShape(13.dp),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedContainerColor = Color.Transparent,
+                                            unfocusedContainerColor = Color.Transparent,
+                                            focusedBorderColor = activeProtoColor.copy(alpha = 0.85f),
+                                            unfocusedBorderColor = Color(0xFF1E283D),
+                                            focusedTextColor = TextWhite,
+                                            unfocusedTextColor = TextWhite
+                                        )
+                                    )
+                                }
+
+                                // 3 Fixed-Width Segmented Filter Chips + Add Button
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    SegmentedFilterChip(
+                                        title = "Все",
+                                        count = allWorkers.size,
+                                        isSelected = selectedFilter == WmWorkerFilterType.ALL,
+                                        activeColor = activeProtoColor,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            selectedFilter = WmWorkerFilterType.ALL
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    )
+                                    SegmentedFilterChip(
+                                        title = "Официальные",
+                                        count = devWorkers.size,
+                                        isSelected = selectedFilter == WmWorkerFilterType.DEVELOPER,
+                                        activeColor = activeProtoColor,
+                                        modifier = Modifier.weight(1.3f),
+                                        onClick = {
+                                            selectedFilter = WmWorkerFilterType.DEVELOPER
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    )
+                                    SegmentedFilterChip(
+                                        title = "Личные",
+                                        count = customWorkers.size,
+                                        isSelected = selectedFilter == WmWorkerFilterType.CUSTOM,
+                                        activeColor = activeProtoColor,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            selectedFilter = WmWorkerFilterType.CUSTOM
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    )
+
+                                    // Add worker button
+                                    Surface(
+                                        shape = RoundedCornerShape(11.dp),
+                                        color = activeProtoColor.copy(alpha = 0.12f),
+                                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.55f)),
+                                        modifier = Modifier
+                                            .height(34.dp)
+                                            .clip(RoundedCornerShape(11.dp))
+                                            .springPress(onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                showAddDialog = true
+                                            })
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxHeight()
+                                                .padding(horizontal = 10.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "+ Добавить",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.5.sp,
+                                                color = activeProtoColor
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        ManagerSection.GUIDE -> {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                // Top 3 Guide Sub-Chips
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    val topTabs = listOf(WmGuideTab.PC, WmGuideTab.PHONE, WmGuideTab.SCRIPT)
+                                    topTabs.forEach { tab ->
+                                        val isSelected = selectedGuideTab == tab
+                                        val borderColor by animateColorAsState(
+                                            targetValue = if (isSelected) activeProtoColor.copy(alpha = 0.85f) else Color(0xFF1E283D),
+                                            animationSpec = tween(180),
+                                            label = "guideTabBorder"
+                                        )
+                                        val titleColor by animateColorAsState(
+                                            targetValue = if (isSelected) activeProtoColor else TextWhite.copy(alpha = 0.85f),
+                                            animationSpec = tween(180),
+                                            label = "guideTabTitle"
+                                        )
+
+                                        Surface(
+                                            shape = RoundedCornerShape(11.dp),
+                                            color = Color.Transparent,
+                                            border = BorderStroke(1.dp, borderColor),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(34.dp)
+                                                .springPress(onClick = {
+                                                    selectedGuideTab = tab
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                })
+                                        ) {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = tab.title,
+                                                    color = titleColor,
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Full-Width FAQ Chip
+                                val isFaqSelected = selectedGuideTab == WmGuideTab.FAQ
+                                val faqBorderColor by animateColorAsState(
+                                    targetValue = if (isFaqSelected) activeProtoColor.copy(alpha = 0.85f) else Color(0xFF1E283D),
+                                    animationSpec = tween(180),
+                                    label = "faqTabBorder"
+                                )
+                                val faqTitleColor by animateColorAsState(
+                                    targetValue = if (isFaqSelected) activeProtoColor else TextWhite.copy(alpha = 0.85f),
+                                    animationSpec = tween(180),
+                                    label = "faqTabTitle"
+                                )
+
+                                Surface(
+                                    shape = RoundedCornerShape(11.dp),
+                                    color = Color.Transparent,
+                                    border = BorderStroke(1.dp, faqBorderColor),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(32.dp)
+                                        .springPress(onClick = {
+                                            selectedGuideTab = WmGuideTab.FAQ
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        })
+                                ) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = WmGuideTab.FAQ.title,
+                                            color = faqTitleColor,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = if (isFaqSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -906,6 +1554,86 @@ private fun SegmentedFilterChip(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
+        }
+    }
+}
+
+@Composable
+private fun GlassGuideStepCard(
+    stepNumber: String,
+    title: String,
+    description: String,
+    activeAccentColor: Color,
+    actionText: String? = null,
+    onAction: (() -> Unit)? = null
+) {
+    Surface(
+        shape = RoundedCornerShape(13.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, Color(0xFF181E2E)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(4.5.dp),
+                    color = activeAccentColor.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.45f))
+                ) {
+                    Text(
+                        text = "Шаг $stepNumber",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = activeAccentColor,
+                        modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
+                    )
+                }
+
+                Text(
+                    text = title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Text(
+                text = description,
+                fontSize = 11.5.sp,
+                color = TextMuted,
+                lineHeight = 16.sp
+            )
+
+            if (actionText != null && onAction != null) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = activeAccentColor.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(34.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .springPress(onClick = onAction)
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = actionText,
+                            color = activeAccentColor,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
         }
     }
 }

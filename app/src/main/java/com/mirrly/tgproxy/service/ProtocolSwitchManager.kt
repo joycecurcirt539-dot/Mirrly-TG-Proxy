@@ -83,31 +83,32 @@ object ProtocolSwitchManager {
         requestedTarget: ProxyMode? = null,
         onComplete: (() -> Unit)? = null
     ): Boolean {
-        if (_isSwitching.value) {
-            AppLogger.i(TAG, "Переключение протокола уже выполняется. Запрос проигнорирован (Anti-Spam).")
-            return false
-        }
-
-        val now = System.currentTimeMillis()
-        if (now - lastSwitchCompletedMs < 500L) {
-            AppLogger.i(TAG, "Слишком частое переключение. Запрос проигнорирован (Debounce).")
-            return false
-        }
-
         val app = MirrlyApplication.instance
         val currentMode = app.config.proxyMode
         val newTarget = requestedTarget ?: if (currentMode == ProxyMode.SOCKS5) ProxyMode.MTPROTO else ProxyMode.SOCKS5
 
-        if (newTarget == currentMode && _switchPhase.value == SwitchPhase.IDLE) {
+        if (newTarget == currentMode && _switchPhase.value == SwitchPhase.IDLE && !_isSwitching.value) {
             return false
         }
 
-        _isSwitching.value = true
-        _targetMode.value = newTarget
-
+        // Cancel previous switch job if still in progress to support smooth, responsive re-targeting
         switchJob?.cancel()
+
+        // 1. Immediately apply target mode in memory (0 ms UI state synchronization)
+        app.config.proxyModeName = newTarget.name
+        _targetMode.value = newTarget
+        _isSwitching.value = true
+
+        val modeLabel = if (newTarget == ProxyMode.SOCKS5) "SOCKS5" else "MTProto"
+        showToast(context, "Режим: $modeLabel")
+
         switchJob = scope.launch {
             try {
+                // Asynchronously persist configuration to disk without blocking the main looper
+                withContext(Dispatchers.IO) {
+                    app.prefsManager.saveConfig(app.config)
+                }
+
                 val server = app.proxyServer
                 val wasRunning = server.isRunning
 
@@ -123,32 +124,13 @@ object ProtocolSwitchManager {
                             AppLogger.e(TAG, "Ошибка остановки сокетов: ${e.message}")
                         }
                     }
-                    // Deliberate pause for UI deceleration & amber glow ring animation
-                    delay(480)
-                } else {
-                    // Brief natural settle delay for gesture spring to land
-                    delay(220)
-                }
 
-                // ── STEP 2: Apply Accent & Protocol Configuration ──
-                _switchPhase.value = SwitchPhase.SWITCHING_ACCENT
-                AppLogger.i(TAG, "Шаг 2: Смена режима и акцента на ${newTarget.name}...")
+                    _switchPhase.value = SwitchPhase.SWITCHING_ACCENT
+                    delay(260)
 
-                app.config.proxyModeName = newTarget.name
-                withContext(Dispatchers.IO) {
-                    app.prefsManager.saveConfig(app.config)
-                }
-
-                val modeLabel = if (newTarget == ProxyMode.SOCKS5) "SOCKS5" else "MTProto"
-                showToast(context, "Режим: $modeLabel")
-
-                // Deliberate pause for theme color morph (650ms tween) to comfortably settle
-                delay(420)
-
-                // ── STEP 3: Graceful Reconnect / Start on New Protocol (if previously running) ──
-                if (wasRunning) {
+                    // ── STEP 2: Graceful Reconnect / Start on New Protocol (if previously running) ──
                     _switchPhase.value = SwitchPhase.RECONNECTING
-                    AppLogger.i(TAG, "Шаг 3: Плавный запуск службы на протоколе ${newTarget.name}...")
+                    AppLogger.i(TAG, "Шаг 2: Плавный запуск службы на протоколе ${newTarget.name}...")
 
                     val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
                         action = ProxyForegroundService.ACTION_START
@@ -162,9 +144,10 @@ object ProtocolSwitchManager {
                     } catch (e: Exception) {
                         AppLogger.e(TAG, "Ошибка запуска службы прокси: ${e.message}")
                     }
-
-                    // Small pause for initialization & pre-warming sockets
-                    delay(380)
+                    delay(200)
+                } else {
+                    _switchPhase.value = SwitchPhase.SWITCHING_ACCENT
+                    delay(150)
                 }
 
                 AppLogger.i(TAG, "Переключение протокола успешно завершено.")
@@ -174,7 +157,6 @@ object ProtocolSwitchManager {
                 _switchPhase.value = SwitchPhase.IDLE
                 _targetMode.value = null
                 lastSwitchCompletedMs = System.currentTimeMillis()
-                delay(300)
                 _isSwitching.value = false
                 onComplete?.invoke()
             }

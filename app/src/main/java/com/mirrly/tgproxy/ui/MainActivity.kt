@@ -149,9 +149,9 @@ class MainActivity : ComponentActivity() {
                 var lastBackTime by remember { mutableLongStateOf(0L) }
                 val scope = rememberCoroutineScope()
 
+                var workerManagerSection by remember { mutableStateOf(ManagerSection.WORKERS) }
                 val workerManagerOpenProgress = remember { Animatable(0f) }
                 val isWorkerManager = currentScreen == "worker_manager"
-                val isWorkerGuide = currentScreen == "worker_guide"
 
                 // Synchronize workerManagerOpenProgress with current screen
                 LaunchedEffect(currentScreen) {
@@ -159,29 +159,45 @@ class MainActivity : ComponentActivity() {
                         if (workerManagerOpenProgress.value < 0.99f) {
                             workerManagerOpenProgress.animateTo(
                                 1f,
-                                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
                             )
                         }
                     } else if (currentScreen == "home") {
                         if (workerManagerOpenProgress.value > 0.01f) {
                             workerManagerOpenProgress.animateTo(
                                 0f,
-                                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
                             )
                         }
                     }
                 }
 
                 fun navigateTo(screen: String) {
-                    if (screenStack.lastOrNull() != screen) {
-                        screenStack.add(screen)
-                        if (screen == "worker_manager") {
-                            scope.launch {
-                                workerManagerOpenProgress.animateTo(
-                                    1f,
-                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                                )
-                            }
+                    if (screen == "worker_guide") {
+                        workerManagerSection = ManagerSection.GUIDE
+                        if (screenStack.lastOrNull() != "worker_manager") {
+                            screenStack.add("worker_manager")
+                        }
+                        scope.launch {
+                            workerManagerOpenProgress.animateTo(
+                                1f,
+                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
+                            )
+                        }
+                    } else if (screen == "worker_manager") {
+                        workerManagerSection = ManagerSection.WORKERS
+                        if (screenStack.lastOrNull() != "worker_manager") {
+                            screenStack.add("worker_manager")
+                        }
+                        scope.launch {
+                            workerManagerOpenProgress.animateTo(
+                                1f,
+                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
+                            )
+                        }
+                    } else {
+                        if (screenStack.lastOrNull() != screen) {
+                            screenStack.add(screen)
                         }
                     }
                 }
@@ -190,7 +206,7 @@ class MainActivity : ComponentActivity() {
 
                 fun navigateBack() {
                     val now = System.currentTimeMillis()
-                    if (now - lastNavigateBackTime < 280) return
+                    if (now - lastNavigateBackTime < 240) return
                     lastNavigateBackTime = now
 
                     if (screenStack.size > 1) {
@@ -199,9 +215,17 @@ class MainActivity : ComponentActivity() {
                             scope.launch {
                                 workerManagerOpenProgress.animateTo(
                                     0f,
-                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                    spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
                                 )
                             }
+                        }
+                    } else if (workerManagerOpenProgress.value > 0.01f) {
+                        screenStack.removeAll { it == "worker_manager" }
+                        scope.launch {
+                            workerManagerOpenProgress.animateTo(
+                                0f,
+                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
+                            )
                         }
                     } else {
                         if (now - lastBackTime < 2000) {
@@ -230,11 +254,11 @@ class MainActivity : ComponentActivity() {
                 )
 
                 val wmProgress = workerManagerOpenProgress.value
-                val isInteractiveWm = (currentScreen == "home" || isWorkerManager) && !isWorkerGuide
+                val isInteractiveWm = (currentScreen == "home" || isWorkerManager)
 
-                val activeBlurRadius = if (currentScreen == "home") (wmProgress * 16f).dp else 16.dp
-                val activeBackdropAlpha = if (currentScreen == "home") (wmProgress * 0.48f) else 0.48f
-                val homeBlurRadius = if (currentScreen == "home") (wmProgress * 16f).dp else 16.dp
+                val activeBlurRadius = if (currentScreen == "home" || currentScreen == "worker_manager") (wmProgress * 16f).dp else 16.dp
+                val activeBackdropAlpha = if (currentScreen == "home" || currentScreen == "worker_manager") (wmProgress * 0.48f) else 0.48f
+                val homeBlurRadius = if (currentScreen == "home" || currentScreen == "worker_manager") (wmProgress * 16f).dp else 16.dp
 
                 var isUiHidden by remember { mutableStateOf(false) }
                 val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
@@ -311,30 +335,13 @@ class MainActivity : ComponentActivity() {
                         label = "updateAlpha"
                     )
 
-                    // Animated offsets & scales for Worker Guide screen
-                    val workerGuideOffsetFraction by animateFloatAsState(
-                        targetValue = if (isWorkerGuide) 0f else 1.0f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "workerGuideOffset"
-                    )
-                    val workerGuideScale by animateFloatAsState(
-                        targetValue = if (isWorkerGuide) 1.0f else 0.94f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "workerGuideScale"
-                    )
-                    val workerGuideAlpha by animateFloatAsState(
-                        targetValue = if (isWorkerGuide) 1.0f else 0.0f,
-                        animationSpec = tween(220),
-                        label = "workerGuideAlpha"
-                    )
-
                     val heightPx = constraints.maxHeight.toFloat()
 
                     // Animated offsets & scales for Home screen
                     val homeOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings || isAbout || isLicense || isTerms || isUpdate || isWorkerGuide -> -0.15f
+                            isSettings || isAbout || isLicense || isTerms || isUpdate -> -0.15f
                             isLogs || isHistory -> 0.15f
                             else -> 0f
                         },
@@ -356,7 +363,7 @@ class MainActivity : ComponentActivity() {
                     val settingsOffsetFraction by animateFloatAsState(
                         targetValue = when {
                             isSettings -> 0f
-                            isAbout || isLicense || isTerms || isWorkerGuide || isWorkerManager -> -0.15f
+                            isAbout || isLicense || isTerms || isWorkerManager -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -506,7 +513,7 @@ class MainActivity : ComponentActivity() {
                             onOpenWorkerManager = { navigateTo("worker_manager") },
                             onDragWorkerManager = { totalDragY ->
                                 if (totalDragY > 0f) {
-                                    val fraction = (totalDragY / (heightPx * 0.35f)).coerceIn(0f, 1f)
+                                    val fraction = (totalDragY / (heightPx * 0.28f)).coerceIn(0f, 1f)
                                     scope.launch { workerManagerOpenProgress.snapTo(fraction) }
                                 } else {
                                     scope.launch { workerManagerOpenProgress.snapTo(0f) }
@@ -514,35 +521,44 @@ class MainActivity : ComponentActivity() {
                             },
                             onSettleWorkerManager = { totalDragY ->
                                 if (totalDragY > 0f) {
-                                    val fraction = (totalDragY / (heightPx * 0.35f)).coerceIn(0f, 1f)
-                                    if (fraction > 0.18f) {
+                                    val fraction = (totalDragY / (heightPx * 0.28f)).coerceIn(0f, 1f)
+                                    if (fraction > 0.12f) {
+                                        if (screenStack.lastOrNull() != "worker_manager") {
+                                            screenStack.add("worker_manager")
+                                        }
                                         scope.launch {
                                             workerManagerOpenProgress.animateTo(
                                                 1f,
-                                                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
                                             )
-                                            navigateTo("worker_manager")
                                         }
                                     } else {
+                                        if (screenStack.lastOrNull() == "worker_manager") {
+                                            screenStack.removeAt(screenStack.size - 1)
+                                        }
                                         scope.launch {
                                             workerManagerOpenProgress.animateTo(
                                                 0f,
-                                                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
                                             )
                                         }
                                     }
                                 } else {
+                                    if (screenStack.lastOrNull() == "worker_manager") {
+                                        screenStack.removeAt(screenStack.size - 1)
+                                    }
                                     scope.launch {
                                         workerManagerOpenProgress.animateTo(
                                             0f,
-                                            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                            spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
                                         )
                                     }
                                 }
                             },
                             onUiHiddenChange = { hidden ->
                                 isUiHidden = hidden
-                            }
+                            },
+                            isInteractive = (currentScreen == "home")
                         )
                     }
 
@@ -599,69 +615,28 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // WORKER MANAGER SCREEN (Interactive Top-to-Bottom slide down sheet with blur when guide is open)
-                    val wmOffsetYFraction = when {
-                        isWorkerGuide -> -0.15f
-                        else -> -(1.0f - wmProgress)
-                    }
-                    val wmScale = when {
-                        isWorkerGuide -> 0.94f
-                        else -> 0.96f + 0.04f * wmProgress
-                    }
-                    val wmAlpha = when {
-                        isWorkerGuide -> (1.0f - workerGuideOffsetFraction).coerceIn(0f, 1f)
-                        else -> wmProgress.coerceIn(0f, 1f)
-                    }
-                    val wmGuideBlurRadius = if (isWorkerGuide) 16.dp else 0.dp
+                    // WORKER MANAGER SCREEN (Interactive Top-to-Bottom slide down sheet with integrated Guide)
+                    val wmOffsetYFraction = -(1.0f - wmProgress)
+                    val wmScale = 0.96f + 0.04f * wmProgress
+                    val wmAlpha = wmProgress.coerceIn(0f, 1f)
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationY = heightPx * wmOffsetYFraction
-                                scaleX = wmScale
-                                scaleY = wmScale
-                                alpha = wmAlpha
-                                if (wmGuideBlurRadius > 0.5.dp && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    val radiusPx = wmGuideBlurRadius.toPx()
-                                    renderEffect = RenderEffect.createBlurEffect(
-                                        radiusPx,
-                                        radiusPx,
-                                        Shader.TileMode.CLAMP
-                                    ).asComposeRenderEffect()
-                                } else {
-                                    renderEffect = null
+                    if (wmProgress > 0.001f || isWorkerManager) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationY = heightPx * wmOffsetYFraction
+                                    scaleX = wmScale
+                                    scaleY = wmScale
+                                    alpha = wmAlpha
                                 }
-                            }
-                            .then(
-                                if (wmGuideBlurRadius > 0.5.dp && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                                    Modifier.blur(wmGuideBlurRadius)
-                                } else {
-                                    Modifier
-                                }
+                        ) {
+                            WorkerManagerScreen(
+                                prefs = app.prefsManager,
+                                onBack = { navigateBack() },
+                                initialSection = workerManagerSection
                             )
-                    ) {
-                        WorkerManagerScreen(
-                            prefs = app.prefsManager,
-                            onBack = { navigateBack() },
-                            onOpenWorkerGuide = { navigateTo("worker_guide") }
-                        )
-                    }
-
-                    // WORKER GUIDE SCREEN (Pre-warmed & persistent)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = widthPx * workerGuideOffsetFraction
-                                scaleX = workerGuideScale
-                                scaleY = workerGuideScale
-                                alpha = workerGuideAlpha
-                            }
-                    ) {
-                        CloudflareWorkerGuideScreen(
-                            onBack = { navigateBack() }
-                        )
+                        }
                     }
 
                     // 4. ABOUT SCREEN (Pre-warmed & persistent)
