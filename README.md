@@ -373,10 +373,11 @@ irm https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/main/t
 ```
 
 > **Или из склонированного репозитория:**
+> * **Windows (Двойной клик):** `tools\deploy-worker\deploy.bat`
 > * **Windows (PowerShell):** `.\tools\deploy-worker\deploy.ps1`
 > * **Linux / macOS (Bash):** `./tools/deploy-worker/deploy.sh`
 
-Скрипт сам сгенерирует имя, откроет браузер для входа в Cloudflare (OAuth), задеплоит воркер с защитой от open-relay и скопирует готовый домен в буфер обмена.
+Скрипт содержит интерактивное меню, генерирует имя, авторизует через браузер (OAuth), сохраняет историю созданных воркеров в `my_workers.txt`, позволяет переключать аккаунты Cloudflare для обхода лимитов и автоматически копирует готовый домен в буфер обмена.
 
 ---
 

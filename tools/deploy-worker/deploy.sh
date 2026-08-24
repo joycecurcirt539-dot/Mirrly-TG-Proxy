@@ -1,30 +1,39 @@
 #!/usr/bin/env bash
 # Mirrly TG Proxy — Автоматический деплой персонального Cloudflare Worker (Linux / macOS)
-# Использование: ./deploy.sh [worker-name]
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HISTORY_FILE="${SCRIPT_DIR}/my_workers.txt"
+
+show_banner() {
+    clear
+    echo -e "\n\033[0;36m  ╔══════════════════════════════════════════════════════════════════╗\033[0m"
+    echo -e "\033[1;37m  ║                Mirrly TG Proxy — Worker Deployer                 ║\033[0m"
+    echo -e "\033[0;36m  ║   Автоматическое создание и деплой узлов Cloudflare (MTProto)    ║\033[0m"
+    echo -e "\033[0;36m  ╚══════════════════════════════════════════════════════════════════╝\033[0m\n"
+}
+
 if ! command -v node >/dev/null 2>&1; then
-    echo -e "\n\033[0;31m[X] Node.js не установлен.\033[0m"
-    echo -e "    Установите Node.js: https://nodejs.org/\n"
+    show_banner
+    echo -e "\033[0;31m  [X] Node.js не установлен в системе!\033[0m"
+    echo -e "\033[1;33m  Установите Node.js (v18+): https://nodejs.org/\033[0m\n"
     exit 1
 fi
 
-NAME="$1"
-if [ -z "$NAME" ]; then
-    SUFFIX=$(head /dev/urandom | tr -dc a-z0-9 | head -c 6)
-    NAME="mtg-relay-${SUFFIX}"
-fi
+deploy_worker() {
+    local WORKER_NAME="$1"
+    if [ -z "$WORKER_NAME" ]; then
+        local SUFFIX=$(head /dev/urandom | tr -dc a-z0-9 | head -c 6)
+        WORKER_NAME="mtg-relay-${SUFFIX}"
+    fi
 
-echo -e "\n\033[0;36m═════════════════════════════════════════════════════\033[0m"
-echo -e "\033[1;37m  Mirrly TG Proxy — Деплой Cloudflare Worker\033[0m"
-echo -e "\033[0;36m═════════════════════════════════════════════════════\033[0m"
-echo -e "\033[0;36mИмя воркера:\033[0m $NAME"
+    echo -e "\n\033[0;37m  [*] Имя воркера: \033[1;36m${WORKER_NAME}\033[0m"
 
-TEMP_DIR=$(mktemp -d /tmp/mirrly-deploy.XXXXXX)
-trap 'rm -rf "$TEMP_DIR"' EXIT
+    local TEMP_DIR=$(mktemp -d /tmp/mirrly-deploy.XXXXXX)
+    trap 'rm -rf "$TEMP_DIR"' EXIT
 
-cat << 'EOF' > "$TEMP_DIR/worker.js"
+    cat << 'EOF' > "$TEMP_DIR/worker.js"
 import { connect } from 'cloudflare:sockets';
 
 const TG_IPV4_SUBNETS = [
@@ -260,45 +269,112 @@ export default {
 };
 EOF
 
-cat << EOF > "$TEMP_DIR/wrangler.toml"
-name = "$NAME"
+    cat << EOF > "$TEMP_DIR/wrangler.toml"
+name = "$WORKER_NAME"
 main = "worker.js"
 compatibility_date = "2024-09-23"
 EOF
 
-cd "$TEMP_DIR"
+    cd "$TEMP_DIR"
 
-echo -e "\n\033[1;33m  [1/2] Открываю браузер для входа в Cloudflare...\033[0m"
-npx -y wrangler@latest login
+    echo -e "  \033[1;33m[1/2] Проверка авторизации Cloudflare (OAuth)...\033[0m"
+    npx -y wrangler@latest login
 
-echo -e "\n\033[1;36m  [2/2] Публикую воркер в Cloudflare...\033[0m\n"
-npx -y wrangler@latest deploy
+    echo -e "\n  \033[1;36m[2/2] Публикую воркер в Cloudflare...\033[0m\n"
+    npx -y wrangler@latest deploy
 
-LOG_DIR="${HOME}/.config/.wrangler/logs"
-if [ -d "$LOG_DIR" ]; then
-    LATEST_LOG=$(ls -t "$LOG_DIR"/*.log 2>/dev/null | head -n 1)
-    if [ -n "$LATEST_LOG" ]; then
-        DOMAIN=$(grep -oE 'https://[a-zA-Z0-9\.-]+\.workers\.dev' "$LATEST_LOG" | tail -n 1 | sed 's|https://||')
+    local DOMAIN=""
+    local LOG_DIR="${HOME}/.config/.wrangler/logs"
+    if [ -d "$LOG_DIR" ]; then
+        local LATEST_LOG=$(ls -t "$LOG_DIR"/*.log 2>/dev/null | head -n 1)
+        if [ -n "$LATEST_LOG" ]; then
+            DOMAIN=$(grep -oE 'https://[a-zA-Z0-9\.-]+\.workers\.dev' "$LATEST_LOG" | tail -n 1 | sed 's|https://||')
+        fi
     fi
-fi
 
-echo -e "\n\033[1;32m  ╔═══════════════════════════════════════════════════════════╗\033[0m"
-echo -e "\033[1;32m  ║                Воркер успешно задеплоен!                  ║\033[0m"
-echo -e "\033[1;32m  ╚═══════════════════════════════════════════════════════════╝\033[0m\n"
+    echo -e "\n\033[1;32m  ╔══════════════════════════════════════════════════════════════════╗\033[0m"
+    echo -e "\033[1;32m  ║                 Воркер успешно задеплоен!                        ║\033[0m"
+    echo -e "\033[1;32m  ╚══════════════════════════════════════════════════════════════════╝\033[0m\n"
 
-if [ -n "$DOMAIN" ]; then
-    echo -e "  \033[0;37mДомен воркера: \033[1;37m$DOMAIN\033[0m\n"
-    if command -v xclip >/dev/null 2>&1; then
-        echo -n "$DOMAIN" | xclip -selection clipboard
-        echo -e "  \033[1;32m[OK] Домен скопирован в буфер обмена.\033[0m\n"
-    elif command -v pbcopy >/dev/null 2>&1; then
-        echo -n "$DOMAIN" | pbcopy
-        echo -e "  \033[1;32m[OK] Домен скопирован в буфер обмена.\033[0m\n"
+    if [ -n "$DOMAIN" ]; then
+        local DEEP_LINK="mirrly://worker?name=${WORKER_NAME}&domain=${DOMAIN}"
+        echo -e "  \033[0;37mДомен воркера: \033[1;37m${DOMAIN}\033[0m"
+        echo -e "  \033[0;37mApp Ссылка:    \033[0;36m${DEEP_LINK}\033[0m\n"
+
+        if command -v xclip >/dev/null 2>&1; then
+            echo -n "$DOMAIN" | xclip -selection clipboard
+            echo -e "  \033[1;32m[OK] Домен скопирован в буфер обмена!\033[0m"
+        elif command -v pbcopy >/dev/null 2>&1; then
+            echo -n "$DOMAIN" | pbcopy
+            echo -e "  \033[1;32m[OK] Домен скопирован в буфер обмена!\033[0m"
+        fi
+
+        local DATE_STR=$(date "+%Y-%m-%d %H:%M:%S")
+        echo "${DATE_STR} | Name: ${WORKER_NAME} | Domain: ${DOMAIN} | Link: ${DEEP_LINK}" >> "$HISTORY_FILE"
+        echo -e "  \033[0;37m[OK] Запись сохранена в файл:\033[0m ${HISTORY_FILE}"
     fi
-    echo -e "  \033[1;33mКак привязать к Mirrly TG Proxy:\033[0m"
-    echo -e "  1. Откройте приложение -> Менеджер воркеров"
-    echo -e "  2. Нажмите '+ Добавить' -> Вставьте домен -> 'Сохранить'\n"
-else
-    echo -e "  \033[1;32mВоркер '$NAME' задеплоен!\033[0m"
-    echo -e "  Проверьте домен в Cloudflare Dashboard.\n"
-fi
+}
+
+show_saved_workers() {
+    show_banner
+    echo -e "  \033[1;36mВаши созданные воркеры (${HISTORY_FILE}):\033[0m"
+    echo -e "  ──────────────────────────────────────────────────────────────────"
+    if [ -f "$HISTORY_FILE" ]; then
+        cat "$HISTORY_FILE" | while read -r line; do
+            echo -e "  • \033[1;37m$line\033[0m"
+        done
+    else
+        echo -e "  \033[0;37m(Вы еще не создавали воркеры)\033[0m"
+    fi
+    echo -e "  ──────────────────────────────────────────────────────────────────\n"
+}
+
+switch_account() {
+    echo -e "\n\033[1;33m  [*] Сброс текущей авторизации Cloudflare...\033[0m"
+    npx -y wrangler@latest logout || true
+    echo -e "  \033[1;32m[OK] Сессия Cloudflare сброшена.\033[0m\n"
+}
+
+while true; do
+    show_banner
+    echo -e "  \033[1;33mВыберите действие:\033[0m"
+    echo -e "  \033[1;37m[1]\033[0m Создать новый воркер (авто-имя, 1 клик)"
+    echo -e "  \033[1;37m[2]\033[0m Создать воркер с моим именем"
+    echo -e "  \033[1;37m[3]\033[0m Сменить аккаунт Cloudflare (войти под другой почтой)"
+    echo -e "  \033[1;37m[4]\033[0m Просмотреть список моих созданных воркеров"
+    echo -e "  \033[0;37m[0]\033[0m Выход\n"
+
+    read -p "  Ваш выбор (0-4): " CHOICE
+
+    case "$CHOICE" in
+        1)
+            deploy_worker ""
+            echo ""
+            read -p "  Нажмите Enter, чтобы вернуться в меню..."
+            ;;
+        2)
+            read -p "  Введите имя воркера: " CUSTOM_NAME
+            deploy_worker "$CUSTOM_NAME"
+            echo ""
+            read -p "  Нажмите Enter, чтобы вернуться в меню..."
+            ;;
+        3)
+            switch_account
+            echo ""
+            read -p "  Нажмите Enter, чтобы вернуться в меню..."
+            ;;
+        4)
+            show_saved_workers
+            read -p "  Нажмите Enter, чтобы вернуться в меню..."
+            ;;
+        0)
+            echo -e "\n\033[0;36m  До свидания!\033[0m\n"
+            exit 0
+            ;;
+        *)
+            deploy_worker ""
+            echo ""
+            read -p "  Нажмите Enter, чтобы вернуться в меню..."
+            ;;
+    esac
+done

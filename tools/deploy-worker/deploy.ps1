@@ -1,57 +1,49 @@
 <#
 .SYNOPSIS
     Mirrly TG Proxy — Автоматический деплой персонального Cloudflare Worker.
-    Один автономный скрипт: скачал -> запустил -> получил готовый воркер.
-
-.DESCRIPTION
-    1. Автоматически разворачивает встроенный JS-код воркера (с поддержкой WebSocket/TCP и звонков).
-    2. Генерирует уникальное имя воркера.
-    3. Открывает браузер для авторизации в Cloudflare (OAuth, без ручных API-токенов).
-    4. Деплоит воркер и выдает готовый домен (автоматически копирует в буфер обмена).
-    5. Полностью очищает временные файлы после завершения.
-
-.EXAMPLE
-    .\deploy.ps1
-    .\deploy.ps1 -Name "my-custom-proxy"
+    Умный интерактивный комбайн: создание, повторное использование, сведение лимитов нескольких аккаунтов.
 #>
 
-param(
-    [string]$Name = ""
-)
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$ErrorActionPreference = "Stop"
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$HistoryFile = Join-Path $ScriptDir "my_workers.txt"
 
-# ── 1. Проверка окружения (Node.js) ──────────────────────────────────────────
+# ── Функция вывода шапки ─────────────────────────────────────────────────────
 
-try {
-    $nodeVer = node --version 2>$null
-    if (-not $nodeVer) { throw "node is null" }
-} catch {
-    Write-Host "`n  [X] Node.js не установлен." -ForegroundColor Red
-    Write-Host "      Скачайте и установите Node.js (LTS): https://nodejs.org/" -ForegroundColor Yellow
-    Write-Host "      После установки перезапустите терминал.`n" -ForegroundColor DarkGray
+function Show-Banner {
+    Clear-Host
+    Write-Host ""
+    Write-Host "  ╔══════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "  ║                Mirrly TG Proxy — Worker Deployer                 ║" -ForegroundColor White
+    Write-Host "  ║   Автоматическое создание и деплой узлов Cloudflare (MTProto)    ║" -ForegroundColor DarkCyan
+    Write-Host "  ╚══════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
+}
+
+# ── Проверка Node.js ─────────────────────────────────────────────────────────
+
+function Check-NodeJs {
+    try {
+        $ver = (node --version 2>$null)
+        if ($ver) { return $true }
+    } catch {}
+    
+    Show-Banner
+    Write-Host "  [X] Node.js не найден в системе!" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Для работы Cloudflare Wrangler требуется Node.js (версия 18+)." -ForegroundColor Yellow
+    Write-Host ""
+    $open = Read-Host "  Открыть официальный сайт nodejs.org для скачивания? (Y/n)"
+    if ($open -ne "n" -and $open -ne "N") {
+        Start-Process "https://nodejs.org/"
+    }
+    Write-Host "`n  После установки Node.js перезапустите этот скрипт.`n" -ForegroundColor DarkGray
+    Read-Host "  Нажмите Enter для выхода..."
     exit 1
 }
 
-# ── 2. Генерация имени воркера ────────────────────────────────────────────────
-
-if (-not $Name) {
-    $chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    $bytes = New-Object byte[] 6
-    $rng.GetBytes($bytes)
-    $Name = "mtg-relay-" + (-join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] }))
-}
-
-Write-Host "`n  ═════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "    Mirrly TG Proxy — Деплой Cloudflare Worker" -ForegroundColor White
-Write-Host "  ═════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "  Имя воркера: $Name" -ForegroundColor Cyan
-
-# ── 3. Подготовка временной директории и встроенного JS-кода ─────────────────
-
-$tempDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "mirrly-deploy-" + [System.Guid]::NewGuid().ToString("N"))
-$null = New-Item -ItemType Directory -Path $tempDir -Force
+# ── Встроенный JS-код воркера ────────────────────────────────────────────────
 
 $WorkerJsCode = @'
 /**
@@ -110,8 +102,6 @@ function ipToLong(ip) {
 
 function isTelegramIp(ipStr) {
   const cleanIp = ipStr.trim().toLowerCase();
-  
-  // IPv4 check
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(cleanIp)) {
     const targetLong = ipToLong(cleanIp);
     if (targetLong === null) return false;
@@ -124,14 +114,9 @@ function isTelegramIp(ipStr) {
     }
     return false;
   }
-
-  // IPv6 check
   for (const prefix of TG_IPV6_PREFIXES) {
-    if (cleanIp.startsWith(prefix)) {
-      return true;
-    }
+    if (cleanIp.startsWith(prefix)) return true;
   }
-
   return false;
 }
 
@@ -308,89 +293,190 @@ export default {
 };
 '@
 
-$workerJsPath = Join-Path $tempDir "worker.js"
-$wranglerTomlPath = Join-Path $tempDir "wrangler.toml"
+# ── Функция создания и деплоя воркера ────────────────────────────────────────
 
-Set-Content -Path $workerJsPath -Value $WorkerJsCode -Encoding UTF8
+function Deploy-Worker([string]$WorkerName) {
+    if (-not $WorkerName) {
+        $chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+        $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        $bytes = New-Object byte[] 6
+        $rng.GetBytes($bytes)
+        $WorkerName = "mtg-relay-" + (-join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] }))
+    }
 
-$tomlContent = @"
-name = "$Name"
+    Write-Host "`n  [*] Имя воркера: " -NoNewline -ForegroundColor Gray
+    Write-Host "$WorkerName" -ForegroundColor Cyan
+
+    $tempDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "mirrly-deploy-" + [System.Guid]::NewGuid().ToString("N"))
+    $null = New-Item -ItemType Directory -Path $tempDir -Force
+
+    $workerJsPath = Join-Path $tempDir "worker.js"
+    $wranglerTomlPath = Join-Path $tempDir "wrangler.toml"
+
+    Set-Content -Path $workerJsPath -Value $WorkerJsCode -Encoding UTF8
+
+    $tomlContent = @"
+name = "$WorkerName"
 main = "worker.js"
 compatibility_date = "2024-09-23"
 "@
-Set-Content -Path $wranglerTomlPath -Value $tomlContent -Encoding UTF8
+    Set-Content -Path $wranglerTomlPath -Value $tomlContent -Encoding UTF8
 
-# ── 4. Логин и Деплой через Wrangler ──────────────────────────────────────────
+    Push-Location $tempDir
+    $deploySuccess = $false
 
-Push-Location $tempDir
-$deployLog = ""
+    try {
+        Write-Host "  [1/2] Проверка авторизации Cloudflare (откроется браузер при необходимости)..." -ForegroundColor Yellow
+        npx -y wrangler@latest login
 
-try {
-    Write-Host "`n  [1/2] Открываю браузер для авторизации в Cloudflare..." -ForegroundColor Yellow
-    npx -y wrangler@latest login
-    if ($LASTEXITCODE -ne 0) {
-        throw "Авторизация в Cloudflare не завершена (код $LASTEXITCODE)"
+        Write-Host "`n  [2/2] Публикую воркер в Cloudflare...`n" -ForegroundColor Cyan
+        npx -y wrangler@latest deploy
+        $deploySuccess = ($LASTEXITCODE -eq 0)
+    } catch {
+        Write-Host "`n  [X] Ошибка во время деплоя: $_" -ForegroundColor Red
+    } finally {
+        Pop-Location
+        Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    Write-Host "`n  [2/2] Публикую воркер в Cloudflare...`n" -ForegroundColor Cyan
-    
-    # Запуск напрямую без пайпов для сохранения интерактивного режима (TTY)
-    # Если аккаунт новый, wrangler сам спросит поддомен прямо в терминале
-    npx -y wrangler@latest deploy
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Деплой завершился с ошибкой (код $LASTEXITCODE)"
+    if (-not $deploySuccess) {
+        Write-Host "`n  [X] Деплой не завершился успешно. Проверьте сообщения выше.`n" -ForegroundColor Red
+        return $null
     }
-} catch {
-    Write-Host "`n  [X] Ошибка: $_`n" -ForegroundColor Red
-    exit 1
-} finally {
-    Pop-Location
-    Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-}
 
-# ── 5. Извлечение домена и вывод результата ──────────────────────────────────
+    # Поиск домена в логах
+    $domain = ""
+    $logsDir = [System.IO.Path]::Combine($env:APPDATA, "xdg.config", ".wrangler", "logs")
+    if (Test-Path $logsDir) {
+        $latestLog = Get-ChildItem -Path $logsDir -Filter "*.log" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
 
-$domain = ""
-
-# Читаем домен из последнего лога wrangler
-$logsDir = [System.IO.Path]::Combine($env:APPDATA, "xdg.config", ".wrangler", "logs")
-if (Test-Path $logsDir) {
-    $latestLog = Get-ChildItem -Path $logsDir -Filter "*.log" -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
-
-    if ($latestLog) {
-        $logContent = Get-Content $latestLog.FullName -Raw -ErrorAction SilentlyContinue
-        if ($logContent -match '(https://[a-zA-Z0-9\.\-]+\.workers\.dev)') {
-            $domain = $Matches[1] -replace '^https://', ''
+        if ($latestLog) {
+            $logContent = Get-Content $latestLog.FullName -Raw -ErrorAction SilentlyContinue
+            if ($logContent -match '(https://[a-zA-Z0-9\.\-]+\.workers\.dev)') {
+                $domain = $Matches[1] -replace '^https://', ''
+            }
         }
     }
+
+    Write-Host ""
+    Write-Host "  ╔══════════════════════════════════════════════════════════════════╗" -ForegroundColor Green
+    Write-Host "  ║                 Воркер успешно задеплоен!                        ║" -ForegroundColor Green
+    Write-Host "  ╚══════════════════════════════════════════════════════════════════╝" -ForegroundColor Green
+    Write-Host ""
+
+    if ($domain) {
+        $deepLink = "mirrly://worker?name=$([Uri]::EscapeDataString($WorkerName))&domain=$domain"
+
+        Write-Host "  Домен воркера: " -NoNewline -ForegroundColor Gray
+        Write-Host "$domain" -ForegroundColor White
+        Write-Host "  App Ссылка:    " -NoNewline -ForegroundColor Gray
+        Write-Host "$deepLink" -ForegroundColor DarkCyan
+        Write-Host ""
+
+        # Копируем в буфер
+        try {
+            Set-Clipboard $domain
+            Write-Host "  [OK] Домен автоматически скопирован в буфер обмена!" -ForegroundColor Green
+        } catch {}
+
+        # Сохраняем в файл истории
+        $dateStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        $logLine = "$dateStr | Name: $WorkerName | Domain: $domain | Link: $deepLink"
+        Add-Content -Path $HistoryFile -Value $logLine -Encoding UTF8 -ErrorAction SilentlyContinue
+        Write-Host "  [OK] Запись сохранена в файл: $HistoryFile" -ForegroundColor DarkGray
+    } else {
+        Write-Host "  Воркер '$WorkerName' опубликован!" -ForegroundColor Green
+        Write-Host "  (Скопируйте публичный URL из Cloudflare Dashboard)`n" -ForegroundColor Yellow
+    }
+
+    return $domain
 }
 
-Write-Host ""
-Write-Host "  ╔═══════════════════════════════════════════════════════════╗" -ForegroundColor Green
-Write-Host "  ║                Воркер успешно задеплоен!                  ║" -ForegroundColor Green
-Write-Host "  ╚═══════════════════════════════════════════════════════════╝" -ForegroundColor Green
-Write-Host ""
+# ── Функция смены аккаунта Cloudflare ─────────────────────────────────────────
 
-if ($domain) {
-    Write-Host "  Домен воркера: " -NoNewline -ForegroundColor Gray
-    Write-Host "$domain" -ForegroundColor White
-    Write-Host ""
-
-    # Копирование в буфер обмена
+function Switch-CloudflareAccount {
+    Write-Host "`n  [*] Сброс текущей авторизации Cloudflare..." -ForegroundColor Yellow
     try {
-        Set-Clipboard $domain
-        Write-Host "  [OK] Домен скопирован в буфер обмена." -ForegroundColor Green
-    } catch {}
+        npx -y wrangler@latest logout
+        Write-Host "  [OK] Сессия Cloudflare сброшена." -ForegroundColor Green
+        Write-Host "  При следующем деплое откроется окно для входа в новый аккаунт.`n" -ForegroundColor DarkGray
+    } catch {
+        Write-Host "  [!] Ошибка сброса: $_" -ForegroundColor Red
+    }
+}
 
+# ── Функция просмотра сохраненных воркеров ───────────────────────────────────
+
+function Show-SavedWorkers {
+    Show-Banner
+    Write-Host "  Ваши созданные воркеры ($HistoryFile):" -ForegroundColor Cyan
+    Write-Host "  ──────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+
+    if (Test-Path $HistoryFile) {
+        $lines = Get-Content $HistoryFile -Encoding UTF8
+        if ($lines.Count -gt 0) {
+            foreach ($line in $lines) {
+                Write-Host "  • $line" -ForegroundColor White
+            }
+        } else {
+            Write-Host "  (Список пуст)" -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Host "  (Вы еще не создавали воркеры)" -ForegroundColor DarkGray
+    }
+    Write-Host "  ──────────────────────────────────────────────────────────────────`n" -ForegroundColor DarkGray
+}
+
+# ── Главный интерактивный цикл ───────────────────────────────────────────────
+
+Check-NodeJs
+
+while ($true) {
+    Show-Banner
+    Write-Host "  Выберите действие:" -ForegroundColor Yellow
+    Write-Host "  [1] Создать новый воркер (авто-имя, 1 клик)" -ForegroundColor White
+    Write-Host "  [2] Создать воркер с моим именем" -ForegroundColor White
+    Write-Host "  [3] Сменить аккаунт Cloudflare (войти под другой почтой)" -ForegroundColor White
+    Write-Host "  [4] Просмотреть список моих созданных воркеров" -ForegroundColor White
+    Write-Host "  [0] Выход" -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "  Как привязать к приложению:" -ForegroundColor Yellow
-    Write-Host "  1. Откройте Mirrly TG Proxy -> Менеджер воркеров" -ForegroundColor Gray
-    Write-Host "  2. Нажмите '+ Добавить' -> Вставьте домен -> 'Сохранить'" -ForegroundColor Gray
-    Write-Host ""
-} else {
-    Write-Host "  Воркер '$Name' успешно опубликован!" -ForegroundColor Green
-    Write-Host "  Проверьте и скопируйте URL воркера в Cloudflare Dashboard.`n" -ForegroundColor Yellow
+
+    $choice = Read-Host "  Ваш выбор (0-4)"
+
+    switch ($choice) {
+        "1" {
+            $domain = Deploy-Worker ""
+            Write-Host ""
+            Read-Host "  Нажмите Enter, чтобы вернуться в меню..."
+        }
+        "2" {
+            $customName = Read-Host "  Введите желаемое имя воркера (например: my-tg-worker)"
+            if (-not [string]::IsNullOrWhiteSpace($customName)) {
+                $domain = Deploy-Worker $customName.Trim()
+            }
+            Write-Host ""
+            Read-Host "  Нажмите Enter, чтобы вернуться в меню..."
+        }
+        "3" {
+            Switch-CloudflareAccount
+            Write-Host ""
+            Read-Host "  Нажмите Enter, чтобы вернуться в меню..."
+        }
+        "4" {
+            Show-SavedWorkers
+            Read-Host "  Нажмите Enter, чтобы вернуться в меню..."
+        }
+        "0" {
+            Write-Host "`n  До свидания!`n" -ForegroundColor Cyan
+            break
+        }
+        default {
+            # По умолчанию - быстрое создание
+            $domain = Deploy-Worker ""
+            Write-Host ""
+            Read-Host "  Нажмите Enter, чтобы вернуться в меню..."
+        }
+    }
 }
