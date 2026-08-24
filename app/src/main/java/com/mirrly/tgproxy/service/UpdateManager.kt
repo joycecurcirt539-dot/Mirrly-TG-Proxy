@@ -65,6 +65,7 @@ object UpdateManager {
                     MirrlyApplication.instance.prefsManager.clearIgnoredUpdateVersion()
                 } catch (_: Exception) {}
                 NotificationHelper.cancelUpdateNotification(context)
+                _updateState.value = null
             }
 
             // Clean up any stale downloaded APKs in cache
@@ -122,6 +123,7 @@ object UpdateManager {
                 MirrlyApplication.instance.prefsManager.clearIgnoredUpdateVersion()
             } catch (_: Exception) {}
             NotificationHelper.cancelUpdateNotification(context)
+            _updateState.value = null
         }
 
         val cachedEtag = if (forceRefresh) null else prefs.getString(KEY_CACHED_ETAG, null)
@@ -163,8 +165,8 @@ object UpdateManager {
                     val cachedPreview = prefs.getString(KEY_CACHED_CHANGELOG_PREVIEW, "") ?: ""
 
                     val reconstructedInfo = ReleaseInfo(
-                        tagName = cleanCachedVersion,
-                        versionName = cleanCachedVersion,
+                        tagName = if (isStillAvailable) cleanCachedVersion else currentAppVersion,
+                        versionName = if (isStillAvailable) cleanCachedVersion else currentAppVersion,
                         htmlUrl = cachedHtmlUrl,
                         releaseNotes = cachedNotes,
                         isUpdateAvailable = isStillAvailable,

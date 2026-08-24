@@ -823,14 +823,14 @@ fun WorkerManagerScreen(
                                                     )
                                                 }
                                                 Text(
-                                                    text = "Автодеплой через PowerShell",
+                                                    text = "Автодеплой (BAT / PowerShell / Bash)",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 12.sp,
                                                     color = activeProtoColor
                                                 )
                                             }
                                             Text(
-                                                text = "Создайте персональный воркер в 1 команду: скрипт сам откроет вход в Cloudflare, задеплоит воркер и скопирует готовый домен в буфер обмена.",
+                                                text = "Запустите deploy.bat двойным кликом на Windows или выполните 1 команду в PowerShell/Bash: скрипт откроет вход в Cloudflare, задеплоит воркер и скопирует готовый домен в буфер обмена.",
                                                 fontSize = 11.5.sp,
                                                 color = TextWhite.copy(alpha = 0.9f),
                                                 lineHeight = 16.sp
@@ -891,7 +891,7 @@ fun WorkerManagerScreen(
                                                         )
                                                         Spacer(modifier = Modifier.width(5.dp))
                                                         Text(
-                                                            text = "Скрипт на GitHub",
+                                                            text = "deploy.bat на GitHub",
                                                             fontSize = 11.sp,
                                                             fontWeight = FontWeight.Medium,
                                                             color = TextMuted
