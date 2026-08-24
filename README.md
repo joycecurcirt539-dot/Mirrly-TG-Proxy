@@ -23,7 +23,7 @@
 [![Telegram](https://img.shields.io/badge/Telegram-Канал_сообщества-1E293B?logo=telegram&logoColor=26A5E4)](https://t.me/WhyOkyHb)
 [![Privacy](https://img.shields.io/badge/Приватность-No_VPN_%7C_No_Logs-1E293B)](#14-безопасность-и-условия-использования)
 [![Worker Script](https://img.shields.io/badge/Код_Воркера-cloudflare__worker.js-1E293B?logo=javascript&logoColor=F7DF1E)](docs/cloudflare_worker.js)
-[![Автодеплой](https://img.shields.io/badge/Автодеплой_Воркера-deploy.ps1-1E293B?logo=powershell&logoColor=5391FE)](tools/deploy-worker)
+[![Автодеплой](https://img.shields.io/badge/Автодеплой_Воркера-BAT_%7C_PS1_%7C_SH-1E293B?logo=powershell&logoColor=5391FE)](tools/deploy-worker)
 <br/>
 [![Changelog](https://img.shields.io/badge/История-CHANGELOG-1E293B)](CHANGELOG.md)
 [![Terms](https://img.shields.io/badge/Условия-TERMS-1E293B)](TERMS_OF_USE.md)
@@ -365,58 +365,96 @@ flowchart TD
 
 ### Способ 1: Автоматический деплой в 1 клик (Рекомендуется)
 
-Запустите скрипт автоматического создания в PowerShell:
+#### Вариант A: Запуск в 1 клик на Windows (двойным щелчком)
+1. Скачайте репозиторий или откройте директорию `tools/deploy-worker/`.
+2. Дважды кликните по файлу **`deploy.bat`**.
 
+#### Вариант B: Запуск одной строкой в PowerShell (без скачивания)
 ```powershell
-# Запуск одной строкой напрямую из GitHub
 irm https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/main/tools/deploy-worker/deploy.ps1 | iex
 ```
 
-> **Или из склонированного репозитория:**
-> * **Windows (Двойной клик):** `tools\deploy-worker\deploy.bat`
-> * **Windows (PowerShell):** `.\tools\deploy-worker\deploy.ps1`
-> * **Linux / macOS (Bash):** `./tools/deploy-worker/deploy.sh`
+#### Вариант C: Запуск на Linux / macOS / WSL (Bash)
+```bash
+chmod +x tools/deploy-worker/deploy.sh
+./tools/deploy-worker/deploy.sh
+```
 
-Скрипт содержит интерактивное меню, генерирует имя, авторизует через браузер (OAuth), сохраняет историю созданных воркеров в `my_workers.txt`, позволяет переключать аккаунты Cloudflare для обхода лимитов и автоматически копирует готовый домен в буфер обмена.
+#### Возможности автоматического скрипта:
+* **Интерактивное меню**: быстрое создание воркеров с авто-генерацией имени или вводом собственного названия.
+* **Поддержка новых аккаунтов**: регистрация поддомена `workers.dev` прямо в терминале без веб-ошибок.
+* **Смена аккаунтов Cloudflare**: быстрая смена сессии через `wrangler logout` для создания воркеров на нескольких бесплатных учетных записях и обхода суточного лимита 100 000 запросов.
+* **Автосохранение истории**: запись каждого созданного узла в файл `my_workers.txt` с датой, именем, доменом и ссылкой `mirrly://`.
+* **Автокопирование**: домен автоматически копируется в буфер обмена системы.
 
 ---
 
 ### Способ 2: Ручное создание через веб-панель Cloudflare
 
 1. Зарегистрируйтесь на сайте [Cloudflare](https://dash.cloudflare.com/) или войдите в существующий аккаунт.
-2. Перейдите в раздел **Workers & Pages** → нажмите **Create application** → **Create Worker**.
+2. Перейдите в раздел **Workers & Pages** -> нажмите **Create application** -> **Create Worker**.
 3. Задайте любое имя для воркера (например: `my-tg-proxy`) и нажмите **Deploy**.
 4. Нажмите **Edit code** и полностью замените содержимое редактора кодом из файла [`docs/cloudflare_worker.js`](docs/cloudflare_worker.js).
 5. Нажмите кнопку **Deploy** (или **Save and Deploy**) для сохранения.
 6. Скопируйте полученный адрес воркера (например: `my-tg-proxy.username.workers.dev`).
-7. Откройте **Mirrly TG Proxy** → перейдите в **Менеджер воркеров** → нажмите **«Добавить воркер»** и укажите ваш адрес.
+7. Откройте **Mirrly TG Proxy** -> перейдите в **Менеджер воркеров** -> нажмите **«Добавить воркер»** и укажите ваш адрес.
 
 ### Создание нескольких воркеров и масштабирование
 * **До 100 бесплатных воркеров**: На одном бесплатном аккаунте Cloudflare можно создать до 100 отдельных воркеров (например: `tg-phone`, `tg-laptop`, `tg-family`), каждый из которых имеет независимый URL.
-* **100 000 бесплатных запросов в сутки**: Каждый бесплатный аккаунт Cloudflare предоставляет 100 000 бесплатных обращений ежедневно. При необходимости распределения нагрузки можно создать несколько воркеров на разных аккаунтах.
+* **100 000 бесплатных запросов в сутки**: Каждый бесплатный аккаунт Cloudflare предоставляет 100 000 бесплатных обращений ежедневно. При необходимости распределения нагрузки можно создать несколько воркеров на разных аккаунтах с помощью функции смены учетной записи в `deploy.bat`.
 * **Импорт и экспорт в 1 клик**: В Менеджере воркеров приложения нажмите кнопку **«Поделиться»**, чтобы сгенерировать ссылку вида `mirrly://worker?name=...&domain=...` для мгновенного добавления узла на других устройствах.
 
 ---
 
-## 11. Сборка из исходного кода
+## 11. Структура проекта и сборка из исходного кода
+
+### Структура каталогов репозитория:
+```text
+Mirrly TG Proxy/
+├── app/                  # Android-приложение (Jetpack Compose UI, Foreground Service, NDK C++)
+├── core/                 # Общие Kotlin-модули (LocalProxyServer, UpdateChecker, балансировка)
+├── mirrlyengine/         # Нативное асинхронное ядро на Rust/Tokio (SOCKS5, MTProto, FakeTLS, WS)
+├── tools/                # Вспомогательные утилиты для разработки и сборки
+│   ├── deploy-worker/    # Автономный деплоер Cloudflare Worker (deploy.bat, deploy.ps1, deploy.sh)
+│   └── build/            # Скрипты компиляции нативного ядра и очистки кэшей
+├── docs/                 # Документация, скриншоты и эталонный код cloudflare_worker.js
+├── build_native.ps1      # Лаунчер компиляции Rust-движка под 4 ABI (Windows)
+├── build_native.sh       # Лаунчер компиляции Rust-движка под 4 ABI (Linux / macOS / CI)
+└── clean_all.ps1         # Лаунчер очистки кэшей сборки и временных артефактов
+```
 
 ### Требования к сборочному окружению:
 * Android SDK (API Level 35, Build-Tools 35.0.0)
-* Android NDK (версия 25 или новее)
-* Rust Toolchain (`cargo`, `rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android`) и утилита `cargo-ndk`
+* Android NDK (версия 25 или новее, рекомендована NDK 27+)
+* Rust Toolchain (`cargo`, `rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android`)
 * Java Development Kit (JDK 17+)
 
 ### Инструкция по сборке:
+
 ```bash
-# Клонирование репозитория
+# 1. Клонирование репозитория
 git clone https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy.git
 cd Mirrly-TG-Proxy
 
-# Сборка релизных APK под все архитектуры
+# 2. Сборка нативного ядра Rust под 4 ABI архитектуры (ARM64, ARMv7, x86, x86_64)
+# Windows (PowerShell):
+.\build_native.ps1
+# Linux / macOS (Bash):
+./build_native.sh
+
+# 3. Сборка релизных APK под все архитектуры
 ./gradlew assembleRelease
+
+# 4. Очистка кэшей и временных файлов (при необходимости)
+.\clean_all.ps1
 ```
 
-Собранные пакеты будут расположены в директории: `app/build/outputs/apk/release/`.
+Собранные пакеты будут расположены в директории: `app/build/outputs/apk/release/`:
+* `app-universal-release.apk` — Универсальный пакет со всеми библиотеками.
+* `app-arm64-v8a-release.apk` — Оптимизированный пакет для ARM64.
+* `app-armeabi-v7a-release.apk` — Пакет для ARMv7.
+* `app-x86_64-release.apk` — Пакет для эмуляторов x86_64.
+* `app-x86-release.apk` — Пакет для эмуляторов x86.
 
 ---
 
