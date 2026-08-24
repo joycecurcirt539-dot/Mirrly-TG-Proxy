@@ -23,6 +23,7 @@
 [![Telegram](https://img.shields.io/badge/Telegram-Канал_сообщества-1E293B?logo=telegram&logoColor=26A5E4)](https://t.me/WhyOkyHb)
 [![Privacy](https://img.shields.io/badge/Приватность-No_VPN_%7C_No_Logs-1E293B)](#14-безопасность-и-условия-использования)
 [![Worker Script](https://img.shields.io/badge/Код_Воркера-cloudflare__worker.js-1E293B?logo=javascript&logoColor=F7DF1E)](docs/cloudflare_worker.js)
+[![Автодеплой](https://img.shields.io/badge/Автодеплой_Воркера-deploy.ps1-1E293B?logo=powershell&logoColor=5391FE)](tools/deploy-worker)
 <br/>
 [![Changelog](https://img.shields.io/badge/История-CHANGELOG-1E293B)](CHANGELOG.md)
 [![Terms](https://img.shields.io/badge/Условия-TERMS-1E293B)](TERMS_OF_USE.md)

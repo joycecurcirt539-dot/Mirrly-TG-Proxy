@@ -101,6 +101,7 @@ fun CloudflareWorkerGuideScreen(
     var selectedTab by remember { mutableStateOf(GuideTab.PC) }
     var headerHeightDp by remember { mutableStateOf(176.dp) }
     var showDashboardConfirmDialog by remember { mutableStateOf(false) }
+    var showDeployScriptConfirmDialog by remember { mutableStateOf(false) }
 
     fun handleDismiss() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -130,6 +131,24 @@ fun CloudflareWorkerGuideScreen(
             description = "Ссылка ведет на официальную веб-панель управления Cloudflare (dash.cloudflare.com) для создания и редактирования скрипта Worker.",
             onDismiss = { showDashboardConfirmDialog = false }
         )
+    }
+
+    if (showDeployScriptConfirmDialog) {
+        ExternalLinkConfirmDialog(
+            url = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/tree/main/tools/deploy-worker",
+            title = "Скрипт автодеплоя на GitHub",
+            description = "Ссылка ведет на репозиторий со скриптом автоматического создания воркера для PowerShell и Bash.",
+            onDismiss = { showDeployScriptConfirmDialog = false }
+        )
+    }
+
+    fun copyDeployCommandToClipboard() {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val cmd = "irm https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/main/tools/deploy-worker/deploy.ps1 | iex"
+        val clip = ClipData.newPlainText("Mirrly Deploy Command", cmd)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(context, "Команда автодеплоя скопирована в буфер обмена", Toast.LENGTH_SHORT).show()
     }
 
     fun copyScriptToClipboard() {
@@ -304,6 +323,123 @@ fun CloudflareWorkerGuideScreen(
         ) {
             when (selectedTab) {
                 GuideTab.PC -> {
+                    item(key = "pc_auto_deploy_card") {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = activeProtoColor.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.40f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 2.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(activeProtoColor)
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(4.5.dp),
+                                        color = Color.Transparent,
+                                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.40f))
+                                    ) {
+                                        Text(
+                                            text = "1 Клик",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = activeProtoColor,
+                                            modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = "Автодеплой через PowerShell",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = activeProtoColor
+                                    )
+                                }
+                                Text(
+                                    text = "Создайте персональный воркер в 1 команду: скрипт сам откроет вход в Cloudflare, задеплоит воркер и скопирует готовый домен в буфер обмена.",
+                                    fontSize = 11.5.sp,
+                                    color = TextWhite.copy(alpha = 0.9f),
+                                    lineHeight = 16.sp
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = activeProtoColor.copy(alpha = 0.16f),
+                                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.55f)),
+                                        modifier = Modifier
+                                            .weight(1.2f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .springPress(onClick = { copyDeployCommandToClipboard() })
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_copy),
+                                                contentDescription = "Копировать",
+                                                tint = activeProtoColor,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(5.dp))
+                                            Text(
+                                                text = "Скопировать команду",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextWhite
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color.Transparent,
+                                        border = BorderStroke(1.dp, Color(0xFF1E283D)),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .springPress(onClick = { showDeployScriptConfirmDialog = true })
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_github),
+                                                contentDescription = "GitHub",
+                                                tint = TextMuted,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(5.dp))
+                                            Text(
+                                                text = "Скрипт на GitHub",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = TextMuted
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     itemsIndexed(
                         items = pcSteps,
                         key = { _, item -> "pc_${item.stepNumber}" }
