@@ -332,47 +332,14 @@ try {
         throw "Авторизация в Cloudflare не завершена (код $LASTEXITCODE)"
     }
 
-    Write-Host "`n  [2/2] Публикую воркер в Cloudflare..." -ForegroundColor Cyan
+    Write-Host "`n  [2/2] Публикую воркер в Cloudflare...`n" -ForegroundColor Cyan
     
-    $logFile = Join-Path $tempDir "deploy.log"
-    npx -y wrangler@latest deploy *>&1 | Tee-Object -FilePath $logFile
-    $deployLog = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
+    # Запуск напрямую без пайпов для сохранения интерактивного режима (TTY)
+    # Если аккаунт новый, wrangler сам спросит поддомен прямо в терминале
+    npx -y wrangler@latest deploy
 
     if ($LASTEXITCODE -ne 0) {
-        if ($deployLog -match 'register a workers\.dev subdomain' -or $deployLog -match 'workers/onboarding') {
-            Write-Host "`n  [!] На этом аккаунте Cloudflare еще не создан поддомен *.workers.dev." -ForegroundColor Yellow
-            $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-            $b = New-Object byte[] 4
-            $rng.GetBytes($b)
-            $randomSub = "relay-" + (-join ($b | ForEach-Object { "abcdefghijklmnopqrstuvwxyz0123456789"[$_ % 36] }))
-            
-            $chosenSub = Read-Host "  Введите поддомен для ваших воркеров (Enter для '$randomSub')"
-            if ([string]::IsNullOrWhiteSpace($chosenSub)) { $chosenSub = $randomSub }
-
-            Write-Host "  Регистрирую поддомен '$chosenSub.workers.dev'..." -ForegroundColor Cyan
-            npx -y wrangler@latest subdomain $chosenSub 2>&1 | Out-Null
-            
-            Write-Host "`n  Повторяю публикацию воркера..." -ForegroundColor Cyan
-            npx -y wrangler@latest deploy *>&1 | Tee-Object -FilePath $logFile
-            $deployLog = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
-
-            if ($LASTEXITCODE -ne 0) {
-                if ($deployLog -match '(https://dash\.cloudflare\.com/[^\s]+/workers/onboarding)') {
-                    $onboardingUrl = $Matches[1]
-                    Write-Host "`n  Открываю страницу регистрации поддомена в браузере:`n  $onboardingUrl" -ForegroundColor Yellow
-                    Start-Process $onboardingUrl
-                    $null = Read-Host "  Задайте поддомен в браузере и нажмите Enter для продолжения"
-                    
-                    Write-Host "`n  Публикую воркер..." -ForegroundColor Cyan
-                    npx -y wrangler@latest deploy *>&1 | Tee-Object -FilePath $logFile
-                    $deployLog = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
-                }
-            }
-        }
-
-        if ($LASTEXITCODE -ne 0) {
-            throw "Ошибка публикации:`n$deployLog"
-        }
+        throw "Деплой завершился с ошибкой (код $LASTEXITCODE)"
     }
 } catch {
     Write-Host "`n  [X] Ошибка: $_`n" -ForegroundColor Red
@@ -382,11 +349,23 @@ try {
     Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# ── 5. Вывод результатов ─────────────────────────────────────────────────────
+# ── 5. Извлечение домена и вывод результата ──────────────────────────────────
 
 $domain = ""
-if ($deployLog -match '(https://[^\s]+\.workers\.dev)') {
-    $domain = $Matches[1] -replace '^https://', ''
+
+# Читаем домен из последнего лога wrangler
+$logsDir = [System.IO.Path]::Combine($env:APPDATA, "xdg.config", ".wrangler", "logs")
+if (Test-Path $logsDir) {
+    $latestLog = Get-ChildItem -Path $logsDir -Filter "*.log" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+
+    if ($latestLog) {
+        $logContent = Get-Content $latestLog.FullName -Raw -ErrorAction SilentlyContinue
+        if ($logContent -match '(https://[a-zA-Z0-9\.\-]+\.workers\.dev)') {
+            $domain = $Matches[1] -replace '^https://', ''
+        }
+    }
 }
 
 Write-Host ""

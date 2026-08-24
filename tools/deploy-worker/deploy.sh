@@ -271,25 +271,16 @@ cd "$TEMP_DIR"
 echo -e "\n\033[1;33m  [1/2] Открываю браузер для входа в Cloudflare...\033[0m"
 npx -y wrangler@latest login
 
-echo -e "\n\033[1;36m  [2/2] Публикую воркер в Cloudflare...\033[0m"
-DEPLOY_LOG=$(npx -y wrangler@latest deploy 2>&1 || true)
-echo "$DEPLOY_LOG"
+echo -e "\n\033[1;36m  [2/2] Публикую воркер в Cloudflare...\033[0m\n"
+npx -y wrangler@latest deploy
 
-if echo "$DEPLOY_LOG" | grep -q "register a workers.dev subdomain"; then
-    echo -e "\n\033[1;33m  [!] На этом аккаунте Cloudflare еще не создан поддомен *.workers.dev.\033[0m"
-    RANDOM_SUB="relay-$(head /dev/urandom | tr -dc a-z0-9 | head -c 4)"
-    read -p "  Введите поддомен для ваших воркеров (Enter для '$RANDOM_SUB'): " CHOSEN_SUB
-    if [ -z "$CHOSEN_SUB" ]; then
-        CHOSEN_SUB="$RANDOM_SUB"
+LOG_DIR="${HOME}/.config/.wrangler/logs"
+if [ -d "$LOG_DIR" ]; then
+    LATEST_LOG=$(ls -t "$LOG_DIR"/*.log 2>/dev/null | head -n 1)
+    if [ -n "$LATEST_LOG" ]; then
+        DOMAIN=$(grep -oE 'https://[a-zA-Z0-9\.-]+\.workers\.dev' "$LATEST_LOG" | tail -n 1 | sed 's|https://||')
     fi
-    echo -e "  Регистрирую поддомен '$CHOSEN_SUB.workers.dev'..."
-    npx -y wrangler@latest subdomain "$CHOSEN_SUB" || true
-    echo -e "\n  Повторяю публикацию воркера..."
-    DEPLOY_LOG=$(npx -y wrangler@latest deploy 2>&1)
-    echo "$DEPLOY_LOG"
 fi
-
-DOMAIN=$(echo "$DEPLOY_LOG" | grep -oE 'https://[^ ]+\.workers\.dev' | head -n 1 | sed 's|https://||')
 
 echo -e "\n\033[1;32m  ╔═══════════════════════════════════════════════════════════╗\033[0m"
 echo -e "\033[1;32m  ║                Воркер успешно задеплоен!                  ║\033[0m"
