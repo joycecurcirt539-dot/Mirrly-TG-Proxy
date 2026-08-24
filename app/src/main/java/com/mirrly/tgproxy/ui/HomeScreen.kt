@@ -543,71 +543,77 @@ fun HomeScreen(
                     .padding(horizontal = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // ─── 1. TOP SECTION (Update banner if present) ───
+                // ─── 1. TOP SECTION (Compact update banner) ───
                 val isBannerVisible = (updateInfo?.isUpdateAvailable == true) && (updateInfo?.isIgnored != true) && !isUiHidden
                 AnimatedVisibility(
                     visible = isBannerVisible,
-                    enter = fadeIn(tween(300)) + expandVertically(tween(350)),
-                    exit = fadeOut(tween(250)) + shrinkVertically(tween(300))
+                    enter = fadeIn(tween(250)) + expandVertically(tween(300)),
+                    exit = fadeOut(tween(200)) + shrinkVertically(tween(250))
                 ) {
                     updateInfo?.let { info ->
                         val updateYellow = Color(0xFFFFB703)
-                        Box(
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = updateYellow.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, updateYellow.copy(alpha = 0.55f)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color.Transparent)
-                                .border(1.dp, updateYellow.copy(alpha = 0.85f), RoundedCornerShape(16.dp))
-                                .clickable {
+                                .padding(vertical = 2.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .springPress {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onOpenUpdate()
                                 }
-                                .padding(12.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Box(
                                         contentAlignment = Alignment.Center,
                                         modifier = Modifier
-                                            .size(32.dp)
+                                            .size(22.dp)
                                             .clip(CircleShape)
-                                            .background(updateYellow.copy(alpha = 0.18f))
+                                            .background(updateYellow.copy(alpha = 0.20f))
                                     ) {
                                         Icon(
                                             painter = painterResource(id = R.drawable.ic_refresh),
                                             contentDescription = null,
                                             tint = updateYellow,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(12.dp)
                                         )
                                     }
 
-                                    Column {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
                                         Text(
-                                            text = "Найдено обновление v${info.versionName}!",
+                                            text = "Обновление v${info.versionName}",
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
+                                            fontSize = 12.sp,
                                             color = updateYellow
                                         )
                                         Text(
-                                            text = "Нажмите для просмотра и установки",
+                                            text = "• Установить",
                                             fontSize = 11.5.sp,
-                                            color = TextWhite.copy(alpha = 0.85f)
+                                            fontWeight = FontWeight.Medium,
+                                            color = TextWhite.copy(alpha = 0.80f)
                                         )
                                     }
                                 }
 
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
                                     IconButton(
                                         onClick = {
@@ -615,12 +621,12 @@ fun HomeScreen(
                                             com.mirrly.tgproxy.service.UpdateManager.ignoreVersion(context, info.versionName)
                                             Toast.makeText(context, "Обновление v${info.versionName} скрыто", Toast.LENGTH_SHORT).show()
                                         },
-                                        modifier = Modifier.size(28.dp)
+                                        modifier = Modifier.size(24.dp)
                                     ) {
                                         Text(
                                             text = "✕",
                                             color = TextMuted,
-                                            fontSize = 13.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -629,7 +635,7 @@ fun HomeScreen(
                                         painter = painterResource(id = R.drawable.ic_chevron_right),
                                         contentDescription = null,
                                         tint = updateYellow,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(14.dp)
                                     )
                                 }
                             }
