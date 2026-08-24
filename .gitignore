@@ -69,3 +69,7 @@ mirrlyengine/legacy/
 *.swp
 *.swo
 *~
+
+# Cloudflare Wrangler
+.wrangler/
+**/.wrangler/
