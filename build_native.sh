@@ -78,7 +78,14 @@ for item in "${TARGETS[@]}"; do
     rustup target add "$TARGET" || true
 done
 
-# 4. Build each target
+# 4. Configure external cargo target directory to keep repository lightweight
+if [ -z "${CARGO_TARGET_DIR:-}" ]; then
+    CARGO_TARGET_DIR="${HOME}/.cargo/target-cache/mirrlyengine"
+    export CARGO_TARGET_DIR
+fi
+echo "Cargo Target Dir: $CARGO_TARGET_DIR"
+
+# 5. Build each target
 cd "$SCRIPT_DIR/mirrlyengine"
 
 for item in "${TARGETS[@]}"; do
@@ -90,7 +97,7 @@ for item in "${TARGETS[@]}"; do
     echo "---------------------------------------------"
     cargo build --target "$TARGET" --release
 
-    SRC="$SCRIPT_DIR/mirrlyengine/target/$TARGET/release/libmirrlyengine.so"
+    SRC="$CARGO_TARGET_DIR/$TARGET/release/libmirrlyengine.so"
     DST_DIR="$SCRIPT_DIR/app/src/main/jniLibs/$JNI_ABI"
     mkdir -p "$DST_DIR"
     cp -f "$SRC" "$DST_DIR/libmirrlyengine.so"

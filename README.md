@@ -13,7 +13,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_V8-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Native_Rust%20%26%20C%2B%2B-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Version](https://img.shields.io/badge/Релиз-v1.1.5-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Version](https://img.shields.io/badge/Релиз-v1.1.6-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Stars](https://img.shields.io/github/stars/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=F5A623)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
 [![Issues](https://img.shields.io/github/issues/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=E53935)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues)
@@ -104,7 +104,7 @@
 
 В **Mirrly TG Proxy** оригинальные наработки первопроходцев были переосмыслены, переписаны на современный стек Rust/Tokio и расширены огромным набором автоматизаций:
 
-| Критерий / Технология | Обычный системный VPN | TG WS Proxy *(Flowseal)* | tg-ws-proxy-android *(amurcanov)* | Устаревшие консольные порты *(MTG / Tele-Proxy / Termux)* | Mirrly TG Proxy *(Rust Core v1.1.5 by R1Xern)* |
+| Критерий / Технология | Обычный системный VPN | TG WS Proxy *(Flowseal)* | tg-ws-proxy-android *(amurcanov)* | Устаревшие консольные порты *(MTG / Tele-Proxy / Termux)* | Mirrly TG Proxy *(Rust Core v1.1.6 by R1Xern)* |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Сетевой движок и архитектура** | Драйвер `VpnService` / tun2socks (перехват всего стека ядра ОС) | Скрипт Python / Node.js (разработан для ПК / серверов) | Монолитный нативный C/NDK движок под Android | Go / Python бинарники с высоким потреблением RAM | **Нативное ядро `mirrlyengine` на Rust (Tokio Runtime)**: epoll, Zero-Copy буферизация, NDK под 4 ABI |
 | **Влияние на систему и другие приложения** | ⚠️ Ломает банки (Сбер, Т-Банк), Госуслуги, такси, игры и доставку | Работает локально (только для ПК) | Изолированный локальный шлюз (127.0.0.1) | Изолированный шлюз, но требует фонового окружения Termux | **Изолированный локальный шлюз (127.0.0.1)**: работает только для Telegram. Все остальные приложения работают на полной скорости |

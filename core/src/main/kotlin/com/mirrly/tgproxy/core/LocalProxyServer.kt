@@ -127,10 +127,11 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         } else {
             AppLogger.i("LocalProxyServer", "Запуск нативного MTProto движка на ${config.bindHost}:${config.bindPort}...")
             val secret = config.rawSecret32
+            val defaultDcIps = "1:149.154.175.50,2:149.154.167.51,3:149.154.175.100,4:149.154.167.91,5:91.108.56.130,203:91.105.192.100"
             code = NativeProxy.startProxy(
                 host = config.bindHost,
                 port = config.bindPort,
-                dcIps = "",
+                dcIps = defaultDcIps,
                 secret = secret,
                 verbose = if (config.verboseLogs) 1 else 0
             )
@@ -140,7 +141,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 code = NativeProxy.startProxy(
                     host = config.bindHost,
                     port = config.bindPort,
-                    dcIps = "",
+                    dcIps = defaultDcIps,
                     secret = secret,
                     verbose = if (config.verboseLogs) 1 else 0
                 )

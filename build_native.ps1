@@ -79,7 +79,15 @@ foreach ($t in $targets) {
     }
 }
 
-# 4. Build each target
+# 4. Configure external cargo target directory to keep repository lightweight
+if (-not $env:CARGO_TARGET_DIR) {
+    $cargoCacheRoot = if ($env:USERPROFILE) { "$env:USERPROFILE\.cargo\target-cache\mirrlyengine" } else { "$scriptDir\mirrlyengine\target" }
+    $env:CARGO_TARGET_DIR = $cargoCacheRoot
+}
+$targetDir = $env:CARGO_TARGET_DIR
+Write-Host "Cargo Target Dir: $targetDir"
+
+# 5. Build each target
 Set-Location "$scriptDir\mirrlyengine"
 
 foreach ($t in $targets) {
@@ -91,7 +99,7 @@ foreach ($t in $targets) {
         Write-Error "Failed to build $($t.rust)"
         exit 1
     }
-    $src = "$scriptDir\mirrlyengine\target\$($t.rust)\release\libmirrlyengine.so"
+    $src = "$targetDir\$($t.rust)\release\libmirrlyengine.so"
     $dstDir = "$scriptDir\app\src\main\jniLibs\$($t.jni)"
     if (-not (Test-Path $dstDir)) {
         New-Item -ItemType Directory -Path $dstDir -Force | Out-Null

@@ -90,9 +90,8 @@ data class ProxyConfig(
             if (userDomain.isNotEmpty()) return userDomain
             return TgConstants.DEFAULT_SOCKS5_DEV_WORKER
         } else {
-            if (applyWorkerToMtproto) {
-                if (userDomain.isNotEmpty()) return userDomain
-                return TgConstants.DEFAULT_SOCKS5_DEV_WORKER
+            if (applyWorkerToMtproto && userDomain.isNotEmpty()) {
+                return userDomain
             }
             return ""
         }

@@ -21,11 +21,14 @@ use tokio_rustls::TlsConnector;
 // WS opcodes
 // ---------------------------------------------------------------------------
 
+pub const OP_CONTINUATION: u8 = 0x0;
 pub const OP_TEXT: u8 = 0x1;
 pub const OP_BINARY: u8 = 0x2;
 pub const OP_CLOSE: u8 = 0x8;
 pub const OP_PING: u8 = 0x9;
 pub const OP_PONG: u8 = 0xA;
+
+pub const MAX_WS_OUTGOING_FRAME: usize = 32 * 1024;
 
 // ---------------------------------------------------------------------------
 // TLS config: InsecureSkipVerify + session cache (100 sessions)
@@ -181,8 +184,32 @@ impl RawWebSocket {
         if self.is_closed() {
             return Err(WsError::Other("WebSocket closed".to_string()));
         }
-        let frame = build_frame(OP_BINARY, data, true);
-        self.write_frame(&frame, WS_WRITE_TIMEOUT).await
+        if data.len() <= MAX_FRAME_PAYLOAD as usize {
+            let frame = build_frame(OP_BINARY, data, true);
+            self.write_frame(&frame, WS_WRITE_TIMEOUT).await
+        } else {
+            // RFC 6455 Fragmented message if payload exceeds max frame limit
+            let chunks: Vec<&[u8]> = data.chunks(MAX_FRAME_PAYLOAD as usize).collect();
+            let total_chunks = chunks.len();
+            let mut writer = self.writer.lock().await;
+            for (i, chunk) in chunks.into_iter().enumerate() {
+                let opcode = if i == 0 { OP_BINARY } else { OP_CONTINUATION };
+                let fin = i == total_chunks - 1;
+                let frame = build_frame_ext(opcode, chunk, true, fin);
+                match tokio::time::timeout(WS_WRITE_TIMEOUT, writer.write_all(&frame)).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        self.closed.store(true, Ordering::Relaxed);
+                        return Err(WsError::Io(e));
+                    }
+                    Err(_) => {
+                        self.closed.store(true, Ordering::Relaxed);
+                        return Err(WsError::Timeout);
+                    }
+                }
+            }
+            Ok(())
+        }
     }
 
     pub async fn send_batch(&self, parts: &[Vec<u8>]) -> Result<(), WsError> {
@@ -191,16 +218,37 @@ impl RawWebSocket {
         }
         let mut writer = self.writer.lock().await;
         for part in parts {
-            let frame = build_frame(OP_BINARY, part, true);
-            match tokio::time::timeout(WS_WRITE_TIMEOUT, writer.write_all(&frame)).await {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
-                    self.closed.store(true, Ordering::Relaxed);
-                    return Err(WsError::Io(e));
+            if part.len() <= MAX_FRAME_PAYLOAD as usize {
+                let frame = build_frame(OP_BINARY, part, true);
+                match tokio::time::timeout(WS_WRITE_TIMEOUT, writer.write_all(&frame)).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        self.closed.store(true, Ordering::Relaxed);
+                        return Err(WsError::Io(e));
+                    }
+                    Err(_) => {
+                        self.closed.store(true, Ordering::Relaxed);
+                        return Err(WsError::Timeout);
+                    }
                 }
-                Err(_) => {
-                    self.closed.store(true, Ordering::Relaxed);
-                    return Err(WsError::Timeout);
+            } else {
+                let chunks: Vec<&[u8]> = part.chunks(MAX_FRAME_PAYLOAD as usize).collect();
+                let total_chunks = chunks.len();
+                for (i, chunk) in chunks.into_iter().enumerate() {
+                    let opcode = if i == 0 { OP_BINARY } else { OP_CONTINUATION };
+                    let fin = i == total_chunks - 1;
+                    let frame = build_frame_ext(opcode, chunk, true, fin);
+                    match tokio::time::timeout(WS_WRITE_TIMEOUT, writer.write_all(&frame)).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => {
+                            self.closed.store(true, Ordering::Relaxed);
+                            return Err(WsError::Io(e));
+                        }
+                        Err(_) => {
+                            self.closed.store(true, Ordering::Relaxed);
+                            return Err(WsError::Timeout);
+                        }
+                    }
                 }
             }
         }
@@ -236,8 +284,9 @@ impl RawWebSocket {
     }
 
     pub async fn recv(&self) -> Result<Vec<u8>, WsError> {
+        let mut assembling_buf: Option<Vec<u8>> = None;
         while !self.is_closed() {
-            let (opcode, payload) = match self.read_frame().await {
+            let (fin, opcode, payload) = match self.read_frame().await {
                 Ok(v) => v,
                 Err(e) => {
                     self.closed.store(true, Ordering::Relaxed);
@@ -264,7 +313,29 @@ impl RawWebSocket {
                     continue;
                 }
                 OP_PONG => continue,
-                OP_TEXT | OP_BINARY => return Ok(payload),
+                OP_TEXT | OP_BINARY => {
+                    if fin {
+                        return Ok(payload);
+                    } else {
+                        assembling_buf = Some(payload);
+                    }
+                }
+                OP_CONTINUATION => {
+                    if let Some(mut buf) = assembling_buf.take() {
+                        buf.extend_from_slice(&payload);
+                        if buf.len() > MAX_FRAME_PAYLOAD as usize {
+                            self.closed.store(true, Ordering::Relaxed);
+                            return Err(WsError::Other(format!("reassembled frame too large: {} bytes", buf.len())));
+                        }
+                        if fin {
+                            return Ok(buf);
+                        } else {
+                            assembling_buf = Some(buf);
+                        }
+                    } else {
+                        return Ok(payload);
+                    }
+                }
                 _ => {}
             }
         }
@@ -283,6 +354,7 @@ impl RawWebSocket {
     }
 
     pub async fn recv_with_timeout(&self, dur: Duration) -> Result<Vec<u8>, WsError> {
+        let mut assembling_buf: Option<Vec<u8>> = None;
         loop {
             if self.is_closed() {
                 return Err(WsError::Io(std::io::Error::new(
@@ -301,7 +373,7 @@ impl RawWebSocket {
                     Err(_) => return Err(WsError::Timeout),
                 }
             };
-            let (opcode, payload) = frame;
+            let (fin, opcode, payload) = frame;
             match opcode {
                 OP_CLOSE => {
                     self.closed.store(true, Ordering::Relaxed);
@@ -322,24 +394,49 @@ impl RawWebSocket {
                     continue;
                 }
                 OP_PONG => continue,
-                OP_TEXT | OP_BINARY => return Ok(payload),
+                OP_TEXT | OP_BINARY => {
+                    if fin {
+                        return Ok(payload);
+                    } else {
+                        assembling_buf = Some(payload);
+                    }
+                }
+                OP_CONTINUATION => {
+                    if let Some(mut buf) = assembling_buf.take() {
+                        buf.extend_from_slice(&payload);
+                        if buf.len() > MAX_FRAME_PAYLOAD as usize {
+                            self.closed.store(true, Ordering::Relaxed);
+                            return Err(WsError::Other(format!("reassembled frame too large: {} bytes", buf.len())));
+                        }
+                        if fin {
+                            return Ok(buf);
+                        } else {
+                            assembling_buf = Some(buf);
+                        }
+                    } else {
+                        return Ok(payload);
+                    }
+                }
                 _ => continue,
             }
         }
     }
 
-    async fn read_frame(&self) -> Result<(u8, Vec<u8>), WsError> {
+    async fn read_frame(&self) -> Result<(bool, u8, Vec<u8>), WsError> {
         let mut reader = self.reader.lock().await;
         read_frame_locked(&mut reader).await
     }
 }
 
+pub const MAX_FRAME_PAYLOAD: u64 = 16 * 1024 * 1024;
+
 async fn read_frame_locked(
     reader: &mut BufReader<tokio::io::ReadHalf<TlsStream<TcpStream>>>,
-) -> Result<(u8, Vec<u8>), WsError> {
+) -> Result<(bool, u8, Vec<u8>), WsError> {
     let mut hdr = [0u8; 2];
     reader.read_exact(&mut hdr).await?;
 
+    let fin = (hdr[0] & 0x80) != 0;
     let opcode = hdr[0] & 0x0F;
     let mut length = (hdr[1] & 0x7F) as u64;
 
@@ -359,7 +456,6 @@ async fn read_frame_locked(
         reader.read_exact(&mut mask_key).await?;
     }
 
-    const MAX_FRAME_PAYLOAD: u64 = 16 * 1024 * 1024;
     if length > MAX_FRAME_PAYLOAD {
         return Err(WsError::Other(format!("frame too large: {} bytes", length)));
     }
@@ -370,16 +466,16 @@ async fn read_frame_locked(
     if has_mask {
         xor_mask_in_place(&mut payload, &mask_key);
     }
-    Ok((opcode, payload))
+    Ok((fin, opcode, payload))
 }
 
 // ---------------------------------------------------------------------------
 // Frame builder
 // ---------------------------------------------------------------------------
 
-pub fn build_frame(opcode: u8, data: &[u8], mask: bool) -> Vec<u8> {
+pub fn build_frame_ext(opcode: u8, data: &[u8], mask: bool, fin: bool) -> Vec<u8> {
     let length = data.len();
-    let fb = 0x80 | opcode;
+    let fb = if fin { 0x80 | (opcode & 0x0F) } else { opcode & 0x0F };
 
     let mut header_size = 2;
     if mask {
@@ -439,6 +535,10 @@ pub fn build_frame(opcode: u8, data: &[u8], mask: bool) -> Vec<u8> {
         result[pos..pos + length].copy_from_slice(data);
     }
     result
+}
+
+pub fn build_frame(opcode: u8, data: &[u8], mask: bool) -> Vec<u8> {
+    build_frame_ext(opcode, data, mask, true)
 }
 
 // ---------------------------------------------------------------------------
@@ -831,3 +931,56 @@ pub async fn connect_one_ws(ip: &str, domains: &[String]) -> Option<RawWebSocket
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_frame_unfragmented() {
+        let payload = b"hello telegram ws";
+        let frame = build_frame(OP_BINARY, payload, false);
+
+        assert_eq!(frame[0], 0x82); // FIN=1 (0x80) | OP_BINARY (0x02)
+        assert_eq!(frame[1], payload.len() as u8); // Unmasked
+        assert_eq!(&frame[2..], payload);
+    }
+
+    #[test]
+    fn test_build_frame_fragmented_rfc6455() {
+        let chunk1 = b"fragment 1";
+        let chunk2 = b"fragment 2";
+        let chunk3 = b"fragment 3";
+
+        // Frame 1: OP_BINARY, FIN=0
+        let f1 = build_frame_ext(OP_BINARY, chunk1, false, false);
+        assert_eq!(f1[0], 0x02); // FIN=0, opcode=2
+        assert_eq!(f1[1], chunk1.len() as u8);
+        assert_eq!(&f1[2..], chunk1);
+
+        // Frame 2: OP_CONTINUATION, FIN=0
+        let f2 = build_frame_ext(OP_CONTINUATION, chunk2, false, false);
+        assert_eq!(f2[0], 0x00); // FIN=0, opcode=0
+        assert_eq!(f2[1], chunk2.len() as u8);
+        assert_eq!(&f2[2..], chunk2);
+
+        // Frame 3: OP_CONTINUATION, FIN=1
+        let f3 = build_frame_ext(OP_CONTINUATION, chunk3, false, true);
+        assert_eq!(f3[0], 0x80); // FIN=1, opcode=0
+        assert_eq!(f3[1], chunk3.len() as u8);
+        assert_eq!(&f3[2..], chunk3);
+    }
+
+    #[test]
+    fn test_build_frame_large_payload() {
+        let payload = vec![0x42u8; 70000]; // > 65535 bytes -> 8-byte length
+        let frame = build_frame(OP_BINARY, &payload, false);
+
+        assert_eq!(frame[0], 0x82);
+        assert_eq!(frame[1], 127);
+        let len = BigEndian::read_u64(&frame[2..10]);
+        assert_eq!(len, 70000);
+        assert_eq!(&frame[10..], &payload[..]);
+    }
+}
+

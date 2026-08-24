@@ -109,7 +109,7 @@ export default {
           service: "Mirrly TG Proxy Dedicated Worker",
           security: "Protected Telegram Relay (Allowlist Enforced)",
           compatible: ["Telegram MTProto", "Telegram SOCKS5", "Telegram VoIP Calls"],
-          version: "1.1.5",
+          version: "1.1.6",
           edge_colo: request.cf?.colo || "Global Anycast",
           timestamp: new Date().toISOString()
         }, null, 2),
@@ -181,25 +181,42 @@ export default {
       const tcpWriter = tcpSocket.writable.getWriter();
       const tcpReader = tcpSocket.readable.getReader();
 
-      serverWs.addEventListener('message', async (event) => {
+      let writeQueue = Promise.resolve();
+      let isClosed = false;
+
+      const cleanup = () => {
+        if (isClosed) return;
+        isClosed = true;
+        try { tcpWriter.close(); } catch (_) {}
+        try { tcpSocket.close(); } catch (_) {}
+      };
+
+      serverWs.addEventListener('message', (event) => {
+        if (isClosed) return;
         try {
-          const data = typeof event.data === 'string' ? new TextEncoder().encode(event.data) : new Uint8Array(event.data);
-          await tcpWriter.write(data);
+          const raw = event.data;
+          const data = typeof raw === 'string' ? new TextEncoder().encode(raw) : new Uint8Array(raw);
+          writeQueue = writeQueue.then(async () => {
+            if (isClosed) return;
+            await tcpWriter.write(data);
+          }).catch((_) => {
+            if (!isClosed) {
+              isClosed = true;
+              try { serverWs.close(1011, "TCP Write Error"); } catch (_) {}
+              cleanup();
+            }
+          });
         } catch (_) {
-          serverWs.close(1011, "TCP Write Error");
-          try { tcpSocket.close(); } catch (_) {}
+          if (!isClosed) {
+            isClosed = true;
+            try { serverWs.close(1011, "TCP Write Error"); } catch (_) {}
+            cleanup();
+          }
         }
       });
 
-      serverWs.addEventListener('close', () => {
-        try { tcpWriter.close(); } catch (_) {}
-        try { tcpSocket.close(); } catch (_) {}
-      });
-
-      serverWs.addEventListener('error', () => {
-        try { tcpWriter.close(); } catch (_) {}
-        try { tcpSocket.close(); } catch (_) {}
-      });
+      serverWs.addEventListener('close', cleanup);
+      serverWs.addEventListener('error', cleanup);
 
       (async () => {
         try {
@@ -207,13 +224,19 @@ export default {
             const { value, done } = await tcpReader.read();
             if (done) break;
             if (value && serverWs.readyState === WebSocket.OPEN) {
-              serverWs.send(value);
+              if (value.byteLength > 65536) {
+                for (let offset = 0; offset < value.byteLength; offset += 65536) {
+                  serverWs.send(value.subarray(offset, offset + 65536));
+                }
+              } else {
+                serverWs.send(value);
+              }
             }
           }
         } catch (_) {
         } finally {
+          cleanup();
           try { serverWs.close(); } catch (_) {}
-          try { tcpSocket.close(); } catch (_) {}
         }
       })();
 

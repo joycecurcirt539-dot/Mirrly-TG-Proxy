@@ -95,13 +95,13 @@ class ProxyConfigTest {
     }
 
     @Test
-    fun testGetEffectiveCfDomainMtprotoEnabledWithEmptyDomainUsesDevWorker() {
+    fun testGetEffectiveCfDomainMtprotoEnabledWithEmptyDomainUsesAnycastCdnPool() {
         val config = ProxyConfig(
             proxyModeName = ProxyMode.MTPROTO.name,
             customCfDomain = "",
             applyWorkerToMtproto = true
         )
-        assertEquals(TgConstants.DEFAULT_SOCKS5_DEV_WORKER, config.getEffectiveCfDomain())
+        assertEquals("", config.getEffectiveCfDomain())
     }
 
     @Test
