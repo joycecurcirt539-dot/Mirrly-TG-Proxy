@@ -333,9 +333,46 @@ try {
     }
 
     Write-Host "`n  [2/2] Публикую воркер в Cloudflare..." -ForegroundColor Cyan
-    $deployLog = npx -y wrangler@latest deploy 2>&1 | Out-String
+    
+    $logFile = Join-Path $tempDir "deploy.log"
+    npx -y wrangler@latest deploy *>&1 | Tee-Object -FilePath $logFile
+    $deployLog = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
+
     if ($LASTEXITCODE -ne 0) {
-        throw "Ошибка публикации:`n$deployLog"
+        if ($deployLog -match 'register a workers\.dev subdomain' -or $deployLog -match 'workers/onboarding') {
+            Write-Host "`n  [!] На этом аккаунте Cloudflare еще не создан поддомен *.workers.dev." -ForegroundColor Yellow
+            $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+            $b = New-Object byte[] 4
+            $rng.GetBytes($b)
+            $randomSub = "relay-" + (-join ($b | ForEach-Object { "abcdefghijklmnopqrstuvwxyz0123456789"[$_ % 36] }))
+            
+            $chosenSub = Read-Host "  Введите поддомен для ваших воркеров (Enter для '$randomSub')"
+            if ([string]::IsNullOrWhiteSpace($chosenSub)) { $chosenSub = $randomSub }
+
+            Write-Host "  Регистрирую поддомен '$chosenSub.workers.dev'..." -ForegroundColor Cyan
+            npx -y wrangler@latest subdomain $chosenSub 2>&1 | Out-Null
+            
+            Write-Host "`n  Повторяю публикацию воркера..." -ForegroundColor Cyan
+            npx -y wrangler@latest deploy *>&1 | Tee-Object -FilePath $logFile
+            $deployLog = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
+
+            if ($LASTEXITCODE -ne 0) {
+                if ($deployLog -match '(https://dash\.cloudflare\.com/[^\s]+/workers/onboarding)') {
+                    $onboardingUrl = $Matches[1]
+                    Write-Host "`n  Открываю страницу регистрации поддомена в браузере:`n  $onboardingUrl" -ForegroundColor Yellow
+                    Start-Process $onboardingUrl
+                    $null = Read-Host "  Задайте поддомен в браузере и нажмите Enter для продолжения"
+                    
+                    Write-Host "`n  Публикую воркер..." -ForegroundColor Cyan
+                    npx -y wrangler@latest deploy *>&1 | Tee-Object -FilePath $logFile
+                    $deployLog = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
+                }
+            }
+        }
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Ошибка публикации:`n$deployLog"
+        }
     }
 } catch {
     Write-Host "`n  [X] Ошибка: $_`n" -ForegroundColor Red
