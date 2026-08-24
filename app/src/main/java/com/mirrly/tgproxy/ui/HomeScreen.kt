@@ -560,10 +560,10 @@ fun HomeScreen(
                                 .fillMaxWidth()
                                 .padding(vertical = 2.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .springPress {
+                                .springPress(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onOpenUpdate()
-                                }
+                                })
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
