@@ -170,25 +170,25 @@ class PreferencesManager(context: Context) {
             WorkerProfile(
                 id = "dev_alpha",
                 name = "Mirrly Альфа",
-                domain = "mirrly-tg-proxy-alpha.brawny-singer.workers.dev",
+                domain = "mtg-relay-5o77p2.mtg-alfaj.workers.dev",
                 isDeveloperWorker = true
             ),
             WorkerProfile(
                 id = "dev_beta",
                 name = "Mirrly Бета",
-                domain = "mirrly-tg-proxy-beta.brawny-singer.workers.dev",
+                domain = "mtg-relay-ki2q2v.mtg-beta.workers.dev",
                 isDeveloperWorker = true
             ),
             WorkerProfile(
                 id = "dev_gamma",
                 name = "Mirrly Гамма",
-                domain = "mirrly-tg-proxy-gamma.brawny-singer.workers.dev",
+                domain = "mtg-relay-vndj4a.tammistichtqvc264.workers.dev",
                 isDeveloperWorker = true
             ),
             WorkerProfile(
                 id = "dev_delta",
                 name = "Mirrly Дельта",
-                domain = "mirrly-tg-proxy-delta.brawny-singer.workers.dev",
+                domain = "mtg-relay-xbl1ts.mtg-beta.workers.dev",
                 isDeveloperWorker = true
             )
         )

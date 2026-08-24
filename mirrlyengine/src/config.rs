@@ -92,10 +92,10 @@ pub static DEFAULT_SOCKS5_WORKER: &str = "mirrly-tg-proxy-worker.brawny-singer.w
 
 pub static DEV_SOCKS5_WORKERS: &[&str] = &[
     DEFAULT_SOCKS5_WORKER,
-    "mirrly-tg-proxy-alpha.brawny-singer.workers.dev",
-    "mirrly-tg-proxy-beta.brawny-singer.workers.dev",
-    "mirrly-tg-proxy-gamma.brawny-singer.workers.dev",
-    "mirrly-tg-proxy-delta.brawny-singer.workers.dev",
+    "mtg-relay-5o77p2.mtg-alfaj.workers.dev",
+    "mtg-relay-ki2q2v.mtg-beta.workers.dev",
+    "mtg-relay-vndj4a.tammistichtqvc264.workers.dev",
+    "mtg-relay-xbl1ts.mtg-beta.workers.dev",
 ];
 
 pub static LAST_SOCKS5_WORKER: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(String::new()));

@@ -115,7 +115,7 @@ class ProxyConfigTest {
 
     @Test
     fun testGetEffectiveCfDomainWithActiveWorkerInBothModes() {
-        val workerDomain = "mirrly-tg-proxy-alpha.brawny-singer.workers.dev"
+        val workerDomain = "mtg-relay-5o77p2.mtg-alfaj.workers.dev"
         val mtprotoConfigDisabled = ProxyConfig(
             proxyModeName = ProxyMode.MTPROTO.name,
             customCfDomain = workerDomain,
