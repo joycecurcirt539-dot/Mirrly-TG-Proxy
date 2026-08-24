@@ -73,3 +73,8 @@ mirrlyengine/legacy/
 # Cloudflare Wrangler
 .wrangler/
 **/.wrangler/
+my_workers.txt
+**/my_workers.txt
+
+# Local Release APKs Cache
+ci_release_apks/
