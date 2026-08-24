@@ -1,67 +1,32 @@
-<#
-.SYNOPSIS
-    Mirrly TG Proxy — Автоматический деплой персонального Cloudflare Worker.
-    Один автономный скрипт: скачал -> запустил -> получил готовый воркер.
+#!/usr/bin/env bash
+# Mirrly TG Proxy — Автоматический деплой персонального Cloudflare Worker (Linux / macOS)
+# Использование: ./deploy.sh [worker-name]
 
-.DESCRIPTION
-    1. Автоматически разворачивает встроенный JS-код воркера (с поддержкой WebSocket/TCP и звонков).
-    2. Генерирует уникальное имя воркера.
-    3. Открывает браузер для авторизации в Cloudflare (OAuth, без ручных API-токенов).
-    4. Деплоит воркер и выдает готовый домен (автоматически копирует в буфер обмена).
-    5. Полностью очищает временные файлы после завершения.
+set -e
 
-.EXAMPLE
-    .\deploy.ps1
-    .\deploy.ps1 -Name "my-custom-proxy"
-#>
-
-param(
-    [string]$Name = ""
-)
-
-$ErrorActionPreference = "Stop"
-
-# ── 1. Проверка окружения (Node.js) ──────────────────────────────────────────
-
-try {
-    $nodeVer = node --version 2>$null
-    if (-not $nodeVer) { throw "node is null" }
-} catch {
-    Write-Host "`n  [X] Node.js не установлен." -ForegroundColor Red
-    Write-Host "      Скачайте и установите Node.js (LTS): https://nodejs.org/" -ForegroundColor Yellow
-    Write-Host "      После установки перезапустите терминал.`n" -ForegroundColor DarkGray
+if ! command -v node >/dev/null 2>&1; then
+    echo -e "\n\033[0;31m[X] Node.js не установлен.\033[0m"
+    echo -e "    Установите Node.js: https://nodejs.org/\n"
     exit 1
-}
+fi
 
-# ── 2. Генерация имени воркера ────────────────────────────────────────────────
+NAME="$1"
+if [ -z "$NAME" ]; then
+    SUFFIX=$(head /dev/urandom | tr -dc a-z0-9 | head -c 6)
+    NAME="mtg-relay-${SUFFIX}"
+fi
 
-if (-not $Name) {
-    $chars = "abcdefghijklmnopqrstuvwxyz0123456789"
-    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    $bytes = New-Object byte[] 6
-    $rng.GetBytes($bytes)
-    $Name = "mtg-relay-" + (-join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] }))
-}
+echo -e "\n\033[0;36m═════════════════════════════════════════════════════\033[0m"
+echo -e "\033[1;37m  Mirrly TG Proxy — Деплой Cloudflare Worker\033[0m"
+echo -e "\033[0;36m═════════════════════════════════════════════════════\033[0m"
+echo -e "\033[0;36mИмя воркера:\033[0m $NAME"
 
-Write-Host "`n  ═════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "    Mirrly TG Proxy — Деплой Cloudflare Worker" -ForegroundColor White
-Write-Host "  ═════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "  Имя воркера: $Name" -ForegroundColor Cyan
+TEMP_DIR=$(mktemp -d /tmp/mirrly-deploy.XXXXXX)
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
-# ── 3. Подготовка временной директории и встроенного JS-кода ─────────────────
-
-$tempDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "mirrly-deploy-" + [System.Guid]::NewGuid().ToString("N"))
-$null = New-Item -ItemType Directory -Path $tempDir -Force
-
-$WorkerJsCode = @'
-/**
- * Mirrly TG Proxy - Dedicated Cloudflare Worker for Telegram
- * Specifically optimized for Telegram MTProto & SOCKS5 VoIP calls
- * Protected with Telegram Destination & Port Allowlist (Anti-Open-Relay)
- */
+cat << 'EOF' > "$TEMP_DIR/worker.js"
 import { connect } from 'cloudflare:sockets';
 
-// Telegram IPv4 Subnets (AS44907, AS62041, AS59930, AS62014)
 const TG_IPV4_SUBNETS = [
   { ip: "91.108.4.0", mask: 22 },
   { ip: "91.108.8.0", mask: 22 },
@@ -76,17 +41,14 @@ const TG_IPV4_SUBNETS = [
   { ip: "185.76.151.0", mask: 24 }
 ];
 
-// Telegram IPv6 Subnets
 const TG_IPV6_PREFIXES = [
   "2001:b28:f23d:",
   "2001:b28:f23f:",
   "2001:67c:4e8:"
 ];
 
-// Telegram Ports (MTProto, SOCKS5, Web, VoIP, CDN)
 const ALLOWED_PORTS = new Set([80, 443, 5222, 8443, 8888, 8080]);
 
-// Telegram Official Domains
 const TG_EXACT_DOMAINS = new Set([
   "telegram.org",
   "t.me",
@@ -110,8 +72,6 @@ function ipToLong(ip) {
 
 function isTelegramIp(ipStr) {
   const cleanIp = ipStr.trim().toLowerCase();
-  
-  // IPv4 check
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(cleanIp)) {
     const targetLong = ipToLong(cleanIp);
     if (targetLong === null) return false;
@@ -124,14 +84,9 @@ function isTelegramIp(ipStr) {
     }
     return false;
   }
-
-  // IPv6 check
   for (const prefix of TG_IPV6_PREFIXES) {
-    if (cleanIp.startsWith(prefix)) {
-      return true;
-    }
+    if (cleanIp.startsWith(prefix)) return true;
   }
-
   return false;
 }
 
@@ -156,7 +111,6 @@ function isTelegramDestination(host) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-
     const upgradeHeader = request.headers.get('Upgrade');
     if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
       return new Response(
@@ -186,7 +140,6 @@ export default {
       if (!targetParam) {
         return new Response("Missing target parameter", { status: 400 });
       }
-
       if (targetParam.startsWith('[')) {
         const closeBracket = targetParam.indexOf(']');
         if (closeBracket !== -1) {
@@ -215,7 +168,6 @@ export default {
       return new Response("Invalid target format", { status: 400 });
     }
 
-    // Security Verification: Destination & Port Allowlist
     if (!ALLOWED_PORTS.has(targetPort)) {
       return new Response("Forbidden: Port not allowed", { status: 403 });
     }
@@ -306,75 +258,42 @@ export default {
     });
   }
 };
-'@
+EOF
 
-$workerJsPath = Join-Path $tempDir "worker.js"
-$wranglerTomlPath = Join-Path $tempDir "wrangler.toml"
-
-Set-Content -Path $workerJsPath -Value $WorkerJsCode -Encoding UTF8
-
-$tomlContent = @"
-name = "$Name"
+cat << EOF > "$TEMP_DIR/wrangler.toml"
+name = "$NAME"
 main = "worker.js"
 compatibility_date = "2024-09-23"
-"@
-Set-Content -Path $wranglerTomlPath -Value $tomlContent -Encoding UTF8
+EOF
 
-# ── 4. Логин и Деплой через Wrangler ──────────────────────────────────────────
+cd "$TEMP_DIR"
 
-Push-Location $tempDir
-$deployLog = ""
+echo -e "\n\033[1;33m  [1/2] Открываю браузер для входа в Cloudflare...\033[0m"
+npx -y wrangler@latest login
 
-try {
-    Write-Host "`n  [1/2] Открываю браузер для авторизации в Cloudflare..." -ForegroundColor Yellow
-    npx -y wrangler@latest login
-    if ($LASTEXITCODE -ne 0) {
-        throw "Авторизация в Cloudflare не завершена (код $LASTEXITCODE)"
-    }
+echo -e "\n\033[1;36m  [2/2] Публикую воркер в Cloudflare...\033[0m"
+DEPLOY_LOG=$(npx -y wrangler@latest deploy 2>&1)
+echo "$DEPLOY_LOG"
 
-    Write-Host "`n  [2/2] Публикую воркер в Cloudflare..." -ForegroundColor Cyan
-    $deployLog = npx -y wrangler@latest deploy 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) {
-        throw "Ошибка публикации:`n$deployLog"
-    }
-} catch {
-    Write-Host "`n  [X] Ошибка: $_`n" -ForegroundColor Red
-    exit 1
-} finally {
-    Pop-Location
-    Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-}
+DOMAIN=$(echo "$DEPLOY_LOG" | grep -oE 'https://[^ ]+\.workers\.dev' | head -n 1 | sed 's|https://||')
 
-# ── 5. Вывод результатов ─────────────────────────────────────────────────────
+echo -e "\n\033[1;32m  ╔═══════════════════════════════════════════════════════════╗\033[0m"
+echo -e "\033[1;32m  ║                Воркер успешно задеплоен!                  ║\033[0m"
+echo -e "\033[1;32m  ╚═══════════════════════════════════════════════════════════╝\033[0m\n"
 
-$domain = ""
-if ($deployLog -match '(https://[^\s]+\.workers\.dev)') {
-    $domain = $Matches[1] -replace '^https://', ''
-}
-
-Write-Host ""
-Write-Host "  ╔═══════════════════════════════════════════════════════════╗" -ForegroundColor Green
-Write-Host "  ║                Воркер успешно задеплоен!                  ║" -ForegroundColor Green
-Write-Host "  ╚═══════════════════════════════════════════════════════════╝" -ForegroundColor Green
-Write-Host ""
-
-if ($domain) {
-    Write-Host "  Домен воркера: " -NoNewline -ForegroundColor Gray
-    Write-Host "$domain" -ForegroundColor White
-    Write-Host ""
-
-    # Копирование в буфер обмена
-    try {
-        Set-Clipboard $domain
-        Write-Host "  [OK] Домен скопирован в буфер обмена." -ForegroundColor Green
-    } catch {}
-
-    Write-Host ""
-    Write-Host "  Как привязать к приложению:" -ForegroundColor Yellow
-    Write-Host "  1. Откройте Mirrly TG Proxy -> Менеджер воркеров" -ForegroundColor Gray
-    Write-Host "  2. Нажмите '+ Добавить' -> Вставьте домен -> 'Сохранить'" -ForegroundColor Gray
-    Write-Host ""
-} else {
-    Write-Host "  Воркер '$Name' успешно опубликован!" -ForegroundColor Green
-    Write-Host "  Проверьте и скопируйте URL воркера в Cloudflare Dashboard.`n" -ForegroundColor Yellow
-}
+if [ -n "$DOMAIN" ]; then
+    echo -e "  \033[0;37mДомен воркера: \033[1;37m$DOMAIN\033[0m\n"
+    if command -v xclip >/dev/null 2>&1; then
+        echo -n "$DOMAIN" | xclip -selection clipboard
+        echo -e "  \033[1;32m[OK] Домен скопирован в буфер обмена.\033[0m\n"
+    elif command -v pbcopy >/dev/null 2>&1; then
+        echo -n "$DOMAIN" | pbcopy
+        echo -e "  \033[1;32m[OK] Домен скопирован в буфер обмена.\033[0m\n"
+    fi
+    echo -e "  \033[1;33mКак привязать к Mirrly TG Proxy:\033[0m"
+    echo -e "  1. Откройте приложение -> Менеджер воркеров"
+    echo -e "  2. Нажмите '+ Добавить' -> Вставьте домен -> 'Сохранить'\n"
+else
+    echo -e "  \033[1;32mВоркер '$NAME' задеплоен!\033[0m"
+    echo -e "  Проверьте домен в Cloudflare Dashboard.\n"
+fi
