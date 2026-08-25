@@ -54,11 +54,13 @@ object UpdateManager {
             val currentAppVersion = com.mirrly.tgproxy.BuildConfig.VERSION_NAME
             val lastAppVersion = prefs.getString("last_installed_app_version", null)
             val lastNotifiedVersion = prefs.getString(KEY_LAST_NOTIFIED_VERSION, null)
+            val cachedVersion = prefs.getString(KEY_CACHED_VERSION, null)
 
             val isAppUpgraded = lastAppVersion != currentAppVersion
             val isNotifiedNotNewer = !lastNotifiedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(lastNotifiedVersion, currentAppVersion)
+            val isCachedNotNewer = !cachedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(cachedVersion, currentAppVersion)
 
-            if (isAppUpgraded || isNotifiedNotNewer) {
+            if (isAppUpgraded || isNotifiedNotNewer || isCachedNotNewer) {
                 clearUpdateCache(prefs)
                 prefs.edit().putString("last_installed_app_version", currentAppVersion).apply()
                 try {
@@ -112,11 +114,13 @@ object UpdateManager {
 
         val lastAppVersion = prefs.getString("last_installed_app_version", null)
         val lastNotifiedVersion = prefs.getString(KEY_LAST_NOTIFIED_VERSION, null)
+        val cachedVersion = prefs.getString(KEY_CACHED_VERSION, null)
 
         val isAppUpgraded = lastAppVersion != currentAppVersion
         val isNotifiedNotNewer = !lastNotifiedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(lastNotifiedVersion, currentAppVersion)
+        val isCachedNotNewer = !cachedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(cachedVersion, currentAppVersion)
 
-        if (isAppUpgraded || isNotifiedNotNewer) {
+        if (isAppUpgraded || isNotifiedNotNewer || isCachedNotNewer) {
             clearUpdateCache(prefs)
             prefs.edit().putString("last_installed_app_version", currentAppVersion).apply()
             try {
@@ -138,7 +142,9 @@ object UpdateManager {
                 MirrlyApplication.instance.prefsManager.isUpdateVersionIgnored(cleanVer)
             } catch (_: Exception) { false }
 
-            val info = rawInfo.copy(isIgnored = isIgnored)
+            val isActuallyNewer = UpdateChecker.isVersionNewer(cleanVer, currentAppVersion)
+            val isUpdateAvailable = rawInfo.isUpdateAvailable && isActuallyNewer
+            val info = rawInfo.copy(isUpdateAvailable = isUpdateAvailable, isIgnored = isIgnored)
 
             if (!info.etag.isNullOrBlank()) {
                 prefs.edit().putString(KEY_CACHED_ETAG, info.etag).apply()
@@ -188,6 +194,8 @@ object UpdateManager {
                         NotificationHelper.cancelUpdateNotification(context)
                     }
                 } else {
+                    _updateState.value = null
+                    clearUpdateCache(prefs)
                     if (!forceRefresh) {
                         return checkForUpdates(context, notifyIfFound = notifyIfFound, forceRefresh = true)
                     }
@@ -224,7 +232,7 @@ object UpdateManager {
                     if (!info.etag.isNullOrBlank()) {
                         prefs.edit().putString(KEY_CACHED_ETAG, info.etag).apply()
                     }
-                    _updateState.value = info
+                    _updateState.value = info.copy(isUpdateAvailable = false)
                     NotificationHelper.cancelUpdateNotification(context)
                 }
             }

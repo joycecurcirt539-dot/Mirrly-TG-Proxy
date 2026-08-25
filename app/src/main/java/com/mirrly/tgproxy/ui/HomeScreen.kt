@@ -565,21 +565,24 @@ fun HomeScreen(
                     enter = fadeIn(tween(250)) + expandVertically(tween(300)),
                     exit = fadeOut(tween(200)) + shrinkVertically(tween(250))
                 ) {
-                    updateInfo?.let { info ->
-                        val updateYellow = Color(0xFFFFB703)
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = updateYellow.copy(alpha = 0.08f),
-                            border = BorderStroke(1.dp, updateYellow.copy(alpha = 0.55f)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .springPress(onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onOpenUpdate()
-                                })
-                        ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Offset matching SOCKS5 active worker badge height (23.dp) + 5.dp safety margin
+                        Spacer(modifier = Modifier.height(28.dp))
+                        updateInfo?.let { info ->
+                            val updateYellow = Color(0xFFFFB703)
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = updateYellow.copy(alpha = 0.08f),
+                                border = BorderStroke(1.dp, updateYellow.copy(alpha = 0.55f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .springPress(onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onOpenUpdate()
+                                    })
+                            ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -657,6 +660,7 @@ fun HomeScreen(
                         }
                     }
                 }
+            }
 
                 // ─── 2. CENTER SECTION (Power button) ───
                 val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
