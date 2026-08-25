@@ -286,28 +286,15 @@ fun CloudflareWorkerGuideScreen(
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(selectedTab) {
-                var horizontalAccumulator = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = { horizontalAccumulator = 0f },
-                    onDragEnd = {
-                        if (horizontalAccumulator < -28.dp.toPx()) {
-                            switchToNextTab()
-                        } else if (horizontalAccumulator > 28.dp.toPx()) {
-                            switchToPreviousTab()
-                        }
-                        horizontalAccumulator = 0f
-                    },
-                    onDragCancel = { horizontalAccumulator = 0f },
-                    onHorizontalDrag = { change, dragAmount ->
-                        change.consume()
-                        horizontalAccumulator += dragAmount
-                    }
-                )
-            }
+        modifier = Modifier.fillMaxSize()
     ) {
+        // Delicate Cyber Particles floating in background behind guide interface
+        CyberParticlesOverlay(
+            modifier = Modifier.fillMaxSize(),
+            particleCount = 36,
+            alphaMultiplier = 0.65f
+        )
+
         // 1. SCROLLABLE GUIDE FEED
         LazyColumn(
             modifier = Modifier

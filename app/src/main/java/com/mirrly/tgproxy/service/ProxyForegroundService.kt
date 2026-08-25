@@ -388,7 +388,8 @@ class ProxyForegroundService : Service() {
         val timerState = SleepTimerManager.timerState.value
         val timerSuffix = if (timerState.isActive) " | Таймер: ${timerState.formatRemainingTime()}" else ""
 
-        val isCf = app.config.cfProxyEnabled && app.config.getEffectiveCfDomain().isNotBlank()
+        val effectiveDomain = app.config.getEffectiveCfDomain()
+        val isWorker = app.config.cfProxyEnabled && effectiveDomain.isNotBlank()
         val protoLabel = if (app.config.isSocks5Mode) "SOCKS5" else "MTProto"
 
         val (statusIndicator, title, text) = when {
@@ -406,24 +407,24 @@ class ProxyForegroundService : Service() {
                     "Восстановление связи... | $netName"
                 )
             }
-            isCf -> {
+            isWorker -> {
                 if (pingMs > 0) {
                     val indicator = if (pingMs > 1200L) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
                     Triple(
                         indicator,
                         "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "Cloudflare: ${pingMs}мс | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        "Worker: ${pingMs}мс | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
                     )
                 } else if (activeConns > 0) {
                     Triple(
                         ProxyStatusIndicator.GREEN,
                         "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "Туннель активен | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        "Worker: Туннель активен | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
                     )
                 } else {
                     Triple(
                         ProxyStatusIndicator.YELLOW,
-                        "Mirrly TG Proxy [$protoLabel] • Cloudflare недоступен",
+                        "Mirrly TG Proxy [$protoLabel] • Worker подключается",
                         "Проверка шлюза... | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
                     )
                 }
@@ -434,13 +435,13 @@ class ProxyForegroundService : Service() {
                     Triple(
                         indicator,
                         "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "Пинг: ${pingMs}мс | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        "CDN: ${pingMs}мс | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
                     )
                 } else {
                     Triple(
                         ProxyStatusIndicator.GREEN,
                         "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        "CDN: Туннель активен | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
                     )
                 }
             }

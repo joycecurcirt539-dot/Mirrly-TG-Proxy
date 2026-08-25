@@ -14,7 +14,7 @@ data class NetworkEvaluationResult(
 object NetworkConditionEvaluator {
 
     private const val BANDWIDTH_THRESHOLD_KBPS = 50_000 // 50 Mbps
-    private const val PING_THRESHOLD_MS = 140L          // 140 ms sweet spot
+    private const val PING_THRESHOLD_MS = 600L          // 600 ms upper limit for nodelay
 
     fun evaluate(
         context: Context,

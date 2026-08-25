@@ -27,13 +27,15 @@ pub fn resolve_configured_target(dc: i32, is_media: bool) -> Option<String> {
                 return Some(t.clone());
             }
         }
-    }
-    if let Some(t) = map.get(&dc) {
-        if !t.is_empty() {
-            return Some(t.clone());
+        Some(get_dc_target_ip(dc, true).to_string())
+    } else {
+        if let Some(t) = map.get(&dc) {
+            if !t.is_empty() {
+                return Some(t.clone());
+            }
         }
+        Some(get_dc_target_ip(dc, false).to_string())
     }
-    Some(get_dc_target_ip(dc, is_media).to_string())
 }
 
 pub fn resolve_fallback_target(dc: i32, is_media: bool) -> String {
@@ -291,10 +293,11 @@ impl WsPool {
         
         let primary_dcs: Vec<(i32, bool, String)> = if !dc_opt_map.is_empty() {
             let mut list = Vec::new();
-            for (dc, target_ip) in dc_opt_map {
+            for (dc_key, target_ip) in dc_opt_map {
                 if !target_ip.is_empty() {
-                    list.push((*dc, false, target_ip.clone()));
-                    list.push((*dc, true, target_ip.clone()));
+                    let is_media = *dc_key < 0;
+                    let dc = if is_media { -*dc_key } else { *dc_key };
+                    list.push((dc, is_media, target_ip.clone()));
                 }
             }
             list
@@ -302,8 +305,8 @@ impl WsPool {
             vec![
                 (2, false, get_dc_target_ip(2, false).to_string()),
                 (2, true, get_dc_target_ip(2, true).to_string()),
-                (4, true, get_dc_target_ip(4, true).to_string()),
                 (4, false, get_dc_target_ip(4, false).to_string()),
+                (4, true, get_dc_target_ip(4, true).to_string()),
             ]
         };
 
@@ -586,11 +589,10 @@ async fn cfproxy_acquire_ws(
     is_media: bool,
     cancel_token: &CancellationToken,
 ) -> Option<(RawWebSocket, String)> {
-    let (enabled, user_domain, domains) = {
+    let (enabled, domains) = {
         let cfg = CFPROXY.read();
         (
             CFPROXY_ENABLED.load(Ordering::Relaxed),
-            cfg.user_domain.clone(),
             cfg.domains.clone(),
         )
     };
@@ -598,88 +600,24 @@ async fn cfproxy_acquire_ws(
         return None;
     }
 
-    let target_ip = get_dc_target_ip(dc, is_media);
-    let worker_path = format!("/tcp?target={}:443", target_ip);
+    let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
 
-    // 1. Priority 1: User-configured custom Cloudflare Worker (100% priority)
-    if !user_domain.is_empty() {
-        let remaining = cfproxy_429_cooldown_remaining(&user_domain);
-        if remaining == Duration::ZERO {
-            ldebug!("MTProto custom worker try {} -> {}", user_domain, target_ip);
-            let dial_res = tokio::select! {
-                _ = cancel_token.cancelled() => return None,
-                res = cf_connect_domain(&user_domain, &worker_path, 5.0) => res,
-            };
-            let (ws, resolved_ip, err) = dial_res;
-            if let Some(w) = ws {
-                if !resolved_ip.is_empty() {
-                    ldebug!("MTProto custom worker ok {} via {}", user_domain, resolved_ip);
-                } else {
-                    ldebug!("MTProto custom worker ok {}", user_domain);
-                }
-                clear_cfproxy_429_cooldown(&user_domain);
-                return Some((w, user_domain));
-            }
-            if let Some(e) = err {
-                if is_http_status_error(&e, 429) {
-                    mark_cfproxy_429_cooldown(&user_domain, &e);
-                }
-                if !resolved_ip.is_empty() {
-                    log_cf_conn_error(
-                        &format!("MTProto custom worker fail {} via {}: {}", user_domain, resolved_ip, e.compact()),
-                        &e,
-                    );
-                } else {
-                    log_cf_conn_error(
-                        &format!("MTProto custom worker fail {}: {}", user_domain, e.compact()),
-                        &e,
-                    );
-                }
-            }
-        }
-    }
-
-    // 2. Fast Staggered Concurrent Race across ranked Anycast CDN domains (Priority 2)
-    // and fallback developer workers (Priority 3)
+    // MTProto routes exclusively across Flowseal Anycast CDNs (kws{effective_dc}.{domain}/apiws)
     let mut candidate_targets: Vec<(String, String)> = Vec::new();
 
     if !domains.is_empty() {
-        let ordered = crate::balancer::BALANCER.read().get_domains_for_dc(dc);
+        let ordered = crate::balancer::BALANCER.read().get_domains_for_dc(effective_dc);
         for d in ordered {
             let remaining = cfproxy_429_cooldown_remaining(&d);
             if remaining == Duration::ZERO {
-                let domain = format!("kws{}.{}", dc, d);
+                let domain = format!("kws{}.{}", effective_dc, d);
                 candidate_targets.push((domain, "/apiws".to_string()));
             }
         }
     }
 
-    let last_worker = LAST_SOCKS5_WORKER.read().clone();
-    if !last_worker.is_empty()
-        && !user_domain.eq_ignore_ascii_case(&last_worker)
-        && DEV_SOCKS5_WORKERS.iter().any(|&w| w.eq_ignore_ascii_case(&last_worker))
-    {
-        let remaining = cfproxy_429_cooldown_remaining(&last_worker);
-        if remaining == Duration::ZERO {
-            candidate_targets.push((last_worker.clone(), worker_path.clone()));
-        }
-    }
-
-    for &w in DEV_SOCKS5_WORKERS {
-        if !user_domain.is_empty() && w.eq_ignore_ascii_case(&user_domain) {
-            continue;
-        }
-        if candidate_targets.iter().any(|(d, _)| d.eq_ignore_ascii_case(w)) {
-            continue;
-        }
-        let remaining = cfproxy_429_cooldown_remaining(w);
-        if remaining == Duration::ZERO {
-            candidate_targets.push((w.to_string(), worker_path.clone()));
-        }
-    }
-
     if candidate_targets.is_empty() {
-        lwarn!(" CF fallback DC{}{}: все домены и воркеры недоступны", dc, media_tag(is_media));
+        lwarn!(" CF fallback DC{}{}: все домены Anycast CDN недоступны", dc, media_tag(is_media));
         return None;
     }
 
@@ -688,7 +626,7 @@ async fn cfproxy_acquire_ws(
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(RawWebSocket, String)>(candidate_targets.len());
     let mut handles = Vec::with_capacity(candidate_targets.len());
-    let stagger_step = Duration::from_millis(60);
+    let stagger_step = Duration::from_millis(25);
     let sem = Arc::new(tokio::sync::Semaphore::new(CFPROXY_FALLBACK_PARALLEL));
 
     for (i, (dom, path)) in candidate_targets.into_iter().enumerate() {
@@ -714,7 +652,7 @@ async fn cfproxy_acquire_ws(
                         }
                         let _ = tx.send((w, dom)).await;
                     } else if let Some(e) = err {
-                        if is_http_status_error(&e, 429) {
+                        if crate::ws::is_cooldown_error(&e) {
                             mark_cfproxy_429_cooldown(&dom, &e);
                         }
                         if !resolved_ip.is_empty() {
@@ -747,12 +685,12 @@ async fn cfproxy_acquire_ws(
                 linfo!("⚡ MTProto endpoint выбран: {}", winner_domain);
                 clear_cfproxy_429_cooldown(&winner_domain);
 
-                let base_domain = if let Some(stripped) = winner_domain.strip_prefix(&format!("kws{}.", dc)) {
+                let base_domain = if let Some(stripped) = winner_domain.strip_prefix(&format!("kws{}.", effective_dc)) {
                     stripped.to_string()
                 } else {
                     winner_domain.clone()
                 };
-                crate::balancer::BALANCER.write().update_domain_for_dc(dc, &base_domain);
+                crate::balancer::BALANCER.write().update_domain_for_dc(effective_dc, &base_domain);
 
                 winning_res = Some((ws, winner_domain));
             }
@@ -803,7 +741,7 @@ pub async fn do_fallback(
             cfproxy_acquire_ws(dc, is_media, &cancel_token).await
         {
             STATS.connections_cfproxy.fetch_add(1, Ordering::Relaxed);
-            linfo!(" DC{}{} подключен через CF", dc, media_tag(is_media));
+            linfo!(" DC{}{} подключен через CDN: {}", dc, media_tag(is_media), chosen_domain);
 
             if ws.send(relay_init).await.is_err() {
                 ws.close().await;
@@ -960,6 +898,7 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
     }
     let is_media = dc_raw < 0;
     let m_tag = media_tag(is_media);
+    let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
 
     let mut clt_enc_prekey_and_iv = [0u8; 48];
     for i in 0..48 {
@@ -1007,7 +946,7 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
     let tg_decryptor = new_aes_ctr(&tg_dec_prekey_and_iv[..32], &tg_dec_prekey_and_iv[32..]);
 
     let mut dc_bytes = [0u8; 2];
-    let dc_idx = if is_media { -dc } else { dc };
+    let dc_idx = effective_dc;
     LittleEndian::write_u16(&mut dc_bytes, dc_idx as u16);
 
     let mut tail_plain = [0u8; 8];
@@ -1257,9 +1196,10 @@ pub async fn run_proxy(
     }
 
     start_cfproxy_refresh();
-    pool.start_housekeeper();
 
-    {
+    let use_cf = CFPROXY_ENABLED.load(Ordering::Relaxed);
+    if !use_cf {
+        pool.start_housekeeper();
         let p = pool.clone();
         let map = dc_opt_map.clone();
         tokio::spawn(async move {

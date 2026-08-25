@@ -32,7 +32,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -62,7 +63,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -146,7 +149,12 @@ fun WorkerManagerScreen(
     var customWorkers by remember { mutableStateOf(prefs.getCustomWorkers()) }
     val devWorkers = remember { prefs.getDeveloperWorkers() }
 
-    var pingResults by remember { mutableStateOf<Map<String, Pair<WorkerStatus, Long?>>>(emptyMap()) }
+    LaunchedEffect(Unit) {
+        activeWorkerId = prefs.getActiveWorkerId()
+        customWorkers = prefs.getCustomWorkers()
+    }
+
+    val pingResults = remember { mutableStateMapOf<String, Pair<WorkerStatus, Long?>>() }
     var isPinging by remember { mutableStateOf(false) }
 
     var selectedFilter by remember { mutableStateOf(WmWorkerFilterType.ALL) }
@@ -172,21 +180,7 @@ fun WorkerManagerScreen(
         onBack()
     }
 
-    val nestedScrollConnection = remember(density) {
-        object : NestedScrollConnection {
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource
-            ): Offset {
-                val thresholdPx = with(density) { -40.dp.toPx() }
-                if (available.y < thresholdPx) {
-                    handleDismiss()
-                }
-                return Offset.Zero
-            }
-        }
-    }
+
 
     fun copyDeployCommandToClipboard() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -219,6 +213,7 @@ fun WorkerManagerScreen(
             } else {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 currentSection = ManagerSection.GUIDE
+                selectedGuideTab = WmGuideTab.PC
             }
         } else {
             val currentIndex = allGuideTabs.indexOf(selectedGuideTab)
@@ -244,6 +239,7 @@ fun WorkerManagerScreen(
             } else {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 currentSection = ManagerSection.WORKERS
+                selectedFilter = WmWorkerFilterType.CUSTOM
             }
         }
     }
@@ -258,11 +254,9 @@ fun WorkerManagerScreen(
         isPinging = true
         scope.launch {
             val all = devWorkers + customWorkers
-            val newResults = pingResults.toMutableMap()
             for (w in all) {
                 val res = WorkerPingTester.pingWorker(w.domain)
-                newResults[w.domain] = res
-                pingResults = newResults.toMap()
+                pingResults[w.domain] = res
             }
             isPinging = false
             Toast.makeText(context, "Замер пинга завершен", Toast.LENGTH_SHORT).show()
@@ -294,7 +288,11 @@ fun WorkerManagerScreen(
         context.startActivity(Intent.createChooser(intent, "Поделиться воркером"))
     }
 
-    val hasRateLimitedWorkers = pingResults.values.any { it.first == WorkerStatus.RATE_LIMITED_429 }
+    val hasRateLimitedWorkers by remember {
+        derivedStateOf {
+            pingResults.values.any { it.first == WorkerStatus.RATE_LIMITED_429 }
+        }
+    }
 
     val pingRotation by animateFloatAsState(
         targetValue = if (isPinging) 360f else 0f,
@@ -436,6 +434,59 @@ fun WorkerManagerScreen(
     val workersListState = rememberLazyListState()
     val guideListState = rememberLazyListState()
 
+    LaunchedEffect(selectedFilter) {
+        if (workersListState.firstVisibleItemIndex > 0 || workersListState.firstVisibleItemScrollOffset > 0) {
+            workersListState.scrollToItem(0)
+        }
+    }
+
+    LaunchedEffect(selectedGuideTab) {
+        if (guideListState.firstVisibleItemIndex > 0 || guideListState.firstVisibleItemScrollOffset > 0) {
+            guideListState.scrollToItem(0)
+        }
+    }
+
+    val currentOnNextTab by rememberUpdatedState(::switchToNextSubTab)
+    val currentOnPrevTab by rememberUpdatedState(::switchToPreviousSubTab)
+    val currentHandleDismiss by rememberUpdatedState(::handleDismiss)
+
+    val nestedScrollConnection = remember(density) {
+        object : NestedScrollConnection {
+            private var overscrollY = 0f
+            private val thresholdPx = with(density) { 48.dp.toPx() }
+
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (overscrollY > 0f && available.y < 0f) {
+                    val consumedY = available.y.coerceAtLeast(-overscrollY)
+                    overscrollY += consumedY
+                    return Offset(0f, consumedY)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                if (source == NestedScrollSource.Drag) {
+                    if (available.y > 0f) {
+                        overscrollY += available.y
+                        if (overscrollY > thresholdPx) {
+                            overscrollY = 0f
+                            currentHandleDismiss()
+                        }
+                        return Offset(0f, available.y)
+                    } else if (available.y < -thresholdPx) {
+                        overscrollY = 0f
+                        currentHandleDismiss()
+                    }
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
     if (showDashboardConfirmDialog) {
         ExternalLinkConfirmDialog(
             url = "https://dash.cloudflare.com/",
@@ -457,26 +508,65 @@ fun WorkerManagerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(currentSection, selectedFilter, selectedGuideTab) {
-                var horizontalAccumulator = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = { horizontalAccumulator = 0f },
-                    onDragEnd = {
-                        if (horizontalAccumulator < -28.dp.toPx()) {
-                            switchToNextSubTab()
-                        } else if (horizontalAccumulator > 28.dp.toPx()) {
-                            switchToPreviousSubTab()
+            .pointerInput(Unit) {
+                val touchSlop = viewConfiguration.touchSlop
+                val thresholdPx = 36.dp.toPx()
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var totalX = 0f
+                    var totalY = 0f
+                    var isHorizontalLocked = false
+                    var isVerticalLocked = false
+                    val pointerId = down.id
+
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Main)
+                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                        if (!change.pressed) break
+
+                        val positionChange = change.positionChange()
+                        val dx = positionChange.x
+                        val dy = positionChange.y
+
+                        if (!isHorizontalLocked && !isVerticalLocked) {
+                            totalX += dx
+                            totalY += dy
+                            val absX = kotlin.math.abs(totalX)
+                            val absY = kotlin.math.abs(totalY)
+
+                            if (absX > touchSlop || absY > touchSlop) {
+                                if (absX > absY) {
+                                    isHorizontalLocked = true
+                                    change.consume()
+                                } else {
+                                    isVerticalLocked = true
+                                    // Lock to vertical - let list scroll / pull down handle this gesture exclusively
+                                    break
+                                }
+                            }
+                        } else if (isHorizontalLocked) {
+                            totalX += dx
+                            change.consume()
                         }
-                        horizontalAccumulator = 0f
-                    },
-                    onDragCancel = { horizontalAccumulator = 0f },
-                    onHorizontalDrag = { change, dragAmount ->
-                        change.consume()
-                        horizontalAccumulator += dragAmount
                     }
-                )
+
+                    if (isHorizontalLocked) {
+                        if (totalX < -thresholdPx) {
+                            currentOnNextTab()
+                        } else if (totalX > thresholdPx) {
+                            currentOnPrevTab()
+                        }
+                    }
+                }
             }
     ) {
+        // Delicate Cyber Particles floating in background behind worker manager interface
+        CyberParticlesOverlay(
+            modifier = Modifier.fillMaxSize(),
+            particleCount = 14,
+            alphaMultiplier = 0.50f
+        )
+
         // 1. SCROLLABLE BODY CONTENT (AnimatedContent between WORKERS and GUIDE)
         AnimatedContent(
             targetState = currentSection,
@@ -511,23 +601,6 @@ fun WorkerManagerScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .pointerInput(Unit) {
-                                    var verticalDragAccumulator = 0f
-                                    detectVerticalDragGestures(
-                                        onDragStart = { verticalDragAccumulator = 0f },
-                                        onDragEnd = {
-                                            if (verticalDragAccumulator < -20.dp.toPx()) {
-                                                handleDismiss()
-                                            }
-                                            verticalDragAccumulator = 0f
-                                        },
-                                        onDragCancel = { verticalDragAccumulator = 0f },
-                                        onVerticalDrag = { change, dragAmount ->
-                                            change.consume()
-                                            verticalDragAccumulator += dragAmount
-                                        }
-                                    )
-                                }
                                 .padding(bottom = 40.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -1140,27 +1213,25 @@ fun WorkerManagerScreen(
                     )
                 )
                 .pointerInput(Unit) {
-                    var headerDragY = 0f
-                    detectVerticalDragGestures(
-                        onDragStart = { headerDragY = 0f },
-                        onDragEnd = {
-                            if (headerDragY < -15.dp.toPx()) {
-                                handleDismiss()
-                            }
-                            headerDragY = 0f
-                        },
-                        onDragCancel = { headerDragY = 0f },
-                        onVerticalDrag = { change, dragAmount ->
-                            if (dragAmount < 0f || headerDragY < 0f) {
+                    val thresholdPx = 28.dp.toPx()
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var totalDragY = 0f
+                        val pointerId = down.id
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Main)
+                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                            if (!change.pressed) break
+                            val dy = change.positionChange().y
+                            totalDragY += dy
+                            if (totalDragY > 0f || totalDragY < 0f) {
                                 change.consume()
                             }
-                            headerDragY += dragAmount
-                            if (headerDragY < -35.dp.toPx()) {
-                                handleDismiss()
-                                headerDragY = 0f
-                            }
                         }
-                    )
+                        if (totalDragY > thresholdPx || totalDragY < -thresholdPx) {
+                            currentHandleDismiss()
+                        }
+                    }
                 }
                 .padding(bottom = 18.dp)
         ) {
@@ -1170,11 +1241,17 @@ fun WorkerManagerScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Top Drag Handle Pill
+                // Top Drag Handle Pill (Tap or Swipe up to collapse)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp, bottom = 2.dp),
+                        .padding(top = 8.dp, bottom = 2.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            handleDismiss()
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
@@ -1537,6 +1614,7 @@ fun WorkerManagerScreen(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .height(34.dp)
+                                                .clip(RoundedCornerShape(11.dp))
                                                 .springPress(onClick = {
                                                     selectedGuideTab = tab
                                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1579,6 +1657,7 @@ fun WorkerManagerScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(32.dp)
+                                        .clip(RoundedCornerShape(11.dp))
                                         .springPress(onClick = {
                                             selectedGuideTab = WmGuideTab.FAQ
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1665,6 +1744,7 @@ private fun SegmentedFilterChip(
         border = BorderStroke(1.dp, borderColor),
         modifier = modifier
             .height(34.dp)
+            .clip(RoundedCornerShape(11.dp))
             .springPress(onClick = onClick)
     ) {
         Row(
@@ -1816,12 +1896,17 @@ private fun GlassWorkerCard(
 
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = Color.Transparent,
+        color = if (isActive) activeAccentColor.copy(alpha = 0.08f) else Color.Transparent,
         border = BorderStroke(if (isActive) 1.2.dp else 1.dp, cardBorderColor),
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .springPress(onClick = onSelect)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                onSelect()
+            }
     ) {
         Row(
             modifier = Modifier
@@ -1979,31 +2064,8 @@ private fun AddWorkerDialog(
             dismissOnClickOutside = true
         )
     ) {
-        val view = LocalView.current
-        SideEffect {
-            try {
-                val window = (view.parent as? DialogWindowProvider)?.window
-                if (window != null) {
-                    WindowCompat.setDecorFitsSystemWindows(window, false)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                        window.attributes = window.attributes.apply {
-                            blurBehindRadius = 50
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.15f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onDismiss() }
-                .padding(horizontal = 24.dp)
+        DialogBackdropBox(
+            onDismiss = onDismiss
         ) {
             // Scrollable Content
             Column(
@@ -2016,6 +2078,7 @@ private fun AddWorkerDialog(
                         top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
                         bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
                     )
+                    .padding(horizontal = 24.dp)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -2185,31 +2248,8 @@ private fun DeleteWorkerConfirmDialog(
             dismissOnClickOutside = true
         )
     ) {
-        val view = LocalView.current
-        SideEffect {
-            try {
-                val window = (view.parent as? DialogWindowProvider)?.window
-                if (window != null) {
-                    WindowCompat.setDecorFitsSystemWindows(window, false)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                        window.attributes = window.attributes.apply {
-                            blurBehindRadius = 50
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.15f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onDismiss() }
-                .padding(horizontal = 24.dp)
+        DialogBackdropBox(
+            onDismiss = onDismiss
         ) {
             // Scrollable Content
             Column(
@@ -2222,6 +2262,7 @@ private fun DeleteWorkerConfirmDialog(
                         top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
                         bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
                     )
+                    .padding(horizontal = 24.dp)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null

@@ -26,6 +26,10 @@ import com.mirrly.tgproxy.core.AppLogger
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import kotlin.math.cos
 import kotlin.math.sin
 import androidx.compose.animation.*
@@ -87,6 +91,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.currentCoroutineContext
 
 enum class ProxyUiState {
     DISCONNECTED,
@@ -94,6 +102,18 @@ enum class ProxyUiState {
     CONNECTED,
     DISCONNECTING
 }
+
+@Immutable
+data class ProxyLiveTelemetry(
+    val isRunning: Boolean = false,
+    val dlSpeed: String = "0 Б/с",
+    val ulSpeed: String = "0 Б/с",
+    val activeConns: Int = 0,
+    val totalRecv: String = "0 Б",
+    val totalSent: String = "0 Б",
+    val uptimeSeconds: Long = 0L,
+    val pingMs: Long = -1L
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,7 +136,25 @@ fun HomeScreen(
     val server = app.proxyServer
 
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
+    val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
     val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    var isAppResumed by remember { mutableStateOf(true) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> isAppResumed = false
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME,
+                androidx.lifecycle.Lifecycle.Event.ON_START -> isAppResumed = true
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // ── Stealth Mode State ────────────────────────────────────────────────
     var isUiHidden by remember { mutableStateOf(false) }
@@ -148,36 +186,17 @@ fun HomeScreen(
         }
     }
 
-    var isRunning by remember { mutableStateOf(server.isRunning) }
     var pendingState by remember { mutableStateOf<ProxyUiState?>(null) }
     var lastPowerClickMs by remember { mutableLongStateOf(0L) }
 
     val isSwitching by com.mirrly.tgproxy.service.ProtocolSwitchManager.isSwitching.collectAsState()
     val switchPhase by com.mirrly.tgproxy.service.ProtocolSwitchManager.switchPhase.collectAsState()
+    val wasProxyRunningDuringSwitch by com.mirrly.tgproxy.service.ProtocolSwitchManager.wasProxyRunningDuringSwitch.collectAsState()
 
-    val currentState = when (switchPhase) {
-        com.mirrly.tgproxy.service.SwitchPhase.DISCONNECTING -> ProxyUiState.DISCONNECTING
-        com.mirrly.tgproxy.service.SwitchPhase.SWITCHING_ACCENT -> ProxyUiState.DISCONNECTED
-        com.mirrly.tgproxy.service.SwitchPhase.RECONNECTING -> ProxyUiState.CONNECTING
-        com.mirrly.tgproxy.service.SwitchPhase.IDLE -> pendingState ?: if (isRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
-    }
-
-    var dlSpeed by remember { mutableStateOf("0 Б/с") }
-    var ulSpeed by remember { mutableStateOf("0 Б/с") }
-    var activeConns by remember { mutableIntStateOf(0) }
-    var totalRecv by remember { mutableStateOf("0 Б") }
-    var totalSent by remember { mutableStateOf("0 Б") }
-    var uptimeSeconds by remember { mutableLongStateOf(0L) }
-    var pingMs by remember { mutableLongStateOf(-1L) }
-    val updateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
-    val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
-    var showSleepTimerDialog by remember { mutableStateOf(false) }
-    var showConnectDialog by remember { mutableStateOf(false) }
-
-    // Execute stats calculation on IO thread off the main looper to eliminate main thread frame delay
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            while (isActive) {
+    // ── GROUPED IMMUTABLE TELEMETRY WITH DISTINCT-UNTIL-CHANGED ──
+    val telemetry: ProxyLiveTelemetry by remember(isAppResumed) {
+        flow<ProxyLiveTelemetry> {
+            while (currentCoroutineContext().isActive && isAppResumed) {
                 val running = server.isRunning
                 val uptime = server.uptimeSeconds
                 val currPing = server.currentPingMs
@@ -196,26 +215,44 @@ fun HomeScreen(
                     sent = humanBytes(stats.totalBytesSent.get())
                 }
 
-                withContext(Dispatchers.Main) {
-                    isRunning = running
-                    if (pendingState == ProxyUiState.CONNECTING && running) {
-                        pendingState = null
-                    } else if (pendingState == ProxyUiState.DISCONNECTING && !running) {
-                        pendingState = null
-                    }
-
-                    uptimeSeconds = uptime
-                    dlSpeed = dl
-                    ulSpeed = ul
-                    activeConns = conns
-                    totalRecv = recv
-                    totalSent = sent
-                    pingMs = currPing
-                }
+                emit(
+                    ProxyLiveTelemetry(
+                        isRunning = running,
+                        dlSpeed = dl,
+                        ulSpeed = ul,
+                        activeConns = conns,
+                        totalRecv = recv,
+                        totalSent = sent,
+                        uptimeSeconds = uptime,
+                        pingMs = currPing
+                    )
+                )
                 delay(500)
             }
         }
+            .flowOn(Dispatchers.IO)
+            .distinctUntilChanged()
+    }.collectAsState(initial = ProxyLiveTelemetry(isRunning = server.isRunning))
+
+    val currentState = when (switchPhase) {
+        com.mirrly.tgproxy.service.SwitchPhase.DISCONNECTING -> ProxyUiState.DISCONNECTING
+        com.mirrly.tgproxy.service.SwitchPhase.PAUSE_DARK -> ProxyUiState.DISCONNECTED
+        com.mirrly.tgproxy.service.SwitchPhase.RECONNECTING -> ProxyUiState.CONNECTING
+        com.mirrly.tgproxy.service.SwitchPhase.IDLE -> pendingState ?: if (telemetry.isRunning || server.isRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
     }
+
+    LaunchedEffect(telemetry.isRunning, pendingState) {
+        if (pendingState == ProxyUiState.CONNECTING && telemetry.isRunning) {
+            pendingState = null
+        } else if (pendingState == ProxyUiState.DISCONNECTING && !telemetry.isRunning) {
+            pendingState = null
+        }
+    }
+
+    val updateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
+    val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
+    var showSleepTimerDialog by remember { mutableStateOf(false) }
+    var showConnectDialog by remember { mutableStateOf(false) }
 
     // Safety timeout to prevent stuck connecting/disconnecting UI
     LaunchedEffect(pendingState) {
@@ -229,32 +266,10 @@ fun HomeScreen(
         val h = secs / 3600
         val m = (secs % 3600) / 60
         val s = secs % 60
-        return String.format("%02d:%02d:%02d", h, m, s)
+        return if (h > 0) String.format("%02d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
     }
 
-    // Slow & smooth breathing pulse glow for active power icon
-    val infiniteTransition = rememberInfiniteTransition(label = "pulseGlow")
-    val pulseScaleState = infiniteTransition.animateFloat(
-        initialValue = 1.0f,
-        targetValue = 1.22f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2800, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
-    )
-    val pulseAlphaState = infiniteTransition.animateFloat(
-        initialValue = 0.20f,
-        targetValue = 0.70f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2800, easing = LinearOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseAlpha"
-    )
-
     fun switchProtocol(target: com.mirrly.tgproxy.core.ProxyMode? = null) {
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         com.mirrly.tgproxy.service.ProtocolSwitchManager.switchProtocol(context, target)
     }
 
@@ -645,23 +660,23 @@ fun HomeScreen(
 
                 // ─── 2. CENTER SECTION (Power button) ───
                 val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
-                val shouldShowWorkerNotice = isSocks5 && activeWorker.isDeveloperWorker
+                val isProxyRunning = currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING
+                val shouldShowWorkerNotice = isSocks5 && activeWorker.isDeveloperWorker && isProxyRunning
                 var isWorkerNoticeVisible by remember { mutableStateOf(false) }
 
                 LaunchedEffect(shouldShowWorkerNotice) {
                     if (shouldShowWorkerNotice) {
-                        delay(1800)
+                        delay(1400)
                         isWorkerNoticeVisible = true
                     } else {
-                        delay(1200)
                         isWorkerNoticeVisible = false
                     }
                 }
 
                 val buttonInertiaOffsetY by animateDpAsState(
-                    targetValue = if (isWorkerNoticeVisible) (-2).dp else 0.dp,
+                    targetValue = if (isWorkerNoticeVisible && shouldShowWorkerNotice) (-4).dp else 0.dp,
                     animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        dampingRatio = 0.88f,
                         stiffness = Spring.StiffnessLow
                     ),
                     label = "buttonInertiaOffsetY"
@@ -693,7 +708,7 @@ fun HomeScreen(
                                 if (now - lastPowerClickMs < 450L) return@clickable
                                 lastPowerClickMs = now
 
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                HapticHelper.performTapClick(context)
                                 val serviceIntent = Intent(context, ProxyForegroundService::class.java)
                                 try {
                                     if (currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING) {
@@ -723,14 +738,12 @@ fun HomeScreen(
                         )
 
                         val iconTint = when (currentState) {
-                            ProxyUiState.CONNECTED -> protoColors.primary
-                            ProxyUiState.CONNECTING -> protoColors.primary
-                            ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
-                            ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)
+                            ProxyUiState.CONNECTED, ProxyUiState.CONNECTING -> protoColors.primary
+                            ProxyUiState.DISCONNECTING, ProxyUiState.DISCONNECTED -> Color(0xFF333D4F)
                         }
                         val animatedIconTint by animateColorAsState(
                             targetValue = iconTint,
-                            animationSpec = tween(500),
+                            animationSpec = tween(550, easing = FastOutSlowInEasing),
                             label = "iconTint"
                         )
 
@@ -761,27 +774,29 @@ fun HomeScreen(
                 ) {
                     // SOCKS5 Developer Worker Info Notice (Smooth expanding/shrinking from center with staggered delay)
                     AnimatedVisibility(
-                        visible = isWorkerNoticeVisible,
+                        visible = isWorkerNoticeVisible && shouldShowWorkerNotice,
                         enter = scaleIn(
+                            initialScale = 0.92f,
                             animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                dampingRatio = 0.88f,
                                 stiffness = Spring.StiffnessLow
                             ),
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
                         ) + expandVertically(
                             animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                dampingRatio = 0.88f,
                                 stiffness = Spring.StiffnessLow
                             ),
                             expandFrom = Alignment.CenterVertically
-                        ) + fadeIn(animationSpec = tween(450)),
+                        ) + fadeIn(animationSpec = tween(400, easing = LinearOutSlowInEasing)),
                         exit = scaleOut(
-                            animationSpec = tween(400, easing = FastOutSlowInEasing),
+                            targetScale = 0.94f,
+                            animationSpec = tween(350, easing = FastOutSlowInEasing),
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
                         ) + shrinkVertically(
-                            animationSpec = tween(400, easing = FastOutSlowInEasing),
+                            animationSpec = tween(350, easing = FastOutSlowInEasing),
                             shrinkTowards = Alignment.CenterVertically
-                        ) + fadeOut(animationSpec = tween(300))
+                        ) + fadeOut(animationSpec = tween(280, easing = FastOutSlowInEasing))
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -853,7 +868,7 @@ fun HomeScreen(
 
                             // Uptime Connection Duration
                             val statusText = when (currentState) {
-                                ProxyUiState.CONNECTED -> formatUptime(uptimeSeconds)
+                                ProxyUiState.CONNECTED -> formatUptime(telemetry.uptimeSeconds)
                                 ProxyUiState.CONNECTING -> "ПОДКЛЮЧЕНИЕ..."
                                 ProxyUiState.DISCONNECTING -> "ОТКЛЮЧЕНИЕ..."
                                 ProxyUiState.DISCONNECTED -> "00:00:00"
@@ -946,13 +961,13 @@ fun HomeScreen(
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             RollingNumberText(
-                                text = dlSpeed,
+                                text = telemetry.dlSpeed,
                                 color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = if (isCompactHeight) 15.sp else 17.sp
                             )
                             RollingNumberText(
-                                text = "Всего: $totalRecv",
+                                text = "Всего: ${telemetry.totalRecv}",
                                 color = TextMuted,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Normal
@@ -984,13 +999,13 @@ fun HomeScreen(
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             RollingNumberText(
-                                text = ulSpeed,
+                                text = telemetry.ulSpeed,
                                 color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = if (isCompactHeight) 15.sp else 17.sp
                             )
                             RollingNumberText(
-                                text = "Всего: $totalSent",
+                                text = "Всего: ${telemetry.totalSent}",
                                 color = TextMuted,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Normal
@@ -1003,7 +1018,7 @@ fun HomeScreen(
                     // WsPool Real-Time Smooth Bezier Socket Stability Graph
                     WsPoolStabilityGraph(
                         isProxyActive = currentState == ProxyUiState.CONNECTED,
-                        activeConns = activeConns,
+                        activeConns = telemetry.activeConns,
                         maxPoolSize = app.config.poolSize,
                         accentColor = protoColors.primary,
                         modifier = Modifier
@@ -1209,6 +1224,8 @@ fun HomeScreen(
 fun RotatingProxyRing(
     state: ProxyUiState,
     isSocks5: Boolean = false,
+    tiltX: Float = 0f,
+    tiltY: Float = 0f,
     modifier: Modifier = Modifier
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1236,43 +1253,43 @@ fun RotatingProxyRing(
         }
     }
 
-    // ── PERFORMANCE GUARD: CHECK IF USER DISABLED ANIMATIONS ──
+    // ── PERFORMANCE GUARD: CHECK IF USER DISABLED ANIMATIONS & FULL REST ON DISCONNECT ──
     val app = MirrlyApplication.instance
     val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
 
-    val isActive = state != ProxyUiState.DISCONNECTED
-
-    val timeState = produceState(initialValue = 0L, isActive, isAppResumed, isAnimationsDisabled) {
-        if (!isActive || !isAppResumed || isAnimationsDisabled) return@produceState
+    val isRingActive = state != ProxyUiState.DISCONNECTED
+    val timeState = produceState(initialValue = 0L, isAppResumed, isAnimationsDisabled, isRingActive) {
+        if (!isAppResumed || isAnimationsDisabled || !isRingActive) return@produceState
         val startNano = System.nanoTime() - value
-        while (isActive && isAppResumed && !isAnimationsDisabled) {
+        while (isAppResumed && !isAnimationsDisabled && isRingActive) {
             withFrameNanos { frameTimeNanos ->
                 value = frameTimeNanos - startNano
             }
         }
     }
 
+    // Dynamic sweep angle choreography:
+    // Connecting: 160° sweeping arc, Connected: 260° stable glowing ring, Disconnecting/Disconnected: 0°
     val targetSweepAngle = when (state) {
-        ProxyUiState.CONNECTING -> 150f
+        ProxyUiState.CONNECTING -> 160f
         ProxyUiState.CONNECTED -> 260f
-        ProxyUiState.DISCONNECTING -> 130f
-        ProxyUiState.DISCONNECTED -> 0f
+        ProxyUiState.DISCONNECTING, ProxyUiState.DISCONNECTED -> 0f
     }
     val animatedSweepAngle by animateFloatAsState(
         targetValue = targetSweepAngle,
-        animationSpec = tween(600, easing = FastOutSlowInEasing),
+        animationSpec = tween(550, easing = FastOutSlowInEasing),
         label = "sweepAngle"
     )
 
     val targetAlpha = when (state) {
         ProxyUiState.CONNECTING -> 1.0f
         ProxyUiState.CONNECTED -> 0.88f
-        ProxyUiState.DISCONNECTING -> 1.0f
+        ProxyUiState.DISCONNECTING -> 0.40f
         ProxyUiState.DISCONNECTED -> 0f
     }
     val animatedAlpha by animateFloatAsState(
         targetValue = targetAlpha,
-        animationSpec = tween(500),
+        animationSpec = tween(550, easing = FastOutSlowInEasing),
         label = "ringAlpha"
     )
 
@@ -1281,37 +1298,37 @@ fun RotatingProxyRing(
     val headColor = when (state) {
         ProxyUiState.CONNECTING -> protoColors.light
         ProxyUiState.CONNECTED -> protoColors.primary
-        ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)  // Glowing Amber / Orange
+        ProxyUiState.DISCONNECTING -> protoColors.primary.copy(alpha = 0.5f)
         ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)   // Sleek Dark Gray
     }
     val animatedHeadColor by animateColorAsState(
         targetValue = headColor,
-        animationSpec = tween(500),
+        animationSpec = tween(550, easing = FastOutSlowInEasing),
         label = "headColor"
     )
 
     val tailColor = when (state) {
         ProxyUiState.CONNECTING -> protoColors.secondary.copy(alpha = 0.18f)
         ProxyUiState.CONNECTED -> protoColors.glow.copy(alpha = 0.28f)
-        ProxyUiState.DISCONNECTING -> Color(0xFFFF5400).copy(alpha = 0.15f)
+        ProxyUiState.DISCONNECTING -> protoColors.glow.copy(alpha = 0.08f)
         ProxyUiState.DISCONNECTED -> Color.Transparent
     }
     val animatedTailColor by animateColorAsState(
         targetValue = tailColor,
-        animationSpec = tween(500),
+        animationSpec = tween(550, easing = FastOutSlowInEasing),
         label = "tailColor"
     )
 
     val density = LocalDensity.current
     val targetStrokeWidth = when (state) {
-        ProxyUiState.CONNECTING -> 7.dp
+        ProxyUiState.CONNECTING -> 6.5.dp
         ProxyUiState.CONNECTED -> 5.dp
-        ProxyUiState.DISCONNECTING -> 7.dp
+        ProxyUiState.DISCONNECTING -> 6.5.dp
         ProxyUiState.DISCONNECTED -> 3.dp
     }
     val animatedStrokeWidth by animateFloatAsState(
         targetValue = with(density) { targetStrokeWidth.toPx() },
-        animationSpec = tween(500),
+        animationSpec = tween(500, easing = LinearOutSlowInEasing),
         label = "strokeWidth"
     )
 
@@ -1343,6 +1360,11 @@ fun RotatingProxyRing(
         val diameter = size.minDimension
         val stroke = animatedStrokeWidth
 
+        // Multi-layer gyroscope parallax offsets for 3D depth
+        val outerTiltShift = Offset(tiltX * 0.85f, tiltY * 0.85f)
+        val innerTiltShift = Offset(tiltX * 1.30f, tiltY * 1.30f)
+        val bgTiltShift = Offset(tiltX * 0.40f, tiltY * 0.40f)
+
         // ── SLOW & SMOOTH ELEGANT ROTATION ──────────────────────────────
         // Slow rotation (~18 seconds per full revolution), silky smooth
         val outerAngle = (t * 20f + kotlin.math.sin(t * 0.3f) * 35f) % 360f
@@ -1356,7 +1378,7 @@ fun RotatingProxyRing(
         // Outer Ring Bounds
         val outerInset = stroke / 2f + (diameter * 0.035f).coerceIn(dp4Px, dp10Px)
         val outerRadius = (diameter - outerInset * 2) / 2f
-        val outerTopLeft = Offset(outerInset, outerInset)
+        val outerTopLeft = Offset(outerInset + bgTiltShift.x, outerInset + bgTiltShift.y)
         val outerSize = Size(outerRadius * 2, outerRadius * 2)
 
         // 1. BACKGROUND TRACK RING
@@ -1370,8 +1392,9 @@ fun RotatingProxyRing(
             style = Stroke(width = stroke * 0.65f)
         )
 
-        // 2. MAIN OUTER ROTATING RING (Slow, Smooth, Wavy Curvatures)
-        rotate(degrees = outerAngle, pivot = center) {
+        // 2. MAIN OUTER ROTATING RING (Slow, Smooth, Wavy Curvatures + 3D Parallax)
+        val outerCenter = center + outerTiltShift
+        rotate(degrees = outerAngle, pivot = outerCenter) {
             val steps = 72
             val sweepRad = Math.toRadians(animatedSweepAngle.toDouble()).toFloat()
             wavyPath.reset()
@@ -1382,8 +1405,8 @@ fun RotatingProxyRing(
 
                 // Smooth organic sine waves along the path
                 val rWave = outerRadius + waveAmp * kotlin.math.sin(4f * currentRad + t * 1.6f)
-                val px = center.x + rWave * kotlin.math.cos(currentRad)
-                val py = center.y + rWave * kotlin.math.sin(currentRad)
+                val px = outerCenter.x + rWave * kotlin.math.cos(currentRad)
+                val py = outerCenter.y + rWave * kotlin.math.sin(currentRad)
 
                 if (i == 0) wavyPath.moveTo(px, py) else wavyPath.lineTo(px, py)
             }
@@ -1391,15 +1414,15 @@ fun RotatingProxyRing(
             // Draw curved ring arc
             drawPath(
                 path = wavyPath,
-                brush = Brush.sweepGradient(colors = sweepColors),
+                brush = Brush.sweepGradient(colors = sweepColors, center = outerCenter),
                 style = Stroke(width = stroke, cap = StrokeCap.Round)
             )
 
             // Glowing Particle Head Dot
             val headAngleRad = sweepRad
             val radiusHead = outerRadius + waveAmp * kotlin.math.sin(4f * headAngleRad + t * 1.6f)
-            val dotCenterX = center.x + radiusHead * kotlin.math.cos(headAngleRad)
-            val dotCenterY = center.y + radiusHead * kotlin.math.sin(headAngleRad)
+            val dotCenterX = outerCenter.x + radiusHead * kotlin.math.cos(headAngleRad)
+            val dotCenterY = outerCenter.y + radiusHead * kotlin.math.sin(headAngleRad)
 
             drawCircle(
                 color = animatedHeadColor.copy(alpha = animatedAlpha),
@@ -1413,17 +1436,19 @@ fun RotatingProxyRing(
             )
         }
 
-        // 3. INNER ACCENT RING (Slow Counter-Rotation, Non-overlapping)
+        // 3. INNER ACCENT RING (Slow Counter-Rotation + Inner Parallax Layer + Glowing Head)
+        val isConnectedRing = state == ProxyUiState.CONNECTED || state == ProxyUiState.CONNECTING
         val isDualForced = state == ProxyUiState.CONNECTING || state == ProxyUiState.DISCONNECTING
-        val organicDualFactor = 0.5f + 0.5f * kotlin.math.sin(t * 0.25f)
-        val innerAlphaFactor = if (isDualForced) 1.0f else (organicDualFactor * 0.85f)
+        val organicDualFactor = 0.65f + 0.35f * kotlin.math.sin(t * 0.35f)
+        val innerAlphaFactor = if (isDualForced) 1.0f else if (isConnectedRing) organicDualFactor else 0.0f
 
         if (innerAlphaFactor > 0.05f) {
+            val innerCenter = center + innerTiltShift
             val innerInset = stroke / 2f + (diameter * 0.105f).coerceIn(dp16Px, dp26Px)
             val innerRadius = (diameter - innerInset * 2) / 2f
             val innerSweep = (110f + 25f * kotlin.math.sin(t * 0.5f)).coerceIn(80f, 150f)
 
-            rotate(degrees = innerAngle, pivot = center) {
+            rotate(degrees = innerAngle, pivot = innerCenter) {
                 val innerSteps = 50
                 val innerSweepRad = Math.toRadians(innerSweep.toDouble()).toFloat()
                 innerPath.reset()
@@ -1432,16 +1457,33 @@ fun RotatingProxyRing(
                     val stepFrac = i.toFloat() / innerSteps
                     val currentRad = stepFrac * innerSweepRad
                     val rWave = innerRadius + (waveAmp * 0.7f) * kotlin.math.sin(3f * currentRad - t * 1.4f)
-                    val px = center.x + rWave * kotlin.math.cos(currentRad)
-                    val py = center.y + rWave * kotlin.math.sin(currentRad)
+                    val px = innerCenter.x + rWave * kotlin.math.cos(currentRad)
+                    val py = innerCenter.y + rWave * kotlin.math.sin(currentRad)
 
                     if (i == 0) innerPath.moveTo(px, py) else innerPath.lineTo(px, py)
                 }
 
                 drawPath(
                     path = innerPath,
-                    color = animatedHeadColor.copy(alpha = animatedAlpha * 0.55f * innerAlphaFactor),
-                    style = Stroke(width = stroke * 0.65f, cap = StrokeCap.Round)
+                    color = animatedHeadColor.copy(alpha = animatedAlpha * 0.65f * innerAlphaFactor),
+                    style = Stroke(width = stroke * 0.60f, cap = StrokeCap.Round)
+                )
+
+                // Inner Counter-Ring Glowing Particle Head
+                val innerHeadRad = innerSweepRad
+                val innerRadiusHead = innerRadius + (waveAmp * 0.7f) * kotlin.math.sin(3f * innerHeadRad - t * 1.4f)
+                val innerDotX = innerCenter.x + innerRadiusHead * kotlin.math.cos(innerHeadRad)
+                val innerDotY = innerCenter.y + innerRadiusHead * kotlin.math.sin(innerHeadRad)
+
+                drawCircle(
+                    color = animatedHeadColor.copy(alpha = animatedAlpha * 0.85f * innerAlphaFactor),
+                    radius = stroke * 0.65f,
+                    center = Offset(innerDotX, innerDotY)
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = animatedAlpha * 0.90f * innerAlphaFactor),
+                    radius = stroke * 0.30f,
+                    center = Offset(innerDotX, innerDotY)
                 )
             }
         }
@@ -1523,7 +1565,8 @@ fun applyToTelegramPackages(context: Context, url: String) {
 
 /**
  * Smooth Rolling Numbers composable with Spring Elasticity & Inertia.
- * Animates timer digits, speeds, and data metrics with bouncy spring physics.
+ * Animates changing timer digits, speeds, and data metrics with bouncy spring physics,
+ * while efficiently skipping animation and subcomposition allocations for static prefixes and non-digit characters.
  */
 @Composable
 fun RollingNumberText(
@@ -1551,39 +1594,69 @@ fun RollingNumberText(
         return
     }
 
+    var prevText by remember { mutableStateOf(text) }
+
+    // Calculate length of unchanged prefix between previous and current text
+    val commonPrefixLen = remember(text, prevText) {
+        var len = 0
+        val maxLen = minOf(text.length, prevText.length)
+        while (len < maxLen && text[len] == prevText[len]) {
+            len++
+        }
+        len
+    }
+
+    SideEffect {
+        prevText = text
+    }
+
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
     ) {
         text.forEachIndexed { index, char ->
-            AnimatedContent(
-                targetState = char,
-                transitionSpec = {
-                    val slideDirection = if (targetState > initialState) 1 else -1
-                    (slideInVertically(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessLow
-                        )
-                    ) { height -> height * slideDirection } + fadeIn()).togetherWith(
-                        slideOutVertically(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessLow
-                            )
-                        ) { height -> -height * slideDirection } + fadeOut()
-                    ).using(SizeTransform(clip = false))
-                },
-                label = "rollingChar_${index}_$char"
-            ) { targetChar ->
+            val isUnchangedPrefix = index < commonPrefixLen
+            if (isUnchangedPrefix || !char.isDigit()) {
                 Text(
-                    text = targetChar.toString(),
+                    text = char.toString(),
                     color = color,
                     fontSize = fontSize,
                     fontWeight = fontWeight,
                     fontStyle = fontStyle,
                     letterSpacing = letterSpacing
                 )
+            } else {
+                key(index) {
+                    AnimatedContent(
+                        targetState = char,
+                        transitionSpec = {
+                            val slideDirection = if (targetState > initialState) 1 else -1
+                            (slideInVertically(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessLow
+                                )
+                            ) { height -> height * slideDirection } + fadeIn()).togetherWith(
+                                slideOutVertically(
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessLow
+                                    )
+                                ) { height -> -height * slideDirection } + fadeOut()
+                            ).using(SizeTransform(clip = false))
+                        },
+                        label = "rollingChar_$index"
+                    ) { targetChar ->
+                        Text(
+                            text = targetChar.toString(),
+                            color = color,
+                            fontSize = fontSize,
+                            fontWeight = fontWeight,
+                            fontStyle = fontStyle,
+                            letterSpacing = letterSpacing
+                        )
+                    }
+                }
             }
         }
     }
@@ -1635,18 +1708,23 @@ fun WsPoolStabilityGraph(
         label = "animatedAmplitude"
     )
 
-    val infiniteTransition = rememberInfiniteTransition(label = "headPulseTransition")
-    val headPulseScale by infiniteTransition.animateFloat(
-        initialValue = 4.dp.value,
-        targetValue = 7.dp.value,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "headPulseScale"
-    )
+    val headPulseScale = if (isProxyActive && !isAnimationsDisabled) {
+        val infiniteTransition = rememberInfiniteTransition(label = "headPulseTransition")
+        val scale by infiniteTransition.animateFloat(
+            initialValue = 4.dp.value,
+            targetValue = 7.dp.value,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1000, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "headPulseScale"
+        )
+        scale
+    } else {
+        4.dp.value
+    }
 
-    val steps = 80 // High sub-pixel sampling density for max smoothing
+    val steps = 48 // Optimal sub-pixel sampling density for max smoothing & low CPU usage
     val yArray = remember { FloatArray(steps + 1) }
 
     // Reusable Path instances to prevent frame allocations
@@ -1702,6 +1780,32 @@ fun WsPoolStabilityGraph(
             val width = size.width
             val height = size.height
             if (width <= 0f || height <= 0f) return@Canvas
+
+            // Fast path for flat/inactive wave: skip trigonometric and cubic spline calculation loops
+            if (animatedAmplitude <= 0.001f) {
+                val flatY = height - (height * 0.14f)
+                strokePath.reset()
+                strokePath.moveTo(0f, flatY)
+                strokePath.lineTo(width, flatY)
+
+                fillPath.reset()
+                fillPath.addPath(strokePath)
+                fillPath.lineTo(width, height)
+                fillPath.lineTo(0f, height)
+                fillPath.close()
+
+                drawPath(path = fillPath, brush = fillBrush)
+                drawPath(
+                    path = strokePath,
+                    brush = mainLineBrush,
+                    style = Stroke(
+                        width = dp2Px,
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
+                    )
+                )
+                return@Canvas
+            }
 
             val stepX = width / steps
             val t = timeSeconds
@@ -1824,7 +1928,7 @@ fun ProtocolSwitcherHeader(
     onOpenWorkerManager: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
 
@@ -1839,11 +1943,12 @@ fun ProtocolSwitcherHeader(
     // Optimistic UI state for instant 0ms response
     var optimisticIsSocks5 by remember(isSocks5) { mutableStateOf(isSocks5) }
 
+    // Smooth, slow, controlled, and physically natural sliding animation
     val animatedPillOffset by animateDpAsState(
         targetValue = if (optimisticIsSocks5) tabWidth else 0.dp,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMediumLow
+            dampingRatio = 0.88f,
+            stiffness = 380f
         ),
         label = "protoPillOffset"
     )
@@ -1876,22 +1981,22 @@ fun ProtocolSwitcherHeader(
                             },
                             onDragEnd = {
                                 val currentDrag = dragOffsetX.value
-                                val thresholdPx = with(density) { 18.dp.toPx() }
+                                val thresholdPx = with(density) { 16.dp.toPx() }
                                 scope.launch {
                                     if (!optimisticIsSocks5 && currentDrag > thresholdPx) {
                                         optimisticIsSocks5 = true
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        HapticHelper.performSwipeGlide(context)
                                         onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
                                     } else if (optimisticIsSocks5 && currentDrag < -thresholdPx) {
                                         optimisticIsSocks5 = false
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        HapticHelper.performSwipeGlide(context)
                                         onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
                                     }
                                     dragOffsetX.animateTo(
                                         0f,
                                         spring(
-                                            dampingRatio = Spring.DampingRatioLowBouncy,
-                                            stiffness = Spring.StiffnessMediumLow
+                                            dampingRatio = 0.88f,
+                                            stiffness = 380f
                                         )
                                     )
                                 }
@@ -1901,8 +2006,8 @@ fun ProtocolSwitcherHeader(
                                     dragOffsetX.animateTo(
                                         0f,
                                         spring(
-                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                            stiffness = Spring.StiffnessMediumLow
+                                            dampingRatio = 0.90f,
+                                            stiffness = 380f
                                         )
                                     )
                                 }
@@ -1910,11 +2015,11 @@ fun ProtocolSwitcherHeader(
                             onHorizontalDrag = { change, dragAmount ->
                                 change.consume()
                                 val current = dragOffsetX.value
-                                val damped = dragAmount * 0.40f
+                                val damped = dragAmount * 0.32f
                                 val newOffset = if (!optimisticIsSocks5) {
-                                    (current + damped).coerceIn(-6f, with(density) { tabWidth.toPx() } + 6f)
+                                    (current + damped).coerceIn(-4f, with(density) { tabWidth.toPx() } + 4f)
                                 } else {
-                                    (current + damped).coerceIn(-with(density) { tabWidth.toPx() } - 6f, 6f)
+                                    (current + damped).coerceIn(-with(density) { tabWidth.toPx() } - 4f, 4f)
                                 }
                                 scope.launch { dragOffsetX.snapTo(newOffset) }
                             }
@@ -1953,7 +2058,7 @@ fun ProtocolSwitcherHeader(
                                 indication = null
                             ) {
                                 if (optimisticIsSocks5) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    HapticHelper.performTapClick(context)
                                     optimisticIsSocks5 = false
                                     onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
                                 }
@@ -1980,7 +2085,7 @@ fun ProtocolSwitcherHeader(
                                 indication = null
                             ) {
                                 if (!optimisticIsSocks5) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    HapticHelper.performTapClick(context)
                                     optimisticIsSocks5 = true
                                     onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
                                 }
@@ -2026,7 +2131,7 @@ fun ProtocolSwitcherHeader(
                                 interactionSource = badgeInteractionSource,
                                 indication = null
                             ) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                HapticHelper.performSoftTick(context)
                                 onOpenWorkerManager()
                             }
                             .padding(horizontal = 8.dp, vertical = 2.dp)

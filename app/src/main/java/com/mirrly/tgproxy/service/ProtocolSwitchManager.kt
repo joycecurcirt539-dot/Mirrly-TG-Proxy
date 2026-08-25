@@ -44,19 +44,18 @@ import kotlinx.coroutines.withContext
 enum class SwitchPhase {
     IDLE,
     DISCONNECTING,
-    SWITCHING_ACCENT,
+    PAUSE_DARK,
     RECONNECTING
 }
 
 /**
  * Orchestrator for deliberate, silky-smooth and conflict-free protocol switching (MTProto <-> SOCKS5).
- * Prevents rapid spamming, smoothly tears down running connections, morphs the UI theme accent,
- * and boots the new protocol cleanly without glitches.
+ * Features a distinct power-down -> 1-second dark pause -> power-up sequence when switching active proxies.
  */
 object ProtocolSwitchManager {
 
     private const val TAG = "ProtocolSwitchManager"
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var switchJob: Job? = null
 
     private val _switchPhase = MutableStateFlow(SwitchPhase.IDLE)
@@ -67,6 +66,9 @@ object ProtocolSwitchManager {
 
     private val _targetMode = MutableStateFlow<ProxyMode?>(null)
     val targetMode: StateFlow<ProxyMode?> = _targetMode.asStateFlow()
+
+    private val _wasProxyRunningDuringSwitch = MutableStateFlow(false)
+    val wasProxyRunningDuringSwitch: StateFlow<Boolean> = _wasProxyRunningDuringSwitch.asStateFlow()
 
     @Volatile
     private var lastSwitchCompletedMs = 0L
@@ -94,28 +96,18 @@ object ProtocolSwitchManager {
         // Cancel previous switch job if still in progress to support smooth, responsive re-targeting
         switchJob?.cancel()
 
-        // 1. Immediately apply target mode in memory (0 ms UI state synchronization)
-        app.config.proxyModeName = newTarget.name
-        _targetMode.value = newTarget
+        val server = app.proxyServer
+        val wasRunning = server.isRunning
+        _wasProxyRunningDuringSwitch.value = wasRunning
         _isSwitching.value = true
-
-        val modeLabel = if (newTarget == ProxyMode.SOCKS5) "SOCKS5" else "MTProto"
-        showToast(context, "Режим: $modeLabel")
 
         switchJob = scope.launch {
             try {
-                // Asynchronously persist configuration to disk without blocking the main looper
-                withContext(Dispatchers.IO) {
-                    app.prefsManager.saveConfig(app.config)
-                }
-
-                val server = app.proxyServer
-                val wasRunning = server.isRunning
-
-                // ── STEP 1: Graceful Disconnect / Spin-Down (if proxy is currently running) ──
+                // ── SCENARIO A: PROXY WAS RUNNING (Power Down -> 1s Dark Pause -> Power Up) ──
                 if (wasRunning) {
+                    // PHASE 1: DISCONNECTING / GRACEFUL SPIN DOWN OF OLD PROTOCOL
                     _switchPhase.value = SwitchPhase.DISCONNECTING
-                    AppLogger.i(TAG, "Шаг 1: Плавная остановка прокси перед сменой протокола...")
+                    AppLogger.i(TAG, "Шаг 1: Плавная остановка активного прокси перед сменой протокола...")
 
                     withContext(Dispatchers.IO) {
                         try {
@@ -124,13 +116,24 @@ object ProtocolSwitchManager {
                             AppLogger.e(TAG, "Ошибка остановки сокетов: ${e.message}")
                         }
                     }
+                    // Allow UI wind-down animations to smoothly settle
+                    delay(550)
 
-                    _switchPhase.value = SwitchPhase.SWITCHING_ACCENT
-                    delay(260)
+                    // PHASE 2: 1-SECOND CALM DARK PAUSE & THEME ACCENT MORPH
+                    // Switch mode and persist config during the dark pause
+                    app.config.proxyModeName = newTarget.name
+                    _targetMode.value = newTarget
+                    withContext(Dispatchers.IO) {
+                        app.prefsManager.saveConfig(app.config)
+                    }
 
-                    // ── STEP 2: Graceful Reconnect / Start on New Protocol (if previously running) ──
+                    _switchPhase.value = SwitchPhase.PAUSE_DARK
+                    AppLogger.i(TAG, "Шаг 2: Пауза в темноте (1000 мс)...")
+                    delay(1000)
+
+                    // PHASE 3: RECONNECTING / POWER UP ON NEW PROTOCOL
                     _switchPhase.value = SwitchPhase.RECONNECTING
-                    AppLogger.i(TAG, "Шаг 2: Плавный запуск службы на протоколе ${newTarget.name}...")
+                    AppLogger.i(TAG, "Шаг 3: Запуск службы на протоколе ${newTarget.name}...")
 
                     val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
                         action = ProxyForegroundService.ACTION_START
@@ -144,10 +147,21 @@ object ProtocolSwitchManager {
                     } catch (e: Exception) {
                         AppLogger.e(TAG, "Ошибка запуска службы прокси: ${e.message}")
                     }
-                    delay(200)
+
+                    // Wait until server is verified running
+                    val waitStart = System.currentTimeMillis()
+                    while (!server.isRunning && (System.currentTimeMillis() - waitStart < 2500L)) {
+                        delay(40)
+                    }
+                    delay(100)
                 } else {
-                    _switchPhase.value = SwitchPhase.SWITCHING_ACCENT
-                    delay(150)
+                    // ── SCENARIO B: PROXY WAS DISCONNECTED (Immediate Pill Slide & Accent Update) ──
+                    app.config.proxyModeName = newTarget.name
+                    _targetMode.value = newTarget
+                    withContext(Dispatchers.IO) {
+                        app.prefsManager.saveConfig(app.config)
+                    }
+                    delay(200)
                 }
 
                 AppLogger.i(TAG, "Переключение протокола успешно завершено.")
@@ -156,17 +170,14 @@ object ProtocolSwitchManager {
             } finally {
                 _switchPhase.value = SwitchPhase.IDLE
                 _targetMode.value = null
+                _wasProxyRunningDuringSwitch.value = false
                 lastSwitchCompletedMs = System.currentTimeMillis()
                 _isSwitching.value = false
-                onComplete?.invoke()
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke()
+                }
             }
         }
         return true
-    }
-
-    private fun showToast(context: Context, message: String) {
-        Handler(Looper.getMainLooper()).post {
-            Toast.makeText(context.applicationContext, message, Toast.LENGTH_SHORT).show()
-        }
     }
 }

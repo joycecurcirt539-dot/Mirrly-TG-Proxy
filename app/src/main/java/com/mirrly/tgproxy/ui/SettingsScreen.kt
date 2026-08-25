@@ -171,32 +171,8 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
             dismissOnClickOutside = true
         )
     ) {
-        val view = LocalView.current
-        LaunchedEffect(Unit) {
-            try {
-                val window = (view.parent as? DialogWindowProvider)?.window
-                if (window != null) {
-                    WindowCompat.setDecorFitsSystemWindows(window, false)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                        window.attributes = window.attributes.apply {
-                            blurBehindRadius = 50
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.12f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onDismiss() }
-                .padding(horizontal = 24.dp)
+        DialogBackdropBox(
+            onDismiss = onDismiss
         ) {
             // Scrollable Detailed Info Content with Smooth Fading Edges into background blur
             Column(
@@ -210,6 +186,7 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                         top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
                         bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
                     )
+                    .padding(horizontal = 24.dp)
                     .clickable(enabled = false) {}
             ) {
                 // Category Pill
@@ -434,8 +411,6 @@ fun SettingsScreen(
     }
     var secretText by remember(config.secretHex) { mutableStateOf(config.secretHex) }
     var showSecret by remember { mutableStateOf(false) }
-    var customDomainText by remember { mutableStateOf(config.customCfDomain) }
-
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
     val isSwitching by com.mirrly.tgproxy.service.ProtocolSwitchManager.isSwitching.collectAsState()
     val selectedMode = if (isSocks5) ProxyMode.SOCKS5 else ProxyMode.MTPROTO
@@ -451,7 +426,6 @@ fun SettingsScreen(
         }
     }
     var autostart by remember { mutableStateOf(config.autostartOnBoot) }
-    // Key of the setting whose info dialog is currently open (null = closed)
     var infoKey by remember { mutableStateOf<String?>(null) }
     var pendingIssueRedirectUrl by remember { mutableStateOf<String?>(null) }
     val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
@@ -480,7 +454,6 @@ fun SettingsScreen(
         }
     }
 
-    // Debounced auto-save for text fields to prevent typing lag
     LaunchedEffect(portText) {
         delay(600)
         val p = portText.toIntOrNull()
@@ -508,69 +481,10 @@ fun SettingsScreen(
         }
     }
 
-    LaunchedEffect(customDomainText) {
-        delay(600)
-        val sanitized = com.mirrly.tgproxy.core.ProxyConfig.sanitizeDomain(customDomainText)
-        if (sanitized != customDomainText && customDomainText.isNotBlank()) {
-            customDomainText = sanitized
-        }
-        if (sanitized != config.customCfDomain) {
-            config.customCfDomain = sanitized
-            restartProxyIfNeeded()
-        }
-    }
-
-    val pureBlack = Color(0xFF000000)
-
-    // Info dialog: show detailed description for the currently selected setting key
     infoKey?.let { key ->
-        val (dlgTitle, dlgBody) = when (key) {
-            "port" -> "Порт подключения" to
-                "Локальный TCP-порт, на котором прокси принимает подключения от Telegram.\n\nРекомендованное значение: 1443. Этот порт не требует прав root и обычно не занят другими приложениями.\n\nДопустимый диапазон: 1–65535. Если порт занят — прокси не запустится. После смены порта обновите настройки прокси в Telegram."
-            "secret" -> "Секретный ключ (MTProto)" to
-                "32-символьный hex-ключ протокола MTProto. Его необходимо указать в настройках прокси Telegram — без него подключение невозможно.\n\nПрефикс dd означает режим Fake TLS: трафик маскируется под обычный HTTPS, что позволяет обходить DPI-фильтрацию.\n\nНажмите кнопку генерации для создания нового случайного ключа. После смены обновите ссылку-приглашение в Telegram."
-            "cf_domain" -> "Безопасность & Принцип работы Cloudflare Worker" to
-                "БЕЗОПАСНОСТЬ ЛИЧНЫХ ДАННЫХ:\n" +
-                "Для 100% защиты вашей конфиденциальности и анонимности мы рекомендуем развернуть свой личный воркер по встроенной инструкции.\n\n" +
-                "При использовании чужого воркера ваш трафик проходит через посторонний узел. Разворачивая собственный бесплатный воркер, вы гарантируете, что логи и ключи доступа принадлежат ТОЛЬКО вам.\n\n" +
-                "КАК РАБОТАЕТ CLOUDFLARE WORKER:\n" +
-                "• Cloudflare Worker — это бессерверный V8-скрипт на глобальной сети Cloudflare Edge (300+ городов по всему миру).\n" +
-                "• Он принимает трафик Telegram через зашифрованные WebSockets (wss://) и создает прямое TCP-подключение к дата-центрам Telegram через серверные каналы Cloudflare.\n" +
-                "• Для провайдеров и систем DPI/ТСПУ этот трафик выглядит как абсолютно обычное безопасное посещение любого сайта на Cloudflare, что полностью сводит на нет попытки блокировки.\n\n" +
-                "ПОЧЕМУ СВОЙ ВОРКЕР ЛУЧШЕ:\n" +
-                "• Бесплатный тариф Cloudflare даёт 100 000 запросов в день лично вам.\n" +
-                "• Отсутствие зависимости от сторонних серверов и чужих лимитов.\n" +
-                "• Максимальная скорость для звонков, скачивания тяжёлых файлов и видео."
-            "worker_mtproto" -> "Применение воркера к MTProto" to
-                "Управляет маршрутизацией нативного протокола MTProto через Cloudflare Worker:\n\n" +
-                "• Включено:\nТрафик MTProto туннелируется через активный воркер (из Менеджера воркеров или ваш личный узел). Рекомендуется, если у вас развернут собственный воркер для максимальной приватности.\n\n" +
-                "• Выключено (по умолчанию):\nИспользуется глобальный пул Anycast CDN Cloudflare (20 встроенных балансируемых узлов). Это не расходует дневной лимит запросов вашего воркера и обеспечивает максимальную скорость."
-            "pool" -> "Размер пула сокетов" to
-                "Количество WebSocket-соединений, которые прокси держит открытыми заранее (pre-warming).\n\nБольший пул = меньше задержка при открытии чата и загрузке медиа:\n• 2 — минимальный расход батареи и RAM (Эко)\n• 4 — баланс скорости и экономии (Баланс, рекомендуется)\n• 8 — быстрый отклик, умеренный расход (Турбо)\n• 16 — максимальная параллелизация соединений (Ультра)\n\nКаждое соединение занимает ~50–100 КБ RAM и поддерживает фоновое соединение с Cloudflare."
-            "autostart" -> "Автозапуск при загрузке" to
-                "Прокси автоматически запустится после перезагрузки устройства — не нужно включать вручную.\n\nРаботает через системный сигнал BOOT_COMPLETED.\n\nВажно: на устройствах MIUI, HyperOS и OneUI может потребоваться дополнительное разрешение «Автозапуск» в системных настройках телефона, иначе система заблокирует запуск."
-            "reconnect" -> "Авто-переподключение" to
-                "При смене сети (Wi-Fi → LTE и обратно) прокси автоматически перезапускает соединения.\n\nБез этой функции Telegram может «зависать» на несколько секунд при переходе между сетями.\n\nФункция отслеживает изменения через NetworkCallback Android и перезапускает прокси только при реальной смене сети, а не временных потерях сигнала."
-            "preset" -> "Режимы производительности" to
-                "Настройка глубины буферов и количества сокетов для максимальной скорости:\n\n• Эко — 2 сокета, 128 КБ буфер. Минимальный расход энергии и памяти.\n\n• Баланс — 4 сокета, 256 КБ буфер. Оптимальная скорость для повседневного использования.\n\n• Турбо — 8 сокетов, 1 МБ буфер. Быстрая загрузка медиа и голосовых сообщений.\n\n• Ультра — 16 сокетов, 2 МБ буфер. Максимальная пропускная способность при скачивании тяжёлых файлов на каналах до 1 Гбит/с.\n\n• Авто — 2–16 сокетов. Интеллектуальная адаптация в реальном времени под текущую пропускную способность сети и задержку."
-            "tcp_nodelay" -> "Мгновенная отдача (TCP_NODELAY)" to
-                "Управление алгоритмом Нагла (Nagle's Algorithm) для TCP-сокетов:\n\n" +
-                "• Авто (рекомендуется):\n" +
-                "Автоматическая адаптация под качество соединения. Мгновенная отправка пакетов (TCP_NODELAY = true) активируется на скоростных каналах (от 50 Мбит/с) с низким пингом (до 140 мс). При слабом сигнале, высокой задержке или перегрузке сети включается склеивание пакетов для стабильности и защиты от потерь.\n\n" +
-                "• Включено (Мгновенная отдача):\n" +
-                "Пакеты отправляются в сеть немедленно в любых условиях. Минимизирует задержку отклика (минус 40–200 мс), но может увеличивать нагрузку на радиомодем при нестабильной связи.\n\n" +
-                "• Выключено (Склеивание пакетов):\n" +
-                "Ядро объединяет мелкие порции данных в полные TCP-сегменты перед передачей в сеть. Повышает стабильность на узких каналах связи."
-            "disable_animations" -> "Отключение анимаций и частиц" to
-                "Оптимизирует энергопотребление и снижает нагрузку на процессор устройства.\n\nПри включении тумблера убираются фоновые визуальные частицы и тяжёлые анимации, что продлевает время автономной работы батареи и обеспечивает максимальную плавность на бюджетных устройствах."
-            "protocols_info" -> "Режимы работы прокси" to
-                "• MTProto (рекомендуется):\nНативный протокол Telegram с WsPool, Fake-TLS и турбо-буферами. Максимальная скорость. Используй эту ссылку: tg://proxy?...secret=dd...\n\n• SOCKS5 (для звонков и чатов):\nПрозрачный TCP relay. Telegram шифрует данные самостоятельно. Поддерживает чаты, медиа и голосовые/видеозвонки одновременно. Используй tg://socks?...\n\nПримечание: оба режима не работают одновременно — выбери один."
-            else -> return@let
-        }
-        InfoDialog(title = dlgTitle, body = dlgBody, onDismiss = { infoKey = null })
+        SettingsInfoDialog(infoKey = key, onDismiss = { infoKey = null })
     }
 
-    // Confirmation dialog before opening external Issue link
     pendingIssueRedirectUrl?.let { url ->
         ExternalLinkConfirmDialog(
             url = url,
@@ -578,10 +492,7 @@ fun SettingsScreen(
         )
     }
 
-    Box(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        // 1. SCROLLABLE CONTENT LAYER (Scrolls ALL THE WAY to the top under the Frosted Header!)
+    Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -594,1225 +505,119 @@ fun SettingsScreen(
                 .padding(horizontal = 22.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-
-            // SECTION 0: Протокол
-            Column(
-                modifier = Modifier.staggeredEntrance(index = 0),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = "ПРОТОКОЛ",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.3.sp,
-                        color = TextMuted
-                    )
-                    InfoButton { infoKey = "protocols_info" }
+            SettingsProtocolSection(
+                selectedMode = selectedMode,
+                isSwitching = isSwitching,
+                onInfoClick = { infoKey = "protocols_info" },
+                onModeSelect = { mode ->
+                    com.mirrly.tgproxy.service.ProtocolSwitchManager.switchProtocol(context, mode)
                 }
-
-                // Mode Selector Chips (чистый стиль без лишних обводок, плашек и эмодзи)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf(ProxyMode.MTPROTO, ProxyMode.SOCKS5).forEach { mode ->
-                        val isSelected = selectedMode == mode
-                        val modeAccent = if (mode == ProxyMode.SOCKS5) Color(0xFFB388FF) else ActiveGreenLed
-                        val chipBorder by animateColorAsState(
-                            targetValue = if (isSelected) modeAccent else Color(0xFF1E2333),
-                            animationSpec = tween(200),
-                            label = "modeBorder_${mode.name}"
-                        )
-                        val chipTextColor by animateColorAsState(
-                            targetValue = if (isSelected) modeAccent else TextWhite,
-                            animationSpec = tween(200),
-                            label = "modeText_${mode.name}"
-                        )
-                        val chipBgColor by animateColorAsState(
-                            targetValue = if (isSelected) modeAccent.copy(alpha = 0.08f) else Color.Transparent,
-                            animationSpec = tween(200),
-                            label = "modeBg_${mode.name}"
-                        )
-
-                        val modeLabel = when (mode) {
-                            ProxyMode.MTPROTO -> "MTProto"
-                            ProxyMode.SOCKS5  -> "SOCKS5 [БЕТА]"
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(chipBgColor)
-                                .border(1.dp, chipBorder, RoundedCornerShape(12.dp))
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    if (isSwitching || selectedMode == mode) return@clickable
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    com.mirrly.tgproxy.service.ProtocolSwitchManager.switchProtocol(context, mode)
-                                }
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = modeLabel,
-                                fontSize = 13.5.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = chipTextColor
-                            )
-                        }
-                    }
-                }
-            }
+            )
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
-            // SECTION 1: Сеть
-            Column(
-                modifier = Modifier.staggeredEntrance(index = 1),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    text = "СЕТЬ",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
-
-                // Port Input (MTProto или SOCKS5 в зависимости от режима)
-                if (selectedMode == ProxyMode.MTPROTO) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Порт MTProto", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "port" }
-                        }
-                        OutlinedTextField(
-                            value = portText,
-                            onValueChange = { portText = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            isError = isPortError,
-                            shape = RoundedCornerShape(14.dp),
-                            supportingText = if (isPortError) {
-                                { Text("Введите число от 1 до 65535", color = Color(0xFFEF4444), fontSize = 12.sp) }
-                            } else null,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedBorderColor = if (isPortError) Color(0xFFEF4444) else ActiveGreenLed,
-                                unfocusedBorderColor = if (isPortError) Color(0xFFEF4444) else Color(0xFF1E2333),
-                                focusedTextColor = TextWhite,
-                                unfocusedTextColor = TextWhite,
-                                errorBorderColor = Color(0xFFEF4444),
-                                errorTextColor = TextWhite
-                            )
-                        )
-                    }
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Порт SOCKS5", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "port" }
-                        }
-                        OutlinedTextField(
-                            value = socks5PortText,
-                            onValueChange = { socks5PortText = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            isError = isSocks5PortError,
-                            shape = RoundedCornerShape(14.dp),
-                            supportingText = if (isSocks5PortError) {
-                                { Text("Введите число от 1 до 65535", color = Color(0xFFEF4444), fontSize = 12.sp) }
-                            } else null,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedBorderColor = if (isSocks5PortError) Color(0xFFEF4444) else ActiveGreenLed,
-                                unfocusedBorderColor = if (isSocks5PortError) Color(0xFFEF4444) else Color(0xFF1E2333),
-                                focusedTextColor = TextWhite,
-                                unfocusedTextColor = TextWhite,
-                                errorBorderColor = Color(0xFFEF4444),
-                                errorTextColor = TextWhite
-                            )
-                        )
-                    }
-                }
-
-                // Secret Key Input (показывается только в режиме MTProto)
-                if (selectedMode == ProxyMode.MTPROTO) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Секретный ключ (Hex)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "secret" }
-                        }
-                        OutlinedTextField(
-                            value = secretText,
-                            onValueChange = { secretText = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(end = 4.dp)
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            showSecret = !showSecret
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Crossfade(targetState = showSecret, animationSpec = tween(180), label = "eyeFade") { isVisible ->
-                                            Icon(
-                                                painter = painterResource(id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye),
-                                                contentDescription = null,
-                                                tint = if (isVisible) ActiveGreenLed else TextMuted,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            val newSecret = ProxyConfig.generateRandomSecret()
-                                            secretText = newSecret
-                                            config.secretHex = newSecret
-                                            restartProxyIfNeeded()
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_refresh),
-                                            contentDescription = null,
-                                            tint = TextWhite,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedBorderColor = ActiveGreenLed,
-                                unfocusedBorderColor = Color(0xFF1E2333),
-                                focusedTextColor = TextWhite,
-                                unfocusedTextColor = TextWhite
-                            )
-                        )
-                    }
-                }
-
-                // Auto Reconnect Switch with Inertia Bounce Physics & Haptics
-                var autoReconnect by remember { mutableStateOf(app.prefsManager.isAutoReconnectEnabled()) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Авто-переподключение (Wi-Fi / LTE)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "reconnect" }
-                        }
-                        Text("Автоматический перезапуск сокетов при смене сети без зависания Telegram", color = TextMuted, fontSize = 11.5.sp)
-                    }
-                    InertialSpringSwitch(
-                        checked = autoReconnect,
-                        onCheckedChange = { newValue ->
-                            autoReconnect = newValue
-                            app.prefsManager.setAutoReconnectEnabled(newValue)
-                        }
-                    )
-                }
-            }
+            SettingsNetworkSection(
+                selectedMode = selectedMode,
+                portText = portText,
+                onPortChange = { portText = it },
+                isPortError = isPortError,
+                socks5PortText = socks5PortText,
+                onSocks5PortChange = { socks5PortText = it },
+                isSocks5PortError = isSocks5PortError,
+                secretText = secretText,
+                onSecretChange = { secretText = it },
+                showSecret = showSecret,
+                onToggleShowSecret = { showSecret = !showSecret },
+                onRefreshSecret = {
+                    val newSecret = ProxyConfig.generateRandomSecret()
+                    secretText = newSecret
+                    config.secretHex = newSecret
+                    restartProxyIfNeeded()
+                },
+                onInfoClick = { infoKey = it }
+            )
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
-            // SECTION 2: ПРОИЗВОДИТЕЛЬНОСТЬ
-            Column(
-                modifier = Modifier.staggeredEntrance(index = 2),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    text = "ПРОИЗВОДИТЕЛЬНОСТЬ",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
-
-                // Speed Preset Chips
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("Режимы пропускной способности", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        InfoButton { infoKey = "preset" }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val currentSnapPool = snapToNearestPool(poolSize).toInt()
-                        val isAutoActive = selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
-                        com.mirrly.tgproxy.core.SpeedPreset.values().forEach { preset ->
-                            val isSelected = if (preset == com.mirrly.tgproxy.core.SpeedPreset.AUTO) {
-                                isAutoActive
-                            } else {
-                                !isAutoActive && (selectedSpeedPresetName == preset.name || (selectedSpeedPresetName == "CUSTOM" && currentSnapPool == preset.defaultPoolSize))
-                            }
-                            val chipBg = Color.Transparent
-                            val chipBorder by animateColorAsState(
-                                targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
-                                animationSpec = tween(200),
-                                label = "presetBorder_${preset.name}"
-                            )
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(chipBg)
-                                    .border(1.dp, chipBorder, RoundedCornerShape(12.dp))
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        selectedSpeedPresetName = preset.name
-                                        config.applyPreset(preset)
-                                        if (preset == com.mirrly.tgproxy.core.SpeedPreset.AUTO) {
-                                            poolSize = config.poolSize.toFloat()
-                                        } else {
-                                            poolSize = preset.defaultPoolSize.toFloat()
-                                            server.applyPoolSize(preset.defaultPoolSize)
-                                        }
-                                        app.saveConfig()
-                                    }
-                                    .padding(vertical = 9.dp, horizontal = 2.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    val iconRes = when (preset) {
-                                        com.mirrly.tgproxy.core.SpeedPreset.ECO -> R.drawable.ic_speed_eco
-                                        com.mirrly.tgproxy.core.SpeedPreset.BALANCED -> R.drawable.ic_speed_balanced
-                                        com.mirrly.tgproxy.core.SpeedPreset.TURBO -> R.drawable.ic_speed_turbo
-                                        com.mirrly.tgproxy.core.SpeedPreset.ULTRA -> R.drawable.ic_speed_ultra
-                                        com.mirrly.tgproxy.core.SpeedPreset.AUTO -> R.drawable.ic_speed_auto
-                                    }
-                                    val titleText = when (preset) {
-                                        com.mirrly.tgproxy.core.SpeedPreset.ECO -> "Эко"
-                                        com.mirrly.tgproxy.core.SpeedPreset.BALANCED -> "Баланс"
-                                        com.mirrly.tgproxy.core.SpeedPreset.TURBO -> "Турбо"
-                                        com.mirrly.tgproxy.core.SpeedPreset.ULTRA -> "Ультра"
-                                        com.mirrly.tgproxy.core.SpeedPreset.AUTO -> "Авто"
-                                    }
-
-                                    Icon(
-                                        painter = painterResource(id = iconRes),
-                                        contentDescription = null,
-                                        tint = if (isSelected) ActiveGreenLed else TextMuted,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-
-                                    Text(
-                                        text = titleText,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) ActiveGreenLed else TextWhite
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Ultra-Smooth Dragging Socket Pool Slider with Snap-on-Release & Haptics
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Размер пула сокетов (WsPool)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "pool" }
-                        }
-
-                        val activeDisplayValue = snapToNearestPool(poolSize).toInt()
-                        val poolDisplayLabel = if (selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name) {
-                            "$activeDisplayValue сокетов (Авто)"
+            SettingsPerformanceSection(
+                config = config,
+                poolSize = poolSize,
+                onPoolSizeChange = { poolSize = it },
+                onPoolSnapFinish = { newSnapped ->
+                    poolSize = newSnapped
+                    val newSize = newSnapped.toInt()
+                    val isAuto = selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
+                    if (newSize != config.poolSize || isAuto) {
+                        config.poolSize = newSize
+                        val matchingPreset = com.mirrly.tgproxy.core.SpeedPreset.values().firstOrNull { it != com.mirrly.tgproxy.core.SpeedPreset.AUTO && it.defaultPoolSize == newSize }
+                        if (matchingPreset != null) {
+                            config.speedPresetName = matchingPreset.name
+                            selectedSpeedPresetName = matchingPreset.name
+                            config.bufferSizeBytes = matchingPreset.defaultBufferSizeBytes
                         } else {
-                            "$activeDisplayValue сокетов"
+                            config.speedPresetName = "CUSTOM"
+                            selectedSpeedPresetName = "CUSTOM"
                         }
-                        Text(
-                            text = poolDisplayLabel,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = ActiveGreenLed
-                        )
+                        server.applyPoolSize(newSize)
+                        app.saveConfig()
                     }
-
-                    Slider(
-                        value = poolSize,
-                        onValueChange = { newValue ->
-                            val oldSnap = snapToNearestPool(poolSize).toInt()
-                            val newSnap = snapToNearestPool(newValue).toInt()
-                            if (oldSnap != newSnap) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                            poolSize = newValue
-                        },
-                        onValueChangeFinished = {
-                            val snapped = snapToNearestPool(poolSize)
-                            poolSize = snapped
-                            val newSize = snapped.toInt()
-                            val isAuto = selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
-                            if (newSize != config.poolSize || isAuto) {
-                                config.poolSize = newSize
-                                val matchingPreset = com.mirrly.tgproxy.core.SpeedPreset.values().firstOrNull { it != com.mirrly.tgproxy.core.SpeedPreset.AUTO && it.defaultPoolSize == newSize }
-                                if (matchingPreset != null) {
-                                    config.speedPresetName = matchingPreset.name
-                                    selectedSpeedPresetName = matchingPreset.name
-                                    config.bufferSizeBytes = matchingPreset.defaultBufferSizeBytes
-                                } else {
-                                    config.speedPresetName = "CUSTOM"
-                                    selectedSpeedPresetName = "CUSTOM"
-                                }
-                                server.applyPoolSize(newSize)
-                                app.saveConfig()
-                            }
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                        valueRange = 2f..16f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = TextWhite,
-                            activeTrackColor = ActiveGreenLed,
-                            inactiveTrackColor = Color(0xFF1E2333)
-                        )
-                    )
-
-                    // Pool step labels — positioned exactly under each slider thumb stop
-                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                        val thumbHalfWidth = 10.dp
-                        val usableWidth = maxWidth - thumbHalfWidth * 2
-
-                        poolOptions.forEach { option ->
-                            val fraction = (option - 2f) / 14f // range is 2..16 = span 14
-
-                            val isSelected = snapToNearestPool(poolSize).toInt() == option.toInt()
-                            val optionColor by animateColorAsState(
-                                targetValue = if (isSelected) ActiveGreenLed else TextMuted,
-                                animationSpec = tween(200),
-                                label = "optionColor$option"
-                            )
-
-                            Text(
-                                text = "${option.toInt()}",
-                                fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = optionColor,
-                                modifier = Modifier
-                                    .layout { measurable, constraints ->
-                                        val placeable = measurable.measure(
-                                            constraints.copy(minWidth = 0, minHeight = 0)
-                                        )
-                                        val centerXPx = (thumbHalfWidth + usableWidth * fraction).toPx()
-                                        layout(placeable.width, placeable.height) {
-                                            placeable.place(
-                                                x = (centerXPx - placeable.width / 2f).toInt(),
-                                                y = 0
-                                            )
-                                        }
-                                    }
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        poolSize = option
-                                        val newSize = option.toInt()
-                                        val isAuto = selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
-                                        if (newSize != config.poolSize || isAuto) {
-                                            config.poolSize = newSize
-                                            val matchingPreset = com.mirrly.tgproxy.core.SpeedPreset.values().firstOrNull { it != com.mirrly.tgproxy.core.SpeedPreset.AUTO && it.defaultPoolSize == newSize }
-                                            if (matchingPreset != null) {
-                                                config.speedPresetName = matchingPreset.name
-                                                selectedSpeedPresetName = matchingPreset.name
-                                                config.bufferSizeBytes = matchingPreset.defaultBufferSizeBytes
-                                            } else {
-                                                config.speedPresetName = "CUSTOM"
-                                                selectedSpeedPresetName = "CUSTOM"
-                                            }
-                                            server.applyPoolSize(newSize)
-                                            app.saveConfig()
-                                        }
-                                    }
-                            )
-                        }
+                },
+                selectedSpeedPresetName = selectedSpeedPresetName,
+                onPresetSelect = { preset ->
+                    selectedSpeedPresetName = preset.name
+                    config.applyPreset(preset)
+                    if (preset == com.mirrly.tgproxy.core.SpeedPreset.AUTO) {
+                        poolSize = config.poolSize.toFloat()
+                    } else {
+                        poolSize = preset.defaultPoolSize.toFloat()
+                        server.applyPoolSize(preset.defaultPoolSize)
                     }
-                }
-
-                // TCP_NODELAY 3-Mode Selector (АВТО / ВКЛ / ВЫКЛ)
-                var tcpNoDelayModeState by remember { mutableStateOf(config.tcpNoDelayMode) }
-                val context = LocalContext.current
-
-                val autoEvaluation by produceState(
-                    initialValue = NetworkConditionEvaluator.evaluate(
-                        context = context,
-                        capabilities = null,
-                        currentPingMs = server.currentPingMs,
-                        currentThroughputBps = server.stats.downloadSpeedBps + server.stats.uploadSpeedBps
-                    ),
-                    key1 = server.currentPingMs,
-                    key2 = server.stats.downloadSpeedBps
-                ) {
-                    value = NetworkConditionEvaluator.evaluate(
-                        context = context,
-                        capabilities = null,
-                        currentPingMs = server.currentPingMs,
-                        currentThroughputBps = server.stats.downloadSpeedBps + server.stats.uploadSpeedBps
-                    )
-                }
-
-                val tcpNoDelayStatusText = when (tcpNoDelayModeState) {
-                    TcpNoDelayMode.AUTO -> autoEvaluation.statusDescription
-                    TcpNoDelayMode.ON -> "Включено: Мгновенная отправка (все сети)"
-                    TcpNoDelayMode.OFF -> "Выключено: Склеивание пакетов Nagle (все сети)"
-                }
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Мгновенная отдача (TCP_NODELAY)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "tcp_nodelay" }
-                        }
-                    }
-
-                    // 3-режимный селектор чипов
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf(TcpNoDelayMode.AUTO, TcpNoDelayMode.ON, TcpNoDelayMode.OFF).forEach { mode ->
-                            val isSelected = tcpNoDelayModeState == mode
-                            val chipBorder by animateColorAsState(
-                                targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
-                                animationSpec = tween(200),
-                                label = "tcpBorder_${mode.name}"
-                            )
-                            val chipBg by animateColorAsState(
-                                targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
-                                animationSpec = tween(200),
-                                label = "tcpBg_${mode.name}"
-                            )
-                            val chipTextColor by animateColorAsState(
-                                targetValue = if (isSelected) ActiveGreenLed else TextWhite,
-                                animationSpec = tween(200),
-                                label = "tcpText_${mode.name}"
-                            )
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(chipBg)
-                                    .border(1.dp, chipBorder, RoundedCornerShape(12.dp))
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        tcpNoDelayModeState = mode
-                                        config.tcpNoDelayModeName = mode.name
-                                        val effective = when (mode) {
-                                            TcpNoDelayMode.ON -> true
-                                            TcpNoDelayMode.OFF -> false
-                                            TcpNoDelayMode.AUTO -> autoEvaluation.isInstantSendRecommended
-                                        }
-                                        config.tcpNoDelay = effective
-                                        server.applyTcpNoDelay(effective)
-                                        app.saveConfig()
-                                    }
-                                    .padding(vertical = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = mode.displayName,
-                                    fontSize = 12.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = chipTextColor
-                                )
-                            }
-                        }
-                    }
-
-                    // Динамическая подпись статуса
-                    Text(
-                        text = tcpNoDelayStatusText,
-                        color = if (tcpNoDelayModeState == TcpNoDelayMode.AUTO && autoEvaluation.isInstantSendRecommended) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
-                        fontSize = 11.5.sp,
-                        lineHeight = 15.sp
-                    )
-                }
-            }
+                    app.saveConfig()
+                },
+                onInfoClick = { infoKey = it }
+            )
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
-            // SECTION 3: ТУННЕЛИРОВАНИЕ CLOUDFLARE
-            Column(
-                modifier = Modifier.staggeredEntrance(index = 3),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    text = "ТУННЕЛИРОВАНИЕ CLOUDFLARE",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
-
-                // Unified Worker Settings Card (AboutScreen LinkCardItem style)
-                val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Transparent)
-                        .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(20.dp))
-                ) {
-                    Column {
-                        // Row 1: Worker Manager
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onOpenWorkerManager()
-                                }
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color(0xFFB388FF).copy(alpha = 0.12f))
-                                        .border(1.dp, Color(0xFFB388FF).copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_settings),
-                                        contentDescription = null,
-                                        tint = Color(0xFFB388FF),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-
-                                Column {
-                                    Text(
-                                        text = "Менеджер воркеров",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextWhite
-                                    )
-                                    Text(
-                                        text = "Активен: ${activeWorker.name}",
-                                        fontSize = 11.5.sp,
-                                        color = TextMuted
-                                    )
-                                }
-                            }
-
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_chevron_right),
-                                contentDescription = null,
-                                tint = TextMuted,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-
-                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
-
-                        // Row 2: Worker Guide
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onOpenWorkerGuide()
-                                }
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color(0xFFFF9E00).copy(alpha = 0.12f))
-                                        .border(1.dp, Color(0xFFFF9E00).copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_speed_turbo),
-                                        contentDescription = null,
-                                        tint = Color(0xFFFF9E00),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-
-                                Column {
-                                    Text(
-                                        text = "Инструкция по развертыванию",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextWhite
-                                    )
-                                    Text(
-                                        text = "Создать личный воркер за 2 минуты",
-                                        fontSize = 11.5.sp,
-                                        color = TextMuted
-                                    )
-                                }
-                            }
-
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_chevron_right),
-                                contentDescription = null,
-                                tint = TextMuted,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-
-                // MTProto Apply Worker Toggle
-                var applyWorkerToMtproto by remember { mutableStateOf(config.applyWorkerToMtproto) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Применять к MTProto", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "worker_mtproto" }
-                        }
-                        Text("Использовать выбранный Cloudflare Worker для протокола MTProto. Если отключено — используется быстрый пул Anycast CDN.", color = TextMuted, fontSize = 11.5.sp)
-                    }
-                    InertialSpringSwitch(
-                        checked = applyWorkerToMtproto,
-                        onCheckedChange = { newValue ->
-                            applyWorkerToMtproto = newValue
-                            config.applyWorkerToMtproto = newValue
-                            app.saveConfig()
-                            restartProxyIfNeeded()
-                        }
-                    )
-                }
-
-                // Informational CDN Badge
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF0F172A).copy(alpha = 0.6f))
-                        .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
-                        .padding(12.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 5.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "CDN",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = ActiveGreenLed,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-                        Text(
-                            text = "В режиме MTProto трафик надежно туннелируется через 20 встроенных Cloudflare CDN узлов без прямого подключения.",
-                            color = TextMuted,
-                            fontSize = 11.5.sp,
-                            lineHeight = 16.sp
-                        )
-                    }
-                }
-            }
+            SettingsWorkerSection(
+                config = config,
+                onOpenWorkerManager = onOpenWorkerManager,
+                onOpenWorkerGuide = onOpenWorkerGuide,
+                onInfoClick = { infoKey = it }
+            )
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
-            // SECTION 4: СИСТЕМА
-            Column(
-                modifier = Modifier.staggeredEntrance(index = 4),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    text = "СИСТЕМА И ЭНЕРГОСБЕРЕЖЕНИЕ",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
-
-                // Autostart Switch with Inertia Bounce Physics & Haptics
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Автозапуск при загрузке", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "autostart" }
-                        }
-                        Text("Автоматический запуск службы прокси после перезагрузки устройства", color = TextMuted, fontSize = 11.5.sp)
-                    }
-                    InertialSpringSwitch(
-                        checked = autostart,
-                        onCheckedChange = { newValue ->
-                            autostart = newValue
-                            config.autostartOnBoot = newValue
-                            app.saveConfig()
-                        }
-                    )
-                }
-
-                // Sleep Timer Settings Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showSleepTimerDialog = true
-                        }
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("Таймер сна (автоотключение)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Text(
-                            text = if (timerState.isActive) "Активен • Отключение через ${timerState.formatRemainingTime()}" else "Выключен • Нажмите для выбора интервала",
-                            color = if (timerState.isActive) ActiveGreenLed else TextMuted,
-                            fontSize = 11.5.sp
-                        )
-                    }
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_timer),
-                        contentDescription = null,
-                        tint = if (timerState.isActive) ActiveGreenLed else TextMuted,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Disable Animations & Background Particles Switch (Performance Optimization)
-                var disableAnimations by remember { mutableStateOf(app.prefsManager.areAnimationsDisabled()) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Режим энергосбережения", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            InfoButton { infoKey = "disable_animations" }
-                        }
-                        Text("Отключение фоновых анимаций и частиц для экономии заряда батареи", color = TextMuted, fontSize = 11.5.sp)
-                    }
-                    InertialSpringSwitch(
-                        checked = disableAnimations,
-                        onCheckedChange = { newValue ->
-                            disableAnimations = newValue
-                            app.prefsManager.setAnimationsDisabled(newValue)
-                        }
-                    )
-                }
-            }
+            SettingsSystemSection(
+                autostart = autostart,
+                onAutostartChange = { newValue ->
+                    autostart = newValue
+                    config.autostartOnBoot = newValue
+                    app.saveConfig()
+                },
+                timerState = timerState,
+                onOpenSleepTimer = { showSleepTimerDialog = true },
+                onInfoClick = { infoKey = it }
+            )
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
-            // SECTION 5: О ПРИЛОЖЕНИИ (Compact Grouped Container)
-            Column(
-                modifier = Modifier.staggeredEntrance(index = 5),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "О ПРИЛОЖЕНИИ",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
-
-                // Single Grouped Container for all About App items
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color.Transparent)
-                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(18.dp))
-                ) {
-                    // Item 1: About Developer & Project
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onOpenAbout()
-                            }
-                            .padding(horizontal = 14.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_user),
-                                    contentDescription = null,
-                                    tint = ActiveGreenLed,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-
-                            Column {
-                                Text(
-                                    text = "О разработчике & Проекте",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextWhite
-                                )
-                                Text(
-                                    text = "R1Xern • Информация, соцсети и статус сборки",
-                                    fontSize = 11.5.sp,
-                                    color = TextMuted
-                                )
-                            }
-                        }
-
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_chevron_right),
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
-
-                    // Item 2: Support Developer (Donation DaLink)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                showDonateConfirmDialog = true
-                            }
-                            .padding(horizontal = 14.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_donate),
-                                    contentDescription = null,
-                                    tint = ActiveGreenLed,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-
-                            Column {
-                                Text(
-                                    text = "Поддержать разработчика",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextWhite
-                                )
-                                Text(
-                                    text = "Добровольный донат на развитие проекта (DaLink)",
-                                    fontSize = 11.5.sp,
-                                    color = TextMuted
-                                )
-                            }
-                        }
-
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_chevron_right),
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
-
-                    // Item 3: Check for Updates
-                    var isCheckingUpdate by remember { mutableStateOf(false) }
-                    val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
-                    val coroutineScope = rememberCoroutineScope()
-
-                    val isUpdateAvailable = currentUpdateInfo?.isUpdateAvailable == true
-                    val yellowAccent = Color(0xFFFFB703)
-
-                    val itemBgColor = if (isUpdateAvailable) Color(0xFF1F1A0A) else Color.Transparent
-                    val iconBoxBgColor = if (isUpdateAvailable) yellowAccent.copy(alpha = 0.2f) else ActiveGreenLed.copy(alpha = 0.12f)
-                    val iconTint = if (isUpdateAvailable) yellowAccent else ActiveGreenLed
-                    val titleColor = if (isUpdateAvailable) yellowAccent else TextWhite
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(itemBgColor)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                if (isUpdateAvailable) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onOpenUpdate()
-                                } else if (!isCheckingUpdate) {
-                                    isCheckingUpdate = true
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    coroutineScope.launch {
-                                        val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false, forceRefresh = true)
-                                        isCheckingUpdate = false
-                                        result.fold(
-                                            onSuccess = { info ->
-                                                if (info.isUpdateAvailable) {
-                                                    onOpenUpdate()
-                                                } else {
-                                                    Toast.makeText(
-                                                        context,
-                                                        "У вас установлена актуальная версия",
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
-                                                }
-                                            },
-                                            onFailure = { err ->
-                                                Toast.makeText(
-                                                    context,
-                                                    "Ошибка проверки обновлений: ${err.localizedMessage}",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                            .padding(horizontal = 14.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(iconBoxBgColor)
-                                    .border(1.dp, iconTint.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_refresh),
-                                    contentDescription = null,
-                                    tint = iconTint,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-
-                            Column {
-                                Text(
-                                    text = if (isUpdateAvailable) "Найдено обновление!" else "Проверить обновления",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = titleColor
-                                )
-                                Text(
-                                    text = when {
-                                        isCheckingUpdate -> "Проверка GitHub Releases..."
-                                        isUpdateAvailable -> "Доступна новая версия • Нажмите для установки"
-                                        else -> "Поиск новых версий на GitHub"
-                                    },
-                                    fontSize = 11.5.sp,
-                                    color = if (isUpdateAvailable) TextWhite.copy(alpha = 0.9f) else TextMuted
-                                )
-                            }
-                        }
-
-                        if (isCheckingUpdate) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = ActiveGreenLed,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_chevron_right),
-                                contentDescription = null,
-                                tint = if (isUpdateAvailable) yellowAccent else TextMuted,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-            }
+            SettingsAboutSection(
+                onOpenAbout = onOpenAbout,
+                onDonateClick = { showDonateConfirmDialog = true },
+                onOpenUpdate = onOpenUpdate
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        // 2. FROSTED GLASS HEADER PANEL (Pinned at Top over scrolling items!)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.98f), // Pure AMOLED black behind status bar
-                            Color.Black.copy(alpha = 0.94f), // Pure AMOLED black behind title
-                            Color.Black.copy(alpha = 0.72f), // Pure AMOLED black blur transition
-                            Color.Black.copy(alpha = 0.00f)  // Soft fade edge to reveal blurred scrolling items
-                        )
-                    )
-                )
-        ) {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Настройки",
-                        color = TextWhite,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onBack()
-                    }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_arrow_left),
-                            contentDescription = "Назад",
-                            tint = TextWhite,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
-        }
+        SettingsTopBar(onBack = onBack)
+
+        CyberParticlesOverlay(
+            modifier = Modifier.fillMaxSize(),
+            particleCount = 14,
+            alphaMultiplier = 0.50f
+        )
 
         if (showDonateConfirmDialog) {
             ExternalLinkConfirmDialog(
@@ -1824,11 +629,1238 @@ fun SettingsScreen(
         }
 
         if (showSleepTimerDialog) {
-            SleepTimerDialog(
-                onDismiss = { showSleepTimerDialog = false }
+            SleepTimerDialog(onDismiss = { showSleepTimerDialog = false })
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsTopBar(onBack: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Black.copy(alpha = 0.98f),
+                        Color.Black.copy(alpha = 0.94f),
+                        Color.Black.copy(alpha = 0.72f),
+                        Color.Black.copy(alpha = 0.00f)
+                    )
+                )
+            )
+    ) {
+        TopAppBar(
+            title = {
+                Text(
+                    text = "Настройки",
+                    color = TextWhite,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            },
+            navigationIcon = {
+                IconButton(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onBack()
+                }) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_arrow_left),
+                        contentDescription = "Назад",
+                        tint = TextWhite,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+        )
+    }
+}
+
+@Composable
+private fun SettingsProtocolSection(
+    selectedMode: ProxyMode,
+    isSwitching: Boolean,
+    onInfoClick: () -> Unit,
+    onModeSelect: (ProxyMode) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 0),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "ПРОТОКОЛ",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.3.sp,
+                color = TextMuted
+            )
+            InfoButton { onInfoClick() }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(ProxyMode.MTPROTO, ProxyMode.SOCKS5).forEach { mode ->
+                val isSelected = selectedMode == mode
+                val modeAccent = if (mode == ProxyMode.SOCKS5) Color(0xFFB388FF) else ActiveGreenLed
+                val chipBorder by animateColorAsState(
+                    targetValue = if (isSelected) modeAccent else Color(0xFF1E2333),
+                    animationSpec = tween(200),
+                    label = "modeBorder_${mode.name}"
+                )
+                val chipTextColor by animateColorAsState(
+                    targetValue = if (isSelected) modeAccent else TextWhite,
+                    animationSpec = tween(200),
+                    label = "modeText_${mode.name}"
+                )
+                val chipBgColor by animateColorAsState(
+                    targetValue = if (isSelected) modeAccent.copy(alpha = 0.08f) else Color.Transparent,
+                    animationSpec = tween(200),
+                    label = "modeBg_${mode.name}"
+                )
+
+                val modeLabel = when (mode) {
+                    ProxyMode.MTPROTO -> "MTProto"
+                    ProxyMode.SOCKS5  -> "SOCKS5 [БЕТА]"
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(chipBgColor)
+                        .border(1.dp, chipBorder, RoundedCornerShape(12.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            if (isSwitching || selectedMode == mode) return@clickable
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onModeSelect(mode)
+                        }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = modeLabel,
+                        fontSize = 13.5.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = chipTextColor
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsNetworkSection(
+    selectedMode: ProxyMode,
+    portText: String,
+    onPortChange: (String) -> Unit,
+    isPortError: Boolean,
+    socks5PortText: String,
+    onSocks5PortChange: (String) -> Unit,
+    isSocks5PortError: Boolean,
+    secretText: String,
+    onSecretChange: (String) -> Unit,
+    showSecret: Boolean,
+    onToggleShowSecret: () -> Unit,
+    onRefreshSecret: () -> Unit,
+    onInfoClick: (String) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val app = MirrlyApplication.instance
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 1),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = "СЕТЬ",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.3.sp,
+            color = TextMuted
+        )
+
+        if (selectedMode == ProxyMode.MTPROTO) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Порт MTProto", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    InfoButton { onInfoClick("port") }
+                }
+                OutlinedTextField(
+                    value = portText,
+                    onValueChange = onPortChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = isPortError,
+                    shape = RoundedCornerShape(14.dp),
+                    supportingText = if (isPortError) {
+                        { Text("Введите число от 1 до 65535", color = Color(0xFFEF4444), fontSize = 12.sp) }
+                    } else null,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedBorderColor = if (isPortError) Color(0xFFEF4444) else ActiveGreenLed,
+                        unfocusedBorderColor = if (isPortError) Color(0xFFEF4444) else Color(0xFF1E2333),
+                        focusedTextColor = TextWhite,
+                        unfocusedTextColor = TextWhite,
+                        errorBorderColor = Color(0xFFEF4444),
+                        errorTextColor = TextWhite
+                    )
+                )
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Порт SOCKS5", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    InfoButton { onInfoClick("port") }
+                }
+                OutlinedTextField(
+                    value = socks5PortText,
+                    onValueChange = onSocks5PortChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = isSocks5PortError,
+                    shape = RoundedCornerShape(14.dp),
+                    supportingText = if (isSocks5PortError) {
+                        { Text("Введите число от 1 до 65535", color = Color(0xFFEF4444), fontSize = 12.sp) }
+                    } else null,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedBorderColor = if (isSocks5PortError) Color(0xFFEF4444) else ActiveGreenLed,
+                        unfocusedBorderColor = if (isSocks5PortError) Color(0xFFEF4444) else Color(0xFF1E2333),
+                        focusedTextColor = TextWhite,
+                        unfocusedTextColor = TextWhite,
+                        errorBorderColor = Color(0xFFEF4444),
+                        errorTextColor = TextWhite
+                    )
+                )
+            }
+        }
+
+        if (selectedMode == ProxyMode.MTPROTO) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Секретный ключ (Hex)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    InfoButton { onInfoClick("secret") }
+                }
+                OutlinedTextField(
+                    value = secretText,
+                    onValueChange = onSecretChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(0.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    onToggleShowSecret()
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Crossfade(targetState = showSecret, animationSpec = tween(180), label = "eyeFade") { isVisible ->
+                                    Icon(
+                                        painter = painterResource(id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye),
+                                        contentDescription = null,
+                                        tint = if (isVisible) ActiveGreenLed else TextMuted,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = {
+                                    onRefreshSecret()
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                    contentDescription = null,
+                                    tint = TextWhite,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedBorderColor = ActiveGreenLed,
+                        unfocusedBorderColor = Color(0xFF1E2333),
+                        focusedTextColor = TextWhite,
+                        unfocusedTextColor = TextWhite
+                    )
+                )
+            }
+        }
+
+        var autoReconnect by remember { mutableStateOf(app.prefsManager.isAutoReconnectEnabled()) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Авто-переподключение (Wi-Fi / LTE)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    InfoButton { onInfoClick("reconnect") }
+                }
+                Text("Автоматический перезапуск сокетов при смене сети без зависания Telegram", color = TextMuted, fontSize = 11.5.sp)
+            }
+            InertialSpringSwitch(
+                checked = autoReconnect,
+                onCheckedChange = { newValue ->
+                    autoReconnect = newValue
+                    app.prefsManager.setAutoReconnectEnabled(newValue)
+                }
             )
         }
     }
+}
+
+@Composable
+private fun SettingsPerformanceSection(
+    config: ProxyConfig,
+    poolSize: Float,
+    onPoolSizeChange: (Float) -> Unit,
+    onPoolSnapFinish: (Float) -> Unit,
+    selectedSpeedPresetName: String,
+    onPresetSelect: (com.mirrly.tgproxy.core.SpeedPreset) -> Unit,
+    onInfoClick: (String) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val app = MirrlyApplication.instance
+    val server = app.proxyServer
+    val poolOptions = remember { listOf(2f, 4f, 8f, 16f) }
+
+    fun snap(v: Float) = poolOptions.minByOrNull { abs(it - v) } ?: v
+
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 2),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = "ПРОИЗВОДИТЕЛЬНОСТЬ",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.3.sp,
+            color = TextMuted
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("Режимы пропускной способности", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                InfoButton { onInfoClick("preset") }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val currentSnapPool = snap(poolSize).toInt()
+                val isAutoActive = selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
+                com.mirrly.tgproxy.core.SpeedPreset.values().forEach { preset ->
+                    val isSelected = if (preset == com.mirrly.tgproxy.core.SpeedPreset.AUTO) {
+                        isAutoActive
+                    } else {
+                        !isAutoActive && (selectedSpeedPresetName == preset.name || (selectedSpeedPresetName == "CUSTOM" && currentSnapPool == preset.defaultPoolSize))
+                    }
+                    val chipBorder by animateColorAsState(
+                        targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
+                        animationSpec = tween(200),
+                        label = "presetBorder_${preset.name}"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, chipBorder, RoundedCornerShape(12.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onPresetSelect(preset)
+                            }
+                            .padding(vertical = 9.dp, horizontal = 2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            val iconRes = when (preset) {
+                                com.mirrly.tgproxy.core.SpeedPreset.ECO -> R.drawable.ic_speed_eco
+                                com.mirrly.tgproxy.core.SpeedPreset.BALANCED -> R.drawable.ic_speed_balanced
+                                com.mirrly.tgproxy.core.SpeedPreset.TURBO -> R.drawable.ic_speed_turbo
+                                com.mirrly.tgproxy.core.SpeedPreset.ULTRA -> R.drawable.ic_speed_ultra
+                                com.mirrly.tgproxy.core.SpeedPreset.AUTO -> R.drawable.ic_speed_auto
+                            }
+                            val titleText = when (preset) {
+                                com.mirrly.tgproxy.core.SpeedPreset.ECO -> "Эко"
+                                com.mirrly.tgproxy.core.SpeedPreset.BALANCED -> "Баланс"
+                                com.mirrly.tgproxy.core.SpeedPreset.TURBO -> "Турбо"
+                                com.mirrly.tgproxy.core.SpeedPreset.ULTRA -> "Ультра"
+                                com.mirrly.tgproxy.core.SpeedPreset.AUTO -> "Авто"
+                            }
+
+                            Icon(
+                                painter = painterResource(id = iconRes),
+                                contentDescription = null,
+                                tint = if (isSelected) ActiveGreenLed else TextMuted,
+                                modifier = Modifier.size(14.dp)
+                            )
+
+                            Text(
+                                text = titleText,
+                                fontSize = 11.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) ActiveGreenLed else TextWhite
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Размер пула сокетов (WsPool)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    InfoButton { onInfoClick("pool") }
+                }
+
+                val activeDisplayValue = snap(poolSize).toInt()
+                val poolDisplayLabel = if (selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name) {
+                    "$activeDisplayValue сокетов (Авто)"
+                } else {
+                    "$activeDisplayValue сокетов"
+                }
+                Text(
+                    text = poolDisplayLabel,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = ActiveGreenLed
+                )
+            }
+
+            Slider(
+                value = poolSize,
+                onValueChange = { newValue ->
+                    val oldSnap = snap(poolSize).toInt()
+                    val newSnap = snap(newValue).toInt()
+                    if (oldSnap != newSnap) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                    onPoolSizeChange(newValue)
+                },
+                onValueChangeFinished = {
+                    val snapped = snap(poolSize)
+                    onPoolSnapFinish(snapped)
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                },
+                valueRange = 2f..16f,
+                colors = SliderDefaults.colors(
+                    thumbColor = TextWhite,
+                    activeTrackColor = ActiveGreenLed,
+                    inactiveTrackColor = Color(0xFF1E2333)
+                )
+            )
+
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val thumbHalfWidth = 10.dp
+                val usableWidth = maxWidth - thumbHalfWidth * 2
+
+                poolOptions.forEach { option ->
+                    val fraction = (option - 2f) / 14f
+                    val isSelected = snap(poolSize).toInt() == option.toInt()
+                    val optionColor by animateColorAsState(
+                        targetValue = if (isSelected) ActiveGreenLed else TextMuted,
+                        animationSpec = tween(200),
+                        label = "optionColor$option"
+                    )
+
+                    Text(
+                        text = "${option.toInt()}",
+                        fontSize = 13.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = optionColor,
+                        modifier = Modifier
+                            .layout { measurable, constraints ->
+                                val placeable = measurable.measure(
+                                    constraints.copy(minWidth = 0, minHeight = 0)
+                                )
+                                val centerXPx = (thumbHalfWidth + usableWidth * fraction).toPx()
+                                layout(placeable.width, placeable.height) {
+                                    placeable.place(
+                                        x = (centerXPx - placeable.width / 2f).toInt(),
+                                        y = 0
+                                    )
+                                }
+                            }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onPoolSnapFinish(option)
+                            }
+                    )
+                }
+            }
+        }
+
+        var tcpNoDelayModeState by remember { mutableStateOf(config.tcpNoDelayMode) }
+        val context = LocalContext.current
+        val autoEvaluation by produceState(
+            initialValue = NetworkConditionEvaluator.evaluate(
+                context = context,
+                capabilities = null,
+                currentPingMs = server.currentPingMs,
+                currentThroughputBps = server.stats.downloadSpeedBps + server.stats.uploadSpeedBps
+            ),
+            key1 = server.currentPingMs,
+            key2 = server.stats.downloadSpeedBps
+        ) {
+            value = NetworkConditionEvaluator.evaluate(
+                context = context,
+                capabilities = null,
+                currentPingMs = server.currentPingMs,
+                currentThroughputBps = server.stats.downloadSpeedBps + server.stats.uploadSpeedBps
+            )
+        }
+
+        val tcpNoDelayStatusText = when (tcpNoDelayModeState) {
+            TcpNoDelayMode.AUTO -> autoEvaluation.statusDescription
+            TcpNoDelayMode.ON -> "Включено: Мгновенная отправка (все сети)"
+            TcpNoDelayMode.OFF -> "Выключено: Склеивание пакетов Nagle (все сети)"
+        }
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Мгновенная отдача (TCP_NODELAY)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    InfoButton { onInfoClick("tcp_nodelay") }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(TcpNoDelayMode.AUTO, TcpNoDelayMode.ON, TcpNoDelayMode.OFF).forEach { mode ->
+                    val isSelected = tcpNoDelayModeState == mode
+                    val chipBorder by animateColorAsState(
+                        targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
+                        animationSpec = tween(200),
+                        label = "tcpBorder_${mode.name}"
+                    )
+                    val chipBg by animateColorAsState(
+                        targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
+                        animationSpec = tween(200),
+                        label = "tcpBg_${mode.name}"
+                    )
+                    val chipTextColor by animateColorAsState(
+                        targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                        animationSpec = tween(200),
+                        label = "tcpText_${mode.name}"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(chipBg)
+                            .border(1.dp, chipBorder, RoundedCornerShape(12.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                tcpNoDelayModeState = mode
+                                config.tcpNoDelayModeName = mode.name
+                                val effective = when (mode) {
+                                    TcpNoDelayMode.ON -> true
+                                    TcpNoDelayMode.OFF -> false
+                                    TcpNoDelayMode.AUTO -> autoEvaluation.isInstantSendRecommended
+                                }
+                                config.tcpNoDelay = effective
+                                server.applyTcpNoDelay(effective)
+                                app.saveConfig()
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = mode.displayName,
+                            fontSize = 12.5.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = chipTextColor
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = tcpNoDelayStatusText,
+                color = if (tcpNoDelayModeState == TcpNoDelayMode.AUTO && autoEvaluation.isInstantSendRecommended) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
+                fontSize = 11.5.sp,
+                lineHeight = 15.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsWorkerSection(
+    config: ProxyConfig,
+    onOpenWorkerManager: () -> Unit,
+    onOpenWorkerGuide: () -> Unit,
+    onInfoClick: (String) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val app = MirrlyApplication.instance
+    val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
+
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 3),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = "ТУННЕЛИРОВАНИЕ CLOUDFLARE",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.3.sp,
+            color = TextMuted
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color.Transparent)
+                .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(20.dp))
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenWorkerManager()
+                        }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFB388FF).copy(alpha = 0.12f))
+                                .border(1.dp, Color(0xFFB388FF).copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_settings),
+                                contentDescription = null,
+                                tint = Color(0xFFB388FF),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Менеджер воркеров",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = "Активен: ${activeWorker.name}",
+                                fontSize = 11.5.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenWorkerGuide()
+                        }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFFF9E00).copy(alpha = 0.12f))
+                                .border(1.dp, Color(0xFFFF9E00).copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_speed_turbo),
+                                contentDescription = null,
+                                tint = Color(0xFFFF9E00),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Инструкция по развертыванию",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = "Создать личный воркер за 2 минуты",
+                                fontSize = 11.5.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+
+
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF0F172A).copy(alpha = 0.6f))
+                .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
+                .padding(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(ActiveGreenLed.copy(alpha = 0.12f))
+                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "CDN",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ActiveGreenLed,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+                Text(
+                    text = "В режиме MTProto трафик надежно туннелируется через 20 встроенных Cloudflare CDN узлов без прямого подключения.",
+                    color = TextMuted,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSystemSection(
+    autostart: Boolean,
+    onAutostartChange: (Boolean) -> Unit,
+    timerState: com.mirrly.tgproxy.service.SleepTimerState,
+    onOpenSleepTimer: () -> Unit,
+    onInfoClick: (String) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val app = MirrlyApplication.instance
+    var disableAnimations by remember { mutableStateOf(app.prefsManager.areAnimationsDisabled()) }
+
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 4),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = "СИСТЕМА И ЭНЕРГОСБЕРЕЖЕНИЕ",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.3.sp,
+            color = TextMuted
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Автозапуск при загрузке", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    InfoButton { onInfoClick("autostart") }
+                }
+                Text("Автоматический запуск службы прокси после перезагрузки устройства", color = TextMuted, fontSize = 11.5.sp)
+            }
+            InertialSpringSwitch(
+                checked = autostart,
+                onCheckedChange = onAutostartChange
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onOpenSleepTimer()
+                }
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text("Таймер сна (автоотключение)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(
+                    text = if (timerState.isActive) "Активен • Отключение через ${timerState.formatRemainingTime()}" else "Выключен • Нажмите для выбора интервала",
+                    color = if (timerState.isActive) ActiveGreenLed else TextMuted,
+                    fontSize = 11.5.sp
+                )
+            }
+            Icon(
+                painter = painterResource(id = R.drawable.ic_timer),
+                contentDescription = null,
+                tint = if (timerState.isActive) ActiveGreenLed else TextMuted,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Режим энергосбережения", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    InfoButton { onInfoClick("disable_animations") }
+                }
+                Text("Отключение фоновых анимаций и частиц для экономии заряда батареи", color = TextMuted, fontSize = 11.5.sp)
+            }
+            InertialSpringSwitch(
+                checked = disableAnimations,
+                onCheckedChange = { newValue ->
+                    disableAnimations = newValue
+                    app.prefsManager.setAnimationsDisabled(newValue)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsAboutSection(
+    onOpenAbout: () -> Unit,
+    onDonateClick: () -> Unit,
+    onOpenUpdate: () -> Unit
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+    val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
+    val isUpdateAvailable = currentUpdateInfo?.isUpdateAvailable == true
+    val yellowAccent = Color(0xFFFFB703)
+
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 5),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = "О ПРИЛОЖЕНИИ",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.3.sp,
+            color = TextMuted
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(18.dp))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onOpenAbout()
+                    }
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(ActiveGreenLed.copy(alpha = 0.12f))
+                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_user),
+                            contentDescription = null,
+                            tint = ActiveGreenLed,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = "О разработчике & Проекте",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                        Text(
+                            text = "R1Xern • Информация, соцсети и статус сборки",
+                            fontSize = 11.5.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_chevron_right),
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onDonateClick()
+                    }
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(ActiveGreenLed.copy(alpha = 0.12f))
+                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_donate),
+                            contentDescription = null,
+                            tint = ActiveGreenLed,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = "Поддержать разработчика",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                        Text(
+                            text = "Добровольный донат на развитие проекта (DaLink)",
+                            fontSize = 11.5.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_chevron_right),
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+            val itemBgColor = if (isUpdateAvailable) Color(0xFF1F1A0A) else Color.Transparent
+            val iconBoxBgColor = if (isUpdateAvailable) yellowAccent.copy(alpha = 0.2f) else ActiveGreenLed.copy(alpha = 0.12f)
+            val iconTint = if (isUpdateAvailable) yellowAccent else ActiveGreenLed
+            val titleColor = if (isUpdateAvailable) yellowAccent else TextWhite
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(itemBgColor)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        if (isUpdateAvailable) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenUpdate()
+                        } else if (!isCheckingUpdate) {
+                            isCheckingUpdate = true
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            coroutineScope.launch {
+                                val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false, forceRefresh = true)
+                                isCheckingUpdate = false
+                                result.fold(
+                                    onSuccess = { info ->
+                                        if (info.isUpdateAvailable) {
+                                            onOpenUpdate()
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                "У вас установлена актуальная версия",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    },
+                                    onFailure = { err ->
+                                        Toast.makeText(
+                                            context,
+                                            "Ошибка проверки обновлений: ${err.localizedMessage}",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(iconBoxBgColor)
+                            .border(1.dp, iconTint.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_refresh),
+                            contentDescription = null,
+                            tint = iconTint,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = if (isUpdateAvailable) "Найдено обновление!" else "Проверить обновления",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = titleColor
+                        )
+                        Text(
+                            text = when {
+                                isCheckingUpdate -> "Проверка GitHub Releases..."
+                                isUpdateAvailable -> "Доступна новая версия • Нажмите для установки"
+                                else -> "Поиск новых версий на GitHub"
+                            },
+                            fontSize = 11.5.sp,
+                            color = if (isUpdateAvailable) TextWhite.copy(alpha = 0.9f) else TextMuted
+                        )
+                    }
+                }
+
+                if (isCheckingUpdate) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = ActiveGreenLed,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        tint = if (isUpdateAvailable) yellowAccent else TextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
+    val (dlgTitle, dlgBody) = when (infoKey) {
+        "port" -> "Порт подключения" to
+            "Локальный TCP-порт, на котором прокси принимает подключения от Telegram.\n\nРекомендованное значение: 1443. Этот порт не требует прав root и обычно не занят другими приложениями.\n\nДопустимый диапазон: 1–65535. Если порт занят — прокси не запустится. После смены порта обновите настройки прокси в Telegram."
+        "secret" -> "Секретный ключ (MTProto)" to
+            "32-символьный hex-ключ протокола MTProto. Его необходимо указать в настройках прокси Telegram — без него подключение невозможно.\n\nПрефикс dd означает режим Fake TLS: трафик маскируется под обычный HTTPS, что позволяет обходить DPI-фильтрацию.\n\nНажмите кнопку генерации для создания нового случайного ключа. После смены обновите ссылку-приглашение в Telegram."
+        "cf_domain" -> "Безопасность & Принцип работы Cloudflare Worker" to
+            "БЕЗОПАСНОСТЬ ЛИЧНЫХ ДАННЫХ:\n" +
+            "Для 100% защиты вашей конфиденциальности и анонимности мы рекомендуем развернуть свой личный воркер по встроенной инструкции.\n\n" +
+            "При использовании чужого воркера ваш трафик проходит через посторонний узел. Разворачивая собственный бесплатный воркер, вы гарантируете, что логи и ключи доступа принадлежат ТОЛЬКО вам.\n\n" +
+            "КАК РАБОТАЕТ CLOUDFLARE WORKER:\n" +
+            "• Cloudflare Worker — это бессерверный V8-скрипт на глобальной сети Cloudflare Edge (300+ городов по всему миру).\n" +
+            "• Он принимает трафик Telegram через зашифрованные WebSockets (wss://) и создает прямое TCP-подключение к дата-центрам Telegram через серверные каналы Cloudflare.\n" +
+            "• Для провайдеров и систем DPI/ТСПУ этот трафик выглядит как абсолютно обычное безопасное посещение любого сайта на Cloudflare, что полностью сводит на нет попытки блокировки.\n\n" +
+            "ПОЧЕМУ СВОЙ ВОРКЕР ЛУЧШЕ:\n" +
+            "• Бесплатный тариф Cloudflare даёт 100 000 запросов в день лично вам.\n" +
+            "• Отсутствие зависимости от сторонних серверов и чужих лимитов.\n" +
+            "• Максимальная скорость для звонков, скачивания тяжёлых файлов и видео."
+
+        "pool" -> "Размер пула сокетов" to
+            "Количество WebSocket-соединений, которые прокси держит открытыми заранее (pre-warming).\n\nБольший пул = меньше задержка при открытии чата и загрузке медиа:\n• 2 — минимальный расход батареи и RAM (Эко)\n• 4 — баланс скорости и экономии (Баланс, рекомендуется)\n• 8 — быстрый отклик, умеренный расход (Турбо)\n• 16 — максимальная параллелизация соединений (Ультра)\n\nКаждое соединение занимает ~50–100 КБ RAM и поддерживает фоновое соединение с Cloudflare."
+        "autostart" -> "Автозапуск при загрузке" to
+            "Прокси автоматически запустится после перезагрузки устройства — не нужно включать вручную.\n\nРаботает через системный сигнал BOOT_COMPLETED.\n\nВажно: на устройствах MIUI, HyperOS и OneUI может потребоваться дополнительное разрешение «Автозапуск» в системных настройках телефона, иначе система заблокирует запуск."
+        "reconnect" -> "Авто-переподключение" to
+            "При смене сети (Wi-Fi → LTE и обратно) прокси автоматически перезапускает соединения.\n\nБез этой функции Telegram может «зависать» на несколько секунд при переходе между сетями.\n\nФункция отслеживает изменения через NetworkCallback Android и перезапускает прокси только при реальной смене сети, а не временных потерях сигнала."
+        "preset" -> "Режимы производительности" to
+            "Настройка глубины буферов и количества сокетов для максимальной скорости:\n\n• Эко — 2 сокета, 128 КБ буфер. Минимальный расход энергии и памяти.\n\n• Баланс — 4 сокета, 256 КБ буфер. Оптимальная скорость для повседневного использования.\n\n• Турбо — 8 сокетов, 1 МБ буфер. Быстрая загрузка медиа и голосовых сообщений.\n\n• Ультра — 16 сокетов, 2 МБ буфер. Максимальная пропускная способность при скачивании тяжёлых файлов на каналах до 1 Гбит/с.\n\n• Авто — 2–16 сокетов. Интеллектуальная адаптация в реальном времени под текущую пропускную способность сети и задержку."
+        "tcp_nodelay" -> "Мгновенная отдача (TCP_NODELAY)" to
+            "Управление алгоритмом Нагла (Nagle's Algorithm) для TCP-сокетов:\n\n" +
+            "• Авто (рекомендуется):\n" +
+            "Автоматическая адаптация под качество соединения. Мгновенная отправка пакетов (TCP_NODELAY = true) активируется на скоростных каналах (от 50 Мбит/с) с низким пингом (до 140 мс). При слабом сигнале, высокой задержке или перегрузке сети включается склеивание пакетов для стабильности и защиты от потерь.\n\n" +
+            "• Включено (Мгновенная отдача):\n" +
+            "Пакеты отправляются в сеть немедленно в любых условиях. Минимизирует задержку отклика (минус 40–200 мс), но может увеличивать нагрузку на радиомодем при нестабильной связи.\n\n" +
+            "• Выключено (Склеивание пакетов):\n" +
+            "Ядро объединяет мелкие порции данных в полные TCP-сегменты перед передачей в сеть. Повышает стабильность на узких каналах связи."
+        "disable_animations" -> "Отключение анимаций и частиц" to
+            "Оптимизирует энергопотребление и снижает нагрузку на процессор устройства.\n\nПри включении тумблера убираются фоновые визуальные частицы и тяжёлые анимации, что продлевает время автономной работы батареи и обеспечивает максимальную плавность на бюджетных устройствах."
+        "protocols_info" -> "Режимы работы прокси" to
+            "• MTProto (рекомендуется):\nНативный протокол Telegram с WsPool, Fake-TLS и турбо-буферами. Максимальная скорость. Используй эту ссылку: tg://proxy?...secret=dd...\n\n• SOCKS5 (для звонков и чатов):\nПрозрачный TCP relay. Telegram шифрует данные самостоятельно. Поддерживает чаты, медиа и голосовые/видеозвонки одновременно. Используй tg://socks?...\n\nПримечание: оба режима не работают одновременно — выбери один."
+        else -> return
+    }
+    InfoDialog(title = dlgTitle, body = dlgBody, onDismiss = onDismiss)
 }
 
 

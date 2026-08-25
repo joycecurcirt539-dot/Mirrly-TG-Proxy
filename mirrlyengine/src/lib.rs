@@ -105,6 +105,7 @@ pub unsafe extern "C" fn StartProxy(
     cfproxy::init_cfproxy_domains();
 
     let dc_opt_map: HashMap<i32, String> = parse_cidr_pool(&dc_ips_str);
+    *DC_OPT.write() = dc_opt_map.clone();
 
     let rt = runtime();
     let cancel_tasks = CancellationToken::new();

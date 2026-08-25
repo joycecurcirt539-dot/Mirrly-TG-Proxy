@@ -2,7 +2,10 @@ package com.mirrly.tgproxy.ui.theme
 
 import android.app.Activity
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -13,6 +16,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -28,6 +32,7 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
@@ -105,7 +110,7 @@ val Socks5Palette = ProtocolColors(
 @Composable
 fun rememberAnimatedProtocolColors(isSocks5: Boolean): ProtocolColors {
     val target = if (isSocks5) Socks5Palette else MtprotoPalette
-    val spec = tween<Color>(durationMillis = 650, easing = FastOutSlowInEasing)
+    val spec = tween<Color>(durationMillis = 750, easing = FastOutSlowInEasing)
 
     val primary by androidx.compose.animation.animateColorAsState(target.primary, spec, label = "protoPrimary")
     val glow by androidx.compose.animation.animateColorAsState(target.glow, spec, label = "protoGlow")
@@ -225,17 +230,22 @@ fun Modifier.fadingEdges(
 /**
  * Universal Staggered Entrance Animation Modifier.
  * Sequentially animates cards and menu items floating upwards with smooth deceleration (Fade + Slide).
+ * Preserves entered state via rememberSaveable so it never re-animates on back navigation.
  */
 @Composable
 fun Modifier.staggeredEntrance(
     index: Int,
-    baseDelayMs: Int = 60,
-    durationMs: Int = 420
+    baseDelayMs: Int = 45,
+    durationMs: Int = 380
 ): Modifier {
-    var visible by remember { mutableStateOf(false) }
+    var visible by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay((index * baseDelayMs).toLong())
-        visible = true
+        if (!visible) {
+            if (index > 0) {
+                delay((index * baseDelayMs).toLong())
+            }
+            visible = true
+        }
     }
 
     val alpha by animateFloatAsState(
@@ -244,7 +254,7 @@ fun Modifier.staggeredEntrance(
         label = "staggeredAlpha_$index"
     )
     val offsetY by animateDpAsState(
-        targetValue = if (visible) 0.dp else 28.dp,
+        targetValue = if (visible) 0.dp else 24.dp,
         animationSpec = tween(durationMillis = durationMs, easing = FastOutSlowInEasing),
         label = "staggeredOffsetY_$index"
     )
@@ -258,12 +268,18 @@ fun Modifier.staggeredEntrance(
 /**
  * Universal Tactile 3D Spring Press Modifier.
  * Compresses scale by 3% on touch press, with physical spring bounce on release.
+ * Reliably handles clicks without dropping events or interfering with parent scroll gestures.
  */
 fun Modifier.springPress(
     onClick: (() -> Unit)? = null,
-    pressScale: Float = 0.97f
+    pressScale: Float = 0.97f,
+    interactionSource: MutableInteractionSource? = null
 ): Modifier = composed {
-    var isPressed by remember { mutableStateOf(false) }
+    val internalInteractionSource = interactionSource ?: remember { MutableInteractionSource() }
+    var pointerPressed by remember { mutableStateOf(false) }
+    val sourcePressed by internalInteractionSource.collectIsPressedAsState()
+    val isPressed = pointerPressed || sourcePressed
+
     val scale by animateFloatAsState(
         targetValue = if (isPressed) pressScale else 1.0f,
         animationSpec = spring(
@@ -278,18 +294,27 @@ fun Modifier.springPress(
             scaleX = scale
             scaleY = scale
         }
-        .pointerInput(onClick) {
-            detectTapGestures(
-                onPress = {
-                    isPressed = true
-                    tryAwaitRelease()
-                    isPressed = false
-                },
-                onTap = {
-                    onClick?.invoke()
+        .then(
+            if (onClick != null) {
+                Modifier.clickable(
+                    interactionSource = internalInteractionSource,
+                    indication = null,
+                    onClick = onClick
+                )
+            } else {
+                Modifier.pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull()
+                            if (change != null) {
+                                pointerPressed = change.pressed
+                            }
+                        }
+                    }
                 }
-            )
-        }
+            }
+        )
 }
 
 /**

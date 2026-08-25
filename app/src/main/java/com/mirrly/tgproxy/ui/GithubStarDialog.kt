@@ -77,32 +77,9 @@ fun GithubStarDialog(
             dismissOnClickOutside = true
         )
     ) {
-        val view = LocalView.current
-        SideEffect {
-            try {
-                val window = (view.parent as? DialogWindowProvider)?.window
-                if (window != null) {
-                    WindowCompat.setDecorFitsSystemWindows(window, false)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                        window.attributes = window.attributes.apply {
-                            blurBehindRadius = 70
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.12f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onDismiss() }
-                .padding(horizontal = 24.dp)
+        DialogBackdropBox(
+            onDismiss = onDismiss,
+            blurRadiusPx = 70
         ) {
             // Detailed Content (Centered)
             Column(
@@ -113,6 +90,7 @@ fun GithubStarDialog(
                     .fillMaxWidth()
                     .navigationBarsPadding()
                     .padding(bottom = 150.dp)
+                    .padding(horizontal = 24.dp)
                     .clickable(enabled = false) {}
             ) {
                 // Category Pill

@@ -40,6 +40,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -110,18 +111,11 @@ fun AboutScreen(
     }
 
     val scrollState = rememberScrollState()
-
-    // ── PARALLAX SCROLL MATH: HEADER RECEDES & SCALES ON DOWNWARD SCROLL ──
-    val rawScroll = scrollState.value.toFloat()
-    val maxScrollRange = with(LocalDensity.current) { 180.dp.toPx() }
-    val scrollFraction = (rawScroll / maxScrollRange).coerceIn(0f, 1f)
-
-    val headerScale = 1.0f - (scrollFraction * 0.12f)
-    val headerParallaxY = rawScroll * 0.32f
-    val headerAlpha = (1.0f - (scrollFraction * 0.40f)).coerceIn(0.2f, 1.0f)
+    val density = LocalDensity.current
+    val maxScrollRange = remember(density) { with(density) { 180.dp.toPx() } }
 
     // ── SHARED ELEMENT ENTRANCE SPRING SCALE (AVATAR FLIES IN FROM BUTTON) ──
-    var isEntered by remember { mutableStateOf(false) }
+    var isEntered by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         isEntered = true
     }
@@ -175,6 +169,12 @@ fun AboutScreen(
                     .fillMaxWidth()
                     .staggeredEntrance(index = 0)
                     .graphicsLayer {
+                        val rawScroll = scrollState.value.toFloat()
+                        val scrollFraction = (rawScroll / maxScrollRange).coerceIn(0f, 1f)
+                        val headerScale = 1.0f - (scrollFraction * 0.12f)
+                        val headerParallaxY = rawScroll * 0.32f
+                        val headerAlpha = (1.0f - (scrollFraction * 0.40f)).coerceIn(0.2f, 1.0f)
+
                         scaleX = headerScale * avatarEntranceScale
                         scaleY = headerScale * avatarEntranceScale
                         translationY = headerParallaxY
@@ -270,14 +270,18 @@ fun AboutScreen(
             }
 
             // OFFICIAL SOURCE & VERIFICATION CARD
-            OfficialSourceCard()
+            OfficialSourceCard(
+                modifier = Modifier.staggeredEntrance(index = 1)
+            )
 
             // GITHUB TOTAL DOWNLOADS STATS CARD
-            DownloadStatsCard()
+            DownloadStatsCard(
+                modifier = Modifier.staggeredEntrance(index = 2)
+            )
 
             // 2. BIO & MISSION CARD
             Column(
-                modifier = Modifier.staggeredEntrance(index = 1),
+                modifier = Modifier.staggeredEntrance(index = 3),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -316,7 +320,7 @@ fun AboutScreen(
 
             // 3. OFFICIAL LINKS
             Column(
-                modifier = Modifier.staggeredEntrance(index = 2),
+                modifier = Modifier.staggeredEntrance(index = 4),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -403,7 +407,7 @@ fun AboutScreen(
 
             // 4. STAR ON GITHUB SUPPORT CARD
             Column(
-                modifier = Modifier.staggeredEntrance(index = 3),
+                modifier = Modifier.staggeredEntrance(index = 5),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -472,7 +476,7 @@ fun AboutScreen(
 
             // 5. SUPPORT AUTHOR & DONATION CARD
             Column(
-                modifier = Modifier.staggeredEntrance(index = 4),
+                modifier = Modifier.staggeredEntrance(index = 6),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -537,7 +541,10 @@ fun AboutScreen(
             }
 
             // 6. CREDITS & ACKNOWLEDGEMENTS
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 7),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
                     text = "ОСОБАЯ БЛАГОДАРНОСТЬ (CREDITS)",
                     fontSize = 11.sp,
@@ -593,7 +600,10 @@ fun AboutScreen(
             }
 
             // 7. TECH STACK BADGES
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 8),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
                     text = "ТЕХНОЛОГИЧЕСКИЙ СТЕК",
                     fontSize = 11.sp,
@@ -699,6 +709,13 @@ fun AboutScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
+
+        // Delicate Cyber Particles floating over entire about screen interface
+        CyberParticlesOverlay(
+            modifier = Modifier.fillMaxSize(),
+            particleCount = 42,
+            alphaMultiplier = 0.70f
+        )
     }
 }
 

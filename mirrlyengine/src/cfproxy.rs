@@ -49,28 +49,18 @@ pub fn normalize_cf_domain(s: &str) -> String {
     if s_trim.is_empty() {
         return String::new();
     }
-    // If it's a user domain (e.g. workers.dev or custom com/net/org domain not needing caesar decode)
-    if !s_trim.ends_with(".com") || s_trim.contains('/') || s_trim.contains(':') {
-        let mut d = s_trim.to_lowercase();
-        while d.ends_with('.') {
-            d.pop();
-        }
-        return d;
+    let mut d = s_trim.to_lowercase();
+    while d.ends_with('.') {
+        d.pop();
     }
-    let mut decoded = decode_cf_domain(s_trim).trim().to_lowercase();
-    while decoded.ends_with('.') {
-        decoded.pop();
-    }
-    if decoded.is_empty() {
-        return String::new();
-    }
-    decoded
+    d
 }
 
 pub fn default_cfproxy_domains() -> Vec<String> {
     let mut domains = Vec::with_capacity(CFPROXY_ENC.len());
     for enc in CFPROXY_ENC {
-        let d = normalize_cf_domain(enc);
+        let decoded = decode_cf_domain(enc);
+        let d = normalize_cf_domain(&decoded);
         if !d.is_empty() {
             domains.push(d);
         }
@@ -279,15 +269,19 @@ pub fn init_cfproxy_domains() {
     let cached = load_cfproxy_domains_from_cache();
 
     let mut cfg = CFPROXY.write();
+    let has_user_domain = !cfg.user_domain.is_empty();
     if !cached.is_empty() {
         let n = cached.len();
         cfg.domains = merge_cfproxy_domains(&[cached, defaults]);
-        crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
-        drop(cfg);
-        linfo!(" CF: кеш доменов загружен ({} шт.)", n);
+        if !has_user_domain {
+            crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
+            linfo!(" CF: кеш доменов загружен ({} шт.)", n);
+        }
     } else {
         cfg.domains = defaults;
-        crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
+        if !has_user_domain {
+            crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
+        }
     }
 }
 
@@ -618,10 +612,13 @@ pub async fn cf_connect_domain(
     let path = if path.is_empty() { "/apiws" } else { path };
 
     let attempt_timeout = crate::ws::ws_connect_timeout(timeout);
-    let mut phase_timeout = attempt_timeout;
-    if phase_timeout > CFPROXY_DIAL_PHASE_TIMEOUT {
-        phase_timeout = CFPROXY_DIAL_PHASE_TIMEOUT;
-    }
+    let phase_timeout = if path.starts_with("/tcp") {
+        attempt_timeout
+    } else if attempt_timeout > CFPROXY_DIAL_PHASE_TIMEOUT {
+        CFPROXY_DIAL_PHASE_TIMEOUT
+    } else {
+        attempt_timeout
+    };
 
     let candidate_ips = resolve_dual_stack_ips(domain).await;
     let candidate_addrs: Vec<SocketAddr> = candidate_ips

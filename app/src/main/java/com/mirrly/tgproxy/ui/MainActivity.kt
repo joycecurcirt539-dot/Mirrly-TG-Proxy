@@ -53,7 +53,11 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
@@ -78,6 +82,53 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
+
+/**
+ * High-performance RenderEffect blur cache to prevent GPU shader pipeline churn.
+ */
+private class RenderEffectBlurCache(private val density: Float) {
+    private var lastQuantizedPx = -1
+    private var cachedEffect: androidx.compose.ui.graphics.RenderEffect? = null
+    var fullBlurEffect: androidx.compose.ui.graphics.RenderEffect? = null
+
+    init {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                val fullPx = 16f * density
+                fullBlurEffect = RenderEffect.createBlurEffect(
+                    fullPx,
+                    fullPx,
+                    Shader.TileMode.CLAMP
+                ).asComposeRenderEffect()
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun getBlurEffect(progress: Float): androidx.compose.ui.graphics.RenderEffect? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || progress <= 0.02f) return null
+        if (progress >= 0.98f) return fullBlurEffect
+
+        val radiusPx = progress * 16f * density
+        val quantizedPx = (radiusPx / 2f).roundToInt() * 2
+        if (quantizedPx <= 1) return null
+        if (quantizedPx == lastQuantizedPx && cachedEffect != null) {
+            return cachedEffect
+        }
+        lastQuantizedPx = quantizedPx
+        return try {
+            val effect = RenderEffect.createBlurEffect(
+                quantizedPx.toFloat(),
+                quantizedPx.toFloat(),
+                Shader.TileMode.CLAMP
+            ).asComposeRenderEffect()
+            cachedEffect = effect
+            effect
+        } catch (_: Throwable) {
+            null
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -87,6 +138,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Lock screen orientation to Portrait only
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         // Enable Edge-to-Edge edge transparent status bar drawing
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -142,7 +196,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val globalProxyState = if (isProxyRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
+                val switchPhase by com.mirrly.tgproxy.service.ProtocolSwitchManager.switchPhase.collectAsState()
+
+                val globalProxyState = when (switchPhase) {
+                    com.mirrly.tgproxy.service.SwitchPhase.DISCONNECTING -> ProxyUiState.DISCONNECTING
+                    com.mirrly.tgproxy.service.SwitchPhase.PAUSE_DARK -> ProxyUiState.DISCONNECTED
+                    com.mirrly.tgproxy.service.SwitchPhase.RECONNECTING -> ProxyUiState.CONNECTING
+                    com.mirrly.tgproxy.service.SwitchPhase.IDLE -> if (isProxyRunning || server.isRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
+                }
 
                 val screenStack = remember { mutableStateListOf("home") }
                 val currentScreen = screenStack.lastOrNull() ?: "home"
@@ -153,9 +214,12 @@ class MainActivity : ComponentActivity() {
                 val workerManagerOpenProgress = remember { Animatable(0f) }
                 val isWorkerManager = currentScreen == "worker_manager"
 
+                var isWmVisible by remember { mutableStateOf(false) }
+
                 // Synchronize workerManagerOpenProgress with current screen
                 LaunchedEffect(currentScreen) {
                     if (isWorkerManager) {
+                        isWmVisible = true
                         if (workerManagerOpenProgress.value < 0.99f) {
                             workerManagerOpenProgress.animateTo(
                                 1f,
@@ -169,70 +233,85 @@ class MainActivity : ComponentActivity() {
                                 spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
                             )
                         }
+                        isWmVisible = false
+                    } else {
+                        isWmVisible = false
                     }
                 }
 
-                fun navigateTo(screen: String) {
-                    if (screen == "worker_guide") {
-                        workerManagerSection = ManagerSection.GUIDE
-                        if (screenStack.lastOrNull() != "worker_manager") {
-                            screenStack.add("worker_manager")
-                        }
-                        scope.launch {
-                            workerManagerOpenProgress.animateTo(
-                                1f,
-                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
-                            )
-                        }
-                    } else if (screen == "worker_manager") {
-                        workerManagerSection = ManagerSection.WORKERS
-                        if (screenStack.lastOrNull() != "worker_manager") {
-                            screenStack.add("worker_manager")
-                        }
-                        scope.launch {
-                            workerManagerOpenProgress.animateTo(
-                                1f,
-                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
-                            )
-                        }
-                    } else {
-                        if (screenStack.lastOrNull() != screen) {
-                            screenStack.add(screen)
+                // Stable navigation action callbacks
+                val navigateTo: (String) -> Unit = remember {
+                    { screen ->
+                        if (screen == "worker_guide") {
+                            workerManagerSection = ManagerSection.GUIDE
+                            if (screenStack.lastOrNull() != "worker_manager") {
+                                screenStack.add("worker_manager")
+                            }
+                            isWmVisible = true
+                            scope.launch {
+                                workerManagerOpenProgress.animateTo(
+                                    1f,
+                                    spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
+                                )
+                            }
+                        } else if (screen == "worker_manager") {
+                            workerManagerSection = ManagerSection.WORKERS
+                            if (screenStack.lastOrNull() != "worker_manager") {
+                                screenStack.add("worker_manager")
+                            }
+                            isWmVisible = true
+                            scope.launch {
+                                workerManagerOpenProgress.animateTo(
+                                    1f,
+                                    spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
+                                )
+                            }
+                        } else {
+                            if (screenStack.lastOrNull() != screen) {
+                                screenStack.add(screen)
+                            }
                         }
                     }
                 }
 
                 var lastNavigateBackTime by remember { mutableLongStateOf(0L) }
 
-                fun navigateBack() {
-                    val now = System.currentTimeMillis()
-                    if (now - lastNavigateBackTime < 240) return
-                    lastNavigateBackTime = now
+                val navigateBack: () -> Unit = remember {
+                    {
+                        val now = System.currentTimeMillis()
+                        if (now - lastNavigateBackTime >= 240) {
+                            lastNavigateBackTime = now
 
-                    if (screenStack.size > 1) {
-                        val topScreen = screenStack.removeAt(screenStack.size - 1)
-                        if (topScreen == "worker_manager") {
-                            scope.launch {
-                                workerManagerOpenProgress.animateTo(
-                                    0f,
-                                    spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
-                                )
+                            if (screenStack.size > 1) {
+                                val topScreen = screenStack.removeAt(screenStack.size - 1)
+                                if (topScreen == "worker_manager") {
+                                    scope.launch {
+                                        workerManagerOpenProgress.animateTo(
+                                            0f,
+                                            spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
+                                        )
+                                        if (screenStack.lastOrNull() != "worker_manager") {
+                                            isWmVisible = false
+                                        }
+                                    }
+                                }
+                            } else if (workerManagerOpenProgress.value > 0.01f) {
+                                screenStack.removeAll { it == "worker_manager" }
+                                scope.launch {
+                                    workerManagerOpenProgress.animateTo(
+                                        0f,
+                                        spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
+                                    )
+                                    isWmVisible = false
+                                }
+                            } else {
+                                if (now - lastBackTime < 2000) {
+                                    finish()
+                                } else {
+                                    lastBackTime = now
+                                    Toast.makeText(this@MainActivity, "Нажмите еще раз для выхода", Toast.LENGTH_SHORT).show()
+                                }
                             }
-                        }
-                    } else if (workerManagerOpenProgress.value > 0.01f) {
-                        screenStack.removeAll { it == "worker_manager" }
-                        scope.launch {
-                            workerManagerOpenProgress.animateTo(
-                                0f,
-                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
-                            )
-                        }
-                    } else {
-                        if (now - lastBackTime < 2000) {
-                            finish()
-                        } else {
-                            lastBackTime = now
-                            Toast.makeText(this@MainActivity, "Нажмите еще раз для выхода", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -241,307 +320,95 @@ class MainActivity : ComponentActivity() {
                     navigateBack()
                 }
 
-                val standardBlurRadius by animateDpAsState(
-                    targetValue = if (currentScreen == "home") 0.dp else 16.dp,
-                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
-                    label = "canvasBlur"
-                )
+                var isUiHidden by remember { mutableStateOf(false) }
+                val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
+                var globalTouchPoint by remember { mutableStateOf<Offset?>(null) }
 
-                val standardBackdropAlpha by animateFloatAsState(
+                // Stable callbacks for child screens (Enables Smart Recomposition Skipping)
+                val onOpenSettings = remember { { navigateTo("settings") } }
+                val onOpenLogs = remember { { navigateTo("logs") } }
+                val onOpenHistory = remember { { navigateTo("history") } }
+                val onOpenUpdate = remember { { navigateTo("update") } }
+                val onOpenWorkerGuide = remember { { navigateTo("worker_guide") } }
+                val onOpenWorkerManager = remember { { navigateTo("worker_manager") } }
+                val onOpenAbout = remember { { navigateTo("about") } }
+                val onOpenLicense = remember { { navigateTo("license") } }
+                val onOpenTerms = remember { { navigateTo("terms") } }
+                val onNavigateBack = remember { { navigateBack() } }
+                val onUiHiddenChange: (Boolean) -> Unit = remember { { hidden -> isUiHidden = hidden } }
+
+                val density = LocalDensity.current.density
+                val blurCache = remember(density) { RenderEffectBlurCache(density) }
+
+                // Active screens tracking for smooth transition without recomposition storms
+                var activeScreens by remember { mutableStateOf(setOf("home")) }
+
+                LaunchedEffect(currentScreen, screenStack.toList()) {
+                    val newSet = activeScreens.toMutableSet()
+                    newSet.addAll(screenStack)
+                    newSet.add(currentScreen)
+                    activeScreens = newSet
+
+                    // Keep screens alive for transition duration (420ms) then prune inactive ones
+                    delay(420)
+
+                    val targetSet = screenStack.toSet() + currentScreen + "home"
+                    activeScreens = targetSet
+                }
+
+                val standardBackdropAlpha = animateFloatAsState(
                     targetValue = if (currentScreen == "home") 0f else 0.48f,
                     animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
                     label = "backdropAlpha"
                 )
 
-                val wmProgress = workerManagerOpenProgress.value
-                val isInteractiveWm = (currentScreen == "home" || isWorkerManager)
-
-                val activeBlurRadius = if (currentScreen == "home" || currentScreen == "worker_manager") (wmProgress * 16f).dp else 16.dp
-                val activeBackdropAlpha = if (currentScreen == "home" || currentScreen == "worker_manager") (wmProgress * 0.48f) else 0.48f
-                val homeBlurRadius = if (currentScreen == "home" || currentScreen == "worker_manager") (wmProgress * 16f).dp else 16.dp
-
-                var isUiHidden by remember { mutableStateOf(false) }
-                val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
-
-                BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-                    // Global Seamless Cyber Energy Canvas with Zero-Lag GPU Hardware Blur Optimization
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                compositingStrategy = CompositingStrategy.Offscreen
-                                if (activeBlurRadius > 0.5.dp && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    val radiusPx = activeBlurRadius.toPx()
-                                    renderEffect = RenderEffect.createBlurEffect(
-                                        radiusPx,
-                                        radiusPx,
-                                        Shader.TileMode.CLAMP
-                                    ).asComposeRenderEffect()
-                                } else {
-                                    renderEffect = null
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull()
+                                    if (change != null) {
+                                        globalTouchPoint = if (change.pressed) change.position else null
+                                    }
                                 }
                             }
-                            .then(
-                                if (activeBlurRadius > 0.5.dp && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                                    Modifier.blur(activeBlurRadius)
-                                } else {
-                                    Modifier
-                                }
-                            )
-                    ) {
-                        CyberEnergyCanvas(
-                            state = globalProxyState,
-                            isUiHidden = isUiHidden,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    // Gaussian Frosted Dark Backdrop Overlay for Non-Home Tabs
-                    if (activeBackdropAlpha > 0.01f) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = activeBackdropAlpha))
-                        )
-                    }
-
+                        }
+                ) {
                     val widthPx = constraints.maxWidth.toFloat()
+                    val heightPx = constraints.maxHeight.toFloat()
                     val pushMs = 380
                     val navEasing = FastOutSlowInEasing
 
-                    val isHome = currentScreen == "home"
-                    val isSettings = currentScreen == "settings"
-                    val isLogs = currentScreen == "logs"
-                    val isHistory = currentScreen == "history"
-                    val isAbout = currentScreen == "about"
-                    val isLicense = currentScreen == "license"
-                    val isTerms = currentScreen == "terms"
-                    val isUpdate = currentScreen == "update"
-
-                    // Animated offsets & scales for Update screen
-                    val updateOffsetFraction by animateFloatAsState(
-                        targetValue = if (isUpdate) 0f else 1.0f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "updateOffset"
-                    )
-                    val updateScale by animateFloatAsState(
-                        targetValue = if (isUpdate) 1.0f else 0.94f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "updateScale"
-                    )
-                    val updateAlpha by animateFloatAsState(
-                        targetValue = if (isUpdate) 1.0f else 0.0f,
-                        animationSpec = tween(220),
-                        label = "updateAlpha"
-                    )
-
-                    val heightPx = constraints.maxHeight.toFloat()
-
-                    // Animated offsets & scales for Home screen
-                    val homeOffsetFraction by animateFloatAsState(
-                        targetValue = when {
-                            isHome -> 0f
-                            isSettings || isAbout || isLicense || isTerms || isUpdate -> -0.15f
-                            isLogs || isHistory -> 0.15f
-                            else -> 0f
-                        },
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "homeOffset"
-                    )
-                    val homeScale by animateFloatAsState(
-                        targetValue = if (isHome) 1.0f else 0.94f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "homeScale"
-                    )
-                    val homeAlpha by animateFloatAsState(
-                        targetValue = if (isHome) 1.0f else 0.0f,
-                        animationSpec = tween(220),
-                        label = "homeAlpha"
-                    )
-
-                    // Animated offsets & scales for Settings screen
-                    val settingsOffsetFraction by animateFloatAsState(
-                        targetValue = when {
-                            isSettings -> 0f
-                            isAbout || isLicense || isTerms || isWorkerManager -> -0.15f
-                            else -> 1.0f
-                        },
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "settingsOffset"
-                    )
-                    val settingsScale by animateFloatAsState(
-                        targetValue = if (isSettings) 1.0f else 0.94f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "settingsScale"
-                    )
-                    val settingsAlpha by animateFloatAsState(
-                        targetValue = if (isSettings) 1.0f else 0.0f,
-                        animationSpec = tween(220),
-                        label = "settingsAlpha"
-                    )
-
-                    // Animated offsets & scales for Logs screen
-                    val logsOffsetFraction by animateFloatAsState(
-                        targetValue = if (isLogs) 0f else -1.0f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "logsOffset"
-                    )
-                    val logsScale by animateFloatAsState(
-                        targetValue = if (isLogs) 1.0f else 0.94f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "logsScale"
-                    )
-                    val logsAlpha by animateFloatAsState(
-                        targetValue = if (isLogs) 1.0f else 0.0f,
-                        animationSpec = tween(220),
-                        label = "logsAlpha"
-                    )
-
-                    // Animated offsets & scales for History screen
-                    val historyOffsetFraction by animateFloatAsState(
-                        targetValue = if (isHistory) 0f else -1.0f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "historyOffset"
-                    )
-                    val historyScale by animateFloatAsState(
-                        targetValue = if (isHistory) 1.0f else 0.94f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "historyScale"
-                    )
-                    val historyAlpha by animateFloatAsState(
-                        targetValue = if (isHistory) 1.0f else 0.0f,
-                        animationSpec = tween(220),
-                        label = "historyAlpha"
-                    )
-
-                    // Animated offsets & scales for About screen
-                    val aboutOffsetFraction by animateFloatAsState(
-                        targetValue = when {
-                            isAbout -> 0f
-                            isLicense || isTerms -> -0.15f
-                            else -> 1.0f
-                        },
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "aboutOffset"
-                    )
-                    val aboutScale by animateFloatAsState(
-                        targetValue = if (isAbout) 1.0f else 0.94f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "aboutScale"
-                    )
-                    val aboutAlpha by animateFloatAsState(
-                        targetValue = if (isAbout) 1.0f else 0.0f,
-                        animationSpec = tween(220),
-                        label = "aboutAlpha"
-                    )
-
-                    // Animated offsets & scales for License screen
-                    val licenseOffsetFraction by animateFloatAsState(
-                        targetValue = when {
-                            isLicense -> 0f
-                            isTerms -> -0.15f
-                            else -> 1.0f
-                        },
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "licenseOffset"
-                    )
-                    val licenseScale by animateFloatAsState(
-                        targetValue = if (isLicense) 1.0f else 0.94f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "licenseScale"
-                    )
-                    val licenseAlpha by animateFloatAsState(
-                        targetValue = if (isLicense) 1.0f else 0.0f,
-                        animationSpec = tween(220),
-                        label = "licenseAlpha"
-                    )
-
-                    // Animated offsets & scales for Terms screen
-                    val termsOffsetFraction by animateFloatAsState(
-                        targetValue = if (isTerms) 0f else 1.0f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "termsOffset"
-                    )
-                    val termsScale by animateFloatAsState(
-                        targetValue = if (isTerms) 1.0f else 0.94f,
-                        animationSpec = tween(pushMs, easing = navEasing),
-                        label = "termsScale"
-                    )
-                    val termsAlpha by animateFloatAsState(
-                        targetValue = if (isTerms) 1.0f else 0.0f,
-                        animationSpec = tween(220),
-                        label = "termsAlpha"
-                    )
-
-                    // 1. HOME SCREEN (Pre-warmed & persistent with real-time blur)
-                    val homeScaleEffective = if (isInteractiveWm) (1.0f - 0.04f * wmProgress) else homeScale
-                    val homeAlphaEffective = if (isInteractiveWm) (1.0f - 0.25f * wmProgress) else homeAlpha
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = widthPx * homeOffsetFraction
-                                scaleX = homeScaleEffective
-                                scaleY = homeScaleEffective
-                                alpha = homeAlphaEffective
-                                if (homeBlurRadius > 0.5.dp && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    val radiusPx = homeBlurRadius.toPx()
-                                    renderEffect = RenderEffect.createBlurEffect(
-                                        radiusPx,
-                                        radiusPx,
-                                        Shader.TileMode.CLAMP
-                                    ).asComposeRenderEffect()
-                                } else {
-                                    renderEffect = null
-                                }
+                    val onDragWorkerManager: (Float) -> Unit = remember(heightPx) {
+                        { totalDragY ->
+                            if (totalDragY > 0f) {
+                                isWmVisible = true
+                                val fraction = (totalDragY / (heightPx * 0.28f)).coerceIn(0f, 1f)
+                                scope.launch { workerManagerOpenProgress.snapTo(fraction) }
+                            } else {
+                                scope.launch { workerManagerOpenProgress.snapTo(0f) }
                             }
-                            .then(
-                                if (homeBlurRadius > 0.5.dp && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                                    Modifier.blur(homeBlurRadius)
-                                } else {
-                                    Modifier
-                                }
-                            )
-                    ) {
-                        HomeScreen(
-                            onOpenSettings = { navigateTo("settings") },
-                            onOpenLogs = { navigateTo("logs") },
-                            onOpenHistory = { navigateTo("history") },
-                            onOpenUpdate = { navigateTo("update") },
-                            onOpenWorkerGuide = { navigateTo("worker_guide") },
-                            onOpenWorkerManager = { navigateTo("worker_manager") },
-                            onDragWorkerManager = { totalDragY ->
-                                if (totalDragY > 0f) {
-                                    val fraction = (totalDragY / (heightPx * 0.28f)).coerceIn(0f, 1f)
-                                    scope.launch { workerManagerOpenProgress.snapTo(fraction) }
-                                } else {
-                                    scope.launch { workerManagerOpenProgress.snapTo(0f) }
-                                }
-                            },
-                            onSettleWorkerManager = { totalDragY ->
-                                if (totalDragY > 0f) {
-                                    val fraction = (totalDragY / (heightPx * 0.28f)).coerceIn(0f, 1f)
-                                    if (fraction > 0.12f) {
-                                        if (screenStack.lastOrNull() != "worker_manager") {
-                                            screenStack.add("worker_manager")
-                                        }
-                                        scope.launch {
-                                            workerManagerOpenProgress.animateTo(
-                                                1f,
-                                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
-                                            )
-                                        }
-                                    } else {
-                                        if (screenStack.lastOrNull() == "worker_manager") {
-                                            screenStack.removeAt(screenStack.size - 1)
-                                        }
-                                        scope.launch {
-                                            workerManagerOpenProgress.animateTo(
-                                                0f,
-                                                spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
-                                            )
-                                        }
+                        }
+                    }
+
+                    val onSettleWorkerManager: (Float) -> Unit = remember(heightPx) {
+                        { totalDragY ->
+                            if (totalDragY > 0f) {
+                                val fraction = (totalDragY / (heightPx * 0.28f)).coerceIn(0f, 1f)
+                                if (fraction > 0.12f) {
+                                    if (screenStack.lastOrNull() != "worker_manager") {
+                                        screenStack.add("worker_manager")
+                                    }
+                                    isWmVisible = true
+                                    scope.launch {
+                                        workerManagerOpenProgress.animateTo(
+                                            1f,
+                                            spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
+                                        )
                                     }
                                 } else {
                                     if (screenStack.lastOrNull() == "worker_manager") {
@@ -552,159 +419,425 @@ class MainActivity : ComponentActivity() {
                                             0f,
                                             spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
                                         )
+                                        if (screenStack.lastOrNull() != "worker_manager") {
+                                            isWmVisible = false
+                                        }
                                     }
                                 }
-                            },
-                            onUiHiddenChange = { hidden ->
-                                isUiHidden = hidden
-                            },
-                            isInteractive = (currentScreen == "home")
-                        )
-                    }
-
-                    // 2. LOGS SCREEN (Pre-warmed & persistent)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = widthPx * logsOffsetFraction
-                                scaleX = logsScale
-                                scaleY = logsScale
-                                alpha = logsAlpha
+                            } else {
+                                if (screenStack.lastOrNull() == "worker_manager") {
+                                    screenStack.removeAt(screenStack.size - 1)
+                                }
+                                scope.launch {
+                                    workerManagerOpenProgress.animateTo(
+                                        0f,
+                                        spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
+                                    )
+                                    if (screenStack.lastOrNull() != "worker_manager") {
+                                        isWmVisible = false
+                                    }
+                                }
                             }
-                    ) {
-                        LogsScreen(
-                            onBack = { navigateBack() },
-                            onOpenSettings = { navigateTo("settings") }
-                        )
+                        }
                     }
 
-                    // HISTORY SCREEN (Pre-warmed & persistent)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = widthPx * historyOffsetFraction
-                                scaleX = historyScale
-                                scaleY = historyScale
-                                alpha = historyAlpha
-                            }
-                    ) {
-                        HistoryScreen(
-                            onBack = { navigateBack() }
-                        )
-                    }
+                    val isHome = currentScreen == "home"
+                    val isSettings = currentScreen == "settings"
+                    val isLogs = currentScreen == "logs"
+                    val isHistory = currentScreen == "history"
+                    val isAbout = currentScreen == "about"
+                    val isLicense = currentScreen == "license"
+                    val isTerms = currentScreen == "terms"
+                    val isUpdate = currentScreen == "update"
 
-                    // 3. SETTINGS SCREEN (Pre-warmed & persistent)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = widthPx * settingsOffsetFraction
-                                scaleX = settingsScale
-                                scaleY = settingsScale
-                                alpha = settingsAlpha
-                            }
-                    ) {
-                        SettingsScreen(
-                            onBack = { navigateBack() },
-                            onOpenAbout = { navigateTo("about") },
-                            onOpenUpdate = { navigateTo("update") },
-                            onOpenWorkerGuide = { navigateTo("worker_guide") },
-                            onOpenWorkerManager = { navigateTo("worker_manager") }
-                        )
-                    }
+                    // Animated States for All Screens
+                    val updateOffsetFraction = animateFloatAsState(
+                        targetValue = if (isUpdate) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "updateOffset"
+                    )
+                    val updateScale = animateFloatAsState(
+                        targetValue = if (isUpdate) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "updateScale"
+                    )
+                    val updateAlpha = animateFloatAsState(
+                        targetValue = if (isUpdate) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "updateAlpha"
+                    )
 
-                    // WORKER MANAGER SCREEN (Interactive Top-to-Bottom slide down sheet with integrated Guide)
-                    val wmOffsetYFraction = -(1.0f - wmProgress)
-                    val wmScale = 0.96f + 0.04f * wmProgress
-                    val wmAlpha = wmProgress.coerceIn(0f, 1f)
+                    val homeOffsetFraction = animateFloatAsState(
+                        targetValue = when {
+                            isHome -> 0f
+                            isSettings || isAbout || isLicense || isTerms || isUpdate -> -0.15f
+                            isLogs || isHistory -> 0.15f
+                            else -> 0f
+                        },
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "homeOffset"
+                    )
+                    val homeScale = animateFloatAsState(
+                        targetValue = if (isHome) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "homeScale"
+                    )
+                    val homeAlpha = animateFloatAsState(
+                        targetValue = if (isHome) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "homeAlpha"
+                    )
 
-                    if (wmProgress > 0.001f || isWorkerManager) {
+                    val settingsOffsetFraction = animateFloatAsState(
+                        targetValue = when {
+                            isSettings -> 0f
+                            isAbout || isLicense || isTerms || isWorkerManager -> -0.15f
+                            else -> 1.0f
+                        },
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "settingsOffset"
+                    )
+                    val settingsScale = animateFloatAsState(
+                        targetValue = if (isSettings) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "settingsScale"
+                    )
+                    val settingsAlpha = animateFloatAsState(
+                        targetValue = if (isSettings) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "settingsAlpha"
+                    )
+
+                    val logsOffsetFraction = animateFloatAsState(
+                        targetValue = if (isLogs) 0f else -1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "logsOffset"
+                    )
+                    val logsScale = animateFloatAsState(
+                        targetValue = if (isLogs) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "logsScale"
+                    )
+                    val logsAlpha = animateFloatAsState(
+                        targetValue = if (isLogs) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "logsAlpha"
+                    )
+
+                    val historyOffsetFraction = animateFloatAsState(
+                        targetValue = if (isHistory) 0f else -1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "historyOffset"
+                    )
+                    val historyScale = animateFloatAsState(
+                        targetValue = if (isHistory) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "historyScale"
+                    )
+                    val historyAlpha = animateFloatAsState(
+                        targetValue = if (isHistory) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "historyAlpha"
+                    )
+
+                    val aboutOffsetFraction = animateFloatAsState(
+                        targetValue = when {
+                            isAbout -> 0f
+                            isLicense || isTerms -> -0.15f
+                            else -> 1.0f
+                        },
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "aboutOffset"
+                    )
+                    val aboutScale = animateFloatAsState(
+                        targetValue = if (isAbout) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "aboutScale"
+                    )
+                    val aboutAlpha = animateFloatAsState(
+                        targetValue = if (isAbout) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "aboutAlpha"
+                    )
+
+                    val licenseOffsetFraction = animateFloatAsState(
+                        targetValue = when {
+                            isLicense -> 0f
+                            isTerms -> -0.15f
+                            else -> 1.0f
+                        },
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "licenseOffset"
+                    )
+                    val licenseScale = animateFloatAsState(
+                        targetValue = if (isLicense) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "licenseScale"
+                    )
+                    val licenseAlpha = animateFloatAsState(
+                        targetValue = if (isLicense) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "licenseAlpha"
+                    )
+
+                    val termsOffsetFraction = animateFloatAsState(
+                        targetValue = if (isTerms) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "termsOffset"
+                    )
+                    val termsScale = animateFloatAsState(
+                        targetValue = if (isTerms) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "termsScale"
+                    )
+                    val termsAlpha = animateFloatAsState(
+                        targetValue = if (isTerms) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "termsAlpha"
+                    )
+
+                    // ── BACKGROUND CANVAS (Overdraw-Optimized: rendered only when visible) ──
+                    val isCanvasVisible = activeScreens.contains("home") || isWmVisible
+                    if (isCanvasVisible) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    translationY = heightPx * wmOffsetYFraction
+                                    val wmP = workerManagerOpenProgress.value
+                                    val isNonHome = currentScreen != "home" && currentScreen != "worker_manager"
+                                    val effProgress = if (isNonHome) 1f else wmP
+                                    val blurEffect = blurCache.getBlurEffect(effProgress)
+
+                                    compositingStrategy = if (blurEffect != null) CompositingStrategy.Offscreen else CompositingStrategy.Auto
+                                    renderEffect = blurEffect
+                                }
+                        ) {
+                            val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
+                            CyberEnergyCanvas(
+                                state = globalProxyState,
+                                isSocks5 = isSocks5,
+                                externalTouchPoint = globalTouchPoint,
+                                isUiHidden = isUiHidden,
+                                isConstellationPaused = (currentScreen != "home"),
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+
+                    // ── GAUSSIAN FROSTED DARK BACKDROP OVERLAY FOR NON-HOME TABS ──
+                    val isBackdropVisible = currentScreen != "home" || isWmVisible || activeScreens.any { it != "home" }
+                    if (isBackdropVisible) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    val wmP = workerManagerOpenProgress.value
+                                    val isHomeTab = currentScreen == "home"
+                                    val alphaVal = if (isHomeTab) {
+                                        wmP * 0.48f
+                                    } else if (currentScreen == "worker_manager") {
+                                        wmP.coerceIn(0f, 1f) * 0.48f
+                                    } else {
+                                        standardBackdropAlpha.value
+                                    }
+                                    alpha = alphaVal
+                                }
+                                .background(Color.Black)
+                        )
+                    }
+
+                    // ── 1. HOME SCREEN (Layered & Hardware Blur Cached) ──
+                    if (activeScreens.contains("home")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    val wmP = workerManagerOpenProgress.value
+                                    val isInteractiveWm = (currentScreen == "home" || currentScreen == "worker_manager")
+                                    val baseScale = homeScale.value
+                                    val baseAlpha = homeAlpha.value
+                                    val effectiveScale = if (isInteractiveWm) (1.0f - 0.04f * wmP) else baseScale
+                                    val effectiveAlpha = if (isInteractiveWm) (1.0f - 0.25f * wmP) else baseAlpha
+
+                                    translationX = widthPx * homeOffsetFraction.value
+                                    scaleX = effectiveScale
+                                    scaleY = effectiveScale
+                                    alpha = effectiveAlpha
+
+                                    val blurEffect = blurCache.getBlurEffect(if (isInteractiveWm) wmP else if (currentScreen != "home") 1f else 0f)
+                                    renderEffect = blurEffect
+                                }
+                        ) {
+                            HomeScreen(
+                                onOpenSettings = onOpenSettings,
+                                onOpenLogs = onOpenLogs,
+                                onOpenHistory = onOpenHistory,
+                                onOpenUpdate = onOpenUpdate,
+                                onOpenWorkerGuide = onOpenWorkerGuide,
+                                onOpenWorkerManager = onOpenWorkerManager,
+                                onDragWorkerManager = onDragWorkerManager,
+                                onSettleWorkerManager = onSettleWorkerManager,
+                                onUiHiddenChange = onUiHiddenChange,
+                                isInteractive = (currentScreen == "home" && !isWmVisible)
+                            )
+                        }
+                    }
+
+                    // ── 2. LOGS SCREEN ──
+                    if (activeScreens.contains("logs")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * logsOffsetFraction.value
+                                    scaleX = logsScale.value
+                                    scaleY = logsScale.value
+                                    alpha = logsAlpha.value
+                                }
+                        ) {
+                            LogsScreen(
+                                onBack = onNavigateBack,
+                                onOpenSettings = onOpenSettings
+                            )
+                        }
+                    }
+
+                    // ── 3. HISTORY SCREEN ──
+                    if (activeScreens.contains("history")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * historyOffsetFraction.value
+                                    scaleX = historyScale.value
+                                    scaleY = historyScale.value
+                                    alpha = historyAlpha.value
+                                }
+                        ) {
+                            HistoryScreen(
+                                onBack = onNavigateBack
+                            )
+                        }
+                    }
+
+                    // ── 4. SETTINGS SCREEN ──
+                    if (activeScreens.contains("settings")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * settingsOffsetFraction.value
+                                    scaleX = settingsScale.value
+                                    scaleY = settingsScale.value
+                                    alpha = settingsAlpha.value
+                                }
+                        ) {
+                            SettingsScreen(
+                                onBack = onNavigateBack,
+                                onOpenAbout = onOpenAbout,
+                                onOpenUpdate = onOpenUpdate,
+                                onOpenWorkerGuide = onOpenWorkerGuide,
+                                onOpenWorkerManager = onOpenWorkerManager
+                            )
+                        }
+                    }
+
+                    // ── 5. WORKER MANAGER SCREEN (Top-to-Bottom Interactive Sheet) ──
+                    if (isWmVisible) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    val wmP = workerManagerOpenProgress.value
+                                    translationY = heightPx * (-(1.0f - wmP))
+                                    val wmScale = 0.96f + 0.04f * wmP
                                     scaleX = wmScale
                                     scaleY = wmScale
-                                    alpha = wmAlpha
+                                    alpha = wmP.coerceIn(0f, 1f)
                                 }
                         ) {
                             WorkerManagerScreen(
                                 prefs = app.prefsManager,
-                                onBack = { navigateBack() },
+                                onBack = onNavigateBack,
                                 initialSection = workerManagerSection
                             )
                         }
                     }
 
-                    // 4. ABOUT SCREEN (Pre-warmed & persistent)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = widthPx * aboutOffsetFraction
-                                scaleX = aboutScale
-                                scaleY = aboutScale
-                                alpha = aboutAlpha
-                            }
-                    ) {
-                        AboutScreen(
-                            onBack = { navigateBack() },
-                            onOpenLicense = { navigateTo("license") },
-                            onOpenTerms = { navigateTo("terms") },
-                            onOpenUpdate = { navigateTo("update") }
-                        )
+                    // ── 6. ABOUT SCREEN ──
+                    if (activeScreens.contains("about")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * aboutOffsetFraction.value
+                                    scaleX = aboutScale.value
+                                    scaleY = aboutScale.value
+                                    alpha = aboutAlpha.value
+                                }
+                        ) {
+                            AboutScreen(
+                                onBack = onNavigateBack,
+                                onOpenLicense = onOpenLicense,
+                                onOpenTerms = onOpenTerms,
+                                onOpenUpdate = onOpenUpdate
+                            )
+                        }
                     }
 
-                    // 5. LICENSE SCREEN (Pre-warmed & persistent)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = widthPx * licenseOffsetFraction
-                                scaleX = licenseScale
-                                scaleY = licenseScale
-                                alpha = licenseAlpha
-                            }
-                    ) {
-                        LicenseScreen(
-                            onBack = { navigateBack() }
-                        )
+                    // ── 7. LICENSE SCREEN ──
+                    if (activeScreens.contains("license")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * licenseOffsetFraction.value
+                                    scaleX = licenseScale.value
+                                    scaleY = licenseScale.value
+                                    alpha = licenseAlpha.value
+                                }
+                        ) {
+                            LicenseScreen(
+                                onBack = onNavigateBack
+                            )
+                        }
                     }
 
-                    // 6. TERMS SCREEN (Pre-warmed & persistent)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = widthPx * termsOffsetFraction
-                                scaleX = termsScale
-                                scaleY = termsScale
-                                alpha = termsAlpha
-                            }
-                    ) {
-                        TermsScreen(
-                            onBack = { navigateBack() }
-                        )
+                    // ── 8. TERMS SCREEN ──
+                    if (activeScreens.contains("terms")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * termsOffsetFraction.value
+                                    scaleX = termsScale.value
+                                    scaleY = termsScale.value
+                                    alpha = termsAlpha.value
+                                }
+                        ) {
+                            TermsScreen(
+                                onBack = onNavigateBack
+                            )
+                        }
                     }
 
-                    // 7. UPDATE SCREEN (Pre-warmed & persistent)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = widthPx * updateOffsetFraction
-                                scaleX = updateScale
-                                scaleY = updateScale
-                                alpha = updateAlpha
-                            }
-                    ) {
-                        UpdateScreen(
-                            releaseInfo = currentUpdateInfo,
-                            onBack = { navigateBack() }
-                        )
+                    // ── 9. UPDATE SCREEN ──
+                    if (activeScreens.contains("update")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * updateOffsetFraction.value
+                                    scaleX = updateScale.value
+                                    scaleY = updateScale.value
+                                    alpha = updateAlpha.value
+                                }
+                        ) {
+                            UpdateScreen(
+                                releaseInfo = currentUpdateInfo,
+                                onBack = onNavigateBack
+                            )
+                        }
                     }
 
                     if (showUnofficialDialog) {

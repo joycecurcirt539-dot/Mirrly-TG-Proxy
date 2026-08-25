@@ -9,7 +9,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -45,17 +44,39 @@ import com.mirrly.tgproxy.core.LogEntry
 import com.mirrly.tgproxy.core.LogEvent
 import com.mirrly.tgproxy.core.LogLevel
 import com.mirrly.tgproxy.ui.theme.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.withContext
 
-private data class LogCalcResult(
-    val filteredLogs: List<LogEntry>,
-    val totalCount: Int,
-    val infoCount: Int,
-    val warnCount: Int,
-    val errorCount: Int
+// Static UI shapes and borders cached across compositions to eliminate scroll allocation churn
+private val LogCardShape = RoundedCornerShape(13.dp)
+private val LogTagShape = RoundedCornerShape(5.dp)
+private val FilterChipShape = RoundedCornerShape(11.dp)
+private val SearchFieldShape = RoundedCornerShape(14.dp)
+
+private val InfoCardBorder = BorderStroke(1.dp, Color(0xFF181E2E))
+private val WarnCardBorder = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
+private val ErrorCardBorder = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.45f))
+private val TagBadgeBorder = BorderStroke(1.dp, Color(0xFF1E283D))
+
+private val WarnAccentColor = Color(0xFFF59E0B)
+private val ErrorAccentColor = Color(0xFFEF4444)
+
+private val HeaderGradientBrush = Brush.verticalGradient(
+    colors = listOf(
+        Color.Black.copy(alpha = 0.99f),
+        Color.Black.copy(alpha = 0.98f),
+        Color.Black.copy(alpha = 0.96f),
+        Color.Black.copy(alpha = 0.88f),
+        Color.Black.copy(alpha = 0.00f)
+    )
 )
+
+private fun matchesFilter(entry: LogEntry, query: String, level: LogLevel?): Boolean {
+    if (level != null && entry.level != level) return false
+    val trimmed = query.trim()
+    if (trimmed.isEmpty()) return true
+    return entry.humanMessage.contains(trimmed, ignoreCase = true) ||
+            entry.rawMessage.contains(trimmed, ignoreCase = true) ||
+            entry.tag.contains(trimmed, ignoreCase = true)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,67 +89,107 @@ fun LogsScreen(
     val density = LocalDensity.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    val rawLogs = remember { mutableStateListOf<LogEntry>() }
-
-    LaunchedEffect(Unit) {
-        rawLogs.clear()
-        rawLogs.addAll(AppLogger.getLogs())
-        AppLogger.logEvents.collect { event ->
-            when (event) {
-                is LogEvent.Added -> {
-                    rawLogs.add(event.entry)
-                    if (rawLogs.size > 250) {
-                        rawLogs.removeAt(0)
-                    }
-                }
-                LogEvent.Cleared -> {
-                    rawLogs.clear()
-                }
-            }
-        }
-    }
-
     var isSearchVisible by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedLevel by remember { mutableStateOf<LogLevel?>(null) }
     val searchFocusRequester = remember { FocusRequester() }
 
-    var calcResult by remember { mutableStateOf(LogCalcResult(emptyList(), 0, 0, 0, 0)) }
+    // Internal bounded ring buffer (up to 250 elements)
+    val rawLogBuffer = remember { ArrayDeque<LogEntry>(250) }
+
+    // Differential counter states (updated in O(1) on incoming events)
+    var totalCount by remember { mutableIntStateOf(0) }
+    var infoCount by remember { mutableIntStateOf(0) }
+    var warnCount by remember { mutableIntStateOf(0) }
+    var errorCount by remember { mutableIntStateOf(0) }
+
+    // Displayed log list for LazyColumn (newest first)
+    val displayedLogs = remember { mutableStateListOf<LogEntry>() }
+
     var headerHeightDp by remember { mutableStateOf(160.dp) }
 
+    // Synchronize initial logs and handle incremental differential events
     LaunchedEffect(Unit) {
-        snapshotFlow { Triple(rawLogs.toList(), searchQuery, selectedLevel) }
-            .collectLatest { (logs, query, level) ->
-                val result = withContext(Dispatchers.Default) {
-                    var infoC = 0
-                    var warnC = 0
-                    var errorC = 0
-                    val trimmedQuery = query.trim()
-                    val hasQuery = trimmedQuery.isNotEmpty()
-                    val filtered = ArrayList<LogEntry>(logs.size)
-
-                    for (i in logs.indices) {
-                        val entry = logs[i]
-                        when (entry.level) {
-                            LogLevel.INFO -> infoC++
-                            LogLevel.WARN -> warnC++
-                            LogLevel.ERROR -> errorC++
-                        }
-
-                        if (level != null && entry.level != level) continue
-                        if (hasQuery) {
-                            val matches = entry.humanMessage.contains(trimmedQuery, ignoreCase = true) ||
-                                    entry.rawMessage.contains(trimmedQuery, ignoreCase = true) ||
-                                    entry.tag.contains(trimmedQuery, ignoreCase = true)
-                            if (!matches) continue
-                        }
-                        filtered.add(entry)
-                    }
-                    filtered.reverse()
-                    LogCalcResult(filtered, logs.size, infoC, warnC, errorC)
-                }
-                calcResult = result
+        val initialLogs = AppLogger.getLogs()
+        rawLogBuffer.clear()
+        displayedLogs.clear()
+        var iC = 0
+        var wC = 0
+        var eC = 0
+        for (i in initialLogs.indices) {
+            val entry = initialLogs[i]
+            rawLogBuffer.addLast(entry)
+            when (entry.level) {
+                LogLevel.INFO -> iC++
+                LogLevel.WARN -> wC++
+                LogLevel.ERROR -> eC++
             }
+            if (matchesFilter(entry, searchQuery, selectedLevel)) {
+                displayedLogs.add(0, entry)
+            }
+        }
+        totalCount = rawLogBuffer.size
+        infoCount = iC
+        warnCount = wC
+        errorCount = eC
+
+        AppLogger.logEvents.collect { event ->
+            when (event) {
+                is LogEvent.Added -> {
+                    val entry = event.entry
+
+                    // Differential O(1) counter update
+                    totalCount++
+                    when (entry.level) {
+                        LogLevel.INFO -> infoCount++
+                        LogLevel.WARN -> warnCount++
+                        LogLevel.ERROR -> errorCount++
+                    }
+
+                    // Evict oldest if buffer capacity reached
+                    if (rawLogBuffer.size >= 250) {
+                        val evicted = rawLogBuffer.removeFirst()
+                        totalCount--
+                        when (evicted.level) {
+                            LogLevel.INFO -> infoCount--
+                            LogLevel.WARN -> warnCount--
+                            LogLevel.ERROR -> errorCount--
+                        }
+                        if (displayedLogs.isNotEmpty() && displayedLogs.last().id == evicted.id) {
+                            displayedLogs.removeAt(displayedLogs.lastIndex)
+                        } else {
+                            displayedLogs.removeAll { it.id == evicted.id }
+                        }
+                    }
+
+                    rawLogBuffer.addLast(entry)
+
+                    // Differential addition directly to displayed list
+                    if (matchesFilter(entry, searchQuery, selectedLevel)) {
+                        displayedLogs.add(0, entry)
+                    }
+                }
+                LogEvent.Cleared -> {
+                    rawLogBuffer.clear()
+                    displayedLogs.clear()
+                    totalCount = 0
+                    infoCount = 0
+                    warnCount = 0
+                    errorCount = 0
+                }
+            }
+        }
+    }
+
+    // Re-filter displayed list only when filter query or level selection changes
+    LaunchedEffect(searchQuery, selectedLevel) {
+        displayedLogs.clear()
+        for (i in rawLogBuffer.indices.reversed()) {
+            val entry = rawLogBuffer[i]
+            if (matchesFilter(entry, searchQuery, selectedLevel)) {
+                displayedLogs.add(entry)
+            }
+        }
     }
 
     LaunchedEffect(isSearchVisible) {
@@ -138,19 +199,50 @@ fun LogsScreen(
         }
     }
 
-    val filteredLogs = calcResult.filteredLogs
-    val totalCount = calcResult.totalCount
-    val infoCount = calcResult.infoCount
-    val warnCount = calcResult.warnCount
-    val errorCount = calcResult.errorCount
-
     val activeProtoColor = ActiveGreenLed
+
+    // Derived states to prevent unnecessary recompositions
+    val isListEmpty by remember { derivedStateOf { displayedLogs.isEmpty() } }
+    val isSearchActive by remember { derivedStateOf { isSearchVisible || searchQuery.isNotEmpty() } }
+
+    // Stable copy callback to prevent recreating closures and interaction sources in item rows
+    val onCopyLog: (LogEntry) -> Unit = remember(context, haptic) {
+        { entry ->
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val text = "[${entry.formattedTime}] [${entry.tag}] ${entry.humanMessage}"
+            clipboard.setPrimaryClip(ClipData.newPlainText("Mirrly Log Entry", text))
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            Toast.makeText(context, "Запись скопирована", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val onCopyAllLogs: () -> Unit = remember(context, haptic, displayedLogs) {
+        {
+            if (displayedLogs.isEmpty()) {
+                Toast.makeText(context, "Нет событий для копирования", Toast.LENGTH_SHORT).show()
+            } else {
+                val text = displayedLogs.joinToString("\n") { "[${it.formattedTime}] [${it.tag}] ${it.humanMessage}" }
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Mirrly Proxy Logs", text))
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                Toast.makeText(context, "Все записи скопированы", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val onClearLogs: () -> Unit = remember(context, haptic) {
+        {
+            AppLogger.clear()
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            Toast.makeText(context, "Логи очищены", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
         // 1. SCROLLABLE LOGS FEED
-        if (filteredLogs.isEmpty()) {
+        if (isListEmpty) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -189,10 +281,13 @@ fun LogsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(
-                    items = filteredLogs,
+                    items = displayedLogs,
                     key = { it.id }
                 ) { entry ->
-                    GlassLogCard(entry = entry)
+                    GlassLogCard(
+                        entry = entry,
+                        onCopy = onCopyLog
+                    )
                 }
             }
         }
@@ -207,17 +302,7 @@ fun LogsScreen(
                         headerHeightDp = heightInDp
                     }
                 }
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.99f),
-                            Color.Black.copy(alpha = 0.98f),
-                            Color.Black.copy(alpha = 0.96f),
-                            Color.Black.copy(alpha = 0.88f),
-                            Color.Black.copy(alpha = 0.00f)
-                        )
-                    )
-                )
+                .background(brush = HeaderGradientBrush)
                 .padding(bottom = 22.dp)
         ) {
             Column(
@@ -267,23 +352,13 @@ fun LogsScreen(
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_search),
                                 contentDescription = "Поиск",
-                                tint = if (isSearchVisible || searchQuery.isNotEmpty()) activeProtoColor else TextWhite,
+                                tint = if (isSearchActive) activeProtoColor else TextWhite,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
 
                         // Copy All Logs
-                        IconButton(onClick = {
-                            if (filteredLogs.isEmpty()) {
-                                Toast.makeText(context, "Нет событий для копирования", Toast.LENGTH_SHORT).show()
-                                return@IconButton
-                            }
-                            val text = filteredLogs.joinToString("\n") { "[${it.formattedTime}] [${it.tag}] ${it.humanMessage}" }
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Mirrly Proxy Logs", text))
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            Toast.makeText(context, "Все записи скопированы", Toast.LENGTH_SHORT).show()
-                        }) {
+                        IconButton(onClick = onCopyAllLogs) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_copy),
                                 contentDescription = "Скопировать все",
@@ -293,11 +368,7 @@ fun LogsScreen(
                         }
 
                         // Clear Logs
-                        IconButton(onClick = {
-                            AppLogger.clear()
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            Toast.makeText(context, "Логи очищены", Toast.LENGTH_SHORT).show()
-                        }) {
+                        IconButton(onClick = onClearLogs) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_trash),
                                 contentDescription = "Очистить",
@@ -365,7 +436,7 @@ fun LogsScreen(
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = SearchFieldShape,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = Color.Transparent,
                             unfocusedContainerColor = Color.Transparent,
@@ -408,7 +479,7 @@ fun LogsScreen(
                         title = "Варн",
                         count = warnCount,
                         isSelected = selectedLevel == LogLevel.WARN,
-                        activeColor = Color(0xFFF59E0B),
+                        activeColor = WarnAccentColor,
                         modifier = Modifier.weight(1f),
                         onClick = {
                             selectedLevel = if (selectedLevel == LogLevel.WARN) null else LogLevel.WARN
@@ -419,7 +490,7 @@ fun LogsScreen(
                         title = "Ошибки",
                         count = errorCount,
                         isSelected = selectedLevel == LogLevel.ERROR,
-                        activeColor = Color(0xFFEF4444),
+                        activeColor = ErrorAccentColor,
                         modifier = Modifier.weight(1f),
                         onClick = {
                             selectedLevel = if (selectedLevel == LogLevel.ERROR) null else LogLevel.ERROR
@@ -429,6 +500,13 @@ fun LogsScreen(
                 }
             }
         }
+
+        // Delicate Cyber Particles floating over entire logs screen interface
+        CyberParticlesOverlay(
+            modifier = Modifier.fillMaxSize(),
+            particleCount = 42,
+            alphaMultiplier = 0.70f
+        )
     }
 }
 
@@ -453,7 +531,7 @@ private fun SegmentedFilterChip(
     )
 
     Surface(
-        shape = RoundedCornerShape(11.dp),
+        shape = FilterChipShape,
         color = Color.Transparent,
         border = BorderStroke(1.dp, borderColor),
         modifier = modifier
@@ -488,37 +566,28 @@ private fun SegmentedFilterChip(
 }
 
 @Composable
-private fun GlassLogCard(entry: LogEntry) {
-    val context = LocalContext.current
-    val haptic = LocalHapticFeedback.current
-
+private fun GlassLogCard(
+    entry: LogEntry,
+    onCopy: (LogEntry) -> Unit
+) {
     val levelColor = when (entry.level) {
         LogLevel.INFO -> ActiveGreenLed
-        LogLevel.WARN -> Color(0xFFF59E0B)
-        LogLevel.ERROR -> Color(0xFFEF4444)
+        LogLevel.WARN -> WarnAccentColor
+        LogLevel.ERROR -> ErrorAccentColor
     }
 
-    val cardBorderColor = when (entry.level) {
-        LogLevel.INFO -> Color(0xFF181E2E)
-        LogLevel.WARN -> Color(0xFFF59E0B).copy(alpha = 0.35f)
-        LogLevel.ERROR -> Color(0xFFEF4444).copy(alpha = 0.45f)
+    val cardBorder = when (entry.level) {
+        LogLevel.INFO -> InfoCardBorder
+        LogLevel.WARN -> WarnCardBorder
+        LogLevel.ERROR -> ErrorCardBorder
     }
 
     Surface(
-        shape = RoundedCornerShape(13.dp),
+        shape = LogCardShape,
         color = Color.Transparent,
-        border = BorderStroke(1.dp, cardBorderColor),
-        modifier = Modifier
-            .fillMaxWidth()
-            .springPress(
-                onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    val text = "[${entry.formattedTime}] [${entry.tag}] ${entry.humanMessage}"
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Mirrly Log Entry", text))
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    Toast.makeText(context, "Запись скопирована", Toast.LENGTH_SHORT).show()
-                }
-            )
+        border = cardBorder,
+        onClick = { onCopy(entry) },
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -544,9 +613,9 @@ private fun GlassLogCard(entry: LogEntry) {
 
                     // Tag Badge
                     Surface(
-                        shape = RoundedCornerShape(5.dp),
+                        shape = LogTagShape,
                         color = Color.Transparent,
-                        border = BorderStroke(1.dp, Color(0xFF1E283D))
+                        border = TagBadgeBorder
                     ) {
                         Text(
                             text = entry.tag.ifBlank { "System" },
@@ -579,4 +648,5 @@ private fun GlassLogCard(entry: LogEntry) {
         }
     }
 }
+
 

@@ -26,7 +26,9 @@ class PreferencesManager(context: Context) {
             _animationsDisabledFlow.value = sharedPreferences.getBoolean(key, false)
         }
         if (key == "proxy_mode" || key == "socks5_enabled") {
-            _isSocks5Flow.value = loadConfig().isSocks5Mode
+            val modeName = sharedPreferences.getString("proxy_mode", ProxyMode.MTPROTO.name)
+            val isSocks5 = modeName == ProxyMode.SOCKS5.name || sharedPreferences.getBoolean("socks5_enabled", false)
+            _isSocks5Flow.value = isSocks5
         }
     }
 
@@ -48,11 +50,12 @@ class PreferencesManager(context: Context) {
             savedSecret
         }
         val cfEnabled = prefs.getBoolean("cf_proxy_enabled", defaults.cfProxyEnabled)
+        val activeWorker = getActiveWorker()
         val savedCustomDomain = prefs.getString("custom_cf_domain", null)
-        val customDomain = if (savedCustomDomain != null && savedCustomDomain.isNotBlank()) {
+        val customDomain = if (!savedCustomDomain.isNullOrBlank()) {
             ProxyConfig.sanitizeDomain(savedCustomDomain)
         } else {
-            getActiveWorker().domain
+            activeWorker.domain
         }
         val poolSize = prefs.getInt("pool_size", defaults.poolSize)
         val autostart = prefs.getBoolean("autostart_on_boot", defaults.autostartOnBoot)
@@ -69,7 +72,6 @@ class PreferencesManager(context: Context) {
         val bufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
         val socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
         val useDefaultWorkerSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
-        val applyWorkerToMtproto = prefs.getBoolean("apply_worker_to_mtproto", defaults.applyWorkerToMtproto)
 
         // Миграция: если proxy_mode ещё не сохранён, читаем старый socks5_enabled
         val proxyModeName = if (prefs.contains("proxy_mode")) {
@@ -94,20 +96,20 @@ class PreferencesManager(context: Context) {
             bufferSizeBytes = bufferSizeBytes,
             socks5Port = socks5Port,
             useDefaultWorkerSocks5 = useDefaultWorkerSocks5,
-            applyWorkerToMtproto = applyWorkerToMtproto,
             proxyModeName = proxyModeName
         )
     }
 
     fun saveConfig(config: ProxyConfig) {
         val sanitizedDomain = ProxyConfig.sanitizeDomain(config.customCfDomain)
-        config.customCfDomain = sanitizedDomain
+        val domainToSave = if (sanitizedDomain.isNotEmpty()) sanitizedDomain else getActiveWorker().domain
+        config.customCfDomain = domainToSave
         prefs.edit()
             .putString("bind_host", config.bindHost)
             .putInt("bind_port", config.bindPort)
             .putString("secret_hex", config.secretHex)
             .putBoolean("cf_proxy_enabled", config.cfProxyEnabled)
-            .putString("custom_cf_domain", sanitizedDomain)
+            .putString("custom_cf_domain", domainToSave)
             .putInt("pool_size", config.poolSize)
             .putBoolean("autostart_on_boot", config.autostartOnBoot)
             .putString("speed_preset", config.speedPresetName)
@@ -116,7 +118,6 @@ class PreferencesManager(context: Context) {
             .putInt("buffer_size_bytes", config.bufferSizeBytes)
             .putInt("socks5_port", config.socks5Port)
             .putBoolean("use_default_worker_socks5", config.useDefaultWorkerSocks5)
-            .putBoolean("apply_worker_to_mtproto", config.applyWorkerToMtproto)
             .putString("proxy_mode", config.proxyModeName)
             .apply()
         _isSocks5Flow.value = config.isSocks5Mode

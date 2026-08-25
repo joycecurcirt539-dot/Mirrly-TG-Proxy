@@ -47,7 +47,6 @@ data class ProxyConfig(
     var bufferSizeBytes: Int = 262144, // 256KB default buffer
     var socks5Port: Int = 10808,
     var useDefaultWorkerSocks5: Boolean = true,
-    var applyWorkerToMtproto: Boolean = false,
     // proxyModeName — единый источник истины (MTPROTO или SOCKS5)
     var proxyModeName: String = ProxyMode.MTPROTO.name
 ) {
@@ -80,21 +79,13 @@ data class ProxyConfig(
         }
     }
 
-    /** Возвращает эффективный CF-домен:
-     *  - В режиме SOCKS5: используется пользовательский воркер (100% приоритет) или дефолтный узел разработчика.
-     *  - В режиме MTProto: домен воркера используется ТОЛЬКО если пользователь включил переключатель applyWorkerToMtproto; иначе MTProto туннелируется через Anycast CDN пул.
+    /** Возвращает эффективный домен Cloudflare Worker для режима SOCKS5:
+     *  - Используется пользовательский воркер (100% приоритет) или дефолтный узел разработчика.
      */
     fun getEffectiveCfDomain(): String {
         val userDomain = sanitizeDomain(customCfDomain)
-        if (isSocks5Mode) {
-            if (userDomain.isNotEmpty()) return userDomain
-            return TgConstants.DEFAULT_SOCKS5_DEV_WORKER
-        } else {
-            if (applyWorkerToMtproto && userDomain.isNotEmpty()) {
-                return userDomain
-            }
-            return ""
-        }
+        if (userDomain.isNotEmpty()) return userDomain
+        return TgConstants.DEFAULT_SOCKS5_DEV_WORKER
     }
 
     val rawSecret32: String

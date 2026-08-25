@@ -174,7 +174,23 @@ object HumanLogTranslator {
                 if (!count.isNullOrEmpty()) "Пул сокетов обновлен ($count параллельных потоков)" else "Пул сокетов готов к работе"
             }
 
-            // SOCKS5 & Cloudflare Worker Tunneling
+            // SOCKS5 & MTProto Cloudflare Worker & CDN Tunneling
+            msg.contains("MTProto подключен через Worker", ignoreCase = true) -> {
+                val dom = msg.substringAfter("Worker", "").trim()
+                if (dom.isNotEmpty()) "MTProto: Успешный WSS-туннель через Cloudflare Worker ($dom)" else "MTProto: Успешный WSS-туннель через Cloudflare Worker"
+            }
+            msg.contains("подключен через Worker:", ignoreCase = true) -> {
+                val dom = msg.substringAfter("Worker:", "").trim()
+                if (dom.isNotEmpty()) "MTProto: Успешный WSS-туннель через Cloudflare Worker ($dom)" else "MTProto: Успешный WSS-туннель через Cloudflare Worker"
+            }
+            msg.contains("подключен через CDN:", ignoreCase = true) -> {
+                val dom = msg.substringAfter("CDN:", "").trim()
+                if (dom.isNotEmpty()) "MTProto: WSS-туннель через Cloudflare CDN ($dom)" else "MTProto: WSS-туннель через Cloudflare CDN"
+            }
+            msg.contains("MTProto endpoint выбран:", ignoreCase = true) -> {
+                val dom = msg.substringAfter("выбран:", "").trim()
+                if (dom.isNotEmpty()) "MTProto: Выбран активный Cloudflare узел ($dom)" else "MTProto: Выбран активный Cloudflare узел"
+            }
             msg.contains("Кастомный домен Cloudflare Worker не назначен", ignoreCase = true) -> {
                 "SOCKS5: Кастомный домен Worker не задан! Пропуск WSS и переход на прямое TCP-подключение (может блокироваться в РФ)"
             }

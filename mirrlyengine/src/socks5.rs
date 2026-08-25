@@ -326,7 +326,7 @@ async fn socks5_acquire_cf_ws(
                         }
                         let _ = tx.send((w, worker)).await;
                     } else if let Some(e) = err {
-                        if is_http_status_error(&e, 429) {
+                        if crate::ws::is_cooldown_error(&e) {
                             mark_cfproxy_429_cooldown(&worker, &e);
                         }
                         if !resolved_ip.is_empty() {

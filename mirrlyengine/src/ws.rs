@@ -159,6 +159,14 @@ pub fn is_http_status_error(err: &WsError, code: i32) -> bool {
     err.handshake_status() == Some(code)
 }
 
+pub fn is_cooldown_error(err: &WsError) -> bool {
+    if let Some(code) = err.handshake_status() {
+        matches!(code, 429 | 500 | 502 | 503 | 504 | 520 | 521 | 522 | 523 | 524)
+    } else {
+        false
+    }
+}
+
 impl From<std::io::Error> for WsError {
     fn from(e: std::io::Error) -> Self {
         WsError::Io(e)

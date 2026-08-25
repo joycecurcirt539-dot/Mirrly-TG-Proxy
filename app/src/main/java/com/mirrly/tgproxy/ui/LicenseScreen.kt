@@ -1270,6 +1270,13 @@ copy of the Program in return for a fee.
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
+
+        // Delicate Cyber Particles floating over entire license interface
+        CyberParticlesOverlay(
+            modifier = Modifier.fillMaxSize(),
+            particleCount = 42,
+            alphaMultiplier = 0.70f
+        )
     }
 }
 

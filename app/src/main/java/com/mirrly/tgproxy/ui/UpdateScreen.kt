@@ -934,5 +934,12 @@ fun UpdateScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
+
+        // Delicate Cyber Particles floating over entire update screen interface
+        CyberParticlesOverlay(
+            modifier = Modifier.fillMaxSize(),
+            particleCount = 42,
+            alphaMultiplier = 0.70f
+        )
     }
 }

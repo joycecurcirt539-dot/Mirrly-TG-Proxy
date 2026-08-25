@@ -85,7 +85,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         NativeProxy.setTcpNoDelay(initialNoDelay)
 
         val useCf = config.cfProxyEnabled
-        val workerDomain = config.getEffectiveCfDomain()
+        val workerDomain = if (config.isSocks5Mode) config.getEffectiveCfDomain() else ""
 
         NativeProxy.setCfProxyConfig(
             enabled = useCf,
@@ -319,29 +319,46 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
     }
 
+    private var pingFailures = 0
+
     fun measurePingAsync(dcId: Int = 2) {
-        scope.launch {
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val cfDomain = config.getEffectiveCfDomain()
             val pingTarget = if (cfDomain.isNotBlank()) cfDomain else TgConstants.decodeCfDomain("virkgj.com")
             val ping = run {
                 val start = System.currentTimeMillis()
                 try {
+                    val addrs = java.net.InetAddress.getAllByName(pingTarget)
+                    if (addrs.isEmpty()) return@run -1L
                     Socket().use { s ->
-                        s.connect(java.net.InetSocketAddress(pingTarget, 443), 2500)
+                        s.tcpNoDelay = true
+                        s.connect(java.net.InetSocketAddress(addrs[0], 443), 2000)
                         System.currentTimeMillis() - start
                     }
                 } catch (_: Exception) {
                     -1L
                 }
             }
-            currentPingMs = ping
+            if (ping > 0) {
+                pingFailures = 0
+                currentPingMs = ping
+            } else {
+                pingFailures++
+                if (pingFailures >= 3) {
+                    currentPingMs = -1L
+                }
+            }
         }
     }
 
     fun onWorkerChanged(newWorkerDomain: String) {
         config.customCfDomain = newWorkerDomain
-        val effectiveDomain = config.getEffectiveCfDomain()
-        AppLogger.i("LocalProxyServer", "Смена активного воркера → $effectiveDomain")
+        updateWorkerConfig()
+    }
+
+    fun updateWorkerConfig() {
+        val effectiveDomain = if (config.isSocks5Mode) config.getEffectiveCfDomain() else ""
+        AppLogger.i("LocalProxyServer", "Обновление конфигурации воркера → '$effectiveDomain'")
         if (isNativeRunning) {
             try {
                 NativeProxy.setCfProxyConfig(

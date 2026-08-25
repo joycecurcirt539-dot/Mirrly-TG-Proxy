@@ -58,81 +58,26 @@ class ProxyConfigTest {
     @Test
     fun testGetEffectiveCfDomainSanitizesCustomDomain() {
         val config = ProxyConfig(
-            customCfDomain = "https://custom-worker.workers.dev//path",
-            applyWorkerToMtproto = true
+            customCfDomain = "https://custom-worker.workers.dev//path"
         )
         assertEquals("custom-worker.workers.dev", config.getEffectiveCfDomain())
     }
 
     @Test
-    fun testGetEffectiveCfDomainMtprotoDisabledByDefault() {
+    fun testGetEffectiveCfDomainDefaultUsesDevWorker() {
         val config = ProxyConfig(
-            proxyModeName = ProxyMode.MTPROTO.name,
-            customCfDomain = "custom-worker.workers.dev",
-            applyWorkerToMtproto = false
-        )
-        assertEquals("", config.getEffectiveCfDomain())
-    }
-
-    @Test
-    fun testGetEffectiveCfDomainMtprotoEnabled() {
-        val config = ProxyConfig(
-            proxyModeName = ProxyMode.MTPROTO.name,
-            customCfDomain = "custom-worker.workers.dev",
-            applyWorkerToMtproto = true
-        )
-        assertEquals("custom-worker.workers.dev", config.getEffectiveCfDomain())
-    }
-
-    @Test
-    fun testGetEffectiveCfDomainMtprotoDefaultEmpty() {
-        val config = ProxyConfig(
-            proxyModeName = ProxyMode.MTPROTO.name,
-            customCfDomain = "",
-            applyWorkerToMtproto = false
-        )
-        assertEquals("", config.getEffectiveCfDomain())
-    }
-
-    @Test
-    fun testGetEffectiveCfDomainMtprotoEnabledWithEmptyDomainUsesAnycastCdnPool() {
-        val config = ProxyConfig(
-            proxyModeName = ProxyMode.MTPROTO.name,
-            customCfDomain = "",
-            applyWorkerToMtproto = true
-        )
-        assertEquals("", config.getEffectiveCfDomain())
-    }
-
-    @Test
-    fun testGetEffectiveCfDomainSocks5DefaultUsesDevWorker() {
-        val config = ProxyConfig(
-            proxyModeName = ProxyMode.SOCKS5.name,
             customCfDomain = ""
         )
         assertEquals(TgConstants.DEFAULT_SOCKS5_DEV_WORKER, config.getEffectiveCfDomain())
     }
 
     @Test
-    fun testGetEffectiveCfDomainWithActiveWorkerInBothModes() {
+    fun testGetEffectiveCfDomainWithActiveWorker() {
         val workerDomain = "mtg-relay-5o77p2.mtg-alfaj.workers.dev"
-        val mtprotoConfigDisabled = ProxyConfig(
-            proxyModeName = ProxyMode.MTPROTO.name,
-            customCfDomain = workerDomain,
-            applyWorkerToMtproto = false
-        )
-        val mtprotoConfigEnabled = ProxyConfig(
-            proxyModeName = ProxyMode.MTPROTO.name,
-            customCfDomain = workerDomain,
-            applyWorkerToMtproto = true
-        )
-        val socks5Config = ProxyConfig(
-            proxyModeName = ProxyMode.SOCKS5.name,
+        val config = ProxyConfig(
             customCfDomain = workerDomain
         )
-        assertEquals("", mtprotoConfigDisabled.getEffectiveCfDomain())
-        assertEquals(workerDomain, mtprotoConfigEnabled.getEffectiveCfDomain())
-        assertEquals(workerDomain, socks5Config.getEffectiveCfDomain())
+        assertEquals(workerDomain, config.getEffectiveCfDomain())
     }
 
     @Test

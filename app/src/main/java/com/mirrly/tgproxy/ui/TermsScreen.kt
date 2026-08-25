@@ -441,6 +441,13 @@ fun TermsScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
+
+        // Delicate Cyber Particles floating over entire terms interface
+        CyberParticlesOverlay(
+            modifier = Modifier.fillMaxSize(),
+            particleCount = 42,
+            alphaMultiplier = 0.70f
+        )
     }
 }
 

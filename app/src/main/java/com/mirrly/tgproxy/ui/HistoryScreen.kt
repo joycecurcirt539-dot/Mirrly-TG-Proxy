@@ -45,6 +45,21 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private data class HistorySummary(
+    val totalSessions: Int = 0,
+    val totalActiveTimeSec: Long = 0L,
+    val totalBytesTransferred: Long = 0L
+)
+
+private val sessionDateFormatter = ThreadLocal.withInitial {
+    SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
+}
+
+private fun formatSessionDate(timestampMs: Long): String {
+    if (timestampMs <= 0L) return "—"
+    return sessionDateFormatter.get()?.format(Date(timestampMs)) ?: "—"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
@@ -55,13 +70,19 @@ fun HistoryScreen(
 
     var showClearDialog by remember { mutableStateOf(false) }
 
-    // Summary metrics calculation
-    val totalSessions = historyList.size
-    val totalActiveTimeSec = remember(historyList) {
-        historyList.sumOf { it.durationSeconds }
-    }
-    val totalBytesTransferred = remember(historyList) {
-        historyList.sumOf { it.totalBytes }
+    // Summary metrics calculation memoized in a single pass over historyList
+    val summary = remember(historyList) {
+        var activeTime = 0L
+        var totalBytes = 0L
+        for (item in historyList) {
+            activeTime += item.durationSeconds
+            totalBytes += item.totalBytes
+        }
+        HistorySummary(
+            totalSessions = historyList.size,
+            totalActiveTimeSec = activeTime,
+            totalBytesTransferred = totalBytes
+        )
     }
 
     Box(
@@ -197,7 +218,7 @@ fun HistoryScreen(
                 ) {
                     SummaryStatItem(
                         title = "СЕССИЙ",
-                        value = totalSessions.toString()
+                        value = summary.totalSessions.toString()
                     )
                     Box(
                         modifier = Modifier
@@ -207,7 +228,7 @@ fun HistoryScreen(
                     )
                     SummaryStatItem(
                         title = "ВРЕМЯ",
-                        value = formatDurationShort(totalActiveTimeSec)
+                        value = formatDurationShort(summary.totalActiveTimeSec)
                     )
                     Box(
                         modifier = Modifier
@@ -217,7 +238,7 @@ fun HistoryScreen(
                     )
                     SummaryStatItem(
                         title = "ТРАФИК",
-                        value = humanBytes(totalBytesTransferred)
+                        value = humanBytes(summary.totalBytesTransferred)
                     )
                 }
 
@@ -242,41 +263,18 @@ fun HistoryScreen(
                 dismissOnClickOutside = true
             )
         ) {
-            val view = LocalView.current
-            LaunchedEffect(Unit) {
-                try {
-                    val window = (view.parent as? DialogWindowProvider)?.window
-                    if (window != null) {
-                        WindowCompat.setDecorFitsSystemWindows(window, false)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                            window.attributes = window.attributes.apply {
-                                blurBehindRadius = 50
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.15f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { showClearDialog = false }
-                    .navigationBarsPadding()
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center
+            DialogBackdropBox(
+                onDismiss = { showClearDialog = false }
             ) {
                 Surface(
                     shape = RoundedCornerShape(22.dp),
                     color = Color.Black.copy(alpha = 0.85f),
                     border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.40f)),
                     modifier = Modifier
+                        .align(Alignment.Center)
                         .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 24.dp)
                         .clickable(enabled = false) {}
                 ) {
                     Column(
@@ -355,6 +353,13 @@ fun HistoryScreen(
                 }
             }
         }
+
+        // Delicate Cyber Particles floating over entire history screen interface
+        CyberParticlesOverlay(
+            modifier = Modifier.fillMaxSize(),
+            particleCount = 42,
+            alphaMultiplier = 0.70f
+        )
     }
 }
 
@@ -393,12 +398,11 @@ private fun SessionCard(session: SessionRecord) {
     val isActive = session.status == SessionStatus.ACTIVE
     val borderColor = if (isActive) protoAccent.copy(alpha = 0.40f) else AmoledBorder
 
-    val dateFormat = remember { SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()) }
     val startTimeStr = remember(session.startTimeMs) {
-        if (session.startTimeMs > 0L) dateFormat.format(Date(session.startTimeMs)) else "—"
+        formatSessionDate(session.startTimeMs)
     }
     val endTimeStr = remember(session.endTimeMs, isActive) {
-        if (isActive) "сейчас" else if (session.endTimeMs > 0L) dateFormat.format(Date(session.endTimeMs)) else "—"
+        if (isActive) "сейчас" else formatSessionDate(session.endTimeMs)
     }
 
     // Glowing dot animation for active session
