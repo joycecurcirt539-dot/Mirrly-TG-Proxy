@@ -60,9 +60,11 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -479,26 +481,39 @@ fun HomeScreen(
                             )
                         }
                     } else if (isInteractive) {
-                        Modifier.pointerInput(isInteractive) {
-                            var totalDragY = 0f
-                            detectVerticalDragGestures(
-                                onDragStart = { totalDragY = 0f },
-                                onDragEnd = {
-                                    onSettleWorkerManager(totalDragY)
-                                    totalDragY = 0f
-                                },
-                                onDragCancel = {
-                                    onSettleWorkerManager(0f)
-                                    totalDragY = 0f
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    if (dragAmount > 0f || totalDragY > 0f) {
-                                        change.consume()
+                        Modifier.pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                    var totalDragY = 0f
+                                    var isDragging = false
+                                    val touchSlop = viewConfiguration.touchSlop
+
+                                    while (true) {
+                                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed) {
+                                            if (isDragging) {
+                                                onSettleWorkerManager(totalDragY)
+                                            }
+                                            break
+                                        }
+                                        val dragAmount = change.position.y - change.previousPosition.y
+                                        totalDragY += dragAmount
+
+                                        if (!isDragging && totalDragY > touchSlop) {
+                                            isDragging = true
+                                        }
+
+                                        if (isDragging) {
+                                            if (totalDragY > 0f) {
+                                                change.consume()
+                                            }
+                                            onDragWorkerManager(totalDragY)
+                                        }
                                     }
-                                    totalDragY += dragAmount
-                                    onDragWorkerManager(totalDragY)
                                 }
-                            )
+                            }
                         }
                     } else {
                         Modifier

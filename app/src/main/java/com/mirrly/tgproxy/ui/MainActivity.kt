@@ -399,7 +399,8 @@ class MainActivity : ComponentActivity() {
                         { totalDragY ->
                             if (totalDragY > 0f) {
                                 val fraction = (totalDragY / (heightPx * 0.28f)).coerceIn(0f, 1f)
-                                if (fraction > 0.12f) {
+                                if (fraction > 0.08f) {
+                                    workerManagerSection = ManagerSection.WORKERS
                                     if (screenStack.lastOrNull() != "worker_manager") {
                                         screenStack.add("worker_manager")
                                     }
@@ -678,7 +679,7 @@ class MainActivity : ComponentActivity() {
                                 onDragWorkerManager = onDragWorkerManager,
                                 onSettleWorkerManager = onSettleWorkerManager,
                                 onUiHiddenChange = onUiHiddenChange,
-                                isInteractive = (currentScreen == "home" && !isWmVisible)
+                                isInteractive = (currentScreen == "home")
                             )
                         }
                     }
