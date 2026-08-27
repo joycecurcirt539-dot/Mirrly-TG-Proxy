@@ -150,7 +150,26 @@ function Check-NodeJs {
     try {
         $ver = (node --version 2>$null)
         if ($ver) { return $true }
+function Check-NodeJs {
+    try {
+        $ver = (node --version 2>$null)
+        if ($ver) { return $true }
     } catch {}
+
+    $commonNodePaths = @(
+        "$env:ProgramFiles\nodejs",
+        "${env:ProgramFiles(x86)}\nodejs",
+        "$env:LOCALAPPDATA\Programs\nodejs"
+    )
+    foreach ($p in $commonNodePaths) {
+        if ($p -and (Test-Path "$p\node.exe")) {
+            $env:Path = "$p;$env:Path"
+            try {
+                $ver = (node --version 2>$null)
+                if ($ver) { return $true }
+            } catch {}
+        }
+    }
 
     Show-Banner
     Write-Host "  [X] Node.js не найден в системе!" -ForegroundColor Red
@@ -166,22 +185,33 @@ function Check-NodeJs {
         Write-Host ""
         $c = Read-LineOrEscape "  Выберите вариант (1/2/0)" ""
         if ($c -eq "1") {
-            Write-Host "`n  [*] Запуск автоматической установки Node.js LTS..." -ForegroundColor Cyan
+            Write-Host "`n  [*] Запуск автоматической установки Node.js LTS через winget..." -ForegroundColor Cyan
             winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
             
-            # Обновляем PATH в текущей сессии процесса
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+            # Мгновенно обновляем PATH из реестра
+            $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+            $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+            $env:Path = "$machinePath;$userPath"
+
+            # Дополнительно подключаем стандартные пути установки
+            foreach ($p in $commonNodePaths) {
+                if ($p -and (Test-Path "$p\node.exe")) {
+                    $env:Path = "$p;$env:Path"
+                }
+            }
             
             try {
                 $verAfter = (node --version 2>$null)
                 if ($verAfter) {
-                    Write-Host "`n  [OK] Node.js ($verAfter) успешно установлен и готов к работе!" -ForegroundColor Green
+                    Write-Host "`n  [OK] Node.js ($verAfter) успешно установлен и обнаружен!" -ForegroundColor Green
+                    Write-Host "  [OK] Продолжаем работу без перезапуска...`n" -ForegroundColor Green
                     Start-Sleep -Seconds 2
                     return $true
                 }
             } catch {}
             
-            Write-Host "`n  [OK] Установка завершена. Пожалуйста, перезапустите этот скрипт.`n" -ForegroundColor Green
+            Write-Host "`n  [!] Установка завершена, но процессам требуется обновление окружения." -ForegroundColor Yellow
+            Write-Host "  Перезапустите скрипт для продолжения.`n" -ForegroundColor DarkGray
             Read-Host "  Нажмите Enter для выхода..."
             exit 0
         } elseif ($c -eq "2") {
@@ -374,12 +404,35 @@ if (text) console.log(generateQR(text));
 
 function Normalize-WorkerName([string]$InputName) {
     if (-not $InputName) { return "" }
-    $clean = $InputName.Trim().ToLower()
-    $clean = [System.Text.RegularExpressions.Regex]::Replace($clean, "[^a-z0-9-]", "-")
+    $s = $InputName.Trim().ToLower()
+
+    # Транслитерация кириллицы в латиницу
+    $cyrMap = @{
+        'а'='a'; 'б'='b'; 'в'='v'; 'г'='g'; 'д'='d'; 'е'='e'; 'ё'='yo'; 'ж'='zh';
+        'з'='z'; 'и'='i'; 'й'='y'; 'к'='k'; 'л'='l'; 'м'='m'; 'н'='n'; 'о'='o';
+        'п'='p'; 'р'='r'; 'с'='s'; 'т'='t'; 'у'='u'; 'ф'='f'; 'х'='h'; 'ц'='ts';
+        'ч'='ch'; 'ш'='sh'; 'щ'='sch'; 'ъ'=''; 'ы'='y'; 'ь'=''; 'э'='e'; 'ю'='yu'; 'я'='ya'
+    }
+    foreach ($k in $cyrMap.Keys) {
+        $s = $s.Replace($k, $cyrMap[$k])
+    }
+
+    # Замена всех спецсимволов, знаков препинания и пробелов на дефис
+    $clean = [System.Text.RegularExpressions.Regex]::Replace($s, "[^a-z0-9-]", "-")
     $clean = [System.Text.RegularExpressions.Regex]::Replace($clean, "-+", "-")
     $clean = $clean.Trim('-')
+
+    # Ограничение длины имени воркера Cloudflare (макс. 60 символов)
+    if ($clean.Length -gt 60) {
+        $clean = $clean.Substring(0, 60).TrimEnd('-')
+    }
+
     if (-not $clean) {
-        $clean = "mtg-relay-worker"
+        $chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+        $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        $bytes = New-Object byte[] 6
+        $rng.GetBytes($bytes)
+        $clean = "mtg-relay-" + (-join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] }))
     }
     return $clean
 }
@@ -858,9 +911,14 @@ Check-NodeJs
             Wait-ReturnToMenu
         }
         "2" {
-            $customName = Read-LineOrEscape "  Введите желаемое имя воркера (например: my-tg-proxy)"
-            if (-not [string]::IsNullOrWhiteSpace($customName)) {
-                $domain = Deploy-Worker $customName.Trim()
+            $rawInput = Read-LineOrEscape "  Введите желаемое имя воркера (например: My Proxy Worker!)"
+            if (-not [string]::IsNullOrWhiteSpace($rawInput)) {
+                $customName = Normalize-WorkerName $rawInput
+                if ($customName -ne $rawInput.Trim().ToLower()) {
+                    Write-Host "  [*] Имя нормализовано для Cloudflare: " -NoNewline -ForegroundColor Gray
+                    Write-Host "$customName" -ForegroundColor Yellow
+                }
+                $domain = Deploy-Worker $customName
             }
             Wait-ReturnToMenu
         }
