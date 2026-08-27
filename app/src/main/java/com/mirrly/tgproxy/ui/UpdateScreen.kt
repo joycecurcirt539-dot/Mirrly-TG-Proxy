@@ -80,40 +80,40 @@ fun UpdateScreen(
     }
     val devicePrimaryType = remember(supportedAbis) { ApkType.fromAbis(supportedAbis) }
 
-    // ── Default Fallback Assets for v1.1.8.1 (Always available for reinstallation) ──
+    // ── Default Fallback Assets for v1.1.8 (Always available for reinstallation) ──
     val defaultReleaseAssets = remember {
         listOf(
             ReleaseApkAsset(
                 name = "app-arm64-v8a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-arm64-v8a-release.apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-arm64-v8a-release.apk",
                 sizeBytes = 6039029L,
                 apkType = ApkType.ARM64,
                 sha256 = "434F686E4BB3C96541675600806845724DD78FCA9CF6FA56C313C6475B02EE1C"
             ),
             ReleaseApkAsset(
                 name = "app-universal-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-universal-release.apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-universal-release.apk",
                 sizeBytes = 15705021L,
                 apkType = ApkType.UNIVERSAL,
                 sha256 = "A743AFA73AE6630C453DCDF93DC900C316777D8AFFCBD74A0B6E6D83EA54FB9C"
             ),
             ReleaseApkAsset(
                 name = "app-armeabi-v7a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-armeabi-v7a-release.apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-armeabi-v7a-release.apk",
                 sizeBytes = 4871487L,
                 apkType = ApkType.ARM_V7,
                 sha256 = "F3035716E20C00928F733E28979146369BD404391EBF03783D303029FC0E4961"
             ),
             ReleaseApkAsset(
                 name = "app-x86_64-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-x86_64-release.apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-x86_64-release.apk",
                 sizeBytes = 6381844L,
                 apkType = ApkType.X86_64,
                 sha256 = "1CE5D2C7C7527EE4C523B16954329B6412A5BF3C9FCF9351F367E7A4AFF6FA9A"
             ),
             ReleaseApkAsset(
                 name = "app-x86-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-x86-release.apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-x86-release.apk",
                 sizeBytes = 6275111L,
                 apkType = ApkType.X86,
                 sha256 = "45778927552037987E4E8BFFC59B89BFA4FC1BB96FC4D9235186422662BD9BF6"
@@ -134,15 +134,15 @@ fun UpdateScreen(
                 isUpdateAvailable = true
             )).copy(
                 isUpdateAvailable = true,
-                versionName = if (releaseInfo?.versionName == "1.1.8.1" || releaseInfo?.versionName == null) "1.1.9" else releaseInfo.versionName,
-                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-universal-release.apk",
-                expectedSha256 = "CC9D4012B11D0BE1277CF8EF65052E4F615E14737AFE77A879529109B9684F51",
+                versionName = if (releaseInfo?.versionName == "1.1.8" || releaseInfo?.versionName == null) "1.1.9" else releaseInfo.versionName,
+                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-universal-release.apk",
+                expectedSha256 = "DE1EBB85819274F2E3DA9E1D5C8E363FEA49AB70D2B98B9B2981737B44BB5527",
                 expectedSha256List = listOf(
-                    "CC9D4012B11D0BE1277CF8EF65052E4F615E14737AFE77A879529109B9684F51",
-                    "B12D75EC440C8A590C44D8720479F2258250087FC1040EA2E78D5B6A3B42E72A",
-                    "010D29523A9E6EE5D6016B062BBA381410D76FCBD48838D92F141CD7F4DD5CBF",
-                    "4CBFCCCB278AD882B1919B132CCAC65F5275C90285BC536B0B226F22ECE95722",
-                    "56176A94827D22E87E20844E099FDDE1F97A4CF1913EC0BD62AE02E82354CBB0"
+                    "DE1EBB85819274F2E3DA9E1D5C8E363FEA49AB70D2B98B9B2981737B44BB5527",
+                    "CD7DE0036967D18E681180DA594E39CFD05E909E864E84A974536A0264E9EAD9",
+                    "2621287F722CD53F52CD6CE468B7F628EBBDAB1200D834CA681D1CDE7A09CD26",
+                    "AC1884CA9F939CBDE1EA2197E42C6D88C7C1DA7C6902EEC27B63D2FA9BAE0D4F",
+                    "B29EB2108E10003EC1780F8FB000DF7F2D183D85986AE08D55B0784EAC870AD6"
                 ),
                 apkAssets = if (releaseInfo?.apkAssets.isNullOrEmpty()) defaultReleaseAssets else releaseInfo!!.apkAssets
             )
@@ -859,7 +859,7 @@ fun UpdateScreen(
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 val targetAsset = availableAssets.firstOrNull { it.apkType == selectedApkType }
-                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-universal-release.apk"
+                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-universal-release.apk"
                                                 val expectedSha = targetAsset?.sha256 ?: activeReleaseInfo?.expectedSha256
                                                 val shaList = if (!expectedSha.isNullOrBlank()) {
                                                     listOf(expectedSha) + activeReleaseInfo?.expectedSha256List.orEmpty()
