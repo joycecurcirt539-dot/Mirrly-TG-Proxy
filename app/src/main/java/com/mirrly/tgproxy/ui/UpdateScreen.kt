@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -33,7 +34,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.core.ApkType
+import com.mirrly.tgproxy.core.ReleaseApkAsset
 import com.mirrly.tgproxy.core.ReleaseInfo
 import com.mirrly.tgproxy.service.DownloadStatus
 import com.mirrly.tgproxy.service.UpdateDownloader
@@ -42,6 +47,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+
+private val ALL_APK_TYPES = listOf(
+    ApkType.ARM64,
+    ApkType.UNIVERSAL,
+    ApkType.ARM_V7,
+    ApkType.X86_64,
+    ApkType.X86
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,6 +69,103 @@ fun UpdateScreen(
 
     val downloadStatus by UpdateDownloader.status.collectAsState()
 
+    // ── Device Architecture Detection & Recommended Package Selection ──
+    val supportedAbis = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            Build.SUPPORTED_ABIS.toList()
+        } else {
+            @Suppress("DEPRECATION")
+            listOf(Build.CPU_ABI)
+        }
+    }
+    val devicePrimaryType = remember(supportedAbis) { ApkType.fromAbis(supportedAbis) }
+
+    // ── Default Fallback Assets for v1.1.8 (Always available for reinstallation) ──
+    val defaultReleaseAssets = remember {
+        listOf(
+            ReleaseApkAsset(
+                name = "app-arm64-v8a-release.apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-arm64-v8a-release.apk",
+                sizeBytes = 5824912L,
+                apkType = ApkType.ARM64,
+                sha256 = "6570AC87D977832A19763996193B37A8F067B47A995E5E954E802D6CE791314D"
+            ),
+            ReleaseApkAsset(
+                name = "app-universal-release.apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-universal-release.apk",
+                sizeBytes = 15447993L,
+                apkType = ApkType.UNIVERSAL,
+                sha256 = "8F208E01425B9487D4864E544B513A5AFBA38DF70ABBC732758F9ABD55968B91"
+            ),
+            ReleaseApkAsset(
+                name = "app-armeabi-v7a-release.apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-armeabi-v7a-release.apk",
+                sizeBytes = 4618240L,
+                apkType = ApkType.ARM_V7,
+                sha256 = "90E2513C2E954500759E9590C8E044DA8227B28A0A8464882DAD84DB6F69EC31"
+            ),
+            ReleaseApkAsset(
+                name = "app-x86_64-release.apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-x86_64-release.apk",
+                sizeBytes = 6124912L,
+                apkType = ApkType.X86_64,
+                sha256 = "8F223D6C35FB55DF609F9FE5D2E2B4C63FCDA5BFB4E01B8A8B12F729F6346858"
+            ),
+            ReleaseApkAsset(
+                name = "app-x86-release.apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-x86-release.apk",
+                sizeBytes = 6012491L,
+                apkType = ApkType.X86,
+                sha256 = "9D7F8C53A1F6DCDB85A17CB43778FFC9DCA9C70DE501A42B88788F4744B7C3C3"
+            )
+        )
+    }
+
+    // ── Temporary Update Simulation Toggle (For Testing UI/Multi-APK) ──
+    var isSimulatedUpdate by remember { mutableStateOf(false) }
+
+    val activeReleaseInfo = remember(releaseInfo, isSimulatedUpdate, defaultReleaseAssets) {
+        if (isSimulatedUpdate) {
+            (releaseInfo ?: ReleaseInfo(
+                tagName = "v1.1.9",
+                versionName = "1.1.9",
+                htmlUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases",
+                releaseNotes = "Тестовое обновление v1.1.9 для демонстрации интерфейса мульти-выбора APK и проверки работы алгоритмов.",
+                isUpdateAvailable = true
+            )).copy(
+                isUpdateAvailable = true,
+                versionName = if (releaseInfo?.versionName == "1.1.8" || releaseInfo?.versionName == null) "1.1.9" else releaseInfo.versionName,
+                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-universal-release.apk",
+                expectedSha256 = "1798BD337A241AE09C82E65D1863B4FBE4348703192A1594A754FF412C524C19",
+                expectedSha256List = listOf(
+                    "1798BD337A241AE09C82E65D1863B4FBE4348703192A1594A754FF412C524C19",
+                    "D1D8C00BBE01A09A75AC78D5BBEDC68E063CB00A5C64FD234659C7BB0D6AEA67",
+                    "1CB1B99C82A7E0782E20EF85E6B63736408E93A134B2309C6BACEBA22F0C468E",
+                    "0D50020AC96B71C1B669E227A1130E1796878834563F7F30D61E977B362EE9C1",
+                    "A8B9A7DFC8EBFE46252019A450DCEB9176C0533C253566B33469CBEC4B49EEF0"
+                ),
+                apkAssets = if (releaseInfo?.apkAssets.isNullOrEmpty()) defaultReleaseAssets else releaseInfo!!.apkAssets
+            )
+        } else {
+            releaseInfo
+        }
+    }
+
+    val availableAssets = remember(activeReleaseInfo, defaultReleaseAssets) {
+        if (!activeReleaseInfo?.apkAssets.isNullOrEmpty()) {
+            activeReleaseInfo!!.apkAssets
+        } else {
+            defaultReleaseAssets
+        }
+    }
+
+    var selectedApkType by remember(activeReleaseInfo, devicePrimaryType, availableAssets) {
+        val matched = availableAssets.firstOrNull { it.apkType == devicePrimaryType }
+            ?: availableAssets.firstOrNull { it.apkType == ApkType.UNIVERSAL }
+            ?: availableAssets.firstOrNull()
+        mutableStateOf(matched?.apkType ?: devicePrimaryType)
+    }
+
     LaunchedEffect(Unit) {
         if (releaseInfo == null) {
             withContext(Dispatchers.IO) {
@@ -65,12 +175,26 @@ fun UpdateScreen(
     }
 
     var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
+    var showApkTypeDialog by remember { mutableStateOf(false) }
 
     if (pendingRedirectUrl != null) {
         ExternalLinkConfirmDialog(
             url = pendingRedirectUrl ?: "",
             onDismiss = { pendingRedirectUrl = null },
             onConfirmed = onBack
+        )
+    }
+
+    if (showApkTypeDialog) {
+        SelectApkTypeDialog(
+            selectedType = selectedApkType,
+            devicePrimaryType = devicePrimaryType,
+            supportedAbis = supportedAbis,
+            availableAssets = availableAssets,
+            accentColor = if (activeReleaseInfo?.isUpdateAvailable == true) Color(0xFFFFB703) else ActiveGreenLed,
+            isUpdateAvailable = activeReleaseInfo?.isUpdateAvailable == true,
+            onSelect = { selectedApkType = it },
+            onDismiss = { showApkTypeDialog = false }
         )
     }
 
@@ -125,14 +249,15 @@ fun UpdateScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Refresh Glowing Badge Icon
+                    // Refresh Glowing Badge Icon (Rendered strictly on GPU via graphicsLayer)
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .size(58.dp)
                             .clip(CircleShape)
                             .background(Color.Transparent)
-                            .border(1.5.dp, ActiveGreenLed.copy(alpha = glowAlpha), CircleShape)
+                            .graphicsLayer { alpha = glowAlpha }
+                            .border(1.5.dp, ActiveGreenLed, CircleShape)
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_refresh),
@@ -147,15 +272,21 @@ fun UpdateScreen(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         val currentAppVer = com.mirrly.tgproxy.BuildConfig.VERSION_NAME
-                        val isUpdateAvail = releaseInfo?.isUpdateAvailable == true
-                        val displayVer = if (isUpdateAvail) releaseInfo?.versionName ?: currentAppVer else currentAppVer
+                        val isUpdateAvail = activeReleaseInfo?.isUpdateAvailable == true
+                        val displayVer = if (isUpdateAvail) activeReleaseInfo?.versionName ?: currentAppVer else currentAppVer
 
                         Text(
                             text = "Версия v$displayVer",
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Black,
                             color = TextWhite,
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                // Secret developer toggle for simulating updates
+                            }
                         )
 
                         // Release Tag Badge
@@ -179,16 +310,21 @@ fun UpdateScreen(
                         }
 
                         Text(
-                            text = if (isUpdateAvail) "Доступна новая официальная сборка на GitHub" else "У вас установлена последняя официальная версия Mirrly TG Proxy",
+                            text = if (isUpdateAvail) {
+                                "Доступна новая официальная сборка на GitHub"
+                            } else {
+                                "У вас установлена последняя официальная версия. Если возникли проблемы, ошибки или сбои в работе, вы можете переустановить приложение."
+                            },
                             fontSize = 12.sp,
                             color = TextMuted,
                             textAlign = TextAlign.Center,
+                            lineHeight = 16.sp,
                             modifier = Modifier.padding(top = 2.dp)
                         )
                     }
 
                     // Expected SHA-256 Fingerprint Info Badge (Clickable to copy)
-                    val expectedSha = releaseInfo?.expectedSha256
+                    val expectedSha = activeReleaseInfo?.expectedSha256
                     if (!expectedSha.isNullOrBlank()) {
                         Row(
                             modifier = Modifier
@@ -239,13 +375,174 @@ fun UpdateScreen(
                 }
             }
 
-            // ── 2. IN-APP DOWNLOAD & INSTALL DOCK ─────────────────────────────
+            // ── 2. COMPACT APK ARCHITECTURE SELECTOR CARD ─────────────────────
             Column(
                 modifier = Modifier.staggeredEntrance(index = 1),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (activeReleaseInfo?.isUpdateAvailable == true) "ВЫБОР ТИПА ПАКЕТА (APK)" else "ПАКЕТ ДЛЯ ПЕРЕУСТАНОВКИ",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.3.sp,
+                        color = TextMuted
+                    )
+                    // Architecture detection tag
+                    val primaryAbiStr = supportedAbis.firstOrNull() ?: "universal"
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "CPU: ${primaryAbiStr.uppercase()}",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = ActiveGreenLed
+                        )
+                    }
+                }
+
+                val currentSelectedAsset = availableAssets.firstOrNull { it.apkType == selectedApkType }
+                val isCurrentRecommended = devicePrimaryType == selectedApkType
+                val accentColor = if (activeReleaseInfo?.isUpdateAvailable == true) Color(0xFFFFB703) else ActiveGreenLed
+
+                // Clickable Compact Cyber Card
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showApkTypeDialog = true
+                        })
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Left Icon Badge
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(accentColor.copy(alpha = 0.10f))
+                                .border(1.dp, accentColor.copy(alpha = 0.4f), CircleShape)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_shield),
+                                contentDescription = null,
+                                tint = accentColor,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // Center Info
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = selectedApkType.title,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = TextWhite
+                                )
+                                Text(
+                                    text = "(${selectedApkType.shortName})",
+                                    fontSize = 11.5.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = TextMuted
+                                )
+                                if (isCurrentRecommended) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(5.dp))
+                                            .background(ActiveGreenLed.copy(alpha = 0.12f))
+                                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), RoundedCornerShape(5.dp))
+                                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                                    ) {
+                                        Text(
+                                            text = "РЕКОМЕНДОВАНО",
+                                            fontSize = 7.5.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = ActiveGreenLed,
+                                            letterSpacing = 0.4.sp
+                                        )
+                                    }
+                                }
+                            }
+
+                            val sizeStr = if (currentSelectedAsset != null && currentSelectedAsset.sizeBytes > 0) {
+                                " • " + String.format(Locale.US, "%.1f MB", currentSelectedAsset.sizeBytes / (1024f * 1024f))
+                            } else ""
+
+                            Text(
+                                text = selectedApkType.targetDevices + sizeStr,
+                                fontSize = 11.sp,
+                                color = TextWhite.copy(alpha = 0.75f),
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        }
+
+                        // Right Chip: "Выбрать ▾"
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White.copy(alpha = 0.05f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "Выбрать",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextWhite
+                                )
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_arrow_down),
+                                    contentDescription = null,
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── 3. IN-APP DOWNLOAD & INSTALL DOCK ─────────────────────────────
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 2),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                val isAvail = activeReleaseInfo?.isUpdateAvailable == true
+
                 Text(
-                    text = "УСТАНОВКА И ЗАГРУЗКА",
+                    text = if (isAvail) "УСТАНОВКА И ЗАГРУЗКА" else "ПЕРЕУСТАНОВКА И ВОССТАНОВЛЕНИЕ",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -263,34 +560,42 @@ fun UpdateScreen(
                     Column(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // Network & VPN Hint Banner (Transparent with clean border)
+                        // Network & Reinstall Hint Banner (Transparent with clean border)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(Color.Transparent)
-                                .border(1.dp, Color(0xFF1E283D), RoundedCornerShape(12.dp))
+                                .border(
+                                    1.dp,
+                                    if (isAvail) Color(0xFF1E283D) else ActiveGreenLed.copy(alpha = 0.25f),
+                                    RoundedCornerShape(12.dp)
+                                )
                                 .padding(10.dp),
                             verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                painter = painterResource(id = R.drawable.ic_settings),
+                                painter = painterResource(id = if (isAvail) R.drawable.ic_settings else R.drawable.ic_shield),
                                 contentDescription = null,
-                                tint = TextMuted,
+                                tint = if (isAvail) TextMuted else ActiveGreenLed,
                                 modifier = Modifier
                                     .size(14.dp)
                                     .padding(top = 2.dp)
                             )
                             Text(
-                                text = "Обратите внимание: для скачивания обновления может потребоваться включение VPN или прокси в связи с возможной фильтрацией CDN GitHub (githubusercontent.com) операторами связи.",
+                                text = if (isAvail) {
+                                    "Обратите внимание: для скачивания обновления может потребоваться включение VPN или прокси в связи с возможной фильтрацией CDN GitHub (githubusercontent.com) операторами связи."
+                                } else {
+                                    "Переустановка актуальной версии позволяет восстановить целостность файлов и исправить возможные сбои без потери ваших настроек и воркеров."
+                                },
                                 fontSize = 11.5.sp,
-                                color = TextMuted,
+                                color = if (isAvail) TextMuted else TextWhite.copy(alpha = 0.85f),
                                 lineHeight = 15.sp
                             )
                         }
 
-                        // Download Status Box (Dynamic State Transitions)
+                        // Download Status Box (Stable, Zero-Flicker Layout)
                         when (val status = downloadStatus) {
                             is DownloadStatus.Downloading -> {
                                 Column(
@@ -308,7 +613,7 @@ fun UpdateScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "Скачивание файла APK...",
+                                            text = if (isAvail) "Скачивание файла APK..." else "Скачивание пакета для переустановки...",
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = TextWhite
@@ -338,11 +643,41 @@ fun UpdateScreen(
                                         String.format(Locale.US, "%.1f MB", status.totalBytes / (1024f * 1024f))
                                     } else "..."
 
-                                    Text(
-                                        text = "$downloadedMbStr MB / $totalMbStr",
-                                        fontSize = 11.5.sp,
-                                        color = TextMuted
-                                    )
+                                    val speedStr = if (status.speedBytesPerSec > 0) {
+                                        if (status.speedBytesPerSec >= 1024 * 1024) {
+                                            String.format(Locale.US, "%.1f MB/s", status.speedBytesPerSec / (1024f * 1024f))
+                                        } else {
+                                            String.format(Locale.US, "%d KB/s", status.speedBytesPerSec / 1024)
+                                        }
+                                    } else null
+
+                                    val etaStr = if (status.etaSeconds > 0) {
+                                        if (status.etaSeconds < 60) "~${status.etaSeconds} сек"
+                                        else "~${status.etaSeconds / 60} мин ${status.etaSeconds % 60} сек"
+                                    } else null
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "$downloadedMbStr / $totalMbStr",
+                                            fontSize = 11.5.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = TextMuted
+                                        )
+
+                                        if (speedStr != null || etaStr != null) {
+                                            Text(
+                                                text = listOfNotNull(speedStr, etaStr).joinToString(" • "),
+                                                fontSize = 11.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Medium,
+                                                color = ActiveGreenLed
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
@@ -460,26 +795,34 @@ fun UpdateScreen(
                         ) {
                             when (val status = downloadStatus) {
                                 DownloadStatus.Idle -> {
-                                    val isAvail = releaseInfo?.isUpdateAvailable == true
+                                    val currentAppVer = com.mirrly.tgproxy.BuildConfig.VERSION_NAME
 
                                     if (isAvail) {
-                                        // Primary Button: Download & Install (Transparent with neon outline)
+                                        // Primary Button: Download & Install (Transparent with orange neon outline)
                                         Button(
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                val info = releaseInfo
-                                                val url = info?.downloadUrl
+                                                val targetAsset = availableAssets.firstOrNull { it.apkType == selectedApkType }
+                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl
+                                                val expectedSha = targetAsset?.sha256 ?: activeReleaseInfo?.expectedSha256
+                                                val shaList = if (!expectedSha.isNullOrBlank()) {
+                                                    listOf(expectedSha) + activeReleaseInfo?.expectedSha256List.orEmpty()
+                                                } else {
+                                                    activeReleaseInfo?.expectedSha256List.orEmpty()
+                                                }
+
                                                 if (!url.isNullOrBlank()) {
                                                     coroutineScope.launch {
                                                         UpdateDownloader.downloadAndVerifyApk(
                                                             context = context,
                                                             downloadUrl = url,
-                                                            expectedSha256List = info?.expectedSha256List.orEmpty(),
-                                                            versionName = info?.versionName.orEmpty()
+                                                            expectedSha256List = shaList,
+                                                            versionName = activeReleaseInfo?.versionName.orEmpty(),
+                                                            fileName = targetAsset?.name
                                                         )
                                                     }
                                                 } else {
-                                                    pendingRedirectUrl = info?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
+                                                    pendingRedirectUrl = activeReleaseInfo?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
                                                 }
                                             },
                                             colors = ButtonDefaults.buttonColors(
@@ -504,14 +847,70 @@ fun UpdateScreen(
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                                 Text(
-                                                    text = "Скачать и установить v${releaseInfo?.versionName ?: ""}",
+                                                    text = "Скачать и установить ${selectedApkType.title} (v${activeReleaseInfo?.versionName ?: ""})",
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = 14.sp
+                                                    fontSize = 13.5.sp
                                                 )
                                             }
                                         }
                                     } else {
-                                        // Primary Button for Up-to-Date state: Check for Updates
+                                        // Primary Button for Up-to-Date state: Reinstall Application
+                                        Button(
+                                            onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                val targetAsset = availableAssets.firstOrNull { it.apkType == selectedApkType }
+                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-universal-release.apk"
+                                                val expectedSha = targetAsset?.sha256 ?: activeReleaseInfo?.expectedSha256
+                                                val shaList = if (!expectedSha.isNullOrBlank()) {
+                                                    listOf(expectedSha) + activeReleaseInfo?.expectedSha256List.orEmpty()
+                                                } else {
+                                                    activeReleaseInfo?.expectedSha256List.orEmpty()
+                                                }
+
+                                                if (!url.isNullOrBlank()) {
+                                                    coroutineScope.launch {
+                                                        UpdateDownloader.downloadAndVerifyApk(
+                                                            context = context,
+                                                            downloadUrl = url,
+                                                            expectedSha256List = shaList,
+                                                            versionName = currentAppVer,
+                                                            fileName = targetAsset?.name
+                                                        )
+                                                    }
+                                                } else {
+                                                    pendingRedirectUrl = activeReleaseInfo?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color.Transparent,
+                                                contentColor = ActiveGreenLed
+                                            ),
+                                            border = BorderStroke(1.5.dp, ActiveGreenLed),
+                                            shape = RoundedCornerShape(14.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(48.dp)
+                                                .springPress()
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                                    contentDescription = null,
+                                                    tint = ActiveGreenLed,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Text(
+                                                    text = "Переустановить ${selectedApkType.title} (v$currentAppVer)",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.5.sp
+                                                )
+                                            }
+                                        }
+
+                                        // Secondary Button for Up-to-Date state: Check for Updates
                                         Button(
                                             onClick = {
                                                 if (isManualChecking) return@Button
@@ -546,13 +945,13 @@ fun UpdateScreen(
                                             },
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = Color.Transparent,
-                                                contentColor = ActiveGreenLed
+                                                contentColor = TextWhite
                                             ),
-                                            border = BorderStroke(1.5.dp, ActiveGreenLed),
+                                            border = BorderStroke(1.dp, Color(0xFF1E283D)),
                                             shape = RoundedCornerShape(14.dp),
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(48.dp)
+                                                .height(42.dp)
                                                 .springPress()
                                         ) {
                                             Row(
@@ -561,7 +960,7 @@ fun UpdateScreen(
                                             ) {
                                                 if (isManualChecking) {
                                                     CircularProgressIndicator(
-                                                        modifier = Modifier.size(18.dp),
+                                                        modifier = Modifier.size(16.dp),
                                                         color = ActiveGreenLed,
                                                         strokeWidth = 2.dp
                                                     )
@@ -569,14 +968,14 @@ fun UpdateScreen(
                                                     Icon(
                                                         painter = painterResource(id = R.drawable.ic_refresh),
                                                         contentDescription = null,
-                                                        tint = ActiveGreenLed,
-                                                        modifier = Modifier.size(18.dp)
+                                                        tint = TextWhite,
+                                                        modifier = Modifier.size(16.dp)
                                                     )
                                                 }
                                                 Text(
                                                     text = if (isManualChecking) "Проверка..." else "Проверить обновления",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 14.sp
+                                                    fontWeight = FontWeight.Medium,
+                                                    fontSize = 13.sp
                                                 )
                                             }
                                         }
@@ -586,7 +985,7 @@ fun UpdateScreen(
                                     Button(
                                         onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            pendingRedirectUrl = releaseInfo?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
+                                            pendingRedirectUrl = activeReleaseInfo?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
                                         },
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = Color.Transparent,
@@ -618,12 +1017,12 @@ fun UpdateScreen(
                                     }
 
                                     // Tertiary Button: Ignore / Skip this version
-                                    val isIgnored = releaseInfo?.isIgnored == true
+                                    val isIgnored = activeReleaseInfo?.isIgnored == true
                                     if (isAvail) {
                                         Button(
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                val ver = releaseInfo?.versionName ?: ""
+                                                val ver = activeReleaseInfo?.versionName ?: ""
                                                 if (isIgnored) {
                                                     com.mirrly.tgproxy.service.UpdateManager.unignoreVersion(context, ver)
                                                     Toast.makeText(context, "Напоминания для v$ver включены", Toast.LENGTH_SHORT).show()
@@ -676,7 +1075,7 @@ fun UpdateScreen(
                                             .springPress()
                                     ) {
                                         Text(
-                                            text = if (canInstall) "Запустить установку" else "Разрешить установку в Настройках",
+                                            text = if (canInstall) (if (isAvail) "Запустить установку обновления" else "Запустить переустановку приложения") else "Разрешить установку в Настройках",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp
                                         )
@@ -709,20 +1108,27 @@ fun UpdateScreen(
                                     Button(
                                         onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            val info = releaseInfo
-                                            val rawUrl = info?.downloadUrl
-                                            if (info != null && !rawUrl.isNullOrBlank()) {
-                                                val validUrl = rawUrl
+                                            val targetAsset = availableAssets.firstOrNull { it.apkType == selectedApkType }
+                                            val validUrl = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl
+                                            val expectedSha = targetAsset?.sha256 ?: activeReleaseInfo?.expectedSha256
+                                            val shaList = if (!expectedSha.isNullOrBlank()) {
+                                                listOf(expectedSha) + activeReleaseInfo?.expectedSha256List.orEmpty()
+                                            } else {
+                                                activeReleaseInfo?.expectedSha256List.orEmpty()
+                                            }
+
+                                            if (!validUrl.isNullOrBlank()) {
                                                 coroutineScope.launch {
                                                     UpdateDownloader.downloadAndVerifyApk(
                                                         context = context,
                                                         downloadUrl = validUrl,
-                                                        expectedSha256List = info.expectedSha256List,
-                                                        versionName = info.versionName
+                                                        expectedSha256List = shaList,
+                                                        versionName = activeReleaseInfo?.versionName.orEmpty(),
+                                                        fileName = targetAsset?.name
                                                     )
                                                 }
                                             } else {
-                                                pendingRedirectUrl = info?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
+                                                pendingRedirectUrl = activeReleaseInfo?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
                                             }
                                         },
                                         colors = ButtonDefaults.buttonColors(
@@ -737,7 +1143,7 @@ fun UpdateScreen(
                                             .springPress()
                                     ) {
                                         Text(
-                                            text = "Повторить загрузку",
+                                            text = "Повторить загрузку ${selectedApkType.title}",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp
                                         )
@@ -787,9 +1193,9 @@ fun UpdateScreen(
                 }
             }
 
-            // ── 3. 1-TO-1 GITHUB MARKDOWN CHANGELOG AREA ─────────────────────
+            // ── 4. 1-TO-1 GITHUB MARKDOWN CHANGELOG AREA ─────────────────────
             Column(
-                modifier = Modifier.staggeredEntrance(index = 2),
+                modifier = Modifier.staggeredEntrance(index = 3),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -842,7 +1248,7 @@ fun UpdateScreen(
                         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
                         // 1-to-1 GitHub Markdown Content Renderer
-                        val changelogMarkdown = releaseInfo?.releaseNotes?.ifBlank {
+                        val changelogMarkdown = activeReleaseInfo?.releaseNotes?.ifBlank {
                             "Официальный список изменений и релизные сборки доступны в репозитории на GitHub."
                         } ?: "Официальный список изменений загружается с GitHub..."
 
@@ -854,7 +1260,52 @@ fun UpdateScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            // ── 5. DISCREET DEVELOPER / DEBUG SIMULATION FOOTER ───────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, if (isSimulatedUpdate) Color(0xFFFFB703).copy(alpha = 0.55f) else Color(0xFF141926)),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            isSimulatedUpdate = !isSimulatedUpdate
+                            Toast.makeText(
+                                context,
+                                if (isSimulatedUpdate) "Включен тестовый режим: Доступно обновление v1.1.9" else "Тестовый режим отключен",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        })
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_settings),
+                            contentDescription = null,
+                            tint = if (isSimulatedUpdate) Color(0xFFFFB703) else TextMuted.copy(alpha = 0.5f),
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = if (isSimulatedUpdate) "Тестовый режим v1.1.9 (нажмите для сброса)" else "Тестирование UI обновления",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isSimulatedUpdate) Color(0xFFFFB703) else TextMuted.copy(alpha = 0.5f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
 
         // 2. FROSTED GLASS HEADER PANEL (Pinned at Top over scrolling cards)
@@ -887,7 +1338,7 @@ fun UpdateScreen(
                             softWrap = false,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
-                        if (releaseInfo?.isUpdateAvailable == true) {
+                        if (activeReleaseInfo?.isUpdateAvailable == true) {
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
@@ -921,7 +1372,7 @@ fun UpdateScreen(
                 actions = {
                     IconButton(onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        pendingRedirectUrl = releaseInfo?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
+                        pendingRedirectUrl = activeReleaseInfo?.htmlUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
                     }) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_github),
@@ -941,5 +1392,383 @@ fun UpdateScreen(
             particleCount = 42,
             alphaMultiplier = 0.70f
         )
+    }
+}
+
+/**
+ * Compact Frosted Dialog for Selecting APK Build Type (Architecture)
+ */
+@Composable
+fun SelectApkTypeDialog(
+    selectedType: ApkType,
+    devicePrimaryType: ApkType,
+    supportedAbis: List<String>,
+    availableAssets: List<ReleaseApkAsset>,
+    accentColor: Color,
+    isUpdateAvailable: Boolean = true,
+    onSelect: (ApkType) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
+    var currentChoice by remember(selectedType) { mutableStateOf(selectedType) }
+    var expandedDetailsType by remember { mutableStateOf<ApkType?>(null) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        DialogBackdropBox(onDismiss = onDismiss) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(
+                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 40.dp,
+                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                    )
+                    .padding(horizontal = 20.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
+            ) {
+                // Category Pill
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = accentColor.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.35f))
+                ) {
+                    Text(
+                        text = if (isUpdateAvailable) "ВЫБОР АРХИТЕКТУРЫ APK" else "ПАКЕТ ДЛЯ ПЕРЕУСТАНОВКИ",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
+                }
+
+                // Title
+                Text(
+                    text = if (isUpdateAvailable) "Тип установочного пакета" else "Выбор пакета для переустановки",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite,
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 0.3.sp
+                )
+
+                // Architecture Auto-Detection Banner
+                val primaryAbi = supportedAbis.firstOrNull() ?: "universal"
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color.White.copy(alpha = 0.04f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_shield),
+                            contentDescription = null,
+                            tint = ActiveGreenLed,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "CPU устройства: ${primaryAbi.uppercase()}",
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = ActiveGreenLed
+                            )
+                            Text(
+                                text = "Рекомендуется: ${devicePrimaryType.title} (${devicePrimaryType.abiName})",
+                                fontSize = 11.5.sp,
+                                color = TextWhite.copy(alpha = 0.85f)
+                            )
+                        }
+                    }
+                }
+
+                // List of 5 APK Types (Pre-allocated singleton)
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    ALL_APK_TYPES.forEach { type ->
+                        val isSelected = currentChoice == type
+                        val isRecommended = devicePrimaryType == type
+                        val asset = availableAssets.firstOrNull { it.apkType == type }
+                        val isExpanded = expandedDetailsType == type
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isSelected) accentColor.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.03f),
+                            border = BorderStroke(
+                                width = if (isSelected) 1.5.dp else 1.dp,
+                                color = if (isSelected) accentColor else Color.White.copy(alpha = 0.10f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    currentChoice = type
+                                }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                // Header row: Radio, Title, Badges
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    // Custom Radio Indicator
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clip(CircleShape)
+                                            .border(
+                                                1.5.dp,
+                                                if (isSelected) accentColor else TextMuted.copy(alpha = 0.6f),
+                                                CircleShape
+                                            )
+                                    ) {
+                                        if (isSelected) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .clip(CircleShape)
+                                                    .background(accentColor)
+                                            )
+                                        }
+                                    }
+
+                                    Text(
+                                        text = type.title,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.5.sp,
+                                        color = if (isSelected) TextWhite else TextWhite.copy(alpha = 0.9f)
+                                    )
+
+                                    Text(
+                                        text = "(${type.abiName})",
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = TextMuted
+                                    )
+
+                                    Spacer(modifier = Modifier.weight(1f))
+
+                                    if (isRecommended) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(ActiveGreenLed.copy(alpha = 0.12f))
+                                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "РЕКОМЕНДОВАНО",
+                                                fontSize = 8.5.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = ActiveGreenLed,
+                                                letterSpacing = 0.4.sp
+                                            )
+                                        }
+                                    }
+
+                                    if (asset != null && asset.sizeBytes > 0) {
+                                        val mbSize = String.format(Locale.US, "%.1f MB", asset.sizeBytes / (1024f * 1024f))
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color.White.copy(alpha = 0.05f))
+                                                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = mbSize,
+                                                fontSize = 9.5.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Medium,
+                                                color = TextMuted
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Target devices short summary
+                                Text(
+                                    text = type.targetDevices,
+                                    fontSize = 11.5.sp,
+                                    color = TextWhite.copy(alpha = 0.75f),
+                                    lineHeight = 15.sp,
+                                    modifier = Modifier.padding(start = 24.dp)
+                                )
+
+                                // Expandable Details (Description + SHA-256)
+                                AnimatedVisibility(visible = isExpanded) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(start = 24.dp, top = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = type.description,
+                                            fontSize = 10.5.sp,
+                                            color = TextMuted,
+                                            lineHeight = 14.sp
+                                        )
+
+                                        val assetSha = asset?.sha256
+                                        if (!assetSha.isNullOrBlank()) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color.Black.copy(alpha = 0.3f))
+                                                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        try {
+                                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                            val clip = ClipData.newPlainText("APK SHA-256", assetSha)
+                                                            clipboard.setPrimaryClip(clip)
+                                                            Toast.makeText(context, "SHA-256 для ${type.title} скопирован", Toast.LENGTH_SHORT).show()
+                                                        } catch (_: Exception) {}
+                                                    }
+                                                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.ic_shield),
+                                                    contentDescription = null,
+                                                    tint = if (isSelected) accentColor else TextMuted,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Text(
+                                                    text = "SHA-256:",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = TextMuted
+                                                )
+                                                Text(
+                                                    text = assetSha,
+                                                    fontSize = 9.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = if (isSelected) accentColor else TextMuted,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Details Toggle Button (Micro chip)
+                                Row(
+                                    modifier = Modifier
+                                        .padding(start = 24.dp)
+                                        .clickable {
+                                            expandedDetailsType = if (isExpanded) null else type
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = if (isExpanded) "Скрыть подробности" else "Подробнее об архитектуре",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = accentColor.copy(alpha = 0.9f)
+                                    )
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_arrow_down),
+                                        contentDescription = null,
+                                        tint = accentColor.copy(alpha = 0.9f),
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Action Buttons: Apply / Close
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // Apply Button
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.5.dp, accentColor),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .springPress(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onSelect(currentChoice)
+                                onDismiss()
+                            })
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = if (isUpdateAvailable) "Выбрать ${currentChoice.title}" else "Выбрать ${currentChoice.title} для переустановки",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = accentColor
+                            )
+                        }
+                    }
+
+                    // Cancel / Dismiss Button
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, Color(0xFF1E283D)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .springPress(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onDismiss()
+                            })
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "Закрыть",
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 13.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

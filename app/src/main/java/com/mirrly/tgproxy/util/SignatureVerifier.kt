@@ -46,7 +46,12 @@ object SignatureVerifier {
 
     fun verify(context: Context, expectedRemoteHashes: List<String>?): SignatureStatus {
         if (expectedRemoteHashes.isNullOrEmpty()) {
-            cachedStatus?.let { return it }
+            // Return cache only for positive statuses — UNOFFICIAL_MODIFIED obtained without
+            // remote hashes may have been a false-negative (no network yet), so don't cache it.
+            val cached = cachedStatus
+            if (cached == SignatureStatus.OFFICIAL_RELEASE || cached == SignatureStatus.DEBUG_BUILD) {
+                return cached
+            }
         }
 
         val status = if (isNativeLoaded) {

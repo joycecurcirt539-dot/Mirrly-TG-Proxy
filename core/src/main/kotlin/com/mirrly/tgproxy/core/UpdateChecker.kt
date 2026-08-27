@@ -8,6 +8,92 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+enum class ApkType(
+    val id: String,
+    val title: String,
+    val shortName: String,
+    val abiName: String,
+    val description: String,
+    val targetDevices: String
+) {
+    ARM64(
+        id = "arm64-v8a",
+        title = "ARM64",
+        shortName = "arm64-v8a",
+        abiName = "arm64-v8a",
+        description = "Оптимизирована для 64-битных процессоров ARM. Обладает меньшим размером файла и максимальной энергоэффективностью.",
+        targetDevices = "Большинство современных смартфонов и планшетов (64-битные ARM)"
+    ),
+    ARM_V7(
+        id = "armeabi-v7a",
+        title = "ARMv7",
+        shortName = "armeabi-v7a",
+        abiName = "armeabi-v7a",
+        description = "Сборка для 32-битных процессоров ARM. Подходит для устаревших мобильных устройств.",
+        targetDevices = "Старые Android-смартфоны и 32-битные ТВ-приставки"
+    ),
+    X86_64(
+        id = "x86_64",
+        title = "x86_64",
+        shortName = "x86_64",
+        abiName = "x86_64",
+        description = "Для 64-битных эмуляторов Android на ПК и устройств с процессорами Intel/AMD.",
+        targetDevices = "Эмуляторы (LDPlayer, BlueStacks, Nox, Android Studio) и ПК"
+    ),
+    X86(
+        id = "x86",
+        title = "x86",
+        shortName = "x86",
+        abiName = "x86",
+        description = "Для 32-битных эмуляторов Android x86 и старых устройств с чипами Intel Atom.",
+        targetDevices = "32-битные эмуляторы Android на ПК"
+    ),
+    UNIVERSAL(
+        id = "universal",
+        title = "Universal",
+        shortName = "universal",
+        abiName = "universal",
+        description = "Содержит нативные библиотеки под все архитектуры (ARM64, ARMv7, x86, x86_64). Гарантированно подходит для любого устройства.",
+        targetDevices = "Любые устройства (гарантированная совместимость)"
+    );
+
+    companion object {
+        fun fromAssetName(name: String): ApkType {
+            val lower = name.lowercase()
+            return when {
+                lower.contains("arm64") || lower.contains("arm64-v8a") -> ARM64
+                lower.contains("armeabi-v7a") || lower.contains("armv7") -> ARM_V7
+                lower.contains("x86_64") || lower.contains("x86-64") || lower.contains("amd64") -> X86_64
+                lower.contains("x86") -> X86
+                lower.contains("universal") -> UNIVERSAL
+                else -> UNIVERSAL
+            }
+        }
+
+        fun fromAbis(supportedAbis: List<String>): ApkType {
+            for (abi in supportedAbis) {
+                val lower = abi.lowercase().trim()
+                when {
+                    lower.contains("arm64") -> return ARM64
+                    lower.contains("armeabi-v7a") || lower.contains("armv7") -> return ARM_V7
+                    lower.contains("x86_64") || lower.contains("amd64") -> return X86_64
+                    lower.contains("x86") -> return X86
+                }
+            }
+            return UNIVERSAL
+        }
+    }
+}
+
+data class ReleaseApkAsset(
+    val name: String,
+    val downloadUrl: String,
+    val sizeBytes: Long,
+    val apkType: ApkType,
+    val sha256: String? = null,
+    val isRecommended: Boolean = false
+)
+
 data class ReleaseInfo(
     val tagName: String,
     val versionName: String,
@@ -20,17 +106,19 @@ data class ReleaseInfo(
     val expectedSha256: String? = null,
     val expectedSha256List: List<String> = emptyList(),
     val changelogPreview: String = "",
-    val isIgnored: Boolean = false
+    val isIgnored: Boolean = false,
+    val apkAssets: List<ReleaseApkAsset> = emptyList()
 )
 
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_API_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
     private const val GITHUB_API_ALL_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
-    const val CURRENT_VERSION_NAME = "1.1.7"
+    const val CURRENT_VERSION_NAME = "1.1.8"
 
     private val client by lazy {
         OkHttpClient.Builder()
+            .dns(DohOkHttpDns.INSTANCE)
             .connectTimeout(8, TimeUnit.SECONDS)
             .readTimeout(8, TimeUnit.SECONDS)
             .build()
@@ -85,8 +173,9 @@ object UpdateChecker {
                             val htmlUrl = json.optString("html_url", "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases")
                             val bodyText = json.optString("body", "")
 
-                            var downloadUrl: String? = null
+                            val rawAssets = mutableListOf<ReleaseApkAsset>()
                             var universalApkUrl: String? = null
+                            var arm64ApkUrl: String? = null
                             var releaseApkUrl: String? = null
                             var fallbackApkUrl: String? = null
 
@@ -97,21 +186,51 @@ object UpdateChecker {
                                         val asset = assetsArray.optJSONObject(i) ?: continue
                                         val assetName = asset.optString("name", "")
                                         val assetUrl = asset.optString("browser_download_url", "")
+                                        val assetSize = asset.optLong("size", 0L)
 
-                                        if (assetName.endsWith(".apk", ignoreCase = true)) {
-                                            if (assetName.contains("universal", ignoreCase = true) && !assetName.contains("debug", ignoreCase = true)) {
+                                        if (assetName.endsWith(".apk", ignoreCase = true) && !assetName.contains("debug", ignoreCase = true)) {
+                                            val type = ApkType.fromAssetName(assetName)
+                                            val assetSha = extractSha256ForAsset(bodyText, assetName)
+
+                                            val apkAsset = ReleaseApkAsset(
+                                                name = assetName,
+                                                downloadUrl = assetUrl,
+                                                sizeBytes = assetSize,
+                                                apkType = type,
+                                                sha256 = assetSha
+                                            )
+                                            rawAssets.add(apkAsset)
+
+                                            if (assetName.contains("universal", ignoreCase = true)) {
                                                 universalApkUrl = assetUrl
-                                                break
-                                            } else if (assetName.contains("release", ignoreCase = true) && !assetName.contains("debug", ignoreCase = true) && releaseApkUrl == null) {
+                                            } else if (assetName.contains("arm64", ignoreCase = true)) {
+                                                arm64ApkUrl = assetUrl
+                                            } else if (assetName.contains("release", ignoreCase = true) && releaseApkUrl == null) {
                                                 releaseApkUrl = assetUrl
-                                            } else if (!assetName.contains("debug", ignoreCase = true) && fallbackApkUrl == null) {
+                                            } else if (fallbackApkUrl == null) {
                                                 fallbackApkUrl = assetUrl
                                             }
                                         }
                                     }
                                 }
                             }
-                            downloadUrl = universalApkUrl ?: releaseApkUrl ?: fallbackApkUrl
+
+                            // Sort assets logically: ARM64 -> Universal -> ARMv7 -> x86_64 -> x86
+                            val sortedAssets = rawAssets.sortedBy { asset ->
+                                when (asset.apkType) {
+                                    ApkType.ARM64 -> 0
+                                    ApkType.UNIVERSAL -> 1
+                                    ApkType.ARM_V7 -> 2
+                                    ApkType.X86_64 -> 3
+                                    ApkType.X86 -> 4
+                                }
+                            }
+
+                            val downloadUrl: String? = universalApkUrl
+                                ?: arm64ApkUrl
+                                ?: releaseApkUrl
+                                ?: fallbackApkUrl
+                                ?: sortedAssets.firstOrNull()?.downloadUrl
 
                             val hex64Matches = Regex("""(?i)\b[a-fA-F0-9]{64}\b""").findAll(bodyText).map { it.value.trim().uppercase() }
                             val colonMatches = Regex("""(?i)\b(?:[a-fA-F0-9]{2}:){31}[a-fA-F0-9]{2}\b""").findAll(bodyText).map { it.value.trim().uppercase() }
@@ -125,7 +244,7 @@ object UpdateChecker {
 
                             AppLogger.i(
                                 TAG,
-                                "Check completed. Latest: v$latestVerClean, Current: v$currentVerClean, Update available: $isUpdateAvailable, SHA-256 count: ${expectedSha256List.size}"
+                                "Check completed. Latest: v$latestVerClean, Current: v$currentVerClean, Update available: $isUpdateAvailable, Assets: ${sortedAssets.size}, SHA-256 count: ${expectedSha256List.size}"
                             )
 
                             Result.success(
@@ -138,9 +257,10 @@ object UpdateChecker {
                                     downloadUrl = if (isUpdateAvailable) downloadUrl else null,
                                     etag = responseEtag,
                                     isNotModified = false,
-                                    expectedSha256 = if (isUpdateAvailable) expectedSha256 else null,
-                                    expectedSha256List = if (isUpdateAvailable) expectedSha256List else emptyList(),
-                                    changelogPreview = preview
+                                    expectedSha256 = expectedSha256,
+                                    expectedSha256List = expectedSha256List,
+                                    changelogPreview = preview,
+                                    apkAssets = sortedAssets
                                 )
                             )
                         }
@@ -158,6 +278,34 @@ object UpdateChecker {
     }
 
     private fun String?.isNullOrBlank(): Boolean = this == null || this.trim().isEmpty()
+
+    fun extractSha256ForAsset(bodyText: String, assetName: String): String? {
+        if (bodyText.isBlank() || assetName.isBlank()) return null
+        val escapedName = Regex.escape(assetName)
+        // 1. Match full file name with SHA-256 (e.g. `* **app-arm64-v8a-release.apk SHA-256**: `A75EBE...``)
+        val lineRegex = Regex("""(?i)(?:^|[\r\n])[^\r\n]*?$escapedName[^\r\n]*?`?([a-fA-F0-9]{64})`?""")
+        val match = lineRegex.find(bodyText)
+        if (match != null) {
+            return match.groupValues[1].uppercase()
+        }
+
+        // 2. Match by APK type identifier if filename was slightly different
+        val apkType = ApkType.fromAssetName(assetName)
+        if (apkType != ApkType.UNIVERSAL) {
+            val abiRegex = Regex("""(?i)(?:^|[\r\n])[^\r\n]*?${apkType.abiName}[^\r\n]*?`?([a-fA-F0-9]{64})`?""")
+            val abiMatch = abiRegex.find(bodyText)
+            if (abiMatch != null) {
+                return abiMatch.groupValues[1].uppercase()
+            }
+        } else {
+            val uniRegex = Regex("""(?i)(?:^|[\r\n])[^\r\n]*?universal[^\r\n]*?`?([a-fA-F0-9]{64})`?""")
+            val uniMatch = uniRegex.find(bodyText)
+            if (uniMatch != null) {
+                return uniMatch.groupValues[1].uppercase()
+            }
+        }
+        return null
+    }
 
     fun extractChangelogPreview(bodyText: String, versionName: String): String {
         if (bodyText.isBlank()) return "Доступна новая версия v$versionName. Нажмите для обновления."
