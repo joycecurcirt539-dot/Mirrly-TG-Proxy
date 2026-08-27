@@ -80,7 +80,7 @@ object QrCodeGenerator {
         content: String,
         sizePx: Int = 720,
         accentColor: Int = android.graphics.Color.parseColor("#00E5FF"),
-        darkColor: Int = android.graphics.Color.parseColor("#0A0F1A"),
+        darkColor: Int = android.graphics.Color.parseColor("#060A14"),
         backgroundColor: Int = android.graphics.Color.WHITE,
         logoBitmap: android.graphics.Bitmap? = null
     ): android.graphics.Bitmap? {
@@ -88,8 +88,8 @@ object QrCodeGenerator {
         return try {
             val hints = mapOf(
                 EncodeHintType.CHARACTER_SET to "UTF-8",
-                EncodeHintType.MARGIN to 2,
-                EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.H
+                EncodeHintType.MARGIN to 1,
+                EncodeHintType.ERROR_CORRECTION to (if (logoBitmap != null) ErrorCorrectionLevel.M else ErrorCorrectionLevel.L)
             )
             val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, 0, 0, hints)
             val matrixWidth = matrix.width
@@ -97,42 +97,35 @@ object QrCodeGenerator {
 
             val bitmap = android.graphics.Bitmap.createBitmap(sizePx, sizePx, android.graphics.Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
-
-            val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                color = backgroundColor
-                style = android.graphics.Paint.Style.FILL
-            }
             canvas.drawColor(backgroundColor)
 
             val moduleSize = sizePx.toFloat() / matrixWidth
-            val pad = moduleSize * 0.04f
 
             val dataPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 color = darkColor
                 style = android.graphics.Paint.Style.FILL
             }
 
-            val finderOuterPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            val finderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 color = accentColor
                 style = android.graphics.Paint.Style.FILL
             }
 
-            val finderInnerPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                color = accentColor
-                style = android.graphics.Paint.Style.FILL
+            // Find where the 7x7 finders actually are (taking margin into account)
+            var mX = 0
+            while (mX < matrixWidth && !matrix.get(mX, mX)) { mX++ }
+            val mY = mX
+
+            fun isCornerFinder(x: Int, y: Int): Boolean {
+                val inTopLeft = (x in mX until (mX + 7)) && (y in mY until (mY + 7))
+                val inTopRight = (x in (matrixWidth - mX - 7) until (matrixWidth - mX)) && (y in mY until (mY + 7))
+                val inBottomLeft = (x in mX until (mX + 7)) && (y in (matrixHeight - mY - 7) until (matrixHeight - mY))
+                return inTopLeft || inTopRight || inBottomLeft
             }
 
-            // Finders occupy 7x7 at 3 corners (plus 1 module border for safe clearing)
-            fun isFinderPattern(x: Int, y: Int): Boolean {
-                return (x in 0..7 && y in 0..7) ||
-                        (x in (matrixWidth - 8) until matrixWidth && y in 0..7) ||
-                        (x in 0..7 && y in (matrixHeight - 8) until matrixHeight)
-            }
-
-            // Central logo module region
             val centerModuleX = matrixWidth / 2f
             val centerModuleY = matrixHeight / 2f
-            val logoRadiusModules = if (logoBitmap != null) (matrixWidth * 0.13f) else 0f
+            val logoRadiusModules = if (logoBitmap != null) (matrixWidth * 0.12f) else 0f
 
             fun isCenterLogoArea(x: Int, y: Int): Boolean {
                 if (logoBitmap == null) return false
@@ -141,79 +134,54 @@ object QrCodeGenerator {
                 return (dx * dx + dy * dy) <= (logoRadiusModules * logoRadiusModules)
             }
 
-            // 1. Draw regular data modules
+            // Draw all modules directly from matrix
             for (y in 0 until matrixHeight) {
                 for (x in 0 until matrixWidth) {
-                    if (isFinderPattern(x, y) || isCenterLogoArea(x, y)) continue
+                    if (isCenterLogoArea(x, y)) continue
                     if (matrix.get(x, y)) {
-                        val left = x * moduleSize + pad
-                        val top = y * moduleSize + pad
-                        val right = (x + 1) * moduleSize - pad
-                        val bottom = (y + 1) * moduleSize - pad
-                        val r = (moduleSize - pad * 2) * 0.22f
-                        canvas.drawRoundRect(left, top, right, bottom, r, r, dataPaint)
+                        val left = x * moduleSize
+                        val top = y * moduleSize
+                        val right = (x + 1) * moduleSize
+                        val bottom = (y + 1) * moduleSize
+
+                        val isFinder = isCornerFinder(x, y)
+                        val paint = if (isFinder) finderPaint else dataPaint
+                        val r = moduleSize * 0.15f
+                        canvas.drawRoundRect(left + 0.3f, top + 0.3f, right - 0.3f, bottom - 0.3f, r, r, paint)
                     }
                 }
             }
 
-            // 2. Draw standard compliant 1:1:3:1:1 Finder Patterns at 3 corners
-            fun drawFinderPattern(startX: Float, startY: Float) {
-                // 7x7 outer filled rounded box
-                val r7 = moduleSize * 0.9f
-                canvas.drawRoundRect(startX, startY, startX + 7 * moduleSize, startY + 7 * moduleSize, r7, r7, finderOuterPaint)
-
-                // 5x5 middle white separator
-                val r5 = moduleSize * 0.6f
-                canvas.drawRoundRect(startX + moduleSize, startY + moduleSize, startX + 6 * moduleSize, startY + 6 * moduleSize, r5, r5, bgPaint)
-
-                // 3x3 center core
-                val r3 = moduleSize * 0.45f
-                canvas.drawRoundRect(startX + 2 * moduleSize, startY + 2 * moduleSize, startX + 5 * moduleSize, startY + 5 * moduleSize, r3, r3, finderInnerPaint)
-            }
-
-            // Determine corner offsets (accounting for MARGIN)
-            var marginOffset = 0
-            while (marginOffset < matrixWidth && !matrix.get(marginOffset, marginOffset)) {
-                marginOffset++
-            }
-            val fx0 = marginOffset * moduleSize
-            val fy0 = marginOffset * moduleSize
-            val fxRight = (matrixWidth - marginOffset - 7) * moduleSize
-            val fyBottom = (matrixHeight - marginOffset - 7) * moduleSize
-
-            drawFinderPattern(fx0, fy0)
-            drawFinderPattern(fxRight, fy0)
-            drawFinderPattern(fx0, fyBottom)
-
-            // 3. Draw Center App Logo badge
+            // Center Logo Badge
             if (logoBitmap != null) {
-                val logoBadgeSize = sizePx * 0.20f
+                val logoBadgeSize = sizePx * 0.18f
                 val logoCenter = sizePx / 2f
                 val badgeLeft = logoCenter - logoBadgeSize / 2f
                 val badgeTop = logoCenter - logoBadgeSize / 2f
                 val badgeRight = logoCenter + logoBadgeSize / 2f
                 val badgeBottom = logoCenter + logoBadgeSize / 2f
-                val badgeRadius = logoBadgeSize * 0.30f
+                val badgeRadius = logoBadgeSize * 0.28f
 
-                // Clean white badge container with slight shadow/spacing
+                val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = backgroundColor
+                    style = android.graphics.Paint.Style.FILL
+                }
                 canvas.drawRoundRect(badgeLeft, badgeTop, badgeRight, badgeBottom, badgeRadius, badgeRadius, bgPaint)
 
-                // Badge neon accent border
                 val badgeBorderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                     color = accentColor
                     style = android.graphics.Paint.Style.STROKE
-                    strokeWidth = sizePx * 0.008f
+                    strokeWidth = sizePx * 0.007f
                 }
                 canvas.drawRoundRect(badgeLeft, badgeTop, badgeRight, badgeBottom, badgeRadius, badgeRadius, badgeBorderPaint)
 
-                // Scaled logo icon with rounded clip
                 val iconSize = logoBadgeSize * 0.74f
                 val iconLeft = logoCenter - iconSize / 2f
                 val iconTop = logoCenter - iconSize / 2f
                 val iconRect = android.graphics.RectF(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
 
                 val path = android.graphics.Path().apply {
-                    addRoundRect(iconRect, iconSize * 0.24f, iconSize * 0.24f, android.graphics.Path.Direction.CW)
+                    addRoundRect(iconRect, iconSize * 0.22f, iconSize * 0.22f, android.graphics.Path.Direction.CW)
                 }
                 canvas.save()
                 canvas.clipPath(path)
@@ -561,16 +529,18 @@ fun CameraQrScannerView(
                         }
 
                         try {
-                            val buffer = imageProxy.planes[0].buffer
-                            val bytes = ByteArray(buffer.remaining())
-                            buffer.get(bytes)
-
+                            val yPlane = imageProxy.planes[0]
+                            val yBuffer = yPlane.buffer
+                            val rowStride = yPlane.rowStride
                             val width = imageProxy.width
                             val height = imageProxy.height
                             val rotation = imageProxy.imageInfo.rotationDegrees
 
+                            val yBytes = ByteArray(yBuffer.remaining())
+                            yBuffer.get(yBytes)
+
                             var source: LuminanceSource = PlanarYUVLuminanceSource(
-                                bytes, width, height, 0, 0, width, height, false
+                                yBytes, rowStride, height, 0, 0, width, height, false
                             )
 
                             // Rotate source to match portrait orientation
