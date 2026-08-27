@@ -66,6 +66,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.google.zxing.*
+import com.google.zxing.common.GlobalHistogramBinarizer
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
@@ -77,17 +78,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 object QrCodeGenerator {
     fun generateQrBitmap(
         content: String,
-        sizePx: Int = 600,
+        sizePx: Int = 720,
         accentColor: Int = android.graphics.Color.parseColor("#00E5FF"),
-        darkColor: Int = android.graphics.Color.WHITE,
-        backgroundColor: Int = android.graphics.Color.TRANSPARENT,
+        darkColor: Int = android.graphics.Color.parseColor("#0A0F1A"),
+        backgroundColor: Int = android.graphics.Color.WHITE,
         logoBitmap: android.graphics.Bitmap? = null
     ): android.graphics.Bitmap? {
         if (content.isBlank()) return null
         return try {
             val hints = mapOf(
                 EncodeHintType.CHARACTER_SET to "UTF-8",
-                EncodeHintType.MARGIN to 1,
+                EncodeHintType.MARGIN to 2,
                 EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.H
             )
             val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, 0, 0, hints)
@@ -97,12 +98,14 @@ object QrCodeGenerator {
             val bitmap = android.graphics.Bitmap.createBitmap(sizePx, sizePx, android.graphics.Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
 
-            if (backgroundColor != android.graphics.Color.TRANSPARENT) {
-                canvas.drawColor(backgroundColor)
+            val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = backgroundColor
+                style = android.graphics.Paint.Style.FILL
             }
+            canvas.drawColor(backgroundColor)
 
             val moduleSize = sizePx.toFloat() / matrixWidth
-            val pad = moduleSize * 0.08f
+            val pad = moduleSize * 0.04f
 
             val dataPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 color = darkColor
@@ -111,8 +114,7 @@ object QrCodeGenerator {
 
             val finderOuterPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 color = accentColor
-                style = android.graphics.Paint.Style.STROKE
-                strokeWidth = moduleSize * 0.92f
+                style = android.graphics.Paint.Style.FILL
             }
 
             val finderInnerPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
@@ -120,17 +122,17 @@ object QrCodeGenerator {
                 style = android.graphics.Paint.Style.FILL
             }
 
-            // Check if coordinates belong to the 3 7x7 corner finder patterns
+            // Finders occupy 7x7 at 3 corners (plus 1 module border for safe clearing)
             fun isFinderPattern(x: Int, y: Int): Boolean {
-                return (x in 0..6 && y in 0..6) ||
-                        (x in (matrixWidth - 7) until matrixWidth && y in 0..6) ||
-                        (x in 0..6 && y in (matrixHeight - 7) until matrixHeight)
+                return (x in 0..7 && y in 0..7) ||
+                        (x in (matrixWidth - 8) until matrixWidth && y in 0..7) ||
+                        (x in 0..7 && y in (matrixHeight - 8) until matrixHeight)
             }
 
-            // Check if coordinates fall within the center logo badge area
+            // Central logo module region
             val centerModuleX = matrixWidth / 2f
             val centerModuleY = matrixHeight / 2f
-            val logoRadiusModules = if (logoBitmap != null) (matrixWidth * 0.16f) else 0f
+            val logoRadiusModules = if (logoBitmap != null) (matrixWidth * 0.13f) else 0f
 
             fun isCenterLogoArea(x: Int, y: Int): Boolean {
                 if (logoBitmap == null) return false
@@ -139,7 +141,7 @@ object QrCodeGenerator {
                 return (dx * dx + dy * dy) <= (logoRadiusModules * logoRadiusModules)
             }
 
-            // 1. Draw regular data modules as stylish rounded squircles
+            // 1. Draw regular data modules
             for (y in 0 until matrixHeight) {
                 for (x in 0 until matrixWidth) {
                     if (isFinderPattern(x, y) || isCenterLogoArea(x, y)) continue
@@ -148,72 +150,70 @@ object QrCodeGenerator {
                         val top = y * moduleSize + pad
                         val right = (x + 1) * moduleSize - pad
                         val bottom = (y + 1) * moduleSize - pad
-                        val r = (moduleSize - pad * 2) * 0.36f
+                        val r = (moduleSize - pad * 2) * 0.22f
                         canvas.drawRoundRect(left, top, right, bottom, r, r, dataPaint)
                     }
                 }
             }
 
-            // 2. Draw styled Finder Patterns at 3 corners
+            // 2. Draw standard compliant 1:1:3:1:1 Finder Patterns at 3 corners
             fun drawFinderPattern(startX: Float, startY: Float) {
-                // Outer 7x7 rounded frame
-                val outerOffset = moduleSize * 0.5f
-                val outerLeft = startX + outerOffset
-                val outerTop = startY + outerOffset
-                val outerRight = startX + 7 * moduleSize - outerOffset
-                val outerBottom = startY + 7 * moduleSize - outerOffset
-                val outerRadius = moduleSize * 1.5f
-                canvas.drawRoundRect(outerLeft, outerTop, outerRight, outerBottom, outerRadius, outerRadius, finderOuterPaint)
+                // 7x7 outer filled rounded box
+                val r7 = moduleSize * 0.9f
+                canvas.drawRoundRect(startX, startY, startX + 7 * moduleSize, startY + 7 * moduleSize, r7, r7, finderOuterPaint)
 
-                // Inner 3x3 rounded center box
-                val innerLeft = startX + 2 * moduleSize
-                val innerTop = startY + 2 * moduleSize
-                val innerRight = startX + 5 * moduleSize
-                val innerBottom = startY + 5 * moduleSize
-                val innerRadius = moduleSize * 0.85f
-                canvas.drawRoundRect(innerLeft, innerTop, innerRight, innerBottom, innerRadius, innerRadius, finderInnerPaint)
+                // 5x5 middle white separator
+                val r5 = moduleSize * 0.6f
+                canvas.drawRoundRect(startX + moduleSize, startY + moduleSize, startX + 6 * moduleSize, startY + 6 * moduleSize, r5, r5, bgPaint)
+
+                // 3x3 center core
+                val r3 = moduleSize * 0.45f
+                canvas.drawRoundRect(startX + 2 * moduleSize, startY + 2 * moduleSize, startX + 5 * moduleSize, startY + 5 * moduleSize, r3, r3, finderInnerPaint)
             }
 
-            // Top-Left
-            drawFinderPattern(0f, 0f)
-            // Top-Right
-            drawFinderPattern((matrixWidth - 7) * moduleSize, 0f)
-            // Bottom-Left
-            drawFinderPattern(0f, (matrixHeight - 7) * moduleSize)
+            // Determine corner offsets (accounting for MARGIN)
+            var marginOffset = 0
+            while (marginOffset < matrixWidth && !matrix.get(marginOffset, marginOffset)) {
+                marginOffset++
+            }
+            val fx0 = marginOffset * moduleSize
+            val fy0 = marginOffset * moduleSize
+            val fxRight = (matrixWidth - marginOffset - 7) * moduleSize
+            val fyBottom = (matrixHeight - marginOffset - 7) * moduleSize
 
-            // 3. Draw Center App Logo with glowing border and rounded dark badge
+            drawFinderPattern(fx0, fy0)
+            drawFinderPattern(fxRight, fy0)
+            drawFinderPattern(fx0, fyBottom)
+
+            // 3. Draw Center App Logo badge
             if (logoBitmap != null) {
-                val logoBadgeSize = sizePx * 0.24f
+                val logoBadgeSize = sizePx * 0.20f
                 val logoCenter = sizePx / 2f
                 val badgeLeft = logoCenter - logoBadgeSize / 2f
                 val badgeTop = logoCenter - logoBadgeSize / 2f
                 val badgeRight = logoCenter + logoBadgeSize / 2f
                 val badgeBottom = logoCenter + logoBadgeSize / 2f
-                val badgeRadius = logoBadgeSize * 0.32f
+                val badgeRadius = logoBadgeSize * 0.30f
 
-                // Badge dark container
-                val badgeBgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                    color = android.graphics.Color.parseColor("#090E18")
-                    style = android.graphics.Paint.Style.FILL
-                }
-                canvas.drawRoundRect(badgeLeft, badgeTop, badgeRight, badgeBottom, badgeRadius, badgeRadius, badgeBgPaint)
+                // Clean white badge container with slight shadow/spacing
+                canvas.drawRoundRect(badgeLeft, badgeTop, badgeRight, badgeBottom, badgeRadius, badgeRadius, bgPaint)
 
                 // Badge neon accent border
                 val badgeBorderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                     color = accentColor
                     style = android.graphics.Paint.Style.STROKE
-                    strokeWidth = sizePx * 0.007f
+                    strokeWidth = sizePx * 0.008f
                 }
                 canvas.drawRoundRect(badgeLeft, badgeTop, badgeRight, badgeBottom, badgeRadius, badgeRadius, badgeBorderPaint)
 
                 // Scaled logo icon with rounded clip
-                val iconSize = logoBadgeSize * 0.72f
+                val iconSize = logoBadgeSize * 0.74f
                 val iconLeft = logoCenter - iconSize / 2f
                 val iconTop = logoCenter - iconSize / 2f
                 val iconRect = android.graphics.RectF(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
 
                 val path = android.graphics.Path().apply {
-                    addRoundRect(iconRect, iconSize * 0.26f, iconSize * 0.26f, android.graphics.Path.Direction.CW)
+                    addRoundRect(iconRect, iconSize * 0.24f, iconSize * 0.24f, android.graphics.Path.Direction.CW)
                 }
                 canvas.save()
                 canvas.clipPath(path)
@@ -518,6 +518,7 @@ fun CameraQrScannerView(
 
                     val imageAnalysis = ImageAnalysis.Builder()
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .setTargetResolution(android.util.Size(1280, 720))
                         .build()
 
                     val qrReader = MultiFormatReader().apply {
@@ -527,6 +528,30 @@ fun CameraQrScannerView(
                             DecodeHintType.CHARACTER_SET to "UTF-8"
                         )
                         setHints(hints)
+                    }
+
+                    fun tryDecode(lumSource: LuminanceSource): Result? {
+                        // 1. Standard HybridBinarizer
+                        try {
+                            return qrReader.decodeWithState(BinaryBitmap(HybridBinarizer(lumSource)))
+                        } catch (_: Exception) {} finally { qrReader.reset() }
+
+                        // 2. Inverted HybridBinarizer (for dark terminal / inverted QR)
+                        try {
+                            return qrReader.decodeWithState(BinaryBitmap(HybridBinarizer(InvertedLuminanceSource(lumSource))))
+                        } catch (_: Exception) {} finally { qrReader.reset() }
+
+                        // 3. GlobalHistogramBinarizer (for low-light and reflection glare)
+                        try {
+                            return qrReader.decodeWithState(BinaryBitmap(GlobalHistogramBinarizer(lumSource)))
+                        } catch (_: Exception) {} finally { qrReader.reset() }
+
+                        // 4. Inverted GlobalHistogramBinarizer
+                        try {
+                            return qrReader.decodeWithState(BinaryBitmap(GlobalHistogramBinarizer(InvertedLuminanceSource(lumSource))))
+                        } catch (_: Exception) {} finally { qrReader.reset() }
+
+                        return null
                     }
 
                     imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
@@ -542,23 +567,31 @@ fun CameraQrScannerView(
 
                             val width = imageProxy.width
                             val height = imageProxy.height
+                            val rotation = imageProxy.imageInfo.rotationDegrees
 
-                            val source = PlanarYUVLuminanceSource(
+                            var source: LuminanceSource = PlanarYUVLuminanceSource(
                                 bytes, width, height, 0, 0, width, height, false
                             )
-                            val binaryBitmap = BinaryBitmap(HybridBinarizer(source))
 
-                            var result: Result? = null
-                            try {
-                                result = qrReader.decodeWithState(binaryBitmap)
-                            } catch (_: Exception) {
-                                // Try rotated if portrait buffer orientation differs
-                                try {
-                                    val rotatedSource = source.rotateCounterClockwise()
-                                    result = qrReader.decodeWithState(BinaryBitmap(HybridBinarizer(rotatedSource)))
-                                } catch (_: Exception) {}
-                            } finally {
-                                qrReader.reset()
+                            // Rotate source to match portrait orientation
+                            if (rotation == 90) {
+                                source = source.rotateCounterClockwise().rotateCounterClockwise().rotateCounterClockwise()
+                            } else if (rotation == 180) {
+                                source = source.rotateCounterClockwise().rotateCounterClockwise()
+                            } else if (rotation == 270) {
+                                source = source.rotateCounterClockwise()
+                            }
+
+                            var result = tryDecode(source)
+
+                            // If full image didn't match, try center-focused crop
+                            if (result == null && source.isCropSupported) {
+                                val cropW = (source.width * 0.70f).toInt()
+                                val cropH = (source.height * 0.70f).toInt()
+                                val cropL = (source.width - cropW) / 2
+                                val cropT = (source.height - cropH) / 2
+                                val cropped = source.crop(cropL, cropT, cropW, cropH)
+                                result = tryDecode(cropped)
                             }
 
                             if (result != null && !result.text.isNullOrBlank()) {

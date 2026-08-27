@@ -3186,8 +3186,8 @@ private fun ShareWorkerContent(
                 content = deepLink,
                 sizePx = 720,
                 accentColor = activeAccentColor.toArgb(),
-                darkColor = android.graphics.Color.WHITE,
-                backgroundColor = android.graphics.Color.TRANSPARENT,
+                darkColor = android.graphics.Color.parseColor("#090E18"),
+                backgroundColor = android.graphics.Color.WHITE,
                 logoBitmap = logoBitmap
             )
         }
@@ -3294,15 +3294,15 @@ private fun ShareWorkerContent(
                         }
                     }
 
-                    // QR Code Frame
+                    // QR Code Frame in crisp high-contrast container
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(230.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color(0xFF0F1522))
-                            .border(BorderStroke(1.dp, AmoledBorder.copy(alpha = 0.9f)), RoundedCornerShape(20.dp))
-                            .padding(14.dp)
+                            .size(240.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(Color.White)
+                            .border(BorderStroke(1.8.dp, activeAccentColor.copy(alpha = 0.75f)), RoundedCornerShape(22.dp))
+                            .padding(8.dp)
                     ) {
                         if (qrBitmap != null) {
                             Image(
