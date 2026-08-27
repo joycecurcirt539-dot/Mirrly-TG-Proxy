@@ -65,9 +65,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
 import com.google.zxing.*
-import com.google.zxing.common.GlobalHistogramBinarizer
-import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.mirrly.tgproxy.R
@@ -80,8 +82,8 @@ object QrCodeGenerator {
         content: String,
         sizePx: Int = 720,
         accentColor: Int = android.graphics.Color.parseColor("#00E5FF"),
-        darkColor: Int = android.graphics.Color.parseColor("#060A14"),
-        backgroundColor: Int = android.graphics.Color.WHITE,
+        darkColor: Int = android.graphics.Color.WHITE,
+        backgroundColor: Int = android.graphics.Color.TRANSPARENT,
         logoBitmap: android.graphics.Bitmap? = null
     ): android.graphics.Bitmap? {
         if (content.isBlank()) return null
@@ -437,6 +439,7 @@ fun QrCodeScannerDialog(
     }
 }
 
+@OptIn(ExperimentalGetImage::class)
 @Composable
 fun CameraQrScannerView(
     activeAccentColor: Color,
@@ -450,10 +453,17 @@ fun CameraQrScannerView(
     var isTorchOn by remember { mutableStateOf(false) }
 
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    val barcodeScanner = remember {
+        val options = BarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .build()
+        BarcodeScanning.getClient(options)
+    }
 
     DisposableEffect(Unit) {
         onDispose {
             cameraExecutor.shutdown()
+            try { barcodeScanner.close() } catch (_: Exception) {}
         }
     }
 
@@ -486,41 +496,7 @@ fun CameraQrScannerView(
 
                     val imageAnalysis = ImageAnalysis.Builder()
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .setTargetResolution(android.util.Size(1280, 720))
                         .build()
-
-                    val qrReader = MultiFormatReader().apply {
-                        val hints = mapOf<DecodeHintType, Any>(
-                            DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
-                            DecodeHintType.TRY_HARDER to true,
-                            DecodeHintType.CHARACTER_SET to "UTF-8"
-                        )
-                        setHints(hints)
-                    }
-
-                    fun tryDecode(lumSource: LuminanceSource): Result? {
-                        // 1. Standard HybridBinarizer
-                        try {
-                            return qrReader.decodeWithState(BinaryBitmap(HybridBinarizer(lumSource)))
-                        } catch (_: Exception) {} finally { qrReader.reset() }
-
-                        // 2. Inverted HybridBinarizer (for dark terminal / inverted QR)
-                        try {
-                            return qrReader.decodeWithState(BinaryBitmap(HybridBinarizer(InvertedLuminanceSource(lumSource))))
-                        } catch (_: Exception) {} finally { qrReader.reset() }
-
-                        // 3. GlobalHistogramBinarizer (for low-light and reflection glare)
-                        try {
-                            return qrReader.decodeWithState(BinaryBitmap(GlobalHistogramBinarizer(lumSource)))
-                        } catch (_: Exception) {} finally { qrReader.reset() }
-
-                        // 4. Inverted GlobalHistogramBinarizer
-                        try {
-                            return qrReader.decodeWithState(BinaryBitmap(GlobalHistogramBinarizer(InvertedLuminanceSource(lumSource))))
-                        } catch (_: Exception) {} finally { qrReader.reset() }
-
-                        return null
-                    }
 
                     imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
                         if (isScanned.get()) {
@@ -528,51 +504,25 @@ fun CameraQrScannerView(
                             return@setAnalyzer
                         }
 
-                        try {
-                            val yPlane = imageProxy.planes[0]
-                            val yBuffer = yPlane.buffer
-                            val rowStride = yPlane.rowStride
-                            val width = imageProxy.width
-                            val height = imageProxy.height
-                            val rotation = imageProxy.imageInfo.rotationDegrees
-
-                            val yBytes = ByteArray(yBuffer.remaining())
-                            yBuffer.get(yBytes)
-
-                            var source: LuminanceSource = PlanarYUVLuminanceSource(
-                                yBytes, rowStride, height, 0, 0, width, height, false
-                            )
-
-                            // Rotate source to match portrait orientation
-                            if (rotation == 90) {
-                                source = source.rotateCounterClockwise().rotateCounterClockwise().rotateCounterClockwise()
-                            } else if (rotation == 180) {
-                                source = source.rotateCounterClockwise().rotateCounterClockwise()
-                            } else if (rotation == 270) {
-                                source = source.rotateCounterClockwise()
-                            }
-
-                            var result = tryDecode(source)
-
-                            // If full image didn't match, try center-focused crop
-                            if (result == null && source.isCropSupported) {
-                                val cropW = (source.width * 0.70f).toInt()
-                                val cropH = (source.height * 0.70f).toInt()
-                                val cropL = (source.width - cropW) / 2
-                                val cropT = (source.height - cropH) / 2
-                                val cropped = source.crop(cropL, cropT, cropW, cropH)
-                                result = tryDecode(cropped)
-                            }
-
-                            if (result != null && !result.text.isNullOrBlank()) {
-                                if (isScanned.compareAndSet(false, true)) {
-                                    previewView.post {
-                                        onScanned(result.text.trim())
+                        val mediaImage = imageProxy.image
+                        if (mediaImage != null) {
+                            val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                            barcodeScanner.process(inputImage)
+                                .addOnSuccessListener { barcodes ->
+                                    for (barcode in barcodes) {
+                                        val rawValue = barcode.rawValue
+                                        if (!rawValue.isNullOrBlank() && isScanned.compareAndSet(false, true)) {
+                                            previewView.post {
+                                                onScanned(rawValue.trim())
+                                            }
+                                            break
+                                        }
                                     }
                                 }
-                            }
-                        } catch (_: Exception) {
-                        } finally {
+                                .addOnCompleteListener {
+                                    imageProxy.close()
+                                }
+                        } else {
                             imageProxy.close()
                         }
                     }

@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Mirrly TG Proxy — Автоматический деплой персонального Cloudflare Worker.
     Самодостаточный скрипт: JS-код воркера и генератор QR-кода вшиты внутрь.
@@ -287,24 +287,19 @@ function generateQR(text) {
         [[196,20,2,78,0,0],[196,18,4,31,0,0],[196,18,2,14,4,15],[196,26,4,13,1,14]],
         [[242,24,2,97,0,0],[242,22,2,38,2,39],[242,22,4,18,2,19],[242,26,4,14,2,15]],
         [[292,30,2,116,0,0],[292,22,3,36,2,37],[292,20,4,16,4,17],[292,24,4,12,4,13]],
-        [[346,18,2,68,2,69],[346,26,4,43,1,44],[346,24,6,19,2,20],[346,28,6,15,2,16]],
-        [[404,20,4,81,0,0],[404,30,1,50,4,51],[404,28,4,22,4,23],[404,24,3,12,8,13]],
-        [[466,24,2,92,2,93],[466,22,6,36,2,37],[466,26,4,20,6,21],[466,28,7,14,4,15]],
-        [[532,26,4,107,0,0],[532,22,8,37,1,38],[532,24,8,20,4,21],[532,22,12,11,4,12]],
-        [[581,30,3,115,1,116],[581,24,4,40,5,41],[581,20,11,16,5,17],[581,24,11,12,5,13]]
+        [[346,18,2,68,2,69],[346,26,4,43,1,44],[346,24,6,19,2,20],[346,28,6,15,2,16]]
     ];
-    const ALIGN = [[],[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66]];
-    const FMT = [
-        [0x5412,0x5125,0x5E7C,0x5B4B,0x45F9,0x40CE,0x4F97,0x4AA0],
-        [0x77C4,0x72F3,0x7DAA,0x789D,0x662F,0x6318,0x6C41,0x6976]
-    ];
+    const ALIGN = [[],[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50]];
+    const FMT_L = [0x77C4,0x72F3,0x7DAA,0x789D,0x662F,0x6318,0x6C41,0x6976];
+
     const utf8 = Buffer.from(text, 'utf8');
-    let ver = 1, cap = 0;
+    let ver = 1, cap = 0, ecLevel = 0;
     for (let v = 1; v < ECC.length; v++) {
-        const inf = ECC[v][1];
-        const c = inf[2]*inf[3] + inf[4]*inf[5];
-        if (c * 8 >= 4 + (v<=9?8:16) + (utf8.length * 8)) { ver = v; cap = c; break; }
+        const inf = ECC[v][ecLevel];
+        const c = inf[2] * inf[3] + inf[4] * inf[5];
+        if (c * 8 >= 4 + (v <= 9 ? 8 : 16) + (utf8.length * 8)) { ver = v; cap = c; break; }
     }
+
     const bits = [];
     function put(v, l) { for (let i = l - 1; i >= 0; i--) bits.push((v >> i) & 1); }
     put(0b0100, 4);
@@ -313,14 +308,16 @@ function generateQR(text) {
     const capBits = cap * 8;
     put(0, Math.min(4, capBits - bits.length));
     while (bits.length % 8 !== 0) bits.push(0);
-    let p = PAD0;
-    while (bits.length < capBits) { put(p, 8); p = (p === PAD0) ? PAD1 : PAD0; }
+    let p = 0xEC;
+    while (bits.length < capBits) { put(p, 8); p = (p === 0xEC) ? 0x11 : 0xEC; }
+
     const dataBytes = new Uint8Array(bits.length / 8);
     for (let i = 0; i < dataBytes.length; i++) {
         let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | bits[i * 8 + j];
         dataBytes[i] = b;
     }
-    const inf = ECC[ver][1];
+
+    const inf = ECC[ver][ecLevel];
     const ecWords = inf[1], g1B = inf[2], g1D = inf[3], g2B = inf[4], g2D = inf[5];
     const totB = g1B + g2B, bData = [], bEc = [];
     let off = 0;
@@ -329,10 +326,12 @@ function generateQR(text) {
         const d = dataBytes.slice(off, off + sz);
         off += sz; bData.push(d); bEc.push(calcEc(d, ecWords));
     }
+
     const stream = new Uint8Array(inf[0]);
     let ptr = 0, maxD = Math.max(g1D, g2D);
     for (let i = 0; i < maxD; i++) for (let b = 0; b < totB; b++) if (i < bData[b].length) stream[ptr++] = bData[b][i];
     for (let i = 0; i < ecWords; i++) for (let b = 0; b < totB; b++) stream[ptr++] = bEc[b][i];
+
     const size = ver * 4 + 17;
     const mat = Array.from({ length: size }, () => new Int8Array(size).fill(-1));
     function setM(r, c, v) { if (r >= 0 && r < size && c >= 0 && c < size) mat[r][c] = v ? 1 : 0; }
@@ -361,6 +360,7 @@ function generateQR(text) {
     setM(4 * ver + 9, 8, 1);
     for (let i = 0; i < 9; i++) { if (mat[8][i] === -1) mat[8][i] = -2; if (mat[i][8] === -1) mat[i][8] = -2; }
     for (let i = size - 8; i < size; i++) { if (mat[8][i] === -1) mat[8][i] = -2; if (mat[i][8] === -1) mat[i][8] = -2; }
+
     let bIdx = 0, dir = -1;
     for (let col = size - 1; col > 0; col -= 2) {
         if (col === 6) col--;
@@ -377,14 +377,15 @@ function generateQR(text) {
         }
         dir = -dir;
     }
+
     const fBits = [];
-    for (let i = 0; i < 15; i++) fBits.push((FMT[1][0] >> i) & 1);
+    for (let i = 0; i < 15; i++) fBits.push((FMT_L[0] >> i) & 1);
     const tl = [[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]];
     for (let i = 0; i < 15; i++) mat[tl[i][0]][tl[i][1]] = fBits[i];
     for (let i = 0; i < 8; i++) mat[8][size - 1 - i] = fBits[i];
     for (let i = 0; i < 7; i++) mat[size - 7 + i][8] = fBits[8 + i];
 
-    const q = 2, tot = size + q * 2;
+    const q = 1, tot = size + q * 2;
     const grid = Array.from({ length: tot }, () => new Uint8Array(tot).fill(0));
     for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) grid[r + q][c + q] = mat[r][c];
     let out = '\n';
