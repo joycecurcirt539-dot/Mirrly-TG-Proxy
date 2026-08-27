@@ -1,8 +1,5 @@
 package com.mirrly.tgproxy.ui
 
-import android.os.Build
-import android.view.WindowManager
-import androidx.core.view.WindowCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,7 +16,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -28,9 +24,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.core.WorkerDomainNormalizer
+import com.mirrly.tgproxy.core.WorkerStatus
+import com.mirrly.tgproxy.service.WorkerPingTester
 import com.mirrly.tgproxy.ui.theme.*
+import kotlinx.coroutines.launch
 
 /**
  * Frosted Glass Import Cloudflare Worker Dialog (Consistent with AddWorkerDialog and DeleteWorkerConfirmDialog, no emojis).
@@ -44,19 +43,33 @@ fun ImportWorkerDialog(
     onImport: (name: String, domain: String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
-    var editName by remember { mutableStateOf(name) }
+    val scope = rememberCoroutineScope()
+
+    val normalized = remember(name, domain) {
+        WorkerDomainNormalizer.normalizeForm(name, domain)
+    }
+
+    var editName by remember { mutableStateOf(normalized.normalizedName.ifBlank { normalized.domainResult.suggestedName }) }
+    var isCheckingWorker by remember { mutableStateOf(false) }
+    var unreachableWarning by remember { mutableStateOf<String?>(null) }
+
+    val cleanDomain = normalized.normalizedDomain
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (!isCheckingWorker) onDismiss()
+        },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true
+            dismissOnBackPress = !isCheckingWorker,
+            dismissOnClickOutside = !isCheckingWorker
         )
     ) {
         DialogBackdropBox(
-            onDismiss = onDismiss
+            onDismiss = {
+                if (!isCheckingWorker) onDismiss()
+            }
         ) {
             // Scrollable Content
             Column(
@@ -144,7 +157,7 @@ fun ImportWorkerDialog(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = domain,
+                                    text = cleanDomain,
                                     fontSize = 13.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Medium,
@@ -181,28 +194,133 @@ fun ImportWorkerDialog(
                     }
                 }
 
+                // Pre-flight warning banner
+                if (unreachableWarning != null) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFFE53935).copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, Color(0xFFE53935).copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "ПРЕДУПРЕЖДЕНИЕ СВЯЗИ:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFF6B6B),
+                                letterSpacing = 0.5.sp
+                            )
+                            Text(
+                                text = unreachableWarning ?: "",
+                                fontSize = 11.5.sp,
+                                color = TextWhite.copy(alpha = 0.9f),
+                                lineHeight = 15.sp
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        val finalName = editName.trim().ifBlank { normalized.domainResult.suggestedName.ifBlank { "Импортированный воркер" } }
+                                        onImport(finalName, cleanDomain)
+                                    },
+                                    border = BorderStroke(1.dp, Color(0xFFFF6B6B).copy(alpha = 0.5f)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f).height(38.dp)
+                                ) {
+                                    Text(
+                                        text = "Импортировать",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFFFF6B6B)
+                                    )
+                                }
+
+                                Button(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        unreachableWarning = null
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = activeAccentColor),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f).height(38.dp)
+                                ) {
+                                    Text(
+                                        text = "Отмена",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0A0E1A)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(4.dp))
 
                 // Import & Activate Action Button
                 Surface(
                     shape = RoundedCornerShape(14.dp),
-                    color = activeAccentColor,
+                    color = if (isCheckingWorker) activeAccentColor.copy(alpha = 0.7f) else activeAccentColor,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .springPress(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onImport(editName.trim(), domain.trim())
-                        })
+                        .springPress(
+                            onClick = {
+                                if (isCheckingWorker) return@springPress
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val finalName = editName.trim().ifBlank { normalized.domainResult.suggestedName.ifBlank { "Импортированный воркер" } }
+
+                                scope.launch {
+                                    isCheckingWorker = true
+                                    unreachableWarning = null
+
+                                    val (status, pingMs) = WorkerPingTester.pingWorker(cleanDomain)
+                                    isCheckingWorker = false
+
+                                    if (status == WorkerStatus.ONLINE || status == WorkerStatus.RATE_LIMITED_429) {
+                                        onImport(finalName, cleanDomain)
+                                    } else {
+                                        unreachableWarning = "Воркер «$cleanDomain» не отвечает на проверочный запрос (ERR_UNREACHABLE). Убедитесь, что скрипт развернут в Cloudflare."
+                                    }
+                                }
+                            }
+                        )
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "Импортировать и активировать",
-                            color = Color(0xFF0A0E1A),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
+                        if (isCheckingWorker) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Color(0xFF0A0E1A),
+                                    strokeWidth = 2.dp
+                                )
+                                Text(
+                                    text = "Проверка узла...",
+                                    color = Color(0xFF0A0E1A),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.5.sp
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "Импортировать и активировать",
+                                color = Color(0xFF0A0E1A),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
                     }
                 }
 
@@ -215,10 +333,13 @@ fun ImportWorkerDialog(
                         .fillMaxWidth()
                         .height(44.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .springPress(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onDismiss()
-                        })
+                        .springPress(
+                            onClick = {
+                                if (isCheckingWorker) return@springPress
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onDismiss()
+                            }
+                        )
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(

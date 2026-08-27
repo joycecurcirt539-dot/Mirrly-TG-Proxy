@@ -85,9 +85,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
-import androidx.core.view.WindowCompat
+import androidx.compose.ui.platform.LocalClipboardManager
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.core.DomainFormatStatus
 import com.mirrly.tgproxy.core.TgConstants
+import com.mirrly.tgproxy.core.WorkerDomainNormalizer
 import com.mirrly.tgproxy.core.WorkerProfile
 import com.mirrly.tgproxy.core.WorkerStatus
 import com.mirrly.tgproxy.service.PreferencesManager
@@ -2103,7 +2105,7 @@ private fun GlassWorkerCard(
 }
 
 /**
- * Frosted Glass Add Worker Modal Dialog (Info panels style, top-left back button, no emojis)
+ * Frosted Glass Add Worker Modal Dialog (Info panels style, top-left back button, no emojis, smart normalizer and pre-flight tester)
  */
 @Composable
 private fun AddWorkerDialog(
@@ -2112,20 +2114,35 @@ private fun AddWorkerDialog(
     onAdd: (name: String, domain: String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
-    var nameText by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+
     var domainText by remember { mutableStateOf("") }
+    var nameText by remember { mutableStateOf("") }
+    var isCheckingWorker by remember { mutableStateOf(false) }
+    var checkStatusMessage by remember { mutableStateOf<String?>(null) }
+    var unreachableWarning by remember { mutableStateOf<String?>(null) }
+
+    val formResult = remember(domainText, nameText) {
+        WorkerDomainNormalizer.normalizeForm(nameText, domainText)
+    }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (!isCheckingWorker) onDismiss()
+        },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true
+            dismissOnBackPress = !isCheckingWorker,
+            dismissOnClickOutside = !isCheckingWorker
         )
     ) {
         DialogBackdropBox(
-            onDismiss = onDismiss
+            onDismiss = {
+                if (!isCheckingWorker) onDismiss()
+            }
         ) {
             // Scrollable Content
             Column(
@@ -2179,7 +2196,7 @@ private fun AddWorkerDialog(
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Text(
                             text = "ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ:",
@@ -2190,75 +2207,490 @@ private fun AddWorkerDialog(
                         )
 
                         Text(
-                            text = "Укажите название и домен созданного вами Cloudflare Worker.",
-                            fontSize = 12.5.sp,
+                            text = "Вставьте публичный адрес воркера (или скопируйте ссылку). Система автоматически очистит и нормализует формат.",
+                            fontSize = 12.sp,
                             color = TextWhite.copy(alpha = 0.8f),
-                            lineHeight = 17.sp
+                            lineHeight = 16.5.sp
                         )
 
-                        OutlinedTextField(
-                            value = nameText,
-                            onValueChange = { nameText = it },
-                            label = { Text("Название (например: Мой домашний)") },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = activeAccentColor,
-                                unfocusedBorderColor = Color(0xFF223048),
-                                focusedTextColor = TextWhite,
-                                unfocusedTextColor = TextWhite,
-                                focusedLabelColor = activeAccentColor,
-                                unfocusedLabelColor = TextMuted,
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        // ── 1. PRIMARY INPUT FIELD: WORKER DOMAIN / URL ──
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "АДРЕС ВОРКЕРА (URL / ДОМЕН)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = activeAccentColor,
+                                    letterSpacing = 0.5.sp
+                                )
 
-                        OutlinedTextField(
-                            value = domainText,
-                            onValueChange = { domainText = it },
-                            label = { Text("Домен воркера") },
-                            placeholder = { Text("my-proxy.username.workers.dev", color = TextMuted.copy(alpha = 0.5f), fontSize = 12.sp) },
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = activeAccentColor,
-                                unfocusedBorderColor = Color(0xFF223048),
-                                focusedTextColor = TextWhite,
-                                unfocusedTextColor = TextWhite,
-                                focusedLabelColor = activeAccentColor,
-                                unfocusedLabelColor = TextMuted,
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent
-                            ),
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFE53935).copy(alpha = 0.15f),
+                                    border = BorderStroke(1.dp, Color(0xFFE53935).copy(alpha = 0.3f))
+                                ) {
+                                    Text(
+                                        text = "ОБЯЗАТЕЛЬНО",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFFF6B6B),
+                                        letterSpacing = 0.5.sp,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = domainText,
+                                onValueChange = {
+                                    domainText = it
+                                    unreachableWarning = null
+                                },
+                                placeholder = {
+                                    Text(
+                                        "my-proxy.username.workers.dev",
+                                        color = TextMuted.copy(alpha = 0.45f),
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                },
+                                textStyle = LocalTextStyle.current.copy(
+                                    color = TextWhite,
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                singleLine = true,
+                                trailingIcon = {
+                                    if (domainText.isNotBlank()) {
+                                        IconButton(onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            domainText = ""
+                                            unreachableWarning = null
+                                        }) {
+                                            Text(
+                                                text = "✕",
+                                                color = TextMuted,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = activeAccentColor,
+                                    unfocusedBorderColor = Color(0xFF223048),
+                                    focusedTextColor = TextWhite,
+                                    unfocusedTextColor = TextWhite,
+                                    focusedLabelColor = activeAccentColor,
+                                    unfocusedLabelColor = TextMuted,
+                                    focusedContainerColor = Color.White.copy(alpha = 0.02f),
+                                    unfocusedContainerColor = Color.Transparent
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            // Dedicated Quick Action: Paste from Clipboard Button
+                            if (domainText.isBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = activeAccentColor.copy(alpha = 0.08f),
+                                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.3f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .springPress(onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            val clip = clipboardManager.getText()?.text.orEmpty().trim()
+                                            if (clip.isNotBlank()) {
+                                                val parsed = WorkerDomainNormalizer.normalizeForm(nameText, clip)
+                                                domainText = parsed.normalizedDomain
+                                                if (nameText.isBlank() && parsed.normalizedName.isNotBlank()) {
+                                                    nameText = parsed.normalizedName
+                                                }
+                                                Toast.makeText(context, "Адрес вставлен и нормализован", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "Буфер обмена пуст", Toast.LENGTH_SHORT).show()
+                                            }
+                                        })
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_copy),
+                                            contentDescription = null,
+                                            tint = activeAccentColor,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = "Вставить адрес из буфера обмена",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = activeAccentColor
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Live Validation & Predictive Status Badge
+                            if (domainText.isNotBlank() || formResult.wasSwapped) {
+                                val status = formResult.domainResult.status
+                                val isSuccess = status == DomainFormatStatus.VALID || status == DomainFormatStatus.HOMOGLYPHS_FIXED
+                                val isWarning = status == DomainFormatStatus.DASHBOARD_URL || status == DomainFormatStatus.NAME_ONLY || formResult.wasSwapped
+
+                                val badgeBg = when {
+                                    isSuccess -> ActiveGreenLed.copy(alpha = 0.08f)
+                                    isWarning -> Color(0xFFF5A623).copy(alpha = 0.08f)
+                                    else -> Color(0xFFE53935).copy(alpha = 0.08f)
+                                }
+                                val badgeBorder = when {
+                                    isSuccess -> ActiveGreenLed.copy(alpha = 0.35f)
+                                    isWarning -> Color(0xFFF5A623).copy(alpha = 0.35f)
+                                    else -> Color(0xFFE53935).copy(alpha = 0.35f)
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = badgeBg,
+                                    border = BorderStroke(1.dp, badgeBorder),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(7.dp)
+                                                    .clip(CircleShape)
+                                                    .background(
+                                                        when {
+                                                            isSuccess -> ActiveGreenLed
+                                                            isWarning -> Color(0xFFFFD166)
+                                                            else -> Color(0xFFFF6B6B)
+                                                        }
+                                                    )
+                                            )
+                                            Text(
+                                                text = when {
+                                                    formResult.wasSwapped -> "ПОЛЯ АВТОМАТИЧЕСКИ СОГЛАСОВАНЫ"
+                                                    status == DomainFormatStatus.HOMOGLYPHS_FIXED -> "РАСПОЗНАН И ИСПРАВЛЕН АДРЕС УЗЛА:"
+                                                    isSuccess -> "РАСПОЗНАН ПУБЛИЧНЫЙ УЗЕЛ:"
+                                                    status == DomainFormatStatus.DASHBOARD_URL -> "ОБНАРУЖЕНА ССЫЛКА НА DASHBOARD CLOUDFLARE"
+                                                    status == DomainFormatStatus.NAME_ONLY -> "УКАЗАНО ТОЛЬКО ИМЯ ВОРКЕРА"
+                                                    else -> "ОШИБКА ФОРМАТА АДРЕСА"
+                                                },
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = when {
+                                                    isSuccess -> ActiveGreenLed
+                                                    isWarning -> Color(0xFFFFD166)
+                                                    else -> Color(0xFFFF6B6B)
+                                                },
+                                                letterSpacing = 0.5.sp
+                                            )
+                                        }
+
+                                        if (formResult.domainResult.cleanDomain.isNotBlank() && isSuccess) {
+                                            Text(
+                                                text = formResult.domainResult.cleanDomain,
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = TextWhite
+                                            )
+                                        }
+
+                                        if (formResult.wasSwapped) {
+                                            Text(
+                                                text = "Адрес воркера обнаружен в поле названия («$nameText»). Он автоматически используется как адрес узла.",
+                                                fontSize = 11.5.sp,
+                                                color = TextWhite.copy(alpha = 0.85f),
+                                                lineHeight = 15.sp
+                                            )
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color(0xFFF5A623).copy(alpha = 0.15f))
+                                                    .clickable {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        domainText = formResult.normalizedDomain
+                                                        nameText = formResult.normalizedName
+                                                    }
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "⇄ Применить перестановку полей в форме",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFFFFD166)
+                                                )
+                                            }
+                                        } else {
+                                            Text(
+                                                text = formResult.domainResult.userMessage,
+                                                fontSize = 11.5.sp,
+                                                color = TextWhite.copy(alpha = 0.8f),
+                                                lineHeight = 15.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── 2. SECONDARY INPUT FIELD: WORKER NAME ──
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "НАЗВАНИЕ УЗЛА",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextMuted,
+                                    letterSpacing = 0.5.sp
+                                )
+
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color.White.copy(alpha = 0.06f),
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                                ) {
+                                    Text(
+                                        text = "ОПЦИОНАЛЬНО",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextMuted,
+                                        letterSpacing = 0.5.sp,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            val placeholderName = formResult.domainResult.suggestedName.ifBlank { "Мой домашний" }
+
+                            OutlinedTextField(
+                                value = nameText,
+                                onValueChange = { nameText = it },
+                                placeholder = {
+                                    Text(
+                                        placeholderName,
+                                        color = TextMuted.copy(alpha = 0.45f),
+                                        fontSize = 12.sp
+                                    )
+                                },
+                                textStyle = LocalTextStyle.current.copy(
+                                    color = TextWhite,
+                                    fontSize = 13.sp
+                                ),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = activeAccentColor,
+                                    unfocusedBorderColor = Color(0xFF223048),
+                                    focusedTextColor = TextWhite,
+                                    unfocusedTextColor = TextWhite,
+                                    focusedLabelColor = activeAccentColor,
+                                    unfocusedLabelColor = TextMuted,
+                                    focusedContainerColor = Color.White.copy(alpha = 0.02f),
+                                    unfocusedContainerColor = Color.Transparent
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // ── 3. VISUAL REFERENCE GUIDE / QUICK HINT ──
+                        Surface(
                             shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF0F172A).copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
                             modifier = Modifier.fillMaxWidth()
-                        )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Text(
+                                    text = "ГДЕ ВЗЯТЬ АДРЕС В CLOUDFLARE:",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = activeAccentColor,
+                                    letterSpacing = 0.5.sp
+                                )
+                                Text(
+                                    text = "1. Перейдите в Cloudflare: Workers & Pages → Ваш воркер.\n2. Скопируйте ссылку под заголовком или со вкладки Deployments.\n3. Публичный адрес оканчивается на .workers.dev.\n4. Ссылка браузера (dash.cloudflare.com) не является адресом воркера.",
+                                    fontSize = 11.sp,
+                                    color = TextWhite.copy(alpha = 0.72f),
+                                    lineHeight = 15.5.sp
+                                )
+                            }
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                // ── 4. UNREACHABLE / PRE-FLIGHT WARNING BANNER ──
+                if (unreachableWarning != null) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFFE53935).copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, Color(0xFFE53935).copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "ПРЕДУПРЕЖДЕНИЕ СВЯЗИ:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFF6B6B),
+                                letterSpacing = 0.5.sp
+                            )
+                            Text(
+                                text = unreachableWarning ?: "",
+                                fontSize = 11.5.sp,
+                                color = TextWhite.copy(alpha = 0.9f),
+                                lineHeight = 15.sp
+                            )
 
-                // Save & Activate Action Button
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        val cleanDomain = formResult.normalizedDomain
+                                        val finalName = formResult.normalizedName.ifBlank {
+                                            formResult.domainResult.suggestedName.ifBlank { "Личный воркер" }
+                                        }
+                                        onAdd(finalName, cleanDomain)
+                                    },
+                                    border = BorderStroke(1.dp, Color(0xFFFF6B6B).copy(alpha = 0.5f)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f).height(38.dp)
+                                ) {
+                                    Text(
+                                        text = "Сохранить всё равно",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFFFF6B6B)
+                                    )
+                                }
+
+                                Button(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        unreachableWarning = null
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = activeAccentColor),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f).height(38.dp)
+                                ) {
+                                    Text(
+                                        text = "Исправить",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0A0E1A)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // ── 5. SAVE & PRE-FLIGHT VERIFICATION BUTTON ──
                 Surface(
                     shape = RoundedCornerShape(14.dp),
-                    color = activeAccentColor,
+                    color = if (isCheckingWorker) activeAccentColor.copy(alpha = 0.7f) else activeAccentColor,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .springPress(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onAdd(nameText, domainText)
-                        })
+                        .springPress(
+                            onClick = {
+                                if (isCheckingWorker) return@springPress
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+
+                                val cleanDomain = formResult.normalizedDomain
+                                val finalName = formResult.normalizedName.ifBlank {
+                                    formResult.domainResult.suggestedName.ifBlank { "Личный воркер" }
+                                }
+
+                                if (cleanDomain.isBlank()) {
+                                    Toast.makeText(context, "Укажите корректный адрес воркера", Toast.LENGTH_SHORT).show()
+                                    return@springPress
+                                }
+
+                                if (formResult.domainResult.status == DomainFormatStatus.DASHBOARD_URL) {
+                                    unreachableWarning = formResult.domainResult.userMessage
+                                    return@springPress
+                                }
+
+                                scope.launch {
+                                    isCheckingWorker = true
+                                    checkStatusMessage = "Проверка доступности узла..."
+                                    unreachableWarning = null
+
+                                    val (status, pingMs) = WorkerPingTester.pingWorker(cleanDomain)
+                                    isCheckingWorker = false
+                                    checkStatusMessage = null
+
+                                    if (status == WorkerStatus.ONLINE || status == WorkerStatus.RATE_LIMITED_429) {
+                                        onAdd(finalName, cleanDomain)
+                                    } else {
+                                        unreachableWarning = "Воркер «$cleanDomain» не отвечает на проверочный запрос (ERR_UNREACHABLE). Убедитесь, что скрипт развернут в Cloudflare и маршрутизация активна."
+                                    }
+                                }
+                            }
+                        )
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "Сохранить и активировать",
-                            color = Color(0xFF0A0E1A),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
+                        if (isCheckingWorker) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Color(0xFF0A0E1A),
+                                    strokeWidth = 2.dp
+                                )
+                                Text(
+                                    text = checkStatusMessage ?: "Проверка узла...",
+                                    color = Color(0xFF0A0E1A),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.5.sp
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "Сохранить и активировать",
+                                color = Color(0xFF0A0E1A),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
                     }
                 }
             }
@@ -2272,8 +2704,10 @@ private fun AddWorkerDialog(
             ) {
                 IconButton(
                     onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onDismiss()
+                        if (!isCheckingWorker) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDismiss()
+                        }
                     }
                 ) {
                     Icon(

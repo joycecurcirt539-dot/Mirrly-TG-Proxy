@@ -254,9 +254,10 @@ class PreferencesManager(context: Context) {
     }
 
     fun addCustomWorker(name: String, domain: String): Result<WorkerProfile> {
-        val cleanDomain = ProxyConfig.sanitizeDomain(domain)
+        val formRes = com.mirrly.tgproxy.core.WorkerDomainNormalizer.normalizeForm(name, domain)
+        val cleanDomain = formRes.normalizedDomain
         if (cleanDomain.isBlank()) {
-            return Result.failure(IllegalArgumentException("Укажите корректный домен воркера"))
+            return Result.failure(IllegalArgumentException("Укажите корректный домен воркера (например: my-proxy.username.workers.dev)"))
         }
 
         val current = getCustomWorkers().toMutableList()
@@ -265,7 +266,7 @@ class PreferencesManager(context: Context) {
             return Result.failure(IllegalStateException("Этот воркер уже добавлен в ваш список"))
         }
 
-        val cleanName = if (name.trim().isBlank()) "Личный воркер #${current.size + 1}" else name.trim()
+        val cleanName = formRes.normalizedName.ifBlank { "Личный воркер #${current.size + 1}" }
         val newWorker = WorkerProfile(
             id = UUID.randomUUID().toString(),
             name = cleanName,

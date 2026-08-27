@@ -110,45 +110,7 @@ data class ProxyConfig(
 
     companion object {
         fun sanitizeDomain(input: String): String {
-            var domain = input.trim()
-            if (domain.isEmpty()) return ""
-
-            // 1. Извлечение домена из ссылок шеринга вида https://mirrly.app/worker?domain=... или mirrly://worker?domain=...
-            if (domain.contains("domain=", ignoreCase = true) ||
-                domain.contains("d=", ignoreCase = true) ||
-                domain.contains("worker=", ignoreCase = true) ||
-                domain.contains("host=", ignoreCase = true) ||
-                domain.contains("url=", ignoreCase = true)
-            ) {
-                val queryPart = domain.substringAfter('?', "")
-                if (queryPart.isNotEmpty()) {
-                    val params = queryPart.split('&')
-                    for (p in params) {
-                        val key = p.substringBefore('=').lowercase()
-                        val value = p.substringAfter('=', "")
-                        if (key in listOf("domain", "d", "worker", "host", "url") && value.isNotEmpty()) {
-                            val decoded = try {
-                                java.net.URLDecoder.decode(value, "UTF-8")
-                            } catch (_: Exception) {
-                                value
-                            }
-                            val innerSanitized = sanitizeDomain(decoded)
-                            if (innerSanitized.isNotEmpty() && !innerSanitized.contains("mirrly.app") && !innerSanitized.contains("mirrly.me")) {
-                                return innerSanitized
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 2. Отсечение схем https://, http://, wss://, ws://, mirrly://
-            domain = domain.replace(Regex("^(?i)(https?|wss?|mirrly):/+"), "")
-            if (domain.contains("@")) {
-                domain = domain.substringAfterLast("@")
-            }
-            // 3. Отсечение путей, query и fragment, а также портов
-            domain = domain.substringBefore('/').substringBefore('?').substringBefore('#').substringBefore(':')
-            return domain.trim().trim('/')
+            return WorkerDomainNormalizer.sanitizeDomain(input)
         }
 
         fun hexToBytes(hex: String): ByteArray {
