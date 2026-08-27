@@ -7,6 +7,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.core.DohOkHttpDns
 import com.mirrly.tgproxy.util.SignatureStatus
 import com.mirrly.tgproxy.util.SignatureVerifier
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +27,9 @@ sealed class DownloadStatus {
     data class Downloading(
         val progress: Float,
         val downloadedBytes: Long,
-        val totalBytes: Long
+        val totalBytes: Long,
+        val speedBytesPerSec: Long = 0L,
+        val etaSeconds: Long = -1L
     ) : DownloadStatus()
     object Verifying : DownloadStatus()
     data class ReadyToInstall(val file: File) : DownloadStatus()
@@ -42,6 +45,7 @@ object UpdateDownloader {
 
     private val client by lazy {
         OkHttpClient.Builder()
+            .dns(DohOkHttpDns.INSTANCE)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .followRedirects(true)
@@ -83,7 +87,8 @@ object UpdateDownloader {
         context: Context,
         downloadUrl: String,
         expectedSha256List: List<String>,
-        versionName: String
+        versionName: String,
+        fileName: String? = null
     ): Boolean {
         return withContext(Dispatchers.IO) {
             var targetFile: File? = null
@@ -94,19 +99,45 @@ object UpdateDownloader {
             }
 
             try {
-                _status.value = DownloadStatus.Downloading(0f, 0L, 0L)
-
                 val apkDir = File(context.cacheDir, "apks").apply {
                     if (!exists()) mkdirs()
                 }
 
-                // Cleanup previous apk files
-                apkDir.listFiles()?.forEach { file ->
-                    runCatching { file.delete() }
+                val safeFileName = if (!fileName.isNullOrBlank() && fileName.endsWith(".apk", ignoreCase = true)) {
+                    fileName
+                } else {
+                    "mirrly_v${versionName.replace(".", "_")}.apk"
+                }
+                val destFile = File(apkDir, safeFileName)
+                targetFile = destFile
+
+                // ── 1. SMART CACHE VERIFICATION: Instant Install without downloading if valid ──
+                if (destFile.exists() && destFile.length() > 0 && expectedSha256List.isNotEmpty()) {
+                    _status.value = DownloadStatus.Verifying
+                    val cachedSha = calculateSha256(destFile)
+                    val normalizedCalculated = cachedSha.lowercase().replace(":", "").replace(" ", "")
+                    val matches = expectedSha256List.any { expected ->
+                        val normalizedExpected = expected.lowercase().replace(":", "").replace(" ", "")
+                        normalizedExpected == normalizedCalculated
+                    }
+                    if (matches) {
+                        val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile, expectedSha256List)
+                        val isCurrentDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                        val isAccepted = signatureStatus == SignatureStatus.OFFICIAL_RELEASE || (signatureStatus == SignatureStatus.DEBUG_BUILD && isCurrentDebug)
+                        if (isAccepted) {
+                            AppLogger.i(TAG, "Smart Cache HIT for $safeFileName: valid SHA-256 and signature. Instant install.")
+                            _status.value = DownloadStatus.ReadyToInstall(destFile)
+                            return@withContext true
+                        }
+                    }
+                    // Stale or corrupted cache file -> clean up before re-downloading
+                    destFile.delete()
+                } else {
+                    // Cleanup other stale apk files
+                    apkDir.listFiles()?.filter { it.name != safeFileName }?.forEach { runCatching { it.delete() } }
                 }
 
-                val destFile = File(apkDir, "mirrly_v${versionName.replace(".", "_")}.apk")
-                targetFile = destFile
+                _status.value = DownloadStatus.Downloading(0f, 0L, 0L)
 
                 val request = Request.Builder()
                     .url(downloadUrl)
@@ -159,6 +190,12 @@ object UpdateDownloader {
                 var bytesRead: Int
                 var downloadedBytes = 0L
 
+                var lastEmitTime = 0L
+                var lastSpeedCalcTime = System.currentTimeMillis()
+                var bytesSinceLastCalc = 0L
+                var currentSpeed = 0L
+                var emaSpeed = 0L
+
                 try {
                     while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                         if (isCancelled) {
@@ -170,6 +207,7 @@ object UpdateDownloader {
                         }
 
                         downloadedBytes += bytesRead
+                        bytesSinceLastCalc += bytesRead
                         if (downloadedBytes > MAX_APK_SIZE_BYTES) {
                             outputStream.close()
                             inputStream.close()
@@ -179,18 +217,41 @@ object UpdateDownloader {
                         }
                         outputStream.write(buffer, 0, bytesRead)
 
-                        val progress = if (totalBytes > 0) {
-                            (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
-                        } else {
-                            -1f
+                        val now = System.currentTimeMillis()
+                        val timeDiff = now - lastSpeedCalcTime
+                        if (timeDiff >= 250) {
+                            val instantSpeed = (bytesSinceLastCalc * 1000L) / timeDiff
+                            emaSpeed = if (emaSpeed == 0L) instantSpeed else (0.7f * instantSpeed + 0.3f * emaSpeed).toLong()
+                            currentSpeed = emaSpeed
+                            lastSpeedCalcTime = now
+                            bytesSinceLastCalc = 0L
                         }
 
-                        if (!isCancelled) {
-                            _status.value = DownloadStatus.Downloading(
-                                progress = progress,
-                                downloadedBytes = downloadedBytes,
-                                totalBytes = totalBytes
-                            )
+                        val isFinished = (totalBytes > 0 && downloadedBytes >= totalBytes)
+                        if (now - lastEmitTime >= 80 || isFinished) {
+                            lastEmitTime = now
+                            val progress = if (totalBytes > 0) {
+                                (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                            } else {
+                                -1f
+                            }
+
+                            val remainingBytes = if (totalBytes > downloadedBytes) totalBytes - downloadedBytes else 0L
+                            val etaSeconds = if (currentSpeed > 0 && remainingBytes > 0) {
+                                remainingBytes / currentSpeed
+                            } else {
+                                -1L
+                            }
+
+                            if (!isCancelled) {
+                                _status.value = DownloadStatus.Downloading(
+                                    progress = progress,
+                                    downloadedBytes = downloadedBytes,
+                                    totalBytes = totalBytes,
+                                    speedBytesPerSec = currentSpeed,
+                                    etaSeconds = etaSeconds
+                                )
+                            }
                         }
                     }
                 } finally {

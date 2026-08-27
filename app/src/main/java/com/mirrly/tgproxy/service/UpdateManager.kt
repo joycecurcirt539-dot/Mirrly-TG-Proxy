@@ -7,11 +7,15 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.mirrly.tgproxy.MirrlyApplication
+import com.mirrly.tgproxy.core.ApkType
+import com.mirrly.tgproxy.core.ReleaseApkAsset
 import com.mirrly.tgproxy.core.ReleaseInfo
 import com.mirrly.tgproxy.core.UpdateChecker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 object UpdateManager {
@@ -26,6 +30,7 @@ object UpdateManager {
     private const val KEY_CACHED_DOWNLOAD_URL = "cached_download_url"
     private const val KEY_CACHED_EXPECTED_SHA256 = "cached_expected_sha256"
     private const val KEY_CACHED_CHANGELOG_PREVIEW = "cached_changelog_preview"
+    private const val KEY_CACHED_APK_ASSETS = "cached_apk_assets"
     private const val WORK_NAME = "mirrly_periodic_update_checker"
 
     // Re-notify reminder interval: 4 hours (14,400,000 ms)
@@ -43,6 +48,7 @@ object UpdateManager {
             .remove(KEY_CACHED_DOWNLOAD_URL)
             .remove(KEY_CACHED_EXPECTED_SHA256)
             .remove(KEY_CACHED_CHANGELOG_PREVIEW)
+            .remove(KEY_CACHED_APK_ASSETS)
             .remove(KEY_LAST_NOTIFIED_VERSION)
             .remove(KEY_LAST_NOTIFIED_TIME)
             .apply()
@@ -169,6 +175,28 @@ object UpdateManager {
                     val cachedDownloadUrl = prefs.getString(KEY_CACHED_DOWNLOAD_URL, null)
                     val cachedSha256 = prefs.getString(KEY_CACHED_EXPECTED_SHA256, null)
                     val cachedPreview = prefs.getString(KEY_CACHED_CHANGELOG_PREVIEW, "") ?: ""
+                    val cachedAssetsJson = prefs.getString(KEY_CACHED_APK_ASSETS, null)
+
+                    val restoredAssets = mutableListOf<ReleaseApkAsset>()
+                    if (!cachedAssetsJson.isNullOrBlank()) {
+                        runCatching {
+                            val arr = JSONArray(cachedAssetsJson)
+                            for (i in 0 until arr.length()) {
+                                val obj = arr.getJSONObject(i)
+                                val typeName = obj.optString("type", "UNIVERSAL")
+                                val apkType = runCatching { ApkType.valueOf(typeName) }.getOrDefault(ApkType.UNIVERSAL)
+                                restoredAssets.add(
+                                    ReleaseApkAsset(
+                                        name = obj.optString("name", ""),
+                                        downloadUrl = obj.optString("url", ""),
+                                        sizeBytes = obj.optLong("size", 0L),
+                                        apkType = apkType,
+                                        sha256 = obj.optString("sha256", "").takeIf { it.isNotBlank() }
+                                    )
+                                )
+                            }
+                        }
+                    }
 
                     val reconstructedInfo = ReleaseInfo(
                         tagName = if (isStillAvailable) cleanCachedVersion else currentAppVersion,
@@ -182,7 +210,8 @@ object UpdateManager {
                         expectedSha256 = if (isStillAvailable) cachedSha256 else null,
                         expectedSha256List = if (isStillAvailable && cachedSha256 != null) listOf(cachedSha256) else emptyList(),
                         changelogPreview = cachedPreview,
-                        isIgnored = isCachedIgnored
+                        isIgnored = isCachedIgnored,
+                        apkAssets = restoredAssets
                     )
                     _updateState.value = reconstructedInfo
 
@@ -202,6 +231,18 @@ object UpdateManager {
                 }
             } else {
                 if (info.isUpdateAvailable && !info.isIgnored) {
+                    val assetsJson = JSONArray().apply {
+                        info.apkAssets.forEach { asset ->
+                            put(JSONObject().apply {
+                                put("name", asset.name)
+                                put("url", asset.downloadUrl)
+                                put("size", asset.sizeBytes)
+                                put("type", asset.apkType.name)
+                                put("sha256", asset.sha256 ?: "")
+                            })
+                        }
+                    }.toString()
+
                     prefs.edit()
                         .putString(KEY_CACHED_VERSION, info.versionName)
                         .putString(KEY_CACHED_HTML_URL, info.htmlUrl)
@@ -209,6 +250,7 @@ object UpdateManager {
                         .putString(KEY_CACHED_DOWNLOAD_URL, info.downloadUrl)
                         .putString(KEY_CACHED_EXPECTED_SHA256, info.expectedSha256)
                         .putString(KEY_CACHED_CHANGELOG_PREVIEW, info.changelogPreview)
+                        .putString(KEY_CACHED_APK_ASSETS, assetsJson)
                         .apply()
 
                     _updateState.value = info

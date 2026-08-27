@@ -32,6 +32,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import kotlin.math.cos
 import kotlin.math.sin
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -42,8 +43,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.layout.layout
@@ -54,6 +57,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -114,7 +119,12 @@ data class ProxyLiveTelemetry(
     val totalRecv: String = "0 Б",
     val totalSent: String = "0 Б",
     val uptimeSeconds: Long = 0L,
-    val pingMs: Long = -1L
+    val pingMs: Long = -1L,
+    val jitterMs: Long = 0L,
+    val healthScore: Int = 100,
+    val healthVerdict: String = "Идеальный канал связи",
+    val healthDetail: String = "Минимальная задержка и стабильный прямой WSS-туннель",
+    val healthSuccessRate: Int = 100
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -126,6 +136,7 @@ fun HomeScreen(
     onOpenUpdate: () -> Unit = {},
     onOpenWorkerGuide: () -> Unit = {},
     onOpenWorkerManager: () -> Unit = {},
+    onOpenDiagnostics: () -> Unit = {},
     onDragWorkerManager: (Float) -> Unit = {},
     onSettleWorkerManager: (Float) -> Unit = {},
     onUiHiddenChange: (Boolean) -> Unit = {},
@@ -139,6 +150,8 @@ fun HomeScreen(
 
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
     val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
+    val activeWorkerId by app.prefsManager.activeWorkerIdFlow.collectAsState()
+    val activeWorker = remember(activeWorkerId) { app.prefsManager.getActiveWorker(activeWorkerId) }
     val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
 
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
@@ -207,6 +220,11 @@ fun HomeScreen(
                 var conns = 0
                 var recv = "0 Б"
                 var sent = "0 Б"
+                var jitter = 0L
+                var healthScore = 100
+                var healthVerdict = "Идеальный канал связи"
+                var healthDetail = "Минимальная задержка и стабильный прямой WSS-туннель"
+                var successRate = 100
 
                 if (running) {
                     val stats = server.stats
@@ -215,6 +233,11 @@ fun HomeScreen(
                     conns = stats.activeConnections.get()
                     recv = humanBytes(stats.totalBytesReceived.get())
                     sent = humanBytes(stats.totalBytesSent.get())
+                    jitter = stats.jitterMs
+                    healthScore = stats.healthScore
+                    healthVerdict = stats.healthVerdict
+                    healthDetail = stats.healthDetail
+                    successRate = stats.healthSuccessRate
                 }
 
                 emit(
@@ -226,7 +249,12 @@ fun HomeScreen(
                         totalRecv = recv,
                         totalSent = sent,
                         uptimeSeconds = uptime,
-                        pingMs = currPing
+                        pingMs = currPing,
+                        jitterMs = jitter,
+                        healthScore = healthScore,
+                        healthVerdict = healthVerdict,
+                        healthDetail = healthDetail,
+                        healthSuccessRate = successRate
                     )
                 )
                 delay(500)
@@ -279,8 +307,6 @@ fun HomeScreen(
 
     Scaffold(
         topBar = {
-            val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
-
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
@@ -678,7 +704,6 @@ fun HomeScreen(
             }
 
                 // ─── 2. CENTER SECTION (Power button) ───
-                val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
                 val isProxyRunning = currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING
                 val shouldShowWorkerNotice = isSocks5 && activeWorker.isDeveloperWorker && isProxyRunning
                 var isWorkerNoticeVisible by remember { mutableStateOf(false) }
@@ -844,89 +869,94 @@ fun HomeScreen(
                         }
                     }
 
-                    // Unified Central Time & Sleep Timer Capsule (Cyber aesthetic)
-                    Surface(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showSleepTimerDialog = true
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color.White.copy(alpha = 0.04f),
-                        modifier = Modifier
-                            .padding(bottom = 6.dp)
-                            .animateContentSize(
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
-                                )
-                            )
+                    // Unified Central Time & Sleep Timer Capsule (Cyber aesthetic) + Liquid Wave SQI Orb
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(bottom = 6.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        Surface(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showSleepTimerDialog = true
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color.White.copy(alpha = 0.04f),
+                            modifier = Modifier
+                                .animateContentSize(
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                )
                         ) {
-                            val dotColor = when (currentState) {
-                                ProxyUiState.CONNECTED -> protoColors.primary
-                                ProxyUiState.CONNECTING -> protoColors.primary
-                                ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
-                                ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)
-                            }
-                            val animatedDotColor by animateColorAsState(
-                                targetValue = dotColor,
-                                animationSpec = tween(400),
-                                label = "dotColor"
-                            )
-
-                            // Status LED Dot
-                            Surface(
-                                shape = CircleShape,
-                                color = animatedDotColor,
-                                modifier = Modifier.size(6.dp)
-                            ) {}
-
-                            // Uptime Connection Duration
-                            val statusText = when (currentState) {
-                                ProxyUiState.CONNECTED -> formatUptime(telemetry.uptimeSeconds)
-                                ProxyUiState.CONNECTING -> "ПОДКЛЮЧЕНИЕ..."
-                                ProxyUiState.DISCONNECTING -> "ОТКЛЮЧЕНИЕ..."
-                                ProxyUiState.DISCONNECTED -> "00:00:00"
-                            }
-                            RollingNumberText(
-                                text = statusText,
-                                color = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else if (currentState == ProxyUiState.DISCONNECTING) Color(0xFFFF9E00) else TextMuted,
-                                fontSize = if (isCompactHeight) 14.sp else 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.1.sp
-                            )
-
-                            // Sleep Timer Segment (Expands with rolling animation when active)
-                            if (timerState.isActive) {
-                                // Subtle Divider
-                                Box(
-                                    modifier = Modifier
-                                        .width(1.dp)
-                                        .height(13.dp)
-                                        .background(Color.White.copy(alpha = 0.20f))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                val dotColor = when (currentState) {
+                                    ProxyUiState.CONNECTED -> protoColors.primary
+                                    ProxyUiState.CONNECTING -> protoColors.primary
+                                    ProxyUiState.DISCONNECTING -> Color(0xFFFF9E00)
+                                    ProxyUiState.DISCONNECTED -> Color(0xFF353C4F)
+                                }
+                                val animatedDotColor by animateColorAsState(
+                                    targetValue = dotColor,
+                                    animationSpec = tween(400),
+                                    label = "dotColor"
                                 )
 
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.5.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_timer),
-                                        contentDescription = null,
-                                        tint = Color(0xFFFF9E00),
-                                        modifier = Modifier.size(12.dp)
+                                // Status LED Dot
+                                Surface(
+                                    shape = CircleShape,
+                                    color = animatedDotColor,
+                                    modifier = Modifier.size(6.dp)
+                                ) {}
+
+                                // Uptime Connection Duration
+                                val statusText = when (currentState) {
+                                    ProxyUiState.CONNECTED -> formatUptime(telemetry.uptimeSeconds)
+                                    ProxyUiState.CONNECTING -> "ПОДКЛЮЧЕНИЕ..."
+                                    ProxyUiState.DISCONNECTING -> "ОТКЛЮЧЕНИЕ..."
+                                    ProxyUiState.DISCONNECTED -> "00:00:00"
+                                }
+                                RollingNumberText(
+                                    text = statusText,
+                                    color = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else if (currentState == ProxyUiState.DISCONNECTING) Color(0xFFFF9E00) else TextMuted,
+                                    fontSize = if (isCompactHeight) 14.sp else 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.1.sp
+                                )
+
+                                // Sleep Timer Segment (Expands with rolling animation when active)
+                                if (timerState.isActive) {
+                                    // Subtle Divider
+                                    Box(
+                                        modifier = Modifier
+                                            .width(1.dp)
+                                            .height(13.dp)
+                                            .background(Color.White.copy(alpha = 0.20f))
                                     )
-                                    RollingNumberText(
-                                        text = timerState.formatRemainingTime(),
-                                        color = Color(0xFFFF9E00),
-                                        fontSize = if (isCompactHeight) 14.sp else 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 1.1.sp
-                                    )
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.5.dp)
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_timer),
+                                            contentDescription = null,
+                                            tint = Color(0xFFFF9E00),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        RollingNumberText(
+                                            text = timerState.formatRemainingTime(),
+                                            color = Color(0xFFFF9E00),
+                                            fontSize = if (isCompactHeight) 14.sp else 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 1.1.sp
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -958,7 +988,7 @@ fun HomeScreen(
 
                     Spacer(modifier = Modifier.height(if (isCompactHeight) 8.dp else 12.dp))
 
-                    // Telemetry Download & Upload speeds (50/50 centered)
+                    // Telemetry Download & Upload speeds (50/50 centered with Quality Orb divider)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -993,12 +1023,18 @@ fun HomeScreen(
                             )
                         }
 
-                        // Divider line (50.0% centered)
-                        Box(
+                        // Quality Indicator Orb replacing static divider
+                        LiquidWaveQualityCircle(
+                            score = if (currentState == ProxyUiState.CONNECTED) telemetry.healthScore else 0,
+                            isProxyActive = currentState == ProxyUiState.CONNECTED,
+                            isSocks5 = isSocks5,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onOpenDiagnostics()
+                            },
                             modifier = Modifier
-                                .height(28.dp)
-                                .width(1.dp)
-                                .background(Color(0xFF1F2433))
+                                .size(38.dp)
+                                .springPress()
                         )
 
                         // Upload Speed & Total (Weight 1f)
@@ -1032,7 +1068,7 @@ fun HomeScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 8.dp else 12.dp))
 
                     // WsPool Real-Time Smooth Bezier Socket Stability Graph
                     WsPoolStabilityGraph(
@@ -2123,8 +2159,6 @@ fun ProtocolSwitcherHeader(
             }
 
             // SOCKS5 Active Worker Indicator Dropdown Badge
-            // Rendered below the pill without modifying the parent Box measured bounds,
-            // preventing any upward shifting of the pill or title.
             Box(
                 modifier = Modifier
                     .layout { measurable, constraints ->
@@ -2175,4 +2209,160 @@ fun ProtocolSwitcherHeader(
         }
     }
 }
+
+/**
+ * Круглый виджет качества соединения с эффектом наполнения жидкими волнами (Liquid Wave Orb).
+ * Показывает процент SQI и анимирует уровень жидкости с физикой волн.
+ */
+@Composable
+fun LiquidWaveQualityCircle(
+    score: Int,
+    isProxyActive: Boolean,
+    isSocks5: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "waveTransition")
+    val wavePhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * Math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(2800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "wavePhase"
+    )
+    val wavePhase2 by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * Math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(1900, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "wavePhase2"
+    )
+
+    val targetFraction = (score / 100f).coerceIn(0f, 1f)
+    val animatedFill by animateFloatAsState(
+        targetValue = if (isProxyActive) targetFraction else 0f,
+        animationSpec = tween(1000, easing = FastOutSlowInEasing),
+        label = "liquidFill"
+    )
+
+    val baseColor = if (isSocks5) {
+        when {
+            score >= 90 -> Color(0xFF818CF8) // SOCKS5 Indigo/Purple
+            score >= 75 -> Color(0xFFA78BFA) // Vibrant Violet
+            score >= 50 -> Color(0xFFFFB703) // Amber warning
+            else -> Color(0xFFFF0055)        // Crimson red
+        }
+    } else {
+        when {
+            score >= 90 -> Color(0xFF00FF87) // MTProto Emerald Mint
+            score >= 75 -> Color(0xFF00E676) // Bright Green
+            score >= 50 -> Color(0xFFFFB703) // Amber warning
+            else -> Color(0xFFFF0055)        // Crimson red
+        }
+    }
+
+    val animatedColor by animateColorAsState(
+        targetValue = baseColor,
+        animationSpec = tween(600),
+        label = "liquidColor"
+    )
+
+    // Pre-allocated Path objects to prevent GC churn at 120 FPS
+    val bgPath = remember { Path() }
+    val fgPath = remember { Path() }
+    val crestPath = remember { Path() }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .clip(CircleShape)
+            .background(Color(0xFF0B101C).copy(alpha = 0.85f))
+            .border(1.2.dp, animatedColor.copy(alpha = 0.45f), CircleShape)
+            .clickable(onClick = onClick)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val width = size.width
+            val height = size.height
+
+            if (animatedFill > 0.005f) {
+                val waterY = height * (1f - animatedFill)
+                val waveAmp = (height * 0.055f).coerceAtLeast(1.5f)
+
+                // 1. Background Wave (Soft Alpha)
+                bgPath.reset()
+                bgPath.moveTo(0f, height)
+                bgPath.lineTo(0f, waterY)
+                val steps = 24
+                for (i in 0..steps) {
+                    val x = width * (i.toFloat() / steps)
+                    val y = waterY + waveAmp * sin((x / width) * 2 * Math.PI + wavePhase2).toFloat()
+                    bgPath.lineTo(x, y)
+                }
+                bgPath.lineTo(width, height)
+                bgPath.close()
+
+                drawPath(
+                    path = bgPath,
+                    color = animatedColor.copy(alpha = 0.35f)
+                )
+
+                // 2. Main Foreground Wave
+                fgPath.reset()
+                fgPath.moveTo(0f, height)
+                fgPath.lineTo(0f, waterY)
+                for (i in 0..steps) {
+                    val x = width * (i.toFloat() / steps)
+                    val y = waterY + waveAmp * sin((x / width) * 2 * Math.PI + wavePhase).toFloat()
+                    fgPath.lineTo(x, y)
+                }
+                fgPath.lineTo(width, height)
+                fgPath.close()
+
+                drawPath(
+                    path = fgPath,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            animatedColor.copy(alpha = 0.88f),
+                            animatedColor.copy(alpha = 0.65f)
+                        ),
+                        startY = waterY - waveAmp,
+                        endY = height
+                    )
+                )
+
+                // 3. Wave Crest Highlight Line
+                crestPath.reset()
+                for (i in 0..steps) {
+                    val x = width * (i.toFloat() / steps)
+                    val y = waterY + waveAmp * sin((x / width) * 2 * Math.PI + wavePhase).toFloat()
+                    if (i == 0) crestPath.moveTo(x, y) else crestPath.lineTo(x, y)
+                }
+                drawPath(
+                    path = crestPath,
+                    color = Color.White.copy(alpha = 0.60f),
+                    style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+        }
+
+        // Center Percentage Text
+        Text(
+            text = "$score%",
+            color = TextWhite,
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.Monospace,
+            letterSpacing = (-0.5).sp,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+
+
+
 

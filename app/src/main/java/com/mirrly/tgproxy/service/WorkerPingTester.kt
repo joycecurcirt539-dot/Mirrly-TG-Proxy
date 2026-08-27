@@ -19,6 +19,7 @@
 package com.mirrly.tgproxy.service
 
 import com.mirrly.tgproxy.BuildConfig
+import com.mirrly.tgproxy.core.DohOkHttpDns
 import com.mirrly.tgproxy.core.WorkerStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -29,6 +30,7 @@ import java.util.concurrent.TimeUnit
 object WorkerPingTester {
     private val client by lazy {
         OkHttpClient.Builder()
+            .dns(DohOkHttpDns.INSTANCE)
             .connectTimeout(5000, TimeUnit.MILLISECONDS)
             .readTimeout(5000, TimeUnit.MILLISECONDS)
             .callTimeout(6000, TimeUnit.MILLISECONDS)
@@ -52,6 +54,7 @@ object WorkerPingTester {
 
         val start = System.currentTimeMillis()
         try {
+            WorkerRequestTracker.recordProbeRequest(1)
             client.newCall(request).execute().use { response ->
                 val elapsed = System.currentTimeMillis() - start
                 when {

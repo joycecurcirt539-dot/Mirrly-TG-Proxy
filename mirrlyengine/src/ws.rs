@@ -330,11 +330,14 @@ impl RawWebSocket {
                 }
                 OP_CONTINUATION => {
                     if let Some(mut buf) = assembling_buf.take() {
-                        buf.extend_from_slice(&payload);
-                        if buf.len() > MAX_FRAME_PAYLOAD as usize {
+                        if (buf.len() as u64) + (payload.len() as u64) > MAX_FRAME_PAYLOAD {
                             self.closed.store(true, Ordering::Relaxed);
-                            return Err(WsError::Other(format!("reassembled frame too large: {} bytes", buf.len())));
+                            return Err(WsError::Other(format!(
+                                "reassembled frame too large: {} bytes",
+                                buf.len() + payload.len()
+                            )));
                         }
+                        buf.extend_from_slice(&payload);
                         if fin {
                             return Ok(buf);
                         } else {
@@ -411,11 +414,14 @@ impl RawWebSocket {
                 }
                 OP_CONTINUATION => {
                     if let Some(mut buf) = assembling_buf.take() {
-                        buf.extend_from_slice(&payload);
-                        if buf.len() > MAX_FRAME_PAYLOAD as usize {
+                        if (buf.len() as u64) + (payload.len() as u64) > MAX_FRAME_PAYLOAD {
                             self.closed.store(true, Ordering::Relaxed);
-                            return Err(WsError::Other(format!("reassembled frame too large: {} bytes", buf.len())));
+                            return Err(WsError::Other(format!(
+                                "reassembled frame too large: {} bytes",
+                                buf.len() + payload.len()
+                            )));
                         }
+                        buf.extend_from_slice(&payload);
                         if fin {
                             return Ok(buf);
                         } else {
@@ -465,7 +471,7 @@ async fn read_frame_locked(
     }
 
     if length > MAX_FRAME_PAYLOAD {
-        return Err(WsError::Other(format!("frame too large: {} bytes", length)));
+        return Err(WsError::Other(format!("frame too large: {} bytes (max {})", length, MAX_FRAME_PAYLOAD)));
     }
     let mut payload = vec![0u8; length as usize];
     if length > 0 {
@@ -557,10 +563,14 @@ fn set_sock_opts(stream: &TcpStream) {
     let nodelay = TCP_NODELAY.load(Ordering::Relaxed);
     let _ = stream.set_nodelay(nodelay);
     let sock = socket2::SockRef::from(stream);
-    let ka = socket2::TcpKeepalive::new()
+    #[allow(unused_mut)]
+    let mut ka = socket2::TcpKeepalive::new()
         .with_time(Duration::from_secs(30))
-        .with_interval(Duration::from_secs(10))
-        .with_retries(3);
+        .with_interval(Duration::from_secs(10));
+    #[cfg(any(target_os = "android", unix))]
+    {
+        ka = ka.with_retries(3);
+    }
     let _ = sock.set_tcp_keepalive(&ka);
 }
 
@@ -989,6 +999,11 @@ mod tests {
         let len = BigEndian::read_u64(&frame[2..10]);
         assert_eq!(len, 70000);
         assert_eq!(&frame[10..], &payload[..]);
+    }
+
+    #[test]
+    fn test_max_frame_payload_limit() {
+        assert_eq!(MAX_FRAME_PAYLOAD, 16 * 1024 * 1024);
     }
 }
 

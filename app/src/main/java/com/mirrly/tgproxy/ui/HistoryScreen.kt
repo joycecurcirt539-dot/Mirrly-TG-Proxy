@@ -13,6 +13,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -99,7 +100,8 @@ fun HistoryScreen(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.staggeredEntrance(index = 1)
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_history),
@@ -135,11 +137,14 @@ fun HistoryScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(
+                itemsIndexed(
                     items = historyList,
-                    key = { it.id }
-                ) { session ->
-                    SessionCard(session = session)
+                    key = { _, it -> it.id }
+                ) { index, session ->
+                    SessionCard(
+                        session = session,
+                        modifier = Modifier.staggeredEntrance(index = (index + 2).coerceAtMost(8))
+                    )
                 }
             }
         }
@@ -166,6 +171,7 @@ fun HistoryScreen(
                     .padding(horizontal = 16.dp)
             ) {
                 TopAppBar(
+                    modifier = Modifier.staggeredEntrance(index = 0),
                     title = {
                         Text(
                             text = "История сессий",
@@ -212,6 +218,7 @@ fun HistoryScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .staggeredEntrance(index = 1)
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
@@ -246,7 +253,9 @@ fun HistoryScreen(
                 HorizontalDivider(
                     color = Color.White.copy(alpha = 0.06f),
                     thickness = 1.dp,
-                    modifier = Modifier.padding(horizontal = 4.dp)
+                    modifier = Modifier
+                        .staggeredEntrance(index = 2)
+                        .padding(horizontal = 4.dp)
                 )
             }
         }
@@ -390,13 +399,16 @@ private fun SummaryStatItem(
 }
 
 @Composable
-private fun SessionCard(session: SessionRecord) {
+private fun SessionCard(
+    session: SessionRecord,
+    modifier: Modifier = Modifier
+) {
     val isSocks5 = session.proxyMode.equals("SOCKS5", ignoreCase = true)
     val protoAccent = if (isSocks5) Socks5Accent else MtprotoAccent
     val protoName = if (isSocks5) "SOCKS5" else "MTProto"
 
     val isActive = session.status == SessionStatus.ACTIVE
-    val borderColor = if (isActive) protoAccent.copy(alpha = 0.40f) else AmoledBorder
+    val borderColor = if (isActive) protoAccent.copy(alpha = 0.40f) else Color.White.copy(alpha = 0.08f)
 
     val startTimeStr = remember(session.startTimeMs) {
         formatSessionDate(session.startTimeMs)
@@ -419,9 +431,11 @@ private fun SessionCard(session: SessionRecord) {
 
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, borderColor),
-        modifier = Modifier.fillMaxWidth()
+        color = Color.White.copy(alpha = 0.02f),
+        border = BorderStroke(0.75.dp, borderColor),
+        modifier = modifier
+            .fillMaxWidth()
+            .springPress()
     ) {
         Column(
             modifier = Modifier.padding(14.dp),

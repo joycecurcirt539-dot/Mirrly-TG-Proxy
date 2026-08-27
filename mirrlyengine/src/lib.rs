@@ -343,6 +343,8 @@ pub unsafe extern "C" fn SetCfProxyConfig(
 ) {
     CFPROXY_ENABLED.store(enabled != 0, Ordering::Relaxed);
     let user_domain = cstr_to_string(c_user_domain);
+    *LAST_SOCKS5_WORKER.write() = String::new();
+    cfproxy::clear_cfproxy_429_cooldowns();
     let mut cfg = CFPROXY.write();
     cfg.user_domain = user_domain.clone();
     cfg.active = user_domain;

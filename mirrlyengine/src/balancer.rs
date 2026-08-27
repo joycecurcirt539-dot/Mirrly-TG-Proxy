@@ -209,10 +209,10 @@ mod tests {
         ];
         b.update_domains_list(&domains);
 
-        // Rank DC2: worker1 is fastest (80ms)
+        // Rank DC2: worker1 is fastest (50ms vs 120ms, > 60ms hysteresis)
         b.update_ranked_domains_for_dc(2, vec![
             ("worker2.dev".to_string(), 120),
-            ("worker1.dev".to_string(), 80),
+            ("worker1.dev".to_string(), 50),
             ("worker3.dev".to_string(), 250),
         ]);
 

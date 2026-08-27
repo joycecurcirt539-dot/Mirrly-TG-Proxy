@@ -31,5 +31,7 @@ data class WorkerProfile(
     val domain: String,
     val isDeveloperWorker: Boolean = false,
     var lastPingMs: Long? = null,
-    var lastStatus: WorkerStatus = WorkerStatus.UNKNOWN
+    var lastStatus: WorkerStatus = WorkerStatus.UNKNOWN,
+    var circuitState: CircuitState = CircuitState.CLOSED,
+    var cooldownRemainingSec: Long = 0L
 )

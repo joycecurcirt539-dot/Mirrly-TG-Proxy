@@ -2,25 +2,32 @@ use crate::config::*;
 use crate::ws::{is_http_status_error, ws_connect_happy_eyeballs, RawWebSocket, WsError};
 use crate::{ldebug, lerror, linfo, lwarn};
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 
 use once_cell::sync::Lazy;
 static CFPROXY_SEM: Lazy<Semaphore> = Lazy::new(|| Semaphore::new(CFPROXY_GLOBAL_PARALLEL));
 
+
+
 // ---------------------------------------------------------------------------
 // Domain decoding
 // ---------------------------------------------------------------------------
 
 pub fn decode_cf_domain(s: &str) -> String {
-    if !s.ends_with(".com") {
-        return s.to_string();
+    let mut s_trim = s.trim();
+    while s_trim.ends_with('.') {
+        s_trim = &s_trim[..s_trim.len() - 1];
+    }
+    if !s_trim.to_ascii_lowercase().ends_with(".com") {
+        return s_trim.to_string();
     }
     let suffix = ".co.uk";
-    let p = &s[..s.len() - 4];
+    let p = &s_trim[..s_trim.len() - 4];
     let mut n = 0i32;
     for c in p.chars() {
         if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
@@ -45,15 +52,30 @@ pub fn decode_cf_domain(s: &str) -> String {
 }
 
 pub fn normalize_cf_domain(s: &str) -> String {
-    let s_trim = s.trim();
+    let mut s_trim = s.trim();
     if s_trim.is_empty() {
         return String::new();
     }
-    let mut d = s_trim.to_lowercase();
-    while d.ends_with('.') {
-        d.pop();
+    while s_trim.ends_with('.') {
+        s_trim = &s_trim[..s_trim.len() - 1];
     }
-    d
+    s_trim.to_lowercase()
+}
+
+pub fn parse_cfproxy_domains(body: &str) -> Vec<String> {
+    let mut domains = Vec::new();
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let decoded = decode_cf_domain(line);
+        let d = normalize_cf_domain(&decoded);
+        if !d.is_empty() {
+            domains.push(d);
+        }
+    }
+    domains
 }
 
 pub fn default_cfproxy_domains() -> Vec<String> {
@@ -269,19 +291,14 @@ pub fn init_cfproxy_domains() {
     let cached = load_cfproxy_domains_from_cache();
 
     let mut cfg = CFPROXY.write();
-    let has_user_domain = !cfg.user_domain.is_empty();
     if !cached.is_empty() {
         let n = cached.len();
         cfg.domains = merge_cfproxy_domains(&[cached, defaults]);
-        if !has_user_domain {
-            crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
-            linfo!(" CF: кеш доменов загружен ({} шт.)", n);
-        }
+        crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
+        linfo!(" CF: кеш доменов загружен ({} шт.)", n);
     } else {
         cfg.domains = defaults;
-        if !has_user_domain {
-            crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
-        }
+        crate::balancer::BALANCER.write().update_domains_list(&cfg.domains);
     }
 }
 
@@ -310,11 +327,6 @@ static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
 });
 
 pub async fn try_refresh_cfproxy_domains() -> bool {
-    let has_user = !CFPROXY.read().user_domain.is_empty();
-    if has_user {
-        return true;
-    }
-
     let resp = match HTTP_CLIENT
         .get(CFPROXY_DOMAINS_URL)
         .header("User-Agent", "Mozilla/5.0 tg-ws-proxy-android")
@@ -339,25 +351,12 @@ pub async fn try_refresh_cfproxy_domains() -> bool {
         }
     };
 
-    let mut new_domains = Vec::new();
-    for line in body.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let d = normalize_cf_domain(line);
-        if !d.is_empty() {
-            new_domains.push(d);
-        }
-    }
+    let new_domains = parse_cfproxy_domains(&body);
 
     if !new_domains.is_empty() {
         let merged = merge_cfproxy_domains(&[new_domains.clone(), default_cfproxy_domains()]);
         {
             let mut cfg = CFPROXY.write();
-            if !cfg.user_domain.is_empty() {
-                return true;
-            }
             cfg.domains = merged.clone();
         }
         crate::balancer::BALANCER.write().update_domains_list(&merged);
@@ -786,50 +785,37 @@ pub async fn race_rank_domains(dc: i32) {
 }
 
 pub async fn race_all_primary_dcs() {
-    let has_user_worker = !CFPROXY.read().user_domain.is_empty();
-    if has_user_worker {
-        return;
-    }
+    // 1. Primary pair: DC2 (Core/Chats) & DC4 (Media/Files) in parallel
+    tokio::join!(
+        race_rank_domains(2),
+        race_rank_domains(4),
+    );
 
-    // 1. DC2 (Core/Chats)
-    race_rank_domains(2).await;
-
-    // 2. DC4 (Media/Files)
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    race_rank_domains(4).await;
-
-    // 3. DC5 (Asia)
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    race_rank_domains(5).await;
-
-    // 4. DC1 (US)
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    race_rank_domains(1).await;
+    // 2. Secondary DCs: DC5 (Asia) & DC1 (US) in parallel
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::join!(
+        race_rank_domains(5),
+        race_rank_domains(1),
+    );
 }
 
 pub async fn start_background_balancer_loop(cancel_token: tokio_util::sync::CancellationToken) {
-    // 1. Immediate race at startup for DC2 (0ms fast start)
-    race_rank_domains(2).await;
+    // 1. Immediate simultaneous race at startup for primary pair DC2 & DC4 (0ms fast start)
+    tokio::join!(
+        race_rank_domains(2),
+        race_rank_domains(4),
+    );
 
-    // 2. Background staggered initial race for remaining primary DCs (DC4, DC5, DC1)
+    // 2. Background initial race for remaining secondary DCs (DC5, DC1)
     let cancel_init = cancel_token.clone();
     tokio::spawn(async move {
         tokio::select! {
             _ = cancel_init.cancelled() => return,
-            _ = tokio::time::sleep(Duration::from_millis(600)) => {
-                race_rank_domains(4).await;
-            }
-        }
-        tokio::select! {
-            _ = cancel_init.cancelled() => return,
-            _ = tokio::time::sleep(Duration::from_millis(600)) => {
-                race_rank_domains(5).await;
-            }
-        }
-        tokio::select! {
-            _ = cancel_init.cancelled() => return,
-            _ = tokio::time::sleep(Duration::from_millis(600)) => {
-                race_rank_domains(1).await;
+            _ = tokio::time::sleep(Duration::from_millis(500)) => {
+                tokio::join!(
+                    race_rank_domains(5),
+                    race_rank_domains(1),
+                );
             }
         }
     });
@@ -891,5 +877,43 @@ mod tests {
 
         let interleaved = interleave_dual_stack_ips(vec![v6_1, v6_2], vec![v4_1, v4_2]);
         assert_eq!(interleaved, vec![v6_1, v4_1, v6_2, v4_2]);
+    }
+
+    #[tokio::test]
+    async fn test_cf_hot_pool_basic() {
+        let pool = CfHotPool::new();
+        assert!(pool.get(2).await.is_none());
+
+        // Test clear
+        pool.clear().await;
+        assert!(pool.get(2).await.is_none());
+    }
+
+    #[test]
+    fn test_decode_cf_domain() {
+        assert_eq!(decode_cf_domain("virkgj.com"), "pclead.co.uk");
+        assert_eq!(decode_cf_domain("vmmzovy.com"), "offshor.co.uk");
+        assert_eq!(decode_cf_domain("mkuosckvso.com"), "cakeisalie.co.uk");
+        assert_eq!(decode_cf_domain("cakeisalie.co.uk"), "cakeisalie.co.uk");
+        assert_eq!(decode_cf_domain("my-worker.workers.dev"), "my-worker.workers.dev");
+        assert_eq!(decode_cf_domain("custom.domain.org"), "custom.domain.org");
+    }
+
+    #[test]
+    fn test_normalize_cf_domain() {
+        assert_eq!(normalize_cf_domain("  example.com.  "), "example.com");
+        assert_eq!(normalize_cf_domain("PCLEAD.CO.UK"), "pclead.co.uk");
+        assert_eq!(normalize_cf_domain("my-worker.workers.dev."), "my-worker.workers.dev");
+        assert_eq!(normalize_cf_domain(""), "");
+    }
+
+    #[test]
+    fn test_parse_cfproxy_domains() {
+        let raw_data = "# Remote domains list from GitHub\n\nvirkgj.com\nvmmzovy.com\n# Comment\nmkuosckvso.com\n";
+        let parsed = parse_cfproxy_domains(raw_data);
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(parsed[0], "pclead.co.uk");
+        assert_eq!(parsed[1], "offshor.co.uk");
+        assert_eq!(parsed[2], "cakeisalie.co.uk");
     }
 }

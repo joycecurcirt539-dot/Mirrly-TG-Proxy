@@ -389,7 +389,9 @@ fun SettingsScreen(
     onOpenAbout: () -> Unit = {},
     onOpenUpdate: () -> Unit = {},
     onOpenWorkerGuide: () -> Unit = {},
-    onOpenWorkerManager: () -> Unit = {}
+    onOpenWorkerManager: () -> Unit = {},
+    onOpenVolunteers: () -> Unit = {},
+    onOpenHallOfFame: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -415,26 +417,13 @@ fun SettingsScreen(
     val isSwitching by com.mirrly.tgproxy.service.ProtocolSwitchManager.isSwitching.collectAsState()
     val selectedMode = if (isSocks5) ProxyMode.SOCKS5 else ProxyMode.MTPROTO
 
-    val poolOptions = remember { listOf(2f, 4f, 8f, 16f) }
-    var poolSize by remember { mutableFloatStateOf(config.poolSize.toFloat()) }
     var selectedSpeedPresetName by remember { mutableStateOf(config.speedPresetName) }
-
-    LaunchedEffect(server.isRunning, selectedSpeedPresetName) {
-        while (isActive && selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name) {
-            poolSize = config.poolSize.toFloat()
-            delay(1000)
-        }
-    }
     var autostart by remember { mutableStateOf(config.autostartOnBoot) }
     var infoKey by remember { mutableStateOf<String?>(null) }
     var pendingIssueRedirectUrl by remember { mutableStateOf<String?>(null) }
     val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showDonateConfirmDialog by remember { mutableStateOf(false) }
-
-    fun snapToNearestPool(valIn: Float): Float {
-        return poolOptions.minByOrNull { abs(it - valIn) } ?: valIn
-    }
 
     fun restartProxyIfNeeded() {
         app.saveConfig()
@@ -541,35 +530,11 @@ fun SettingsScreen(
 
             SettingsPerformanceSection(
                 config = config,
-                poolSize = poolSize,
-                onPoolSizeChange = { poolSize = it },
-                onPoolSnapFinish = { newSnapped ->
-                    poolSize = newSnapped
-                    val newSize = newSnapped.toInt()
-                    val isAuto = selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
-                    if (newSize != config.poolSize || isAuto) {
-                        config.poolSize = newSize
-                        val matchingPreset = com.mirrly.tgproxy.core.SpeedPreset.values().firstOrNull { it != com.mirrly.tgproxy.core.SpeedPreset.AUTO && it.defaultPoolSize == newSize }
-                        if (matchingPreset != null) {
-                            config.speedPresetName = matchingPreset.name
-                            selectedSpeedPresetName = matchingPreset.name
-                            config.bufferSizeBytes = matchingPreset.defaultBufferSizeBytes
-                        } else {
-                            config.speedPresetName = "CUSTOM"
-                            selectedSpeedPresetName = "CUSTOM"
-                        }
-                        server.applyPoolSize(newSize)
-                        app.saveConfig()
-                    }
-                },
                 selectedSpeedPresetName = selectedSpeedPresetName,
                 onPresetSelect = { preset ->
                     selectedSpeedPresetName = preset.name
                     config.applyPreset(preset)
-                    if (preset == com.mirrly.tgproxy.core.SpeedPreset.AUTO) {
-                        poolSize = config.poolSize.toFloat()
-                    } else {
-                        poolSize = preset.defaultPoolSize.toFloat()
+                    if (preset != com.mirrly.tgproxy.core.SpeedPreset.AUTO) {
                         server.applyPoolSize(preset.defaultPoolSize)
                     }
                     app.saveConfig()
@@ -605,7 +570,9 @@ fun SettingsScreen(
             SettingsAboutSection(
                 onOpenAbout = onOpenAbout,
                 onDonateClick = { showDonateConfirmDialog = true },
-                onOpenUpdate = onOpenUpdate
+                onOpenUpdate = onOpenUpdate,
+                onOpenVolunteers = onOpenVolunteers,
+                onOpenHallOfFame = onOpenHallOfFame
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -924,40 +891,12 @@ private fun SettingsNetworkSection(
                 )
             }
         }
-
-        var autoReconnect by remember { mutableStateOf(app.prefsManager.isAutoReconnectEnabled()) }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("Авто-переподключение (Wi-Fi / LTE)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    InfoButton { onInfoClick("reconnect") }
-                }
-                Text("Автоматический перезапуск сокетов при смене сети без зависания Telegram", color = TextMuted, fontSize = 11.5.sp)
-            }
-            InertialSpringSwitch(
-                checked = autoReconnect,
-                onCheckedChange = { newValue ->
-                    autoReconnect = newValue
-                    app.prefsManager.setAutoReconnectEnabled(newValue)
-                }
-            )
-        }
     }
 }
 
 @Composable
 private fun SettingsPerformanceSection(
     config: ProxyConfig,
-    poolSize: Float,
-    onPoolSizeChange: (Float) -> Unit,
-    onPoolSnapFinish: (Float) -> Unit,
     selectedSpeedPresetName: String,
     onPresetSelect: (com.mirrly.tgproxy.core.SpeedPreset) -> Unit,
     onInfoClick: (String) -> Unit
@@ -965,9 +904,6 @@ private fun SettingsPerformanceSection(
     val haptic = LocalHapticFeedback.current
     val app = MirrlyApplication.instance
     val server = app.proxyServer
-    val poolOptions = remember { listOf(2f, 4f, 8f, 16f) }
-
-    fun snap(v: Float) = poolOptions.minByOrNull { abs(it - v) } ?: v
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 2),
@@ -986,7 +922,7 @@ private fun SettingsPerformanceSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text("Режимы пропускной способности", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text("Режимы пропускной способности (WsPool)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 InfoButton { onInfoClick("preset") }
             }
 
@@ -994,14 +930,8 @@ private fun SettingsPerformanceSection(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                val currentSnapPool = snap(poolSize).toInt()
-                val isAutoActive = selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
                 com.mirrly.tgproxy.core.SpeedPreset.values().forEach { preset ->
-                    val isSelected = if (preset == com.mirrly.tgproxy.core.SpeedPreset.AUTO) {
-                        isAutoActive
-                    } else {
-                        !isAutoActive && (selectedSpeedPresetName == preset.name || (selectedSpeedPresetName == "CUSTOM" && currentSnapPool == preset.defaultPoolSize))
-                    }
+                    val isSelected = selectedSpeedPresetName == preset.name
                     val chipBorder by animateColorAsState(
                         targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
                         animationSpec = tween(200),
@@ -1058,100 +988,6 @@ private fun SettingsPerformanceSection(
                             )
                         }
                     }
-                }
-            }
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("Размер пула сокетов (WsPool)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    InfoButton { onInfoClick("pool") }
-                }
-
-                val activeDisplayValue = snap(poolSize).toInt()
-                val poolDisplayLabel = if (selectedSpeedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name) {
-                    "$activeDisplayValue сокетов (Авто)"
-                } else {
-                    "$activeDisplayValue сокетов"
-                }
-                Text(
-                    text = poolDisplayLabel,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = ActiveGreenLed
-                )
-            }
-
-            Slider(
-                value = poolSize,
-                onValueChange = { newValue ->
-                    val oldSnap = snap(poolSize).toInt()
-                    val newSnap = snap(newValue).toInt()
-                    if (oldSnap != newSnap) {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-                    onPoolSizeChange(newValue)
-                },
-                onValueChangeFinished = {
-                    val snapped = snap(poolSize)
-                    onPoolSnapFinish(snapped)
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                },
-                valueRange = 2f..16f,
-                colors = SliderDefaults.colors(
-                    thumbColor = TextWhite,
-                    activeTrackColor = ActiveGreenLed,
-                    inactiveTrackColor = Color(0xFF1E2333)
-                )
-            )
-
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val thumbHalfWidth = 10.dp
-                val usableWidth = maxWidth - thumbHalfWidth * 2
-
-                poolOptions.forEach { option ->
-                    val fraction = (option - 2f) / 14f
-                    val isSelected = snap(poolSize).toInt() == option.toInt()
-                    val optionColor by animateColorAsState(
-                        targetValue = if (isSelected) ActiveGreenLed else TextMuted,
-                        animationSpec = tween(200),
-                        label = "optionColor$option"
-                    )
-
-                    Text(
-                        text = "${option.toInt()}",
-                        fontSize = 13.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = optionColor,
-                        modifier = Modifier
-                            .layout { measurable, constraints ->
-                                val placeable = measurable.measure(
-                                    constraints.copy(minWidth = 0, minHeight = 0)
-                                )
-                                val centerXPx = (thumbHalfWidth + usableWidth * fraction).toPx()
-                                layout(placeable.width, placeable.height) {
-                                    placeable.place(
-                                        x = (centerXPx - placeable.width / 2f).toInt(),
-                                        y = 0
-                                    )
-                                }
-                            }
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onPoolSnapFinish(option)
-                            }
-                    )
                 }
             }
         }
@@ -1561,7 +1397,9 @@ private fun SettingsSystemSection(
 private fun SettingsAboutSection(
     onOpenAbout: () -> Unit,
     onDonateClick: () -> Unit,
-    onOpenUpdate: () -> Unit
+    onOpenUpdate: () -> Unit,
+    onOpenVolunteers: () -> Unit,
+    onOpenHallOfFame: () -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -1576,7 +1414,7 @@ private fun SettingsAboutSection(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
-            text = "О ПРИЛОЖЕНИИ",
+            text = "О ПРИЛОЖЕНИИ И СООБЩЕСТВЕ",
             fontSize = 12.sp,
             fontWeight = FontWeight.Black,
             letterSpacing = 1.3.sp,
@@ -1590,6 +1428,173 @@ private fun SettingsAboutSection(
                 .background(Color.Transparent)
                 .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(18.dp))
         ) {
+            // ── 1. STANDOUT VOLUNTEER TESTING BUTTON ──
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .lightSweep(
+                        isEnabled = true,
+                        shape = RoundedCornerShape(14.dp),
+                        sweepColor = Color(0xFFFFB703)
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onOpenVolunteers()
+                    }
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFFFFB703).copy(alpha = 0.15f))
+                            .border(1.dp, Color(0xFFFFB703).copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_volunteer_badge),
+                            contentDescription = null,
+                            tint = Color(0xFFFFB703),
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Программа тестирования",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFFFB703).copy(alpha = 0.20f),
+                                border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFFFFB703).copy(alpha = 0.5f))
+                            ) {
+                                Text(
+                                    text = "НАБОР",
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFFFFB703),
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Ищем волонтеров: ранний доступ к APK и бонусы",
+                            fontSize = 11.5.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_chevron_right),
+                    contentDescription = null,
+                    tint = Color(0xFFFFB703),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+
+            // ── 2. STANDOUT HALL OF FAME BUTTON ──
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .lightSweep(
+                        isEnabled = true,
+                        shape = RoundedCornerShape(14.dp),
+                        sweepColor = Color(0xFF7C4DFF)
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onOpenHallOfFame()
+                    }
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF7C4DFF).copy(alpha = 0.15f))
+                            .border(1.dp, Color(0xFF7C4DFF).copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_hall_of_fame),
+                            contentDescription = null,
+                            tint = Color(0xFFC084FC),
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Зал Славы и Благодарности",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFF7C4DFF).copy(alpha = 0.20f),
+                                border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF7C4DFF).copy(alpha = 0.5f))
+                            ) {
+                                Text(
+                                    text = "TOP",
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFFC084FC),
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Первопроходцы, контрибьюторы и цифровые слепки",
+                            fontSize = 11.5.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_chevron_right),
+                    contentDescription = null,
+                    tint = Color(0xFFC084FC),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1633,7 +1638,7 @@ private fun SettingsAboutSection(
                             color = TextWhite
                         )
                         Text(
-                            text = "R1Xern • Информация, соцсети и статус сборки",
+                            text = "Mirrly Dev (R1Xern) • Информация, соцсети и статус сборки",
                             fontSize = 11.5.sp,
                             color = TextMuted
                         )
@@ -1827,7 +1832,7 @@ private fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
             "32-символьный hex-ключ протокола MTProto. Его необходимо указать в настройках прокси Telegram — без него подключение невозможно.\n\nПрефикс dd означает режим Fake TLS: трафик маскируется под обычный HTTPS, что позволяет обходить DPI-фильтрацию.\n\nНажмите кнопку генерации для создания нового случайного ключа. После смены обновите ссылку-приглашение в Telegram."
         "cf_domain" -> "Безопасность & Принцип работы Cloudflare Worker" to
             "БЕЗОПАСНОСТЬ ЛИЧНЫХ ДАННЫХ:\n" +
-            "Для 100% защиты вашей конфиденциальности и анонимности мы рекомендуем развернуть свой личный воркер по встроенной инструкции.\n\n" +
+            "Для 100% защиты вашей конфиденциальности и анонимности я рекомендую развернуть свой личный воркер по встроенной инструкции.\n\n" +
             "При использовании чужого воркера ваш трафик проходит через посторонний узел. Разворачивая собственный бесплатный воркер, вы гарантируете, что логи и ключи доступа принадлежат ТОЛЬКО вам.\n\n" +
             "КАК РАБОТАЕТ CLOUDFLARE WORKER:\n" +
             "• Cloudflare Worker — это бессерверный V8-скрипт на глобальной сети Cloudflare Edge (300+ городов по всему миру).\n" +
@@ -1838,14 +1843,20 @@ private fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
             "• Отсутствие зависимости от сторонних серверов и чужих лимитов.\n" +
             "• Максимальная скорость для звонков, скачивания тяжёлых файлов и видео."
 
-        "pool" -> "Размер пула сокетов" to
-            "Количество WebSocket-соединений, которые прокси держит открытыми заранее (pre-warming).\n\nБольший пул = меньше задержка при открытии чата и загрузке медиа:\n• 2 — минимальный расход батареи и RAM (Эко)\n• 4 — баланс скорости и экономии (Баланс, рекомендуется)\n• 8 — быстрый отклик, умеренный расход (Турбо)\n• 16 — максимальная параллелизация соединений (Ультра)\n\nКаждое соединение занимает ~50–100 КБ RAM и поддерживает фоновое соединение с Cloudflare."
         "autostart" -> "Автозапуск при загрузке" to
             "Прокси автоматически запустится после перезагрузки устройства — не нужно включать вручную.\n\nРаботает через системный сигнал BOOT_COMPLETED.\n\nВажно: на устройствах MIUI, HyperOS и OneUI может потребоваться дополнительное разрешение «Автозапуск» в системных настройках телефона, иначе система заблокирует запуск."
-        "reconnect" -> "Авто-переподключение" to
-            "При смене сети (Wi-Fi → LTE и обратно) прокси автоматически перезапускает соединения.\n\nБез этой функции Telegram может «зависать» на несколько секунд при переходе между сетями.\n\nФункция отслеживает изменения через NetworkCallback Android и перезапускает прокси только при реальной смене сети, а не временных потерях сигнала."
-        "preset" -> "Режимы производительности" to
-            "Настройка глубины буферов и количества сокетов для максимальной скорости:\n\n• Эко — 2 сокета, 128 КБ буфер. Минимальный расход энергии и памяти.\n\n• Баланс — 4 сокета, 256 КБ буфер. Оптимальная скорость для повседневного использования.\n\n• Турбо — 8 сокетов, 1 МБ буфер. Быстрая загрузка медиа и голосовых сообщений.\n\n• Ультра — 16 сокетов, 2 МБ буфер. Максимальная пропускная способность при скачивании тяжёлых файлов на каналах до 1 Гбит/с.\n\n• Авто — 2–16 сокетов. Интеллектуальная адаптация в реальном времени под текущую пропускную способность сети и задержку."
+        "preset" -> "Режимы пропускной способности (WsPool)" to
+            "Управление размером пула сокетов (WebSocket pre-warming) и глубиной буферов для достижения максимальной скорости и минимальных задержек:\n\n" +
+            "• Эко (2 сокета, 128 КБ буфер):\n" +
+            "Минимальный расход аккумулятора и оперативной памяти (~100–200 КБ RAM). Идеально для фоновой работы только текстовых чатов.\n\n" +
+            "• Баланс (4 сокета, 256 КБ буфер, рекомендуется):\n" +
+            "Оптимальный баланс скорости и энергопотребления для повседневного использования Telegram.\n\n" +
+            "• Турбо (8 сокетов, 1 МБ буфер):\n" +
+            "Мгновенный отклик при открытии диалогов, быстрая предзагрузка фото, видео и голосовых сообщений.\n\n" +
+            "• Ультра (16 сокетов, 2 МБ буфер):\n" +
+            "Максимальная параллелизация WebSocket-соединений и предельная пропускная способность при скачивании тяжелых файлов на каналах до 1 Гбит/с.\n\n" +
+            "• Авто (2–16 сокетов, адаптивный буфер):\n" +
+            "Интеллектуальная динамическая адаптация пула соединений в реальном времени под текущую скорость сети, пинг и нагрузку."
         "tcp_nodelay" -> "Мгновенная отдача (TCP_NODELAY)" to
             "Управление алгоритмом Нагла (Nagle's Algorithm) для TCP-сокетов:\n\n" +
             "• Авто (рекомендуется):\n" +

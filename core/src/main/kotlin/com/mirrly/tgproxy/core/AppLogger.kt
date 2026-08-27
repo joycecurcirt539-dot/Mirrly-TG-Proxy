@@ -91,8 +91,15 @@ object AppLogger {
 
     fun d(tag: String, message: String) = log(LogLevel.INFO, tag, message)
     fun i(tag: String, message: String) = log(LogLevel.INFO, tag, message)
-    fun w(tag: String, message: String) = log(LogLevel.WARN, tag, message)
-    fun e(tag: String, message: String) = log(LogLevel.ERROR, tag, message)
+    fun w(tag: String, message: String, throwable: Throwable? = null) = log(LogLevel.WARN, tag, message)
+    fun e(tag: String, message: String, throwable: Throwable? = null) {
+        val finalMessage = if (throwable != null && (throwable.message == null || message.endsWith(": null"))) {
+            message.replace(": null", ": ${throwable.javaClass.simpleName}")
+        } else {
+            message
+        }
+        log(LogLevel.ERROR, tag, finalMessage)
+    }
 
     fun startLogcatReader(pid: Int = -1) {
         if (isLogcatReaderStarted) return

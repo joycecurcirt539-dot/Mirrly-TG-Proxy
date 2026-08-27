@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Cellular Tower Lattice Structure -->
+    <path
+        android:pathData="M12,3V21M7,21L12,5L17,21M8.5,14H15.5M9.8,9.5H14.2"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Left Radio Wave -->
+    <path
+        android:pathData="M5,7C3.5,8.8 3.5,11.2 5,13"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round" />
+    <!-- Right Radio Wave -->
+    <path
+        android:pathData="M19,7C20.5,8.8 20.5,11.2 19,13"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round" />
+</vector>

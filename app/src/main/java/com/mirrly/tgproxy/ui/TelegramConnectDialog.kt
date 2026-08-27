@@ -64,8 +64,8 @@ fun TelegramConnectDialog(
     val app = MirrlyApplication.instance
     val server = app.proxyServer
 
-    val mtprotoUrl = remember { server.getTelegramProxyUrl() }
-    val socks5Url = remember { server.getTelegramSocks5Url() }
+    val mtprotoUrl = remember(app.config.secretHex, app.config.bindHost, app.config.bindPort) { server.getTelegramProxyUrl() }
+    val socks5Url = remember(app.config.bindHost, app.config.activePort) { server.getTelegramSocks5Url() }
 
     Dialog(
         onDismissRequest = onDismiss,

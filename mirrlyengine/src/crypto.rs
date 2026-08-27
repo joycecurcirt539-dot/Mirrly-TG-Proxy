@@ -60,6 +60,7 @@ pub fn new_aes_ctr(key: &[u8], iv: &[u8]) -> TrackedStream {
 pub const PROTO_ABRIDGED: i32 = 0;
 pub const PROTO_INTERMEDIATE: i32 = 1;
 pub const PROTO_PADDED_INTERMEDIATE: i32 = 2;
+pub const MAX_MTPROTO_PACKET_LEN: i64 = 16 * 1024 * 1024; // 16 MB Full Buffer Limit
 
 pub fn proto_tag_to_type(proto: u32) -> i32 {
     match proto {
@@ -152,10 +153,10 @@ impl MsgSplitter {
         }
         match self.proto_type {
             PROTO_ABRIDGED => {
-                let first = self.plain_buf[0] & 0x7F;
+                let first = self.plain_buf[0];
                 let header_len;
                 let payload_len;
-                if first == 0x7F {
+                if first == 0x7F || first == 0xFF {
                     if self.plain_buf.len() < 4 {
                         return -1;
                     }
@@ -165,10 +166,10 @@ impl MsgSplitter {
                         * 4;
                     header_len = 4;
                 } else {
-                    payload_len = (first as i64) * 4;
+                    payload_len = ((first & 0x7F) as i64) * 4;
                     header_len = 1;
                 }
-                if payload_len <= 0 || payload_len > 16 * 1024 * 1024 {
+                if payload_len <= 0 || payload_len > MAX_MTPROTO_PACKET_LEN {
                     return 0;
                 }
                 let pkt_len = header_len + payload_len;
@@ -183,7 +184,7 @@ impl MsgSplitter {
                 }
                 let payload_len =
                     (LittleEndian::read_u32(&self.plain_buf[..4]) & 0x7FFFFFFF) as i64;
-                if payload_len <= 0 || payload_len > 16 * 1024 * 1024 {
+                if payload_len <= 0 || payload_len > MAX_MTPROTO_PACKET_LEN {
                     return 0;
                 }
                 let pkt_len = 4 + payload_len;

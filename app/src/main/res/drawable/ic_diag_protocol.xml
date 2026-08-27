@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Tunnel Pipeline Cylinder Left -->
+    <path
+        android:pathData="M2,8H9C10.1,8 11,8.9 11,10V14C11,15.1 10.1,16 9,16H2"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Tunnel Pipeline Cylinder Right -->
+    <path
+        android:pathData="M22,8H15C13.9,8 13,8.9 13,10V14C13,15.1 13.9,16 15,16H22"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Interlocking Center Connection Bridge -->
+    <path
+        android:pathData="M11,12H13M6,12H7M17,12H18"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+</vector>

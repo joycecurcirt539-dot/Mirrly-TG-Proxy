@@ -23,6 +23,9 @@ import com.mirrly.tgproxy.core.LocalProxyServer
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.service.PreferencesManager
 import com.mirrly.tgproxy.service.UpdateManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MirrlyApplication : Application() {
 
@@ -41,6 +44,7 @@ class MirrlyApplication : Application() {
         com.mirrly.tgproxy.core.AppLogger.startLogcatReader(android.os.Process.myPid())
         prefsManager = PreferencesManager(this)
         com.mirrly.tgproxy.service.SessionHistoryManager.init(this)
+        com.mirrly.tgproxy.service.WorkerRequestTracker.init(this)
         config = prefsManager.loadConfig()
         proxyServer = LocalProxyServer(config)
         proxyServer.stats.externalByteProvider = {
@@ -52,8 +56,28 @@ class MirrlyApplication : Application() {
                 if (tx != android.net.TrafficStats.UNSUPPORTED.toLong() && tx > 0) tx else 0L
             )
         }
+        proxyServer.stats.onTotalWsConnectionsChanged = { wsTotal ->
+            com.mirrly.tgproxy.service.WorkerRequestTracker.syncNativeConnectionsTotal(wsTotal)
+        }
         UpdateManager.onAppInit(this)
         UpdateManager.scheduleDaytimeCheck(this)
+        com.mirrly.tgproxy.service.WorkerFailoverManager.init()
+
+        proxyServer.pingEngine.onProbeCompleted = { probe, target ->
+            if (probe.success) {
+                com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerSuccess(target, probe.rawRttMs)
+            } else {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerFailure(probe.failureType, target)
+                }
+            }
+        }
+
+        proxyServer.pingEngine.onPredictiveDegradation = { target, currentRtt, minRtt ->
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerDegradation(target, currentRtt, minRtt)
+            }
+        }
     }
 
     fun saveConfig() {

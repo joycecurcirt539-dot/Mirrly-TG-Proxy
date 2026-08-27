@@ -29,9 +29,11 @@ import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -130,7 +132,8 @@ private data class WmFaqItem(
 fun WorkerManagerScreen(
     prefs: PreferencesManager,
     onBack: () -> Unit,
-    initialSection: ManagerSection = ManagerSection.WORKERS
+    initialSection: ManagerSection = ManagerSection.WORKERS,
+    onOpenAnalytics: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -145,12 +148,11 @@ fun WorkerManagerScreen(
     var currentSection by remember(initialSection) { mutableStateOf(initialSection) }
 
     // Workers State
-    var activeWorkerId by remember { mutableStateOf(prefs.getActiveWorkerId()) }
+    val activeWorkerId by prefs.activeWorkerIdFlow.collectAsState()
     var customWorkers by remember { mutableStateOf(prefs.getCustomWorkers()) }
     val devWorkers = remember { prefs.getDeveloperWorkers() }
 
     LaunchedEffect(Unit) {
-        activeWorkerId = prefs.getActiveWorkerId()
         customWorkers = prefs.getCustomWorkers()
     }
 
@@ -246,7 +248,6 @@ fun WorkerManagerScreen(
 
     fun refreshWorkers() {
         customWorkers = prefs.getCustomWorkers()
-        activeWorkerId = prefs.getActiveWorkerId()
     }
 
     fun startPingAll() {
@@ -273,11 +274,13 @@ fun WorkerManagerScreen(
         val link = "https://mirrly.app/worker?domain=$encodedDomain&name=$encodedName"
 
         val shareText = buildString {
-            append("Подключение Cloudflare Worker для Mirrly TG Proxy:\n\n")
-            append("Ссылка для импорта:\n")
+            append("С тобой поделились ссылкой на подключение Cloudflare Worker для приложения Mirrly TG Proxy:\n\n")
+            append("Ссылка для импорта в приложение автоматически — просто нажми на неё, и у тебя откроется приложение:\n")
             append("$link\n\n")
-            append("Домен: ${worker.domain}\n\n")
-            append("Релизы приложения:\n")
+            append("У тебя не открылась ссылка автоматически?\n")
+            append("Загляди в менеджер воркеров в приложении, нужно выдать разрешение!\n\n")
+            append("Чтобы добавить домен вручную, он должен соответствовать такому формату: \"${worker.domain}\"\n\n")
+            append("Следи за новыми обновлениями на GitHub:\n")
             append("https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases")
         }
         val intent = Intent(Intent.ACTION_SEND).apply {
@@ -727,7 +730,6 @@ fun WorkerManagerScreen(
                                     onSelect = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         prefs.setActiveWorkerId(worker.id)
-                                        activeWorkerId = worker.id
                                         Toast.makeText(context, "Активирован: ${worker.name}", Toast.LENGTH_SHORT).show()
                                     },
                                     onShare = if (!worker.isDeveloperWorker) {
@@ -1302,6 +1304,21 @@ fun WorkerManagerScreen(
                     },
                     actions = {
                         if (currentSection == ManagerSection.WORKERS) {
+                            // Analytics Chart Button
+                            if (onOpenAnalytics != null) {
+                                IconButton(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onOpenAnalytics()
+                                }) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_diag_formula),
+                                        contentDescription = "Аналитика запросов",
+                                        tint = activeProtoColor,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
                             // Toggle Search Bar
                             IconButton(onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1857,6 +1874,7 @@ private fun GlassGuideStepCard(
 /**
  * Clean Frosted Glass Worker Card (Compact, transparent outline style)
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GlassWorkerCard(
     modifier: Modifier = Modifier,
@@ -1874,18 +1892,50 @@ private fun GlassWorkerCard(
     val status = pingInfo?.first ?: WorkerStatus.UNKNOWN
     val pingMs = pingInfo?.second
 
-    val statusColor = when (status) {
-        WorkerStatus.ONLINE -> if ((pingMs ?: 0) < 250) Color(0xFF00E676) else Color(0xFFF59E0B)
-        WorkerStatus.RATE_LIMITED_429 -> Color(0xFFEF4444)
-        WorkerStatus.ERROR_UNREACHABLE -> Color(0xFFF59E0B)
-        WorkerStatus.UNKNOWN -> TextMuted
+    val circuitRecord = com.mirrly.tgproxy.service.WorkerFailoverManager.getCircuitRecord(worker.id)
+    val circuitState = circuitRecord?.state ?: com.mirrly.tgproxy.core.CircuitState.CLOSED
+
+    // Динамический секундный таймер карантина в реальном времени
+    var currentRemSeconds by remember(circuitRecord?.cooldownUntilTimestamp, circuitState) {
+        mutableStateOf(circuitRecord?.remainingCooldownSeconds ?: 0L)
     }
 
-    val statusText = when (status) {
-        WorkerStatus.ONLINE -> "${pingMs ?: 0} мс"
-        WorkerStatus.RATE_LIMITED_429 -> "429 Лимит"
-        WorkerStatus.ERROR_UNREACHABLE -> "Недоступен"
-        WorkerStatus.UNKNOWN -> "—"
+    LaunchedEffect(circuitRecord?.cooldownUntilTimestamp, circuitState) {
+        while (true) {
+            val rem = circuitRecord?.remainingCooldownSeconds ?: 0L
+            currentRemSeconds = rem
+            if (rem <= 0L || circuitRecord?.state != com.mirrly.tgproxy.core.CircuitState.OPEN) {
+                break
+            }
+            kotlinx.coroutines.delay(1000L)
+        }
+    }
+
+    val isCircuitBroken = circuitState == com.mirrly.tgproxy.core.CircuitState.OPEN && currentRemSeconds > 0L
+
+    val (statusColor, statusText) = when {
+        isCircuitBroken -> {
+            val text = "Карантин (${currentRemSeconds}с)"
+            Pair(Color(0xFFEF4444), text)
+        }
+        circuitState == com.mirrly.tgproxy.core.CircuitState.HALF_OPEN || (circuitState == com.mirrly.tgproxy.core.CircuitState.OPEN && currentRemSeconds <= 0L) -> {
+            Pair(Color(0xFFF59E0B), "Проверка...")
+        }
+        else -> {
+            val color = when (status) {
+                WorkerStatus.ONLINE -> if ((pingMs ?: 0) < 250) Color(0xFF00E676) else Color(0xFFF59E0B)
+                WorkerStatus.RATE_LIMITED_429 -> Color(0xFFEF4444)
+                WorkerStatus.ERROR_UNREACHABLE -> Color(0xFFF59E0B)
+                WorkerStatus.UNKNOWN -> TextMuted
+            }
+            val text = when (status) {
+                WorkerStatus.ONLINE -> "${pingMs ?: 0} мс"
+                WorkerStatus.RATE_LIMITED_429 -> "429 Лимит"
+                WorkerStatus.ERROR_UNREACHABLE -> "Недоступен"
+                WorkerStatus.UNKNOWN -> "—"
+            }
+            Pair(color, text)
+        }
     }
 
     val cardBorderColor = if (isActive) {
@@ -1901,12 +1951,22 @@ private fun GlassWorkerCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable(
+            .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                onSelect()
-            }
+                indication = null,
+                onClick = {
+                    onSelect()
+                },
+                onLongClick = if (!worker.isDeveloperWorker) {
+                    {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        val clip = ClipData.newPlainText("Worker Domain", worker.domain)
+                        clipboard?.setPrimaryClip(clip)
+                        Toast.makeText(context, "Домен скопирован в буфер обмена", Toast.LENGTH_SHORT).show()
+                    }
+                } else null
+            )
     ) {
         Row(
             modifier = Modifier
@@ -1977,13 +2037,7 @@ private fun GlassWorkerCard(
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.clickable {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                val clip = ClipData.newPlainText("Worker Domain", worker.domain)
-                                clipboard?.setPrimaryClip(clip)
-                                Toast.makeText(context, "Домен скопирован", Toast.LENGTH_SHORT).show()
-                            }
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -1992,7 +2046,7 @@ private fun GlassWorkerCard(
             // Right block: Monospace Ping + Actions (Share / Delete)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 // Monospace Ping Status
                 Text(
@@ -2005,35 +2059,41 @@ private fun GlassWorkerCard(
                 )
 
                 if (onShare != null) {
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onShare()
-                        },
-                        modifier = Modifier.size(28.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onShare()
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = "Поделиться",
                             tint = activeAccentColor,
-                            modifier = Modifier.size(13.dp)
+                            modifier = Modifier.size(11.5.dp)
                         )
                     }
                 }
 
                 if (onDelete != null) {
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onDelete()
-                        },
-                        modifier = Modifier.size(28.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onDelete()
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_trash),
                             contentDescription = "Удалить",
                             tint = Color(0xFFEF4444),
-                            modifier = Modifier.size(13.dp)
+                            modifier = Modifier.size(11.5.dp)
                         )
                     }
                 }

@@ -80,4 +80,10 @@ class HumanLogTranslatorTest {
         val raw = "JNI_OnLoad: Successfully registered mirrly_sec native methods"
         assertEquals("Модуль защиты mirrly_sec успешно зарегистрирован", HumanLogTranslator.translateToHumanRussian("MirrlySecNative", raw))
     }
+
+    @Test
+    fun testFFIFailureLogTranslation() {
+        val raw = "Сбой вызова FFI [startProxy]: UnsatisfiedLinkError"
+        assertEquals("Сбой вызова нативного метода startProxy: UnsatisfiedLinkError", HumanLogTranslator.translateToHumanRussian("NativeProxy", raw))
+    }
 }

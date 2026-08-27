@@ -46,9 +46,48 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     var startTimeMs: Long = 0L
         private set
 
-    @Volatile
-    var currentPingMs: Long = -1L
-        private set
+    val pingEngine = PingEngine(
+        targetProvider = {
+            val cfDomain = config.getEffectiveCfDomain()
+            if (cfDomain.isNotBlank()) cfDomain else TgConstants.decodeCfDomain("virkgj.com")
+        },
+        trafficThroughputProvider = { stats.downloadSpeedBps + stats.uploadSpeedBps },
+        onSelfHealingRequired = {
+            AppLogger.w("LocalProxyServer", "Watchdog: Выполняется превентивный сброс сокетов из-за серии сетевых сбоев...")
+            if (isNativeRunning) {
+                try {
+                    NativeProxy.resetNetworkSockets()
+                } catch (_: Exception) {}
+            }
+        }
+    )
+
+    val adaptiveHeartbeatEngine = AdaptiveHeartbeatEngine(
+        statsProvider = { stats },
+        onHeartbeatTick = {
+            measurePingAsync()
+        }
+    )
+
+    val qosEngine = BatteryThermalQoSEngine(
+        onThrottleLevelChanged = {
+            if (config.isAutoSpeedPreset && isNativeRunning) {
+                updateAutoTuning()
+            }
+        }
+    )
+
+    val currentPingMs: Long
+        get() = pingEngine.smoothedPingMs
+
+    val smoothedPingMs: Long
+        get() = pingEngine.smoothedPingMs
+
+    val jitterMs: Long
+        get() = pingEngine.jitterMs
+
+    val connectionQuality: ConnectionQuality
+        get() = pingEngine.quality
 
     @Volatile
     var currentEffectiveTcpNoDelay: Boolean = true
@@ -85,7 +124,14 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         NativeProxy.setTcpNoDelay(initialNoDelay)
 
         val useCf = config.cfProxyEnabled
-        val workerDomain = if (config.isSocks5Mode) config.getEffectiveCfDomain() else ""
+        val workerDomain = if (config.isSocks5Mode) {
+            config.getEffectiveCfDomain()
+        } else {
+            // MTProto маршрутизируется исключительно через глобальный Anycast CDN Flowseal (kws{dc}.{domain}/apiws).
+            // Пользовательские воркеры и воркеры разработчика намеренно НЕ применяются к MTProto,
+            // так как прямое туннелирование MTProto через воркеры нарушает сетевой стек CDN и ломает подключение.
+            ""
+        }
 
         NativeProxy.setCfProxyConfig(
             enabled = useCf,
@@ -102,8 +148,9 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 verbose = if (config.verboseLogs) 1 else 0
             )
 
-            if (code == 3) {
-                AppLogger.w("LocalProxyServer", "Порт SOCKS5 ${config.socks5Port} всё ещё освобождается (code 3), повторный запуск...")
+            if (code == -3 || code == 3) {
+                AppLogger.w("LocalProxyServer", "Порт SOCKS5 ${config.socks5Port} освобождается (код $code), повторный запуск через 150мс...")
+                Thread.sleep(150)
                 code = NativeProxy.startSocks5Proxy(
                     host = config.bindHost,
                     port = config.socks5Port,
@@ -136,8 +183,9 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 verbose = if (config.verboseLogs) 1 else 0
             )
 
-            if (code == 3) {
-                AppLogger.w("LocalProxyServer", "Порт ${config.bindPort} всё ещё освобождается (code 3), повторный запуск...")
+            if (code == -3 || code == 3) {
+                AppLogger.w("LocalProxyServer", "Порт ${config.bindPort} освобождается (код $code), повторный запуск через 150мс...")
+                Thread.sleep(150)
                 code = NativeProxy.startProxy(
                     host = config.bindHost,
                     port = config.bindPort,
@@ -173,9 +221,29 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                     } catch (_: Exception) {}
                 }
                 stats.updateSpeed()
-                if (System.currentTimeMillis() % 5000 < 1000) {
-                    measurePingAsync()
-                }
+                val snapshot = pingEngine.currentSnapshot
+                stats.smoothedPingMs = snapshot.smoothedPingMs
+                stats.jitterMs = snapshot.jitterMs
+                stats.connectionQuality = snapshot.quality
+                stats.lastFailureType = snapshot.lastFailureType
+                stats.healthScore = snapshot.healthReport.score
+                stats.healthVerdict = snapshot.healthReport.verdict
+                stats.healthDetail = snapshot.healthReport.detail
+                stats.healthSuccessRate = snapshot.successRatePercent
+                stats.chatScore = snapshot.healthReport.chatScore
+                stats.chatVerdict = snapshot.healthReport.chatVerdict
+                stats.callScore = snapshot.healthReport.callScore
+                stats.mosScore = snapshot.healthReport.mosScore
+                stats.mosGrade = snapshot.healthReport.mosGrade
+                stats.isCallRecommended = snapshot.healthReport.isCallRecommended
+                stats.minRttMs = snapshot.minRttMs
+                stats.bufferbloatMs = snapshot.bufferbloatMs
+                stats.bufferbloatGrade = snapshot.bufferbloatGrade
+                stats.currentAlpha = snapshot.currentAlpha
+                stats.rttHistory = snapshot.rttHistory
+                val dcDist = stats.dcAffinityEngine.calculateSocketDistribution(config.poolSize)
+                stats.dcAffinitySummary = dcDist.summary
+
                 if (config.isAutoSpeedPreset && isNativeRunning) {
                     updateAutoTuning()
                 }
@@ -183,6 +251,8 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             }
         }
 
+        pingEngine.start()
+        adaptiveHeartbeatEngine.start()
         return true
     }
 
@@ -197,6 +267,8 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         startTimeMs = 0L
         speedJob?.cancel()
         speedJob = null
+        pingEngine.stop()
+        adaptiveHeartbeatEngine.stop()
         isNativeRunning = false
         autoConsecutiveHighTicks = 0
         autoConsecutiveLowTicks = 0
@@ -228,17 +300,28 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     private fun updateAutoTuning() {
         val totalSpeed = stats.downloadSpeedBps + stats.uploadSpeedBps
-        val ping = currentPingMs
+        val snapshot = pingEngine.currentSnapshot
 
-        // Determine candidate pool size based on traffic throughput and network latency
-        val candidatePool = when {
-            ping > 600L -> 2 // High latency / unstable network -> Eco
-            totalSpeed >= 6_291_456L -> 16 // > 6 MB/s -> Ultra
-            totalSpeed >= 1_572_864L -> 8  // 1.5 MB/s .. 6 MB/s -> Turbo
-            totalSpeed >= 153_600L -> 4    // 150 KB/s .. 1.5 MB/s -> Balanced
-            else -> 2                      // Low traffic / idle -> Eco
+        val decision = NetworkConditionEvaluator.evaluate(
+            throughputBps = totalSpeed,
+            smoothedPingMs = snapshot.smoothedPingMs,
+            minRttMs = snapshot.minRttMs,
+            jitterMs = snapshot.jitterMs,
+            successRatePercent = snapshot.successRatePercent,
+            consecutiveFailures = snapshot.consecutiveFailures,
+            mosScore = snapshot.healthReport.mosScore,
+            isCallRecommended = snapshot.healthReport.isCallRecommended,
+            qosThrottleLevel = qosEngine.currentThrottleLevel,
+            isAutoSpeedPreset = config.isAutoSpeedPreset,
+            baseTcpNoDelay = config.tcpNoDelay
+        )
+
+        // Синхронизируем TCP_NODELAY при изменении
+        if (config.isAutoSpeedPreset) {
+            applyTcpNoDelay(decision.recommendedTcpNoDelay)
         }
 
+        val candidatePool = decision.recommendedPoolSize
         val currentPool = config.poolSize
 
         if (candidatePool > currentPool) {
@@ -246,14 +329,14 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             autoConsecutiveLowTicks = 0
             if (autoConsecutiveHighTicks >= 2) {
                 autoConsecutiveHighTicks = 0
-                applyAutoPoolSize(candidatePool)
+                applyAutoDecision(decision)
             }
         } else if (candidatePool < currentPool) {
             autoConsecutiveLowTicks++
             autoConsecutiveHighTicks = 0
             if (autoConsecutiveLowTicks >= 5) {
                 autoConsecutiveLowTicks = 0
-                applyAutoPoolSize(candidatePool)
+                applyAutoDecision(decision)
             }
         } else {
             autoConsecutiveHighTicks = 0
@@ -261,23 +344,23 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
     }
 
-    private fun applyAutoPoolSize(newSize: Int) {
-        val clamped = newSize.coerceIn(2, 16)
-        if (clamped == config.poolSize) return
-        config.poolSize = clamped
-        config.bufferSizeBytes = when (clamped) {
-            2 -> 131072
-            4 -> 262144
-            8 -> 1048576
-            16 -> 2097152
-            else -> 262144
-        }
-        AppLogger.i("LocalProxyServer", "Авто-адаптация пула сокетов: $clamped сокетов (буфер: ${config.bufferSizeBytes / 1024} КБ)")
+    private fun applyAutoDecision(decision: NetworkEvaluationDecision) {
+        val clampedPool = decision.recommendedPoolSize.coerceIn(2, 16).coerceAtMost(qosEngine.maxAllowedPoolSize)
+        if (clampedPool == config.poolSize && config.bufferSizeBytes == decision.recommendedBufferSizeBytes) return
+
+        config.poolSize = clampedPool
+        config.bufferSizeBytes = decision.recommendedBufferSizeBytes.coerceAtMost(qosEngine.maxAllowedBufferSizeBytes)
+
+        AppLogger.i(
+            "LocalProxyServer",
+            "Авто-адаптация стека: ${decision.summary} (буфер: ${config.bufferSizeBytes / 1024} КБ, TCP_NODELAY: ${decision.recommendedTcpNoDelay}, QoS: ${qosEngine.currentThrottleLevel.name})"
+        )
+
         if (isNativeRunning) {
             try {
-                NativeProxy.setPoolSize(clamped)
+                NativeProxy.setPoolSize(clampedPool)
             } catch (t: Throwable) {
-                AppLogger.w("LocalProxyServer", "Автоматический setPoolSize($clamped) не удался: ${t.message}")
+                AppLogger.w("LocalProxyServer", "Автоматический setPoolSize($clampedPool) не удался: ${t.message}")
             }
         }
     }
@@ -319,45 +402,27 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
     }
 
-    private var pingFailures = 0
-
     fun measurePingAsync(dcId: Int = 2) {
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val cfDomain = config.getEffectiveCfDomain()
-            val pingTarget = if (cfDomain.isNotBlank()) cfDomain else TgConstants.decodeCfDomain("virkgj.com")
-            val ping = run {
-                val start = System.currentTimeMillis()
-                try {
-                    val addrs = java.net.InetAddress.getAllByName(pingTarget)
-                    if (addrs.isEmpty()) return@run -1L
-                    Socket().use { s ->
-                        s.tcpNoDelay = true
-                        s.connect(java.net.InetSocketAddress(addrs[0], 443), 2000)
-                        System.currentTimeMillis() - start
-                    }
-                } catch (_: Exception) {
-                    -1L
-                }
-            }
-            if (ping > 0) {
-                pingFailures = 0
-                currentPingMs = ping
-            } else {
-                pingFailures++
-                if (pingFailures >= 3) {
-                    currentPingMs = -1L
-                }
-            }
+        scope.launch(Dispatchers.IO) {
+            pingEngine.triggerSingleProbe()
         }
     }
 
     fun onWorkerChanged(newWorkerDomain: String) {
         config.customCfDomain = newWorkerDomain
+        DohResolver.clearCache()
+        pingEngine.reset()
         updateWorkerConfig()
     }
 
     fun updateWorkerConfig() {
-        val effectiveDomain = if (config.isSocks5Mode) config.getEffectiveCfDomain() else ""
+        val effectiveDomain = if (config.isSocks5Mode) {
+            config.getEffectiveCfDomain()
+        } else {
+            // MTProto маршрутизируется исключительно через глобальный Anycast CDN Flowseal (kws{dc}.{domain}/apiws).
+            // Пользовательские воркеры и воркеры разработчика намеренно НЕ применяются к MTProto.
+            ""
+        }
         AppLogger.i("LocalProxyServer", "Обновление конфигурации воркера → '$effectiveDomain'")
         if (isNativeRunning) {
             try {
@@ -374,7 +439,11 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     }
 
     fun onNetworkRestored() {
-        AppLogger.i("LocalProxyServer", "Сетевое подключение восстановлено. Сброс сокетов...")
+        AppLogger.i("LocalProxyServer", "Сетевое подключение восстановлено. Сброс сокетов, DoH-кэша, Happy Eyeballs рейтинга и PingEngine...")
+        DohResolver.clearCache()
+        HappyEyeballsEngine.clearRating()
+        stats.dcAffinityEngine.reset()
+        pingEngine.reset()
         if (isNativeRunning) {
             try {
                 NativeProxy.resetNetworkSockets()
@@ -383,12 +452,29 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         measurePingAsync()
     }
 
+    fun setNetworkInterface(isMobile: Boolean, isScreenOn: Boolean = true) {
+        adaptiveHeartbeatEngine.isMobileNetwork = isMobile
+        adaptiveHeartbeatEngine.isScreenOn = isScreenOn
+    }
+
     fun resetWsPool() {
         if (isNativeRunning) {
             try {
                 NativeProxy.resetNetworkSockets()
             } catch (_: Exception) {}
         }
+    }
+
+    /**
+     * Предиктивный упреждающий прогрев пула WsPool и обновление сессий при пробуждении устройства.
+     */
+    fun predictivePreWarm(reason: String = "ACTION_USER_PRESENT") {
+        if (!isRunning || !isNativeRunning) return
+        AppLogger.i("LocalProxyServer", "Предиктивный прогрев WsPool ($reason)...")
+        try {
+            NativeProxy.resetNetworkSockets()
+        } catch (_: Exception) {}
+        measurePingAsync()
     }
 
     fun getPoolSocketCount(): Int = stats.activeConnections.get()

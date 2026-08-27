@@ -318,20 +318,45 @@ function Deploy-Worker([string]$WorkerName) {
     $tomlContent = @"
 name = "$WorkerName"
 main = "worker.js"
-compatibility_date = "2024-09-23"
+compatibility_date = "2025-01-01"
 "@
     Set-Content -Path $wranglerTomlPath -Value $tomlContent -Encoding UTF8
 
     Push-Location $tempDir
     $deploySuccess = $false
+    $domain = ""
 
     try {
-        Write-Host "  [1/2] Проверка авторизации Cloudflare (откроется браузер при необходимости)..." -ForegroundColor Yellow
-        npx -y wrangler@latest login
+        # Проверяем авторизацию — открываем браузер только если не залогинены
+        Write-Host "  [1/2] Проверка авторизации Cloudflare..." -ForegroundColor Yellow
+        $whoami = npx -y wrangler@latest whoami 2>&1
+        $isAuthed = $whoami | Select-String -Pattern "You are logged in" -Quiet
+        if (-not $isAuthed) {
+            Write-Host "  [!] Не авторизован. Открывается браузер для входа в Cloudflare..." -ForegroundColor Yellow
+            npx -y wrangler@latest login
+        } else {
+            $accountLine = $whoami | Select-String "Account Name"
+            Write-Host "  [OK] Авторизован: $($accountLine.Line.Trim())" -ForegroundColor Green
+        }
 
         Write-Host "`n  [2/2] Публикую воркер в Cloudflare...`n" -ForegroundColor Cyan
-        npx -y wrangler@latest deploy
+
+        # Перехватываем stdout для извлечения URL воркера
+        $deployOutput = npx -y wrangler@latest deploy 2>&1
         $deploySuccess = ($LASTEXITCODE -eq 0)
+
+        # Выводим лог деплоя
+        $deployOutput | ForEach-Object { Write-Host "  $_" }
+
+        # Извлекаем домен из вывода wrangler
+        if ($deploySuccess) {
+            $urlMatch = $deployOutput | Select-String -Pattern 'https://([a-zA-Z0-9\.\-]+\.workers\.dev)' |
+                Select-Object -First 1
+            if ($urlMatch) {
+                $domain = $urlMatch.Matches[0].Groups[1].Value
+            }
+        }
+
     } catch {
         Write-Host "`n  [X] Ошибка во время деплоя: $_" -ForegroundColor Red
     } finally {
@@ -342,22 +367,6 @@ compatibility_date = "2024-09-23"
     if (-not $deploySuccess) {
         Write-Host "`n  [X] Деплой не завершился успешно. Проверьте сообщения выше.`n" -ForegroundColor Red
         return $null
-    }
-
-    # Поиск домена в логах
-    $domain = ""
-    $logsDir = [System.IO.Path]::Combine($env:APPDATA, "xdg.config", ".wrangler", "logs")
-    if (Test-Path $logsDir) {
-        $latestLog = Get-ChildItem -Path $logsDir -Filter "*.log" -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
-
-        if ($latestLog) {
-            $logContent = Get-Content $latestLog.FullName -Raw -ErrorAction SilentlyContinue
-            if ($logContent -match '(https://[a-zA-Z0-9\.\-]+\.workers\.dev)') {
-                $domain = $Matches[1] -replace '^https://', ''
-            }
-        }
     }
 
     Write-Host ""
@@ -433,7 +442,7 @@ function Show-SavedWorkers {
 
 Check-NodeJs
 
-while ($true) {
+:mainLoop while ($true) {
     Show-Banner
     Write-Host "  Выберите действие:" -ForegroundColor Yellow
     Write-Host "  [1] Создать новый воркер (авто-имя, 1 клик)" -ForegroundColor White
@@ -470,7 +479,7 @@ while ($true) {
         }
         "0" {
             Write-Host "`n  До свидания!`n" -ForegroundColor Cyan
-            break
+            break mainLoop
         }
         default {
             # По умолчанию - быстрое создание

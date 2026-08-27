@@ -2,11 +2,14 @@ package com.mirrly.tgproxy.service
 
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -15,6 +18,7 @@ import android.os.PowerManager
 import android.widget.Toast
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.core.ConnectionQuality
 import com.mirrly.tgproxy.core.SpeedPreset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +37,8 @@ class ProxyForegroundService : Service() {
     private var wakeLockJob: Job? = null
     private var networkObserver: NetworkChangeObserver? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var thermalListener: Any? = null
+    private var batteryReceiver: BroadcastReceiver? = null
 
     @Volatile
     private var isReconnectingNetwork = false
@@ -56,6 +62,8 @@ class ProxyForegroundService : Service() {
         isStopping = false
         NotificationHelper.createNotificationChannel(this)
         NotificationHelper.cancelProxyNotifications(this)
+        PredictivePreWarmManager.start(this)
+        initBatteryAndThermalMonitoring()
 
         networkObserver = NetworkChangeObserver(this) { newType, oldType ->
             val app = MirrlyApplication.instance
@@ -67,6 +75,9 @@ class ProxyForegroundService : Service() {
             }
 
             if (app.proxyServer.isRunning) {
+                val isMobile = newType.contains("Mobile", ignoreCase = true) || newType.contains("Cellular", ignoreCase = true)
+                app.proxyServer.setNetworkInterface(isMobile)
+
                 // Мгновенный сброс активных сессий и прогрев сокетов на новом интерфейсе для моментального реконнекта Telegram
                 app.proxyServer.onNetworkRestored()
 
@@ -182,6 +193,7 @@ class ProxyForegroundService : Service() {
                         presetName = getPresetShortName(app.config.speedPreset),
                         proxyMode = app.config.proxyMode.name
                     )
+                    WorkerRequestTracker.onSessionStarted()
                     DonationManager.recordSuccessfulConnection(this@ProxyForegroundService)
                 }
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
@@ -373,6 +385,13 @@ class ProxyForegroundService : Service() {
         val dlSpeed = humanBytes(stats.downloadSpeedBps)
         val ulSpeed = humanBytes(stats.uploadSpeedBps)
         val pingMs = server.currentPingMs
+        val jitterMs = server.jitterMs
+        val quality = server.connectionQuality
+        val pingDisplay = if (pingMs > 0) {
+            if (jitterMs > 0) "${pingMs}мс (±${jitterMs}мс)" else "${pingMs}мс"
+        } else {
+            ""
+        }
 
         val netTypeName = networkObserver?.getCurrentNetworkTypeName() ?: "UNKNOWN"
         val isNetworkLost = netTypeName == "DISCONNECTED"
@@ -409,11 +428,11 @@ class ProxyForegroundService : Service() {
             }
             isWorker -> {
                 if (pingMs > 0) {
-                    val indicator = if (pingMs > 1200L) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
+                    val indicator = if (quality == ConnectionQuality.POOR || pingMs > 600L) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
                     Triple(
                         indicator,
                         "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "Worker: ${pingMs}мс | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        "Worker: $pingDisplay | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
                     )
                 } else if (activeConns > 0) {
                     Triple(
@@ -431,11 +450,11 @@ class ProxyForegroundService : Service() {
             }
             else -> {
                 if (pingMs > 0) {
-                    val indicator = if (pingMs > 1200L) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
+                    val indicator = if (quality == ConnectionQuality.POOR || pingMs > 600L) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
                     Triple(
                         indicator,
                         "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "CDN: ${pingMs}мс | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        "CDN: $pingDisplay | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
                     )
                 } else {
                     Triple(
@@ -522,7 +541,84 @@ class ProxyForegroundService : Service() {
         }
     }
 
+    private fun initBatteryAndThermalMonitoring() {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+
+        // 1. Android 10+ Thermal Status Listener
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
+            val listener = PowerManager.OnThermalStatusChangedListener { status ->
+                AppLogger.d(TAG, "Thermal статус изменился: $status")
+                updateDeviceQoSState(status)
+            }
+            try {
+                powerManager.addThermalStatusListener(listener)
+                thermalListener = listener
+            } catch (t: Throwable) {
+                AppLogger.w(TAG, "Не удалось зарегистрировать OnThermalStatusChangedListener: ${t.message}")
+            }
+        }
+
+        // 2. Battery & Power Save Broadcast Receiver
+        val bReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                updateDeviceQoSState()
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_BATTERY_CHANGED)
+            addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+        }
+        try {
+            registerReceiver(bReceiver, filter)
+            batteryReceiver = bReceiver
+        } catch (t: Throwable) {
+            AppLogger.w(TAG, "Не удалось зарегистрировать battery receiver: ${t.message}")
+        }
+
+        updateDeviceQoSState()
+    }
+
+    private fun updateDeviceQoSState(thermalStatusOverride: Int? = null) {
+        try {
+            val app = MirrlyApplication.instance
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val isPowerSave = powerManager?.isPowerSaveMode == true
+            val thermal = thermalStatusOverride ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
+                powerManager.currentThermalStatus
+            } else {
+                0
+            }
+
+            val bIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val level = bIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: 100
+            val scale = bIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: 100
+            val batteryPct = if (scale > 0) (level * 100) / scale else level
+            val status = bIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+
+            app.proxyServer.qosEngine.updateState(
+                batteryPercent = batteryPct,
+                isCharging = isCharging,
+                isPowerSaveMode = isPowerSave,
+                thermalStatus = thermal
+            )
+        } catch (_: Exception) {}
+    }
+
     override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && thermalListener != null) {
+            try {
+                (getSystemService(Context.POWER_SERVICE) as? PowerManager)?.removeThermalStatusListener(
+                    thermalListener as PowerManager.OnThermalStatusChangedListener
+                )
+            } catch (_: Exception) {}
+        }
+        batteryReceiver?.let {
+            try { unregisterReceiver(it) } catch (_: Exception) {}
+        }
+        PredictivePreWarmManager.stop(this)
         stopProxyService()
         NotificationHelper.cancelProxyNotifications(this)
         try { serviceScope.cancel() } catch (_: Exception) {}

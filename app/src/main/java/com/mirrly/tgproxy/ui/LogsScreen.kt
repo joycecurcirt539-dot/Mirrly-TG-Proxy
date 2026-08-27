@@ -12,6 +12,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -25,6 +27,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +40,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.sp
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.AppLogger
@@ -51,10 +57,10 @@ private val LogTagShape = RoundedCornerShape(5.dp)
 private val FilterChipShape = RoundedCornerShape(11.dp)
 private val SearchFieldShape = RoundedCornerShape(14.dp)
 
-private val InfoCardBorder = BorderStroke(1.dp, Color(0xFF181E2E))
-private val WarnCardBorder = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
-private val ErrorCardBorder = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.45f))
-private val TagBadgeBorder = BorderStroke(1.dp, Color(0xFF1E283D))
+private val InfoCardBorder = BorderStroke(0.75.dp, Color.White.copy(alpha = 0.08f))
+private val WarnCardBorder = BorderStroke(0.75.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
+private val ErrorCardBorder = BorderStroke(0.75.dp, Color(0xFFEF4444).copy(alpha = 0.45f))
+private val TagBadgeBorder = BorderStroke(0.75.dp, Color.White.copy(alpha = 0.10f))
 
 private val WarnAccentColor = Color(0xFFF59E0B)
 private val ErrorAccentColor = Color(0xFFEF4444)
@@ -88,11 +94,20 @@ fun LogsScreen(
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val coroutineScope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
 
     var isSearchVisible by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedLevel by remember { mutableStateOf<LogLevel?>(null) }
     val searchFocusRequester = remember { FocusRequester() }
+
+    // Initial entrance animation barrier
+    var isInitialLoad by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        delay(450)
+        isInitialLoad = false
+    }
 
     // Internal bounded ring buffer (up to 250 elements)
     val rawLogBuffer = remember { ArrayDeque<LogEntry>(250) }
@@ -132,6 +147,7 @@ fun LogsScreen(
         infoCount = iC
         warnCount = wC
         errorCount = eC
+        listState.scrollToItem(0)
 
         AppLogger.logEvents.collect { event ->
             when (event) {
@@ -164,18 +180,25 @@ fun LogsScreen(
 
                     rawLogBuffer.addLast(entry)
 
+                    // Check if user is currently watching the top of the feed
+                    val isAtTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 60
+
                     // Differential addition directly to displayed list
                     if (matchesFilter(entry, searchQuery, selectedLevel)) {
                         displayedLogs.add(0, entry)
+                        if (isAtTop) {
+                            listState.scrollToItem(0)
+                        }
                     }
                 }
-                LogEvent.Cleared -> {
+                is LogEvent.Cleared -> {
                     rawLogBuffer.clear()
                     displayedLogs.clear()
                     totalCount = 0
                     infoCount = 0
                     warnCount = 0
                     errorCount = 0
+                    listState.scrollToItem(0)
                 }
             }
         }
@@ -190,6 +213,7 @@ fun LogsScreen(
                 displayedLogs.add(entry)
             }
         }
+        listState.scrollToItem(0)
     }
 
     LaunchedEffect(isSearchVisible) {
@@ -204,6 +228,11 @@ fun LogsScreen(
     // Derived states to prevent unnecessary recompositions
     val isListEmpty by remember { derivedStateOf { displayedLogs.isEmpty() } }
     val isSearchActive by remember { derivedStateOf { isSearchVisible || searchQuery.isNotEmpty() } }
+    val isScrolledDown by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 1 || listState.firstVisibleItemScrollOffset > 80
+        }
+    }
 
     // Stable copy callback to prevent recreating closures and interaction sources in item rows
     val onCopyLog: (LogEntry) -> Unit = remember(context, haptic) {
@@ -251,7 +280,8 @@ fun LogsScreen(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.staggeredEntrance(index = 1)
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_logs),
@@ -269,6 +299,7 @@ fun LogsScreen(
             }
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .fadingEdges(topFadeHeight = 28.dp, bottomFadeHeight = 40.dp),
@@ -280,13 +311,17 @@ fun LogsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(
+                itemsIndexed(
                     items = displayedLogs,
-                    key = { it.id }
-                ) { entry ->
+                    key = { _, entry -> entry.id }
+                ) { index, entry ->
                     GlassLogCard(
                         entry = entry,
-                        onCopy = onCopyLog
+                        onCopy = onCopyLog,
+                        modifier = Modifier.logItemCascadeEntrance(
+                            index = index,
+                            isInitialBatch = isInitialLoad
+                        )
                     )
                 }
             }
@@ -313,6 +348,7 @@ fun LogsScreen(
             ) {
                 // Top App Bar
                 TopAppBar(
+                    modifier = Modifier.staggeredEntrance(index = 0),
                     title = {
                         Text(
                             text = "Логи",
@@ -441,7 +477,7 @@ fun LogsScreen(
                             focusedContainerColor = Color.Transparent,
                             unfocusedContainerColor = Color.Transparent,
                             focusedBorderColor = activeProtoColor.copy(alpha = 0.85f),
-                            unfocusedBorderColor = Color(0xFF1E283D),
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.08f),
                             focusedTextColor = TextWhite,
                             unfocusedTextColor = TextWhite
                         )
@@ -450,7 +486,9 @@ fun LogsScreen(
 
                 // 4 Fixed-Width Segmented Filter Chips
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .staggeredEntrance(index = 1),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     SegmentedFilterChip(
@@ -501,6 +539,49 @@ fun LogsScreen(
             }
         }
 
+        // Floating "Scroll to top" pill button when scrolled down
+        AnimatedVisibility(
+            visible = isScrolledDown,
+            enter = fadeIn(animationSpec = tween(180)) + slideInVertically(animationSpec = tween(220)) { it / 2 },
+            exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(animationSpec = tween(180)) { it / 2 },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.88f),
+                border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.50f)),
+                modifier = Modifier.springPress(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    coroutineScope.launch {
+                        listState.animateScrollToItem(0)
+                    }
+                })
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_arrow_left),
+                        contentDescription = null,
+                        tint = activeProtoColor,
+                        modifier = Modifier
+                            .size(13.dp)
+                            .graphicsLayer { rotationZ = 90f }
+                    )
+                    Text(
+                        text = "К новым логам",
+                        color = TextWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
         // Delicate Cyber Particles floating over entire logs screen interface
         CyberParticlesOverlay(
             modifier = Modifier.fillMaxSize(),
@@ -520,7 +601,7 @@ private fun SegmentedFilterChip(
     onClick: () -> Unit
 ) {
     val borderColor by animateColorAsState(
-        targetValue = if (isSelected) activeColor.copy(alpha = 0.85f) else Color(0xFF1E283D),
+        targetValue = if (isSelected) activeColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.08f),
         animationSpec = tween(180),
         label = "chipBorder"
     )
@@ -533,7 +614,7 @@ private fun SegmentedFilterChip(
     Surface(
         shape = FilterChipShape,
         color = Color.Transparent,
-        border = BorderStroke(1.dp, borderColor),
+        border = BorderStroke(0.75.dp, borderColor),
         modifier = modifier
             .height(34.dp)
             .springPress(onClick = onClick)
@@ -568,7 +649,8 @@ private fun SegmentedFilterChip(
 @Composable
 private fun GlassLogCard(
     entry: LogEntry,
-    onCopy: (LogEntry) -> Unit
+    onCopy: (LogEntry) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val levelColor = when (entry.level) {
         LogLevel.INFO -> ActiveGreenLed
@@ -584,10 +666,11 @@ private fun GlassLogCard(
 
     Surface(
         shape = LogCardShape,
-        color = Color.Transparent,
+        color = Color.White.copy(alpha = 0.02f),
         border = cardBorder,
-        onClick = { onCopy(entry) },
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .springPress(onClick = { onCopy(entry) })
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -646,6 +729,53 @@ private fun GlassLogCard(
                 lineHeight = 18.5.sp
             )
         }
+    }
+}
+
+@Composable
+private fun Modifier.logItemCascadeEntrance(
+    index: Int,
+    isInitialBatch: Boolean
+): Modifier {
+    var visible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val delayMs = if (isInitialBatch) {
+            (index.coerceAtMost(8) * 45).toLong()
+        } else {
+            (index.coerceAtMost(3) * 35).toLong()
+        }
+        if (delayMs > 0) delay(delayMs)
+        visible = true
+    }
+
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+        label = "logAlpha"
+    )
+    val offsetY by animateDpAsState(
+        targetValue = if (visible) 0.dp else if (isInitialBatch) 22.dp else (-18).dp,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "logOffsetY"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (visible) 1f else 0.94f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "logScale"
+    )
+
+    return this.graphicsLayer {
+        this.alpha = alpha
+        this.translationY = offsetY.toPx()
+        this.scaleX = scale
+        this.scaleY = scale
     }
 }
 

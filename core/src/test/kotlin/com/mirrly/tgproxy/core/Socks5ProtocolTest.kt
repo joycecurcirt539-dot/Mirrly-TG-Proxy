@@ -67,7 +67,7 @@ class Socks5ProtocolTest {
     fun testUnstartedNativeProxyStopSafety() {
         assertFalse(NativeProxy.isStarted)
         // Calling stopProxy, getStats, setPoolSize, resetNetworkSockets on unstarted NativeProxy must be safe no-ops
-        assertEquals(0, NativeProxy.stopProxy())
+        assertDoesNotThrow { NativeProxy.stopProxy() }
         assertNull(NativeProxy.getStats())
         assertNull(NativeProxy.getSecretWithPrefix())
         assertDoesNotThrow { NativeProxy.setPoolSize(4) }

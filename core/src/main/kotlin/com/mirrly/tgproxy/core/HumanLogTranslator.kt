@@ -88,6 +88,17 @@ object HumanLogTranslator {
             msg.contains("Нативный прокси недоступен", ignoreCase = true) || msg.contains("Native proxy unavailable", ignoreCase = true) -> {
                 "Нативный прокси недоступен"
             }
+            msg.contains("Сбой вызова FFI", ignoreCase = true) -> {
+                val method = Regex("""\[(.*?)\]""").find(msg)?.groupValues?.get(1) ?: ""
+                val cause = msg.substringAfter(":", "").trim()
+                if (method.isNotEmpty() && cause.isNotEmpty()) {
+                    "Сбой вызова нативного метода $method: $cause"
+                } else if (method.isNotEmpty()) {
+                    "Сбой вызова нативного метода $method"
+                } else {
+                    "Сбой вызова нативного метода библиотеки"
+                }
+            }
 
             // Proxy Server Started
             msg.contains("Proxy started", ignoreCase = true) ||
@@ -317,6 +328,15 @@ object HumanLogTranslator {
             }
 
             // Network Errors & System Warnings
+            msg.contains("DPI_BLOCKED", ignoreCase = true) || msg.contains("Блокировка DPI", ignoreCase = true) -> {
+                "Обнаружена DPI-блокировка узла (сброс пакетов ТСПУ). Мгновенный переход на резервный воркер"
+            }
+            msg.contains("TLS_HANDSHAKE_FAILED", ignoreCase = true) || msg.contains("Сбой TLS", ignoreCase = true) -> {
+                "Сбой защищенного TLS-рукопожатия (возможен перехват или блокировка сертификата)"
+            }
+            msg.contains("Instant Deep Failover", ignoreCase = true) -> {
+                "Мгновенное переключение на резервный узел без задержки"
+            }
             msg.contains("Address already in use", ignoreCase = true) || msg.contains("EADDRINUSE", ignoreCase = true) -> {
                 "Порт уже занят другим приложением! Смените порт в настройках."
             }
@@ -330,7 +350,7 @@ object HumanLogTranslator {
                 "Соединение отклонено сервером"
             }
             msg.contains("Connection reset", ignoreCase = true) || msg.contains("ECONNRESET", ignoreCase = true) -> {
-                "Соединение сброшено узлом сети"
+                "Соединение сброшено узлом сети (DPI / TCP Reset)"
             }
             msg.contains("Permission denied", ignoreCase = true) -> {
                 "Доступ запрещен операционной системой"

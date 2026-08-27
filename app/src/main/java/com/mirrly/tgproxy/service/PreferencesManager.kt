@@ -21,6 +21,9 @@ class PreferencesManager(context: Context) {
     private val _isSocks5Flow = MutableStateFlow(loadConfig().isSocks5Mode)
     val isSocks5Flow: StateFlow<Boolean> = _isSocks5Flow.asStateFlow()
 
+    private val _activeWorkerIdFlow = MutableStateFlow(getActiveWorkerId())
+    val activeWorkerIdFlow: StateFlow<String> = _activeWorkerIdFlow.asStateFlow()
+
     private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
         if (key == "disable_animations_particles") {
             _animationsDisabledFlow.value = sharedPreferences.getBoolean(key, false)
@@ -29,6 +32,9 @@ class PreferencesManager(context: Context) {
             val modeName = sharedPreferences.getString("proxy_mode", ProxyMode.MTPROTO.name)
             val isSocks5 = modeName == ProxyMode.SOCKS5.name || sharedPreferences.getBoolean("socks5_enabled", false)
             _isSocks5Flow.value = isSocks5
+        }
+        if (key == "active_worker_id") {
+            _activeWorkerIdFlow.value = sharedPreferences.getString(key, "dev_default") ?: "dev_default"
         }
     }
 
@@ -42,9 +48,9 @@ class PreferencesManager(context: Context) {
         val bindHost = prefs.getString("bind_host", defaults.bindHost) ?: defaults.bindHost
         val bindPort = prefs.getInt("bind_port", defaults.bindPort)
         val savedSecret = prefs.getString("secret_hex", null)
-        val secretHex = if (savedSecret.isNullOrEmpty()) {
+        val secretHex = if (savedSecret.isNullOrBlank() || savedSecret == "dd00000000000000000000000000000000") {
             val generatedSecret = ProxyConfig.generateRandomSecret()
-            prefs.edit().putString("secret_hex", generatedSecret).apply()
+            prefs.edit().putString("secret_hex", generatedSecret).commit()
             generatedSecret
         } else {
             savedSecret
@@ -104,10 +110,25 @@ class PreferencesManager(context: Context) {
         val sanitizedDomain = ProxyConfig.sanitizeDomain(config.customCfDomain)
         val domainToSave = if (sanitizedDomain.isNotEmpty()) sanitizedDomain else getActiveWorker().domain
         config.customCfDomain = domainToSave
+
+        val secretToSave = if (config.secretHex.isNotBlank() && config.secretHex != "dd00000000000000000000000000000000") {
+            config.secretHex
+        } else {
+            val existing = prefs.getString("secret_hex", null)
+            if (!existing.isNullOrBlank() && existing != "dd00000000000000000000000000000000") {
+                existing
+            } else {
+                val newSec = ProxyConfig.generateRandomSecret()
+                prefs.edit().putString("secret_hex", newSec).commit()
+                newSec
+            }
+        }
+        config.secretHex = secretToSave
+
         prefs.edit()
             .putString("bind_host", config.bindHost)
             .putInt("bind_port", config.bindPort)
-            .putString("secret_hex", config.secretHex)
+            .putString("secret_hex", secretToSave)
             .putBoolean("cf_proxy_enabled", config.cfProxyEnabled)
             .putString("custom_cf_domain", domainToSave)
             .putInt("pool_size", config.poolSize)
@@ -123,13 +144,6 @@ class PreferencesManager(context: Context) {
         _isSocks5Flow.value = config.isSocks5Mode
     }
 
-    fun isAutoReconnectEnabled(): Boolean {
-        return prefs.getBoolean("auto_reconnect_on_network_change", true)
-    }
-
-    fun setAutoReconnectEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("auto_reconnect_on_network_change", enabled).apply()
-    }
 
     fun incrementLaunchCount(): Int {
         val current = prefs.getInt("launch_count", 0) + 1
@@ -156,6 +170,14 @@ class PreferencesManager(context: Context) {
     fun setAnimationsDisabled(disabled: Boolean) {
         prefs.edit().putBoolean("disable_animations_particles", disabled).apply()
         _animationsDisabledFlow.value = disabled
+    }
+
+    fun isAutoFailoverEnabled(): Boolean {
+        return prefs.getBoolean("auto_failover_enabled", true)
+    }
+
+    fun setAutoFailoverEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("auto_failover_enabled", enabled).apply()
     }
 
     // ── Worker Profiles Management ──────────────────────────────────────────
@@ -269,19 +291,26 @@ class PreferencesManager(context: Context) {
 
     fun setActiveWorkerId(id: String) {
         prefs.edit().putString("active_worker_id", id).apply()
+        _activeWorkerIdFlow.value = id
         val worker = getActiveWorker(id)
-        val config = loadConfig()
-        config.customCfDomain = worker.domain
-        config.useDefaultWorkerSocks5 = worker.isDeveloperWorker
-        saveConfig(config)
 
         try {
             val app = com.mirrly.tgproxy.MirrlyApplication.instance
             app.config.customCfDomain = worker.domain
             app.config.useDefaultWorkerSocks5 = worker.isDeveloperWorker
+            saveConfig(app.config)
             if (app.proxyServer.isRunning) {
                 app.proxyServer.onWorkerChanged(worker.domain)
             }
+        } catch (_: Exception) {
+            val config = loadConfig()
+            config.customCfDomain = worker.domain
+            config.useDefaultWorkerSocks5 = worker.isDeveloperWorker
+            saveConfig(config)
+        }
+
+        try {
+            WorkerFailoverManager.getCircuitRecord(worker.id)?.reset()
         } catch (_: Exception) {}
     }
 

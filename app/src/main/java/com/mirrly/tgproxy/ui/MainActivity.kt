@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -334,6 +335,11 @@ class MainActivity : ComponentActivity() {
                 val onOpenAbout = remember { { navigateTo("about") } }
                 val onOpenLicense = remember { { navigateTo("license") } }
                 val onOpenTerms = remember { { navigateTo("terms") } }
+                val onOpenDiagnostics = remember { { navigateTo("diagnostics") } }
+                val onOpenWorkerAnalytics = remember { { navigateTo("worker_analytics") } }
+                val onOpenVolunteers = remember { { navigateTo("volunteers") } }
+                val onOpenHallOfFame = remember { { navigateTo("hall_of_fame") } }
+                val onOpenChronicle = remember { { navigateTo("chronicle") } }
                 val onNavigateBack = remember { { navigateBack() } }
                 val onUiHiddenChange: (Boolean) -> Unit = remember { { hidden -> isUiHidden = hidden } }
 
@@ -450,8 +456,76 @@ class MainActivity : ComponentActivity() {
                     val isLicense = currentScreen == "license"
                     val isTerms = currentScreen == "terms"
                     val isUpdate = currentScreen == "update"
+                    val isDiagnostic = currentScreen == "diagnostics"
+                    val isAnalytics = currentScreen == "worker_analytics"
+                    val isVolunteers = currentScreen == "volunteers"
+                    val isHallOfFame = currentScreen == "hall_of_fame"
+                    val isChronicle = currentScreen == "chronicle"
 
                     // Animated States for All Screens
+                    val chronicleScale = animateFloatAsState(
+                        targetValue = if (isChronicle) 1.0f else 0.76f,
+                        animationSpec = if (isChronicle) {
+                            spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        } else {
+                            tween(260, easing = FastOutSlowInEasing)
+                        },
+                        label = "chronicleScale"
+                    )
+                    val chronicleOffsetFraction = animateFloatAsState(
+                        targetValue = if (isChronicle) 0f else 0.08f,
+                        animationSpec = tween(if (isChronicle) 420 else 240, easing = FastOutSlowInEasing),
+                        label = "chronicleOffset"
+                    )
+                    val chronicleAlpha = animateFloatAsState(
+                        targetValue = if (isChronicle) 1.0f else 0.0f,
+                        animationSpec = tween(if (isChronicle) 340 else 200, easing = LinearOutSlowInEasing),
+                        label = "chronicleAlpha"
+                    )
+
+                    val volunteersOffsetFraction = animateFloatAsState(
+                        targetValue = when {
+                            isVolunteers -> 0f
+                            isHallOfFame -> -0.15f
+                            else -> 1.0f
+                        },
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "volunteersOffset"
+                    )
+                    val volunteersScale = animateFloatAsState(
+                        targetValue = if (isVolunteers) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "volunteersScale"
+                    )
+                    val volunteersAlpha = animateFloatAsState(
+                        targetValue = if (isVolunteers) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "volunteersAlpha"
+                    )
+
+                    val hallOfFameOffsetFraction = animateFloatAsState(
+                        targetValue = when {
+                            isHallOfFame -> 0f
+                            isVolunteers -> -0.15f
+                            else -> 1.0f
+                        },
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "hallOfFameOffset"
+                    )
+                    val hallOfFameScale = animateFloatAsState(
+                        targetValue = if (isHallOfFame) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "hallOfFameScale"
+                    )
+                    val hallOfFameAlpha = animateFloatAsState(
+                        targetValue = if (isHallOfFame) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "hallOfFameAlpha"
+                    )
+
                     val updateOffsetFraction = animateFloatAsState(
                         targetValue = if (isUpdate) 0f else 1.0f,
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -468,10 +542,42 @@ class MainActivity : ComponentActivity() {
                         label = "updateAlpha"
                     )
 
+                    val diagnosticOffsetFraction = animateFloatAsState(
+                        targetValue = if (isDiagnostic) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "diagnosticOffset"
+                    )
+                    val diagnosticScale = animateFloatAsState(
+                        targetValue = if (isDiagnostic) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "diagnosticScale"
+                    )
+                    val diagnosticAlpha = animateFloatAsState(
+                        targetValue = if (isDiagnostic) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "diagnosticAlpha"
+                    )
+
+                    val analyticsOffsetFraction = animateFloatAsState(
+                        targetValue = if (isAnalytics) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "analyticsOffset"
+                    )
+                    val analyticsScale = animateFloatAsState(
+                        targetValue = if (isAnalytics) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "analyticsScale"
+                    )
+                    val analyticsAlpha = animateFloatAsState(
+                        targetValue = if (isAnalytics) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "analyticsAlpha"
+                    )
+
                     val homeOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings || isAbout || isLicense || isTerms || isUpdate -> -0.15f
+                            isSettings || isAbout || isLicense || isTerms || isUpdate || isDiagnostic || isAnalytics || isVolunteers || isHallOfFame || isChronicle -> -0.15f
                             isLogs || isHistory -> 0.15f
                             else -> 0f
                         },
@@ -492,7 +598,7 @@ class MainActivity : ComponentActivity() {
                     val settingsOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isSettings -> 0f
-                            isAbout || isLicense || isTerms || isWorkerManager -> -0.15f
+                            isAbout || isLicense || isTerms || isWorkerManager || isAnalytics || isVolunteers || isHallOfFame -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -544,7 +650,7 @@ class MainActivity : ComponentActivity() {
                     val aboutOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isAbout -> 0f
-                            isLicense || isTerms -> -0.15f
+                            isLicense || isTerms || isVolunteers || isHallOfFame || isChronicle -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -676,6 +782,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenUpdate = onOpenUpdate,
                                 onOpenWorkerGuide = onOpenWorkerGuide,
                                 onOpenWorkerManager = onOpenWorkerManager,
+                                onOpenDiagnostics = onOpenDiagnostics,
                                 onDragWorkerManager = onDragWorkerManager,
                                 onSettleWorkerManager = onSettleWorkerManager,
                                 onUiHiddenChange = onUiHiddenChange,
@@ -738,7 +845,9 @@ class MainActivity : ComponentActivity() {
                                 onOpenAbout = onOpenAbout,
                                 onOpenUpdate = onOpenUpdate,
                                 onOpenWorkerGuide = onOpenWorkerGuide,
-                                onOpenWorkerManager = onOpenWorkerManager
+                                onOpenWorkerManager = onOpenWorkerManager,
+                                onOpenVolunteers = onOpenVolunteers,
+                                onOpenHallOfFame = onOpenHallOfFame
                             )
                         }
                     }
@@ -760,7 +869,8 @@ class MainActivity : ComponentActivity() {
                             WorkerManagerScreen(
                                 prefs = app.prefsManager,
                                 onBack = onNavigateBack,
-                                initialSection = workerManagerSection
+                                initialSection = workerManagerSection,
+                                onOpenAnalytics = onOpenWorkerAnalytics
                             )
                         }
                     }
@@ -781,7 +891,10 @@ class MainActivity : ComponentActivity() {
                                 onBack = onNavigateBack,
                                 onOpenLicense = onOpenLicense,
                                 onOpenTerms = onOpenTerms,
-                                onOpenUpdate = onOpenUpdate
+                                onOpenUpdate = onOpenUpdate,
+                                onOpenHallOfFame = onOpenHallOfFame,
+                                onOpenVolunteers = onOpenVolunteers,
+                                onOpenChronicle = onOpenChronicle
                             )
                         }
                     }
@@ -836,6 +949,100 @@ class MainActivity : ComponentActivity() {
                         ) {
                             UpdateScreen(
                                 releaseInfo = currentUpdateInfo,
+                                onBack = onNavigateBack
+                            )
+                        }
+                    }
+
+                    // ── 10. DIAGNOSTICS SCREEN (Full Tab) ──
+                    if (activeScreens.contains("diagnostics")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * diagnosticOffsetFraction.value
+                                    scaleX = diagnosticScale.value
+                                    scaleY = diagnosticScale.value
+                                    alpha = diagnosticAlpha.value
+                                }
+                        ) {
+                            NetworkDiagnosticScreen(
+                                onBack = onNavigateBack,
+                                onOpenAnalytics = onOpenWorkerAnalytics
+                            )
+                        }
+                    }
+
+                    // ── 11. WORKER ANALYTICS SCREEN (Full Tab) ──
+                    if (activeScreens.contains("worker_analytics")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * analyticsOffsetFraction.value
+                                    scaleX = analyticsScale.value
+                                    scaleY = analyticsScale.value
+                                    alpha = analyticsAlpha.value
+                                }
+                        ) {
+                            WorkerAnalyticsScreen(
+                                onBack = onNavigateBack
+                            )
+                        }
+                    }
+
+                    // ── 12. VOLUNTEER TESTING PROGRAM SCREEN (Full Tab) ──
+                    if (activeScreens.contains("volunteers")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * volunteersOffsetFraction.value
+                                    scaleX = volunteersScale.value
+                                    scaleY = volunteersScale.value
+                                    alpha = volunteersAlpha.value
+                                }
+                        ) {
+                            VolunteerProgramScreen(
+                                onBack = onNavigateBack,
+                                onOpenHallOfFame = onOpenHallOfFame
+                            )
+                        }
+                    }
+
+                    // ── 13. HALL OF FAME / ACKNOWLEDGMENTS SCREEN (Full Tab) ──
+                    if (activeScreens.contains("hall_of_fame")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * hallOfFameOffsetFraction.value
+                                    scaleX = hallOfFameScale.value
+                                    scaleY = hallOfFameScale.value
+                                    alpha = hallOfFameAlpha.value
+                                }
+                        ) {
+                            HallOfFameScreen(
+                                onBack = onNavigateBack,
+                                onOpenVolunteers = onOpenVolunteers
+                            )
+                        }
+                    }
+
+                    // ── 14. PROJECT CHRONICLE SCREEN (Easter Egg Tab) ──
+                    if (activeScreens.contains("chronicle")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationY = heightPx * chronicleOffsetFraction.value
+                                    scaleX = chronicleScale.value
+                                    scaleY = chronicleScale.value
+                                    alpha = chronicleAlpha.value
+                                    transformOrigin = TransformOrigin(0.5f, 0.30f)
+                                }
+                        ) {
+                            ProjectChronicleScreen(
                                 onBack = onNavigateBack
                             )
                         }

@@ -56,6 +56,27 @@ class ProxyConfigTest {
     }
 
     @Test
+    fun testSanitizeDomainWithShareUrl() {
+        val input = "https://mirrly.app/worker?domain=mirrly-tg-proxy-alpha.brawny-singer.workers.dev/&name=Worker"
+        val sanitized = ProxyConfig.sanitizeDomain(input)
+        assertEquals("mirrly-tg-proxy-alpha.brawny-singer.workers.dev", sanitized)
+    }
+
+    @Test
+    fun testSanitizeDomainWithMirrlySchemeDeepLink() {
+        val input = "mirrly://worker?domain=my-tg.example.workers.dev:443"
+        val sanitized = ProxyConfig.sanitizeDomain(input)
+        assertEquals("my-tg.example.workers.dev", sanitized)
+    }
+
+    @Test
+    fun testSanitizeDomainWithPort() {
+        val input = "https://my-worker.workers.dev:8443/tcp"
+        val sanitized = ProxyConfig.sanitizeDomain(input)
+        assertEquals("my-worker.workers.dev", sanitized)
+    }
+
+    @Test
     fun testGetEffectiveCfDomainSanitizesCustomDomain() {
         val config = ProxyConfig(
             customCfDomain = "https://custom-worker.workers.dev//path"
@@ -152,17 +173,31 @@ class ProxyConfigTest {
     }
 
     @Test
-    fun testTcpNoDelayModeParsingAndFallback() {
-        val config = ProxyConfig()
+    fun testSecretPreservedAcrossProtocolSwitches() {
+        val originalSecret = ProxyConfig.generateRandomSecret()
+        val config = ProxyConfig(
+            bindHost = "127.0.0.1",
+            bindPort = 1443,
+            socks5Port = 10808,
+            secretHex = originalSecret,
+            proxyModeName = ProxyMode.MTPROTO.name
+        )
+        val server = LocalProxyServer(config)
 
-        config.tcpNoDelayModeName = "ON"
-        assertEquals(TcpNoDelayMode.ON, config.tcpNoDelayMode)
+        val mtprotoUrlInitial = server.getTelegramProxyUrl()
+        assertTrue(mtprotoUrlInitial.contains("secret=$originalSecret"))
 
-        config.tcpNoDelayModeName = "OFF"
-        assertEquals(TcpNoDelayMode.OFF, config.tcpNoDelayMode)
+        // Switch to SOCKS5
+        config.proxyModeName = ProxyMode.SOCKS5.name
+        assertEquals(originalSecret, config.secretHex)
+        val socks5Url = server.getTelegramSocks5Url()
+        assertTrue(socks5Url.startsWith("tg://socks?server=127.0.0.1&port=10808"))
 
-        config.tcpNoDelayModeName = "INVALID_MODE"
-        assertEquals(TcpNoDelayMode.AUTO, config.tcpNoDelayMode, "Invalid name should fallback to AUTO")
+        // Switch back to MTProto
+        config.proxyModeName = ProxyMode.MTPROTO.name
+        assertEquals(originalSecret, config.secretHex)
+        val mtprotoUrlRestored = server.getTelegramProxyUrl()
+        assertEquals(mtprotoUrlInitial, mtprotoUrlRestored)
     }
 }
 

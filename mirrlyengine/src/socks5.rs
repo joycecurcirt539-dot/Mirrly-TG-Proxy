@@ -56,10 +56,14 @@ async fn handle_socks5_client(mut client: TcpStream, cancel: CancellationToken) 
 
     let _ = client.set_nodelay(TCP_NODELAY.load(Ordering::Relaxed));
     let sock = socket2::SockRef::from(&client);
-    let ka = socket2::TcpKeepalive::new()
+    #[allow(unused_mut)]
+    let mut ka = socket2::TcpKeepalive::new()
         .with_time(Duration::from_secs(30))
-        .with_interval(Duration::from_secs(10))
-        .with_retries(3);
+        .with_interval(Duration::from_secs(10));
+    #[cfg(any(target_os = "android", unix))]
+    {
+        ka = ka.with_retries(3);
+    }
     let _ = sock.set_tcp_keepalive(&ka);
 
     // 1. Handshake: Auth methods

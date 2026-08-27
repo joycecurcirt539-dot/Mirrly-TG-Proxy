@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,8 +45,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -74,11 +78,72 @@ fun AboutScreen(
     onBack: () -> Unit,
     onOpenLicense: () -> Unit = {},
     onOpenTerms: () -> Unit = {},
-    onOpenUpdate: () -> Unit = {}
+    onOpenUpdate: () -> Unit = {},
+    onOpenHallOfFame: () -> Unit = {},
+    onOpenVolunteers: () -> Unit = {},
+    onOpenChronicle: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val pureBlack = Color(0xFF000000)
+    val ledGreen = ActiveGreenLed
+
+    // Easter egg tap tracker for Secret Chronicle (5 taps on avatar or genesis badge)
+    val coroutineScope = rememberCoroutineScope()
+    var easterEggTapCount by remember { mutableIntStateOf(0) }
+    var lastEasterEggTapTime by remember { mutableLongStateOf(0L) }
+    val tapBounceScale = remember { Animatable(1f) }
+    var isSupernovaActive by remember { mutableStateOf(false) }
+    val supernovaProgress = remember { Animatable(0f) }
+
+    fun onEasterEggTap() {
+        val now = System.currentTimeMillis()
+        if (now - lastEasterEggTapTime > 2200L) {
+            easterEggTapCount = 1
+        } else {
+            easterEggTapCount++
+        }
+        lastEasterEggTapTime = now
+
+        coroutineScope.launch {
+            tapBounceScale.snapTo(1.18f)
+            tapBounceScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+
+        if (easterEggTapCount >= 5) {
+            easterEggTapCount = 0
+            isSupernovaActive = true
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            Toast.makeText(context, "Открыта секретная летопись Mirrly!", Toast.LENGTH_SHORT).show()
+
+            coroutineScope.launch {
+                launch {
+                    kotlinx.coroutines.delay(120)
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    kotlinx.coroutines.delay(120)
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+
+                supernovaProgress.snapTo(0f)
+                supernovaProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(480, easing = FastOutSlowInEasing)
+                )
+                onOpenChronicle()
+                kotlinx.coroutines.delay(350)
+                isSupernovaActive = false
+                supernovaProgress.snapTo(0f)
+            }
+        } else {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
 
     // Pulsing gradient glow for hero section
     val infiniteTransition = rememberInfiniteTransition(label = "pulseGlow")
@@ -191,25 +256,64 @@ fun AboutScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Glowing Avatar Icon Box (Shared Element Bounce Expansion)
+                    // Glowing Avatar Icon Box (Shared Element Bounce Expansion with Easter Egg 5-Tap Listener)
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(88.dp)
+                            .size(96.dp)
                             .graphicsLayer {
-                                scaleX = avatarEntranceScale
-                                scaleY = avatarEntranceScale
+                                scaleX = avatarEntranceScale * tapBounceScale.value
+                                scaleY = avatarEntranceScale * tapBounceScale.value
                             }
                             .clip(CircleShape)
                             .background(Color.Transparent)
-                            .border(2.5.dp, ActiveGreenLed.copy(alpha = glowAlpha), CircleShape)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                onEasterEggTap()
+                            }
                     ) {
+                        // Quantum Charge Ring around Avatar
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val w = size.width
+                            val h = size.height
+                            val c = Offset(w / 2f, h / 2f)
+                            val r = (w.coerceAtMost(h) / 2f) - 3.dp.toPx()
+
+                            // Base Border
+                            drawCircle(
+                                color = ledGreen.copy(alpha = glowAlpha * 0.6f),
+                                radius = r,
+                                center = c,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx())
+                            )
+
+                            // Charge Arc for Easter Egg (fills with each tap)
+                            if (easterEggTapCount > 0) {
+                                val sweep = (easterEggTapCount / 5f) * 360f
+                                drawArc(
+                                    brush = Brush.sweepGradient(
+                                        colors = listOf(Color(0xFFFFB703), Color(0xFF00FF87), Color(0xFFFFB703)),
+                                        center = c
+                                    ),
+                                    startAngle = -90f,
+                                    sweepAngle = sweep,
+                                    useCenter = false,
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                        width = 4.dp.toPx(),
+                                        cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                    )
+                                )
+                            }
+                        }
+
                         Image(
                             painter = painterResource(id = R.drawable.avatar_developer),
                             contentDescription = "R1Xern Avatar",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .fillMaxSize()
+                                .size(82.dp)
                                 .clip(CircleShape)
                         )
                     }
@@ -217,14 +321,44 @@ fun AboutScreen(
                     // Developer Name & Handles
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
                             text = "R1Xern",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Black,
-                            color = TextWhite
+                            color = TextWhite,
+                            modifier = Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                onEasterEggTap()
+                            }
                         )
+
+                        // Genesis Milestone Badge (Clickable • 27.07.2026)
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFFFB703).copy(alpha = 0.12f),
+                            border = BorderStroke(0.8.dp, Color(0xFFFFB703).copy(alpha = 0.40f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    onEasterEggTap()
+                                }
+                        ) {
+                            Text(
+                                text = "GENESIS • 27.07.2026",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.6.sp,
+                                color = Color(0xFFFFB703),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
 
                         // Clickable GitHub handle pill
                         Row(
@@ -398,8 +532,8 @@ fun AboutScreen(
                     LinkCardItem(
                         iconRes = R.drawable.ic_license,
                         iconTint = ActiveGreenLed,
-                        title = "Лицензия проекта (GNU GPLv3)",
-                        subtitle = "Условия использования и открытый исходный код",
+                        title = "Лицензия (GPLv3)",
+                        subtitle = "Открытый исходный код",
                         onClick = { onOpenLicense() }
                     )
                 }
@@ -540,60 +674,175 @@ fun AboutScreen(
                 }
             }
 
-            // 6. CREDITS & ACKNOWLEDGEMENTS
+            // 6. HALL OF FAME & VOLUNTEERS STANDOUT SECTION
             Column(
                 modifier = Modifier.staggeredEntrance(index = 7),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "ОСОБАЯ БЛАГОДАРНОСТЬ (CREDITS)",
+                    text = "ЗАЛ СЛАВЫ И ТЕСТИРОВАНИЕ",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
                     color = TextMuted
                 )
 
+                // Standout Hall of Fame Card
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color.Transparent)
-                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(20.dp))
-                        .padding(18.dp)
+                        .border(1.dp, Color(0xFF7C4DFF).copy(alpha = 0.50f), RoundedCornerShape(20.dp))
+                        .lightSweep(
+                            isEnabled = true,
+                            shape = RoundedCornerShape(20.dp),
+                            sweepColor = Color(0xFF7C4DFF)
+                        )
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenHallOfFame()
+                        })
+                        .padding(16.dp)
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0xFF7C4DFF).copy(alpha = 0.15f))
+                                .border(1.dp, Color(0xFF7C4DFF).copy(alpha = 0.45f), RoundedCornerShape(14.dp))
                         ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Transparent)
-                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), CircleShape)
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_heart),
-                                    contentDescription = null,
-                                    tint = ActiveGreenLed,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                            Text(
-                                text = "Flowseal (TG WS PROXY)",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = ActiveGreenLed
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_hall_of_fame),
+                                contentDescription = null,
+                                tint = Color(0xFFC084FC),
+                                modifier = Modifier.size(22.dp)
                             )
                         }
 
-                        Text(
-                            text = "Огромная благодарность разработчику Flowseal за создание оригинального проекта TG WS PROXY, концепция и наработки которого вдохновили развитие этого решения.",
-                            fontSize = 13.sp,
-                            lineHeight = 19.sp,
-                            color = TextWhite.copy(alpha = 0.85f)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Зал Славы и Благодарности",
+                                    fontSize = 14.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF7C4DFF).copy(alpha = 0.20f),
+                                    border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF7C4DFF).copy(alpha = 0.5f))
+                                ) {
+                                    Text(
+                                        text = "TOP",
+                                        fontSize = 8.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = Color(0xFFC084FC),
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Первопроходцы, контрибьюторы и уникальные цифровые слепки",
+                                fontSize = 11.5.sp,
+                                color = TextMuted
+                            )
+                        }
+
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                            contentDescription = null,
+                            tint = Color(0xFFC084FC),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                // Standout Volunteer Program Card
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, Color(0xFFFFB703).copy(alpha = 0.50f), RoundedCornerShape(20.dp))
+                        .lightSweep(
+                            isEnabled = true,
+                            shape = RoundedCornerShape(20.dp),
+                            sweepColor = Color(0xFFFFB703)
+                        )
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenVolunteers()
+                        })
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0xFFFFB703).copy(alpha = 0.15f))
+                                .border(1.dp, Color(0xFFFFB703).copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_volunteer_badge),
+                                contentDescription = null,
+                                tint = Color(0xFFFFB703),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Программа тестирования",
+                                    fontSize = 14.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFFFB703).copy(alpha = 0.20f),
+                                    border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFFFFB703).copy(alpha = 0.5f))
+                                ) {
+                                    Text(
+                                        text = "НАБОР",
+                                        fontSize = 8.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = Color(0xFFFFB703),
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Ищем волонтеров тестирования: ранний доступ к APK",
+                                fontSize = 11.5.sp,
+                                color = TextMuted
+                            )
+                        }
+
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                            contentDescription = null,
+                            tint = Color(0xFFFFB703),
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
@@ -639,7 +888,7 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = "Разработано с ❤️ R1Xern",
+                    text = "Разработано с ❤️ Mirrly Dev",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextMuted
@@ -716,6 +965,60 @@ fun AboutScreen(
             particleCount = 42,
             alphaMultiplier = 0.70f
         )
+
+        // ── 4. SUPERNOVA EASTER EGG BLAST OVERLAY (5TH TAP EXPLOSION) ──
+        if (isSupernovaActive && supernovaProgress.value > 0f) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val p = supernovaProgress.value
+                val w = size.width
+                val h = size.height
+                val center = Offset(w / 2f, h * 0.28f) // from avatar position
+                val maxR = kotlin.math.sqrt((w * w + h * h).toDouble()).toFloat()
+
+                // 1. Expanding Quantum Core Glow
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = (1f - p) * 0.95f),
+                            Color(0xFFFFB703).copy(alpha = (1f - p) * 0.85f),
+                            Color(0xFF00FF87).copy(alpha = (1f - p) * 0.45f),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = maxR * p
+                    ),
+                    radius = maxR * p,
+                    center = center
+                )
+
+                // 2. Shockwave Rings
+                for (ring in 1..3) {
+                    val ringP = ((p * 1.3f) - (ring * 0.15f)).coerceIn(0f, 1f)
+                    if (ringP > 0f) {
+                        drawCircle(
+                            color = Color(0xFFFFB703).copy(alpha = (1f - ringP) * 0.8f),
+                            radius = maxR * ringP,
+                            center = center,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = (4f * (1f - ringP)).dp.toPx())
+                        )
+                    }
+                }
+
+                // 3. Photon Rays
+                for (ray in 0 until 12) {
+                    val angle = Math.toRadians((ray * 30.0 + p * 45.0))
+                    val rayLen = maxR * p * 0.9f
+                    val rx = center.x + (kotlin.math.cos(angle) * rayLen).toFloat()
+                    val ry = center.y + (kotlin.math.sin(angle) * rayLen).toFloat()
+                    drawLine(
+                        color = Color.White.copy(alpha = (1f - p) * 0.7f),
+                        start = center,
+                        end = Offset(rx, ry),
+                        strokeWidth = (2.5f * (1f - p)).dp.toPx()
+                    )
+                }
+            }
+        }
     }
 }
 

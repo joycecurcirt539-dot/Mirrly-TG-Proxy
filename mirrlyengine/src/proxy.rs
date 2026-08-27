@@ -588,7 +588,7 @@ async fn cfproxy_acquire_ws(
     dc: i32,
     is_media: bool,
     cancel_token: &CancellationToken,
-) -> Option<(RawWebSocket, String)> {
+) -> Option<(Arc<RawWebSocket>, String)> {
     let (enabled, domains) = {
         let cfg = CFPROXY.read();
         (
@@ -602,7 +602,11 @@ async fn cfproxy_acquire_ws(
 
     let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
 
-    // MTProto routes exclusively across Flowseal Anycast CDNs (kws{effective_dc}.{domain}/apiws)
+    // MTProto routes exclusively via Flowseal Anycast CDNs (kws{effective_dc}.{domain}/apiws).
+    // NOTE: Custom user workers and developer workers are deliberately disabled for MTProto
+    // because MTProto Obfs2 framing over Cloudflare Workers (cloudflare:sockets) breaks the
+    // Telegram web gateway connection and prevents Anycast CDN balancer from functioning.
+    // Cloudflare Workers are reserved exclusively for the SOCKS5 proxy protocol stack.
     let mut candidate_targets: Vec<(String, String)> = Vec::new();
 
     if !domains.is_empty() {
@@ -625,7 +629,6 @@ async fn cfproxy_acquire_ws(
     ldebug!("MTProto Happy Eyeballs Race: {} целей для DC{}{}", candidate_targets.len(), dc, m_tag);
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(RawWebSocket, String)>(candidate_targets.len());
-    let mut handles = Vec::with_capacity(candidate_targets.len());
     let stagger_step = Duration::from_millis(25);
     let sem = Arc::new(tokio::sync::Semaphore::new(CFPROXY_FALLBACK_PARALLEL));
 
@@ -635,7 +638,7 @@ async fn cfproxy_acquire_ws(
         let cancel = cancel_token.clone();
         let delay = stagger_step * (i as u32);
 
-        handles.push(tokio::spawn(async move {
+        tokio::spawn(async move {
             tokio::select! {
                 _ = cancel.cancelled() => {}
                 _ = tokio::time::sleep(delay) => {
@@ -669,12 +672,12 @@ async fn cfproxy_acquire_ws(
                     }
                 }
             }
-        }));
+        });
     }
 
     drop(tx);
 
-    let mut winning_res: Option<(RawWebSocket, String)> = None;
+    let mut winning_res: Option<(Arc<RawWebSocket>, String)> = None;
 
     tokio::select! {
         _ = cancel_token.cancelled() => {
@@ -692,13 +695,9 @@ async fn cfproxy_acquire_ws(
                 };
                 crate::balancer::BALANCER.write().update_domain_for_dc(effective_dc, &base_domain);
 
-                winning_res = Some((ws, winner_domain));
+                winning_res = Some((Arc::new(ws), winner_domain));
             }
         }
-    }
-
-    for h in handles {
-        h.abort();
     }
 
     while let Ok((extra_ws, _)) = rx.try_recv() {
@@ -750,7 +749,7 @@ pub async fn do_fallback(
 
             bridge_ws(
                 conn,
-                Arc::new(ws),
+                ws,
                 label,
                 dc,
                 chosen_domain,
@@ -775,10 +774,14 @@ pub async fn do_fallback(
 }
 
 // ---------------------------------------------------------------------------
-// Client handler
+// Client connection handler
 // ---------------------------------------------------------------------------
 
-pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token: CancellationToken) {
+pub async fn handle_client(
+    pool: Arc<WsPool>,
+    mut conn: TcpStream,
+    cancel_token: CancellationToken,
+) {
     STATS.connections_total.fetch_add(1, Ordering::Relaxed);
     STATS.connections_active.fetch_add(1, Ordering::Relaxed);
     struct ActiveGuard;
@@ -799,10 +802,14 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
 
     let _ = conn.set_nodelay(TCP_NODELAY.load(Ordering::Relaxed));
     let sock = socket2::SockRef::from(&conn);
-    let ka = socket2::TcpKeepalive::new()
+    #[allow(unused_mut)]
+    let mut ka = socket2::TcpKeepalive::new()
         .with_time(Duration::from_secs(30))
-        .with_interval(Duration::from_secs(10))
-        .with_retries(3);
+        .with_interval(Duration::from_secs(10));
+    #[cfg(any(target_os = "android", unix))]
+    {
+        ka = ka.with_retries(3);
+    }
     let _ = sock.set_tcp_keepalive(&ka);
 
     let current_secret = PROXY_SECRET.read().clone();
@@ -1197,9 +1204,8 @@ pub async fn run_proxy(
 
     start_cfproxy_refresh();
 
-    let use_cf = CFPROXY_ENABLED.load(Ordering::Relaxed);
-    if !use_cf {
-        pool.start_housekeeper();
+    pool.start_housekeeper();
+    {
         let p = pool.clone();
         let map = dc_opt_map.clone();
         tokio::spawn(async move {

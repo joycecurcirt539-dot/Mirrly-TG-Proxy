@@ -55,7 +55,8 @@ object NativeProxy {
                 isStarted = true
             }
             code
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [startProxy]: ${t.message}", t)
             -1
         }
     }
@@ -67,7 +68,8 @@ object NativeProxy {
                 isStarted = true
             }
             code
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [startSocks5Proxy]: ${t.message}", t)
             -1
         }
     }
@@ -80,6 +82,7 @@ object NativeProxy {
         return try {
             ProxyLibrary.INSTANCE.StopProxy()
         } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [stopProxy]: ${t.message}", t)
             -1
         }
     }
@@ -88,26 +91,34 @@ object NativeProxy {
         if (!isStarted) return
         try {
             ProxyLibrary.INSTANCE.ResetNetworkSockets()
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [resetNetworkSockets]: ${t.message}", t)
+        }
     }
 
     fun setPoolSize(size: Int) {
         if (!isStarted) return
         try {
             ProxyLibrary.INSTANCE.SetPoolSize(size)
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [setPoolSize]: ${t.message}", t)
+        }
     }
 
     fun setTcpNoDelay(enabled: Boolean) {
         try {
             ProxyLibrary.INSTANCE.SetTcpNoDelay(if (enabled) 1 else 0)
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [setTcpNoDelay]: ${t.message}", t)
+        }
     }
 
     fun setCfProxyCacheDir(cacheDir: String) {
         try {
             ProxyLibrary.INSTANCE.SetCfProxyCacheDir(cacheDir)
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [setCfProxyCacheDir]: ${t.message}", t)
+        }
     }
 
     fun setCfProxyConfig(enabled: Boolean, userDomain: String) {
@@ -116,14 +127,18 @@ object NativeProxy {
                 if (enabled) 1 else 0,
                 userDomain
             )
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [setCfProxyConfig]: ${t.message}", t)
+        }
     }
 
     fun setSecret(secret: String) {
         if (!isStarted) return
         try {
             ProxyLibrary.INSTANCE.SetSecret(secret)
-        } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [setSecret]: ${t.message}", t)
+        }
     }
 
     fun getSecretWithPrefix(): String? {
@@ -133,7 +148,8 @@ object NativeProxy {
             val res = ptr.getString(0)
             ProxyLibrary.INSTANCE.FreeString(ptr)
             res
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [getSecretWithPrefix]: ${t.message}", t)
             null
         }
     }
@@ -145,7 +161,8 @@ object NativeProxy {
             val res = ptr.getString(0)
             ProxyLibrary.INSTANCE.FreeString(ptr)
             res
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [getStats]: ${t.message}", t)
             null
         }
     }

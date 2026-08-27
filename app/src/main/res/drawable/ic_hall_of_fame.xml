@@ -1,0 +1,34 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Hall of Fame / Trophy / Diamond Crystal -->
+    <path
+        android:pathData="M6,3H18V8C18,11.31 15.31,14 12,14C8.69,14 6,11.31 6,8V3Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M6,5H3C2.45,5 2,5.45 2,6V7C2,8.66 3.34,10 5,10H6"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M18,5H21C21.55,5 22,5.45 22,6V7C22,8.66 20.66,10 19,10H18"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M12,14V18M8,21H16M10,18H14"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M12,6L12.8,8L15,8.2L13.3,9.7L13.8,11.8L12,10.7L10.2,11.8L10.7,9.7L9,8.2L11.2,8L12,6Z"
+        android:fillColor="#FFFFFF" />
+</vector>
