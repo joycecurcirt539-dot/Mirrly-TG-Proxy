@@ -530,6 +530,7 @@ cd Mirrly-TG-Proxy
 * **[zzzxxx888207-design](https://github.com/zzzxxx888207-design)** — диагностика сброса ключа прокси в памяти (Xiaomi 12T, POCO X8 Pro Max), отладка Cloudflare Workers (Issues #1, #9, #10, #13).
 * **[BbIBux](https://github.com/BbIBux)** — диагностика загрузки медиа в MTProto (T2, Ростелеком), исправление прозрачности диалогов (Issues #11, #12, #13).
 * **[VikKalm](https://github.com/VikKalm)** — логи и локализация блокировки воркеров в v1.1.2 на Android 13 arm64-v8a (Issue #6).
+* **[liveonloan](https://github.com/liveonloan)** — выявление визуального бага перекрытия системной навигацией кнопок таймера сна (Realme GT7, Android 16) (Issue #14).
 
 ### Бета-тестировщики
 

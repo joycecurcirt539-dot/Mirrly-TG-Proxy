@@ -210,6 +210,15 @@ private val ContributorsList = listOf(
         githubUrl = "https://github.com/VikKalm"
     ),
     Contributor(
+        id = "liveonloan",
+        name = "liveonloan",
+        handle = "@liveonloan",
+        role = "Охотник за багами интерфейса",
+        contribution = "Автор Issue #14. Обнаружил визуальный дефект перекрытия кнопок управления таймером сна системной панелью навигации на Realme GT7 (Android 16), послуживший основой для редизайна экрана таймера в v1.1.8.1.",
+        tier = ContributorTier.BUG_HUNTER,
+        githubUrl = "https://github.com/liveonloan"
+    ),
+    Contributor(
         id = "shon4k",
         name = "Shon4k",
         handle = "@Shon4k",
