@@ -167,6 +167,9 @@ fun WorkerManagerScreen(
     val searchFocusRequester = remember { FocusRequester() }
 
     var showAddDialog by remember { mutableStateOf(false) }
+    var showQrScanner by remember { mutableStateOf(false) }
+    var prefillDomain by remember { mutableStateOf("") }
+    var prefillName by remember { mutableStateOf("") }
     var workerToDelete by remember { mutableStateOf<WorkerProfile?>(null) }
 
     // Guide State
@@ -1585,6 +1588,8 @@ fun WorkerManagerScreen(
                                             .clip(RoundedCornerShape(11.dp))
                                             .springPress(onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                prefillDomain = ""
+                                                prefillName = ""
                                                 showAddDialog = true
                                             })
                                     ) {
@@ -1596,6 +1601,41 @@ fun WorkerManagerScreen(
                                         ) {
                                             Text(
                                                 text = "+ Добавить",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.5.sp,
+                                                color = activeProtoColor
+                                            )
+                                        }
+                                    }
+
+                                    // QR Scanner quick button
+                                    Surface(
+                                        shape = RoundedCornerShape(11.dp),
+                                        color = activeProtoColor.copy(alpha = 0.12f),
+                                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.55f)),
+                                        modifier = Modifier
+                                            .height(34.dp)
+                                            .clip(RoundedCornerShape(11.dp))
+                                            .springPress(onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                showQrScanner = true
+                                            })
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxHeight()
+                                                .padding(horizontal = 9.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_diag_worker),
+                                                contentDescription = "QR Сканер",
+                                                tint = activeProtoColor,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text(
+                                                text = "QR",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 11.5.sp,
                                                 color = activeProtoColor
@@ -1705,7 +1745,17 @@ fun WorkerManagerScreen(
     if (showAddDialog) {
         AddWorkerDialog(
             activeAccentColor = activeProtoColor,
-            onDismiss = { showAddDialog = false },
+            initialDomain = prefillDomain,
+            initialName = prefillName,
+            onOpenQrScanner = {
+                showAddDialog = false
+                showQrScanner = true
+            },
+            onDismiss = {
+                showAddDialog = false
+                prefillDomain = ""
+                prefillName = ""
+            },
             onAdd = { name, domain ->
                 val res = prefs.addCustomWorker(name, domain)
                 res.fold(
@@ -1713,12 +1763,35 @@ fun WorkerManagerScreen(
                         prefs.setActiveWorkerId(added.id)
                         refreshWorkers()
                         showAddDialog = false
+                        prefillDomain = ""
+                        prefillName = ""
                         Toast.makeText(context, "Воркер «${added.name}» добавлен и активирован", Toast.LENGTH_SHORT).show()
                     },
                     onFailure = { err ->
                         Toast.makeText(context, err.message ?: "Ошибка добавления", Toast.LENGTH_SHORT).show()
                     }
                 )
+            }
+        )
+    }
+
+    if (showQrScanner) {
+        QrCodeScannerDialog(
+            activeAccentColor = activeProtoColor,
+            onDismiss = { showQrScanner = false },
+            onQrScanned = { rawScanned ->
+                showQrScanner = false
+                val parsed = WorkerDomainNormalizer.normalize(rawScanned)
+                if (parsed.isValid) {
+                    prefillDomain = parsed.cleanDomain
+                    prefillName = parsed.suggestedName
+                    showAddDialog = true
+                    Toast.makeText(context, "QR-код распознан: ${parsed.cleanDomain}", Toast.LENGTH_SHORT).show()
+                } else if (rawScanned.isNotBlank()) {
+                    prefillDomain = rawScanned
+                    prefillName = ""
+                    showAddDialog = true
+                }
             }
         )
     }
@@ -2110,6 +2183,9 @@ private fun GlassWorkerCard(
 @Composable
 private fun AddWorkerDialog(
     activeAccentColor: Color,
+    initialDomain: String = "",
+    initialName: String = "",
+    onOpenQrScanner: () -> Unit = {},
     onDismiss: () -> Unit,
     onAdd: (name: String, domain: String) -> Unit
 ) {
@@ -2118,8 +2194,8 @@ private fun AddWorkerDialog(
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
 
-    var domainText by remember { mutableStateOf("") }
-    var nameText by remember { mutableStateOf("") }
+    var domainText by remember { mutableStateOf(initialDomain) }
+    var nameText by remember { mutableStateOf(initialName) }
     var isCheckingWorker by remember { mutableStateOf(false) }
     var checkStatusMessage by remember { mutableStateOf<String?>(null) }
     var unreachableWarning by remember { mutableStateOf<String?>(null) }
@@ -2294,14 +2370,18 @@ private fun AddWorkerDialog(
                                 modifier = Modifier.fillMaxWidth()
                             )
 
-                            // Dedicated Quick Action: Paste from Clipboard Button
-                            if (domainText.isBlank()) {
+                            // Dedicated Quick Actions: Paste from Clipboard & Scan QR
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Paste Button
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
                                     color = activeAccentColor.copy(alpha = 0.08f),
                                     border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.3f)),
                                     modifier = Modifier
-                                        .fillMaxWidth()
+                                        .weight(1f)
                                         .clip(RoundedCornerShape(10.dp))
                                         .springPress(onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -2319,19 +2399,54 @@ private fun AddWorkerDialog(
                                         })
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        horizontalArrangement = Arrangement.Center
                                     ) {
                                         Icon(
                                             painter = painterResource(id = R.drawable.ic_copy),
                                             contentDescription = null,
                                             tint = activeAccentColor,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(14.dp)
                                         )
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "Вставить адрес из буфера обмена",
-                                            fontSize = 12.sp,
+                                            text = "Из буфера",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = activeAccentColor
+                                        )
+                                    }
+                                }
+
+                                // Scan QR Button
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = activeAccentColor.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.45f)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .springPress(onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onOpenQrScanner()
+                                        })
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_diag_worker),
+                                            contentDescription = null,
+                                            tint = activeAccentColor,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "QR-сканер",
+                                            fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = activeAccentColor
                                         )
