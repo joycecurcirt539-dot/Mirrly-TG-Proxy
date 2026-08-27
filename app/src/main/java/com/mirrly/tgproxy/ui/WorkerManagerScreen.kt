@@ -70,6 +70,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -3152,12 +3153,22 @@ private fun ShareWorkerContent(
         val encodedName = Uri.encode(currentWorker.name)
         val deepLink = "mirrly://worker?domain=$encodedDomain&name=$encodedName"
 
-        val qrBitmap = remember(deepLink) {
+        val logoBitmap = remember {
+            try {
+                android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.ic_launcher_mirrly)
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        val qrBitmap = remember(deepLink, activeAccentColor, logoBitmap) {
             QrCodeGenerator.generateQrBitmap(
                 content = deepLink,
-                sizePx = 600,
+                sizePx = 720,
+                accentColor = activeAccentColor.toArgb(),
                 darkColor = android.graphics.Color.WHITE,
-                lightColor = android.graphics.Color.TRANSPARENT
+                backgroundColor = android.graphics.Color.TRANSPARENT,
+                logoBitmap = logoBitmap
             )
         }
 

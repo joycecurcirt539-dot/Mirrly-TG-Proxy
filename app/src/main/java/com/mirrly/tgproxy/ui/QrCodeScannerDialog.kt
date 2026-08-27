@@ -75,28 +75,156 @@ import java.util.concurrent.atomic.AtomicBoolean
 object QrCodeGenerator {
     fun generateQrBitmap(
         content: String,
-        sizePx: Int = 512,
+        sizePx: Int = 600,
+        accentColor: Int = android.graphics.Color.parseColor("#00E5FF"),
         darkColor: Int = android.graphics.Color.WHITE,
-        lightColor: Int = android.graphics.Color.TRANSPARENT
+        backgroundColor: Int = android.graphics.Color.TRANSPARENT,
+        logoBitmap: android.graphics.Bitmap? = null
     ): android.graphics.Bitmap? {
         if (content.isBlank()) return null
         return try {
             val hints = mapOf(
                 EncodeHintType.CHARACTER_SET to "UTF-8",
                 EncodeHintType.MARGIN to 1,
-                EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M
+                EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.H
             )
-            val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
-            val width = matrix.width
-            val height = matrix.height
-            val pixels = IntArray(width * height)
-            for (y in 0 until height) {
-                val offset = y * width
-                for (x in 0 until width) {
-                    pixels[offset + x] = if (matrix.get(x, y)) darkColor else lightColor
+            val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, 0, 0, hints)
+            val matrixWidth = matrix.width
+            val matrixHeight = matrix.height
+
+            val bitmap = android.graphics.Bitmap.createBitmap(sizePx, sizePx, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bitmap)
+
+            if (backgroundColor != android.graphics.Color.TRANSPARENT) {
+                canvas.drawColor(backgroundColor)
+            }
+
+            val moduleSize = sizePx.toFloat() / matrixWidth
+            val pad = moduleSize * 0.08f
+
+            val dataPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = darkColor
+                style = android.graphics.Paint.Style.FILL
+            }
+
+            val finderOuterPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = accentColor
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = moduleSize * 0.92f
+            }
+
+            val finderInnerPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = accentColor
+                style = android.graphics.Paint.Style.FILL
+            }
+
+            // Check if coordinates belong to the 3 7x7 corner finder patterns
+            fun isFinderPattern(x: Int, y: Int): Boolean {
+                return (x in 0..6 && y in 0..6) ||
+                        (x in (matrixWidth - 7) until matrixWidth && y in 0..6) ||
+                        (x in 0..6 && y in (matrixHeight - 7) until matrixHeight)
+            }
+
+            // Check if coordinates fall within the center logo badge area
+            val centerModuleX = matrixWidth / 2f
+            val centerModuleY = matrixHeight / 2f
+            val logoRadiusModules = if (logoBitmap != null) (matrixWidth * 0.16f) else 0f
+
+            fun isCenterLogoArea(x: Int, y: Int): Boolean {
+                if (logoBitmap == null) return false
+                val dx = (x + 0.5f) - centerModuleX
+                val dy = (y + 0.5f) - centerModuleY
+                return (dx * dx + dy * dy) <= (logoRadiusModules * logoRadiusModules)
+            }
+
+            // 1. Draw regular data modules as stylish rounded squircles
+            for (y in 0 until matrixHeight) {
+                for (x in 0 until matrixWidth) {
+                    if (isFinderPattern(x, y) || isCenterLogoArea(x, y)) continue
+                    if (matrix.get(x, y)) {
+                        val left = x * moduleSize + pad
+                        val top = y * moduleSize + pad
+                        val right = (x + 1) * moduleSize - pad
+                        val bottom = (y + 1) * moduleSize - pad
+                        val r = (moduleSize - pad * 2) * 0.36f
+                        canvas.drawRoundRect(left, top, right, bottom, r, r, dataPaint)
+                    }
                 }
             }
-            android.graphics.Bitmap.createBitmap(pixels, width, height, android.graphics.Bitmap.Config.ARGB_8888)
+
+            // 2. Draw styled Finder Patterns at 3 corners
+            fun drawFinderPattern(startX: Float, startY: Float) {
+                // Outer 7x7 rounded frame
+                val outerOffset = moduleSize * 0.5f
+                val outerLeft = startX + outerOffset
+                val outerTop = startY + outerOffset
+                val outerRight = startX + 7 * moduleSize - outerOffset
+                val outerBottom = startY + 7 * moduleSize - outerOffset
+                val outerRadius = moduleSize * 1.5f
+                canvas.drawRoundRect(outerLeft, outerTop, outerRight, outerBottom, outerRadius, outerRadius, finderOuterPaint)
+
+                // Inner 3x3 rounded center box
+                val innerLeft = startX + 2 * moduleSize
+                val innerTop = startY + 2 * moduleSize
+                val innerRight = startX + 5 * moduleSize
+                val innerBottom = startY + 5 * moduleSize
+                val innerRadius = moduleSize * 0.85f
+                canvas.drawRoundRect(innerLeft, innerTop, innerRight, innerBottom, innerRadius, innerRadius, finderInnerPaint)
+            }
+
+            // Top-Left
+            drawFinderPattern(0f, 0f)
+            // Top-Right
+            drawFinderPattern((matrixWidth - 7) * moduleSize, 0f)
+            // Bottom-Left
+            drawFinderPattern(0f, (matrixHeight - 7) * moduleSize)
+
+            // 3. Draw Center App Logo with glowing border and rounded dark badge
+            if (logoBitmap != null) {
+                val logoBadgeSize = sizePx * 0.24f
+                val logoCenter = sizePx / 2f
+                val badgeLeft = logoCenter - logoBadgeSize / 2f
+                val badgeTop = logoCenter - logoBadgeSize / 2f
+                val badgeRight = logoCenter + logoBadgeSize / 2f
+                val badgeBottom = logoCenter + logoBadgeSize / 2f
+                val badgeRadius = logoBadgeSize * 0.32f
+
+                // Badge dark container
+                val badgeBgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.parseColor("#090E18")
+                    style = android.graphics.Paint.Style.FILL
+                }
+                canvas.drawRoundRect(badgeLeft, badgeTop, badgeRight, badgeBottom, badgeRadius, badgeRadius, badgeBgPaint)
+
+                // Badge neon accent border
+                val badgeBorderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = accentColor
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeWidth = sizePx * 0.007f
+                }
+                canvas.drawRoundRect(badgeLeft, badgeTop, badgeRight, badgeBottom, badgeRadius, badgeRadius, badgeBorderPaint)
+
+                // Scaled logo icon with rounded clip
+                val iconSize = logoBadgeSize * 0.72f
+                val iconLeft = logoCenter - iconSize / 2f
+                val iconTop = logoCenter - iconSize / 2f
+                val iconRect = android.graphics.RectF(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize)
+
+                val path = android.graphics.Path().apply {
+                    addRoundRect(iconRect, iconSize * 0.26f, iconSize * 0.26f, android.graphics.Path.Direction.CW)
+                }
+                canvas.save()
+                canvas.clipPath(path)
+                canvas.drawBitmap(
+                    logoBitmap,
+                    null,
+                    iconRect,
+                    android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+                )
+                canvas.restore()
+            }
+
+            bitmap
         } catch (e: Exception) {
             null
         }
