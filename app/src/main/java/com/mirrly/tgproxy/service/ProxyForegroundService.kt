@@ -407,8 +407,8 @@ class ProxyForegroundService : Service() {
         val timerState = SleepTimerManager.timerState.value
         val timerSuffix = if (timerState.isActive) " | Таймер: ${timerState.formatRemainingTime()}" else ""
 
-        val effectiveDomain = app.config.getEffectiveCfDomain()
-        val isWorker = app.config.cfProxyEnabled && effectiveDomain.isNotBlank()
+        val effectiveDomain = if (app.config.isSocks5Mode) app.config.getEffectiveCfDomain() else ""
+        val isWorker = app.config.isSocks5Mode && app.config.cfProxyEnabled && effectiveDomain.isNotBlank()
         val protoLabel = if (app.config.isSocks5Mode) "SOCKS5" else "MTProto"
 
         val (statusIndicator, title, text) = when {

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Облачный бэкап Google Drive: только настройки и воркеры -->
+        <include domain="sharedpref" path="mirrly_tg_proxy_prefs.xml" />
+
+        <!-- Исключаем секреты, токены и временные данные из облачного бэкапа -->
+        <exclude domain="sharedpref" path="mirrly_secrets_prefs.xml" />
+        <exclude domain="sharedpref" path="worker_request_tracker.xml" />
+        <exclude domain="sharedpref" path="update_manager_prefs.xml" />
+        <exclude domain="root" path="cache" />
+    </cloud-backup>
+
+    <device-transfer>
+        <!-- Перенос данных с устройства на устройство (D2D migration) -->
+        <include domain="sharedpref" path="mirrly_tg_proxy_prefs.xml" />
+        <include domain="sharedpref" path="session_history_prefs.xml" />
+        <!-- Исключаем секреты при миграции для защиты и генерации локального уникального секрета -->
+        <exclude domain="sharedpref" path="mirrly_secrets_prefs.xml" />
+        <exclude domain="sharedpref" path="update_manager_prefs.xml" />
+    </device-transfer>
+</data-extraction-rules>

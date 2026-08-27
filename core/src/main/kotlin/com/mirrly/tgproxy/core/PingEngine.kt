@@ -181,6 +181,9 @@ class PingEngine(
     val quality: ConnectionQuality
         get() = currentSnapshot.quality
 
+    val target: String
+        get() = targetProvider()
+
     fun start() {
         if (workerJob?.isActive == true) return
         workerJob = scope.launch {

@@ -92,6 +92,7 @@ object WorkerFailoverManager {
      */
     suspend fun handleActiveWorkerFailure(failureType: FailureType, domain: String) = mutex.withLock {
         val app = MirrlyApplication.instance
+        if (!app.config.isSocks5Mode) return@withLock
         if (!app.prefsManager.isAutoFailoverEnabled()) return@withLock
 
         val activeId = app.prefsManager.getActiveWorkerId()
@@ -120,6 +121,7 @@ object WorkerFailoverManager {
      */
     fun handleActiveWorkerSuccess(domain: String, rttMs: Long) {
         val app = MirrlyApplication.instance
+        if (!app.config.isSocks5Mode) return
         val activeId = app.prefsManager.getActiveWorkerId()
         val record = circuitRecords.getOrPut(activeId) {
             WorkerCircuitRecord(workerId = activeId, domain = domain)
@@ -133,6 +135,7 @@ object WorkerFailoverManager {
      */
     suspend fun handleActiveWorkerDegradation(domain: String, currentRtt: Long, minRtt: Long) = mutex.withLock {
         val app = MirrlyApplication.instance
+        if (!app.config.isSocks5Mode) return@withLock
         if (!app.prefsManager.isAutoFailoverEnabled()) return@withLock
 
         val activeId = app.prefsManager.getActiveWorkerId()

@@ -4,9 +4,8 @@ use crate::ldebug;
 use base64::Engine;
 use byteorder::{BigEndian, ByteOrder};
 use rand::RngCore;
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
-use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{ClientConfig, RootCertStore};
+use rustls_pki_types::ServerName;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,64 +30,17 @@ pub const OP_PONG: u8 = 0xA;
 pub const MAX_WS_OUTGOING_FRAME: usize = 32 * 1024;
 
 // ---------------------------------------------------------------------------
-// TLS config: InsecureSkipVerify + session cache (100 sessions)
+// TLS config: Secure WebPKI Root CA Verification + session cache (100 sessions)
 // ---------------------------------------------------------------------------
-
-#[derive(Debug)]
-struct NoVerify;
-
-impl ServerCertVerifier for NoVerify {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &CertificateDer<'_>,
-        _intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: UnixTime,
-    ) -> Result<ServerCertVerified, rustls::Error> {
-        Ok(ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        Ok(HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        Ok(HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        vec![
-            SignatureScheme::RSA_PKCS1_SHA256,
-            SignatureScheme::RSA_PKCS1_SHA384,
-            SignatureScheme::RSA_PKCS1_SHA512,
-            SignatureScheme::ECDSA_NISTP256_SHA256,
-            SignatureScheme::ECDSA_NISTP384_SHA384,
-            SignatureScheme::ECDSA_NISTP521_SHA512,
-            SignatureScheme::RSA_PSS_SHA256,
-            SignatureScheme::RSA_PSS_SHA384,
-            SignatureScheme::RSA_PSS_SHA512,
-            SignatureScheme::ED25519,
-        ]
-    }
-}
 
 use once_cell::sync::Lazy;
 
 static TLS_CONFIG: Lazy<Arc<ClientConfig>> = Lazy::new(|| {
+    let mut root_store = RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
     let mut cfg = ClientConfig::builder()
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(NoVerify))
+        .with_root_certificates(root_store)
         .with_no_client_auth();
     cfg.resumption = rustls::client::Resumption::in_memory_sessions(100);
     Arc::new(cfg)
@@ -592,6 +544,15 @@ pub fn ws_handshake_timeout(total: Duration) -> Duration {
     }
 }
 
+pub fn compute_sec_websocket_accept(key: &str) -> String {
+    const WS_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    let mut data = Vec::with_capacity(key.len() + WS_GUID.len());
+    data.extend_from_slice(key.as_bytes());
+    data.extend_from_slice(WS_GUID);
+    let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, &data);
+    base64::engine::general_purpose::STANDARD.encode(digest.as_ref())
+}
+
 fn server_name(domain: &str) -> ServerName<'static> {
     ServerName::try_from(domain.to_string())
         .unwrap_or_else(|_| ServerName::IpAddress("127.0.0.1".parse::<IpAddr>().unwrap().into()))
@@ -819,14 +780,6 @@ pub async fn ws_handshake_over_stream(
         status_code = parts[1].parse::<i32>().unwrap_or(0);
     }
 
-    if status_code == 101 {
-        return Ok(RawWebSocket {
-            reader: tokio::sync::Mutex::new(bufreader),
-            writer: tokio::sync::Mutex::new(write_half),
-            closed: AtomicBool::new(false),
-        });
-    }
-
     let mut headers = HashMap::new();
     for hl in &response_lines[1..] {
         if let Some(idx) = hl.find(':') {
@@ -836,6 +789,40 @@ pub async fn ws_handshake_over_stream(
             );
         }
     }
+
+    if status_code == 101 {
+        // RFC 6455: Upgrade header must be "websocket"
+        let upgrade = headers.get("upgrade").map(|s| s.to_lowercase()).unwrap_or_default();
+        if upgrade != "websocket" {
+            return Err(WsError::Handshake(WsHandshakeError {
+                status_code,
+                status_line: "Invalid Upgrade Header".to_string(),
+                headers,
+                location: String::new(),
+            }));
+        }
+
+        // RFC 6455 Section 4.2.2: Sec-WebSocket-Accept = Base64(SHA1(Key + GUID))
+        let expected_accept = compute_sec_websocket_accept(&ws_key);
+        let actual_accept = headers.get("sec-websocket-accept").cloned().unwrap_or_default();
+
+        if actual_accept != expected_accept {
+            ldebug!(" ws handshake invalid Sec-WebSocket-Accept: expected={}, got={}", expected_accept, actual_accept);
+            return Err(WsError::Handshake(WsHandshakeError {
+                status_code,
+                status_line: "Invalid Sec-WebSocket-Accept Header".to_string(),
+                headers,
+                location: String::new(),
+            }));
+        }
+
+        return Ok(RawWebSocket {
+            reader: tokio::sync::Mutex::new(bufreader),
+            writer: tokio::sync::Mutex::new(write_half),
+            closed: AtomicBool::new(false),
+        });
+    }
+
     let location = headers.get("location").cloned().unwrap_or_default();
     Err(WsError::Handshake(WsHandshakeError {
         status_code,

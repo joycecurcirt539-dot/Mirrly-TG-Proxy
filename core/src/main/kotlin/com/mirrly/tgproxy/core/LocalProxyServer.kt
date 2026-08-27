@@ -48,8 +48,12 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     val pingEngine = PingEngine(
         targetProvider = {
-            val cfDomain = config.getEffectiveCfDomain()
-            if (cfDomain.isNotBlank()) cfDomain else TgConstants.decodeCfDomain("virkgj.com")
+            if (config.isSocks5Mode) {
+                val cfDomain = config.getEffectiveCfDomain()
+                if (cfDomain.isNotBlank()) cfDomain else TgConstants.DEFAULT_SOCKS5_DEV_WORKER
+            } else {
+                TgConstants.getWsDomains(2).firstOrNull() ?: ("kws2." + TgConstants.decodeCfDomain("virkgj.com"))
+            }
         },
         trafficThroughputProvider = { stats.downloadSpeedBps + stats.uploadSpeedBps },
         onSelfHealingRequired = {
@@ -410,19 +414,20 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     fun onWorkerChanged(newWorkerDomain: String) {
         config.customCfDomain = newWorkerDomain
-        DohResolver.clearCache()
-        pingEngine.reset()
-        updateWorkerConfig()
+        if (config.isSocks5Mode) {
+            DohResolver.clearCache()
+            pingEngine.reset()
+            updateWorkerConfig()
+        }
     }
 
     fun updateWorkerConfig() {
-        val effectiveDomain = if (config.isSocks5Mode) {
-            config.getEffectiveCfDomain()
-        } else {
+        if (!config.isSocks5Mode) {
             // MTProto маршрутизируется исключительно через глобальный Anycast CDN Flowseal (kws{dc}.{domain}/apiws).
-            // Пользовательские воркеры и воркеры разработчика намеренно НЕ применяются к MTProto.
-            ""
+            // Пользовательские воркеры и воркеры разработчика не используются для MTProto.
+            return
         }
+        val effectiveDomain = config.getEffectiveCfDomain()
         AppLogger.i("LocalProxyServer", "Обновление конфигурации воркера → '$effectiveDomain'")
         if (isNativeRunning) {
             try {

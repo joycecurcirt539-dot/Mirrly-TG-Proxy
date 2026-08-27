@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Включаем основные пользовательские настройки (конфигурация прокси, воркеры, темы) -->
+    <include domain="sharedpref" path="mirrly_tg_proxy_prefs.xml" />
+
+    <!-- Исключаем секретный ключ MTProto прокси из бэкапа -->
+    <exclude domain="sharedpref" path="mirrly_secrets_prefs.xml" />
+
+    <!-- Исключаем кэш, историю трекинга запросов и служебные файлы апдейтера -->
+    <exclude domain="sharedpref" path="worker_request_tracker.xml" />
+    <exclude domain="sharedpref" path="update_manager_prefs.xml" />
+    <exclude domain="cache" path="." />
+    <exclude domain="no_backup" path="." />
+</full-backup-content>

@@ -114,7 +114,7 @@ object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_API_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
     private const val GITHUB_API_ALL_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
-    const val CURRENT_VERSION_NAME = "1.1.8.1"
+    const val CURRENT_VERSION_NAME = "1.1.8.2"
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -252,18 +252,18 @@ object UpdateChecker {
 
                             Result.success(
                                 ReleaseInfo(
-                                    tagName = tagName,
+                                    tagName = if (isUpdateAvailable) tagName else "v$currentVerClean",
                                     versionName = if (isUpdateAvailable) latestVerClean else currentVerClean,
                                     htmlUrl = htmlUrl,
-                                    releaseNotes = bodyText,
+                                    releaseNotes = if (isUpdateAvailable) bodyText else "",
                                     isUpdateAvailable = isUpdateAvailable,
                                     downloadUrl = if (isUpdateAvailable) downloadUrl else null,
                                     etag = responseEtag,
                                     isNotModified = false,
-                                    expectedSha256 = expectedSha256,
-                                    expectedSha256List = expectedSha256List,
-                                    changelogPreview = preview,
-                                    apkAssets = sortedAssets
+                                    expectedSha256 = if (isUpdateAvailable) expectedSha256 else null,
+                                    expectedSha256List = if (isUpdateAvailable) expectedSha256List else emptyList(),
+                                    changelogPreview = if (isUpdateAvailable) preview else "",
+                                    apkAssets = if (isUpdateAvailable) sortedAssets else emptyList()
                                 )
                             )
                         }

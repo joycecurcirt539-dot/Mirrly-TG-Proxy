@@ -121,7 +121,7 @@ export default {
           service: "Mirrly TG Proxy Dedicated Worker",
           security: "Protected Telegram Relay (Allowlist Enforced)",
           compatible: ["Telegram MTProto", "Telegram SOCKS5", "Telegram VoIP Calls"],
-          version: "1.1.8.1",
+          version: "1.1.8.2",
           edge_colo: request.cf?.colo || "Global Anycast",
           timestamp: new Date().toISOString()
         }, null, 2),

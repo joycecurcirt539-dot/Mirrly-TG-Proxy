@@ -14,6 +14,7 @@ import java.util.UUID
 
 class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("mirrly_tg_proxy_prefs", Context.MODE_PRIVATE)
+    private val secretPrefs: SharedPreferences = context.getSharedPreferences("mirrly_secrets_prefs", Context.MODE_PRIVATE)
 
     private val _animationsDisabledFlow = MutableStateFlow(areAnimationsDisabled())
     val animationsDisabledFlow: StateFlow<Boolean> = _animationsDisabledFlow.asStateFlow()
@@ -47,12 +48,21 @@ class PreferencesManager(context: Context) {
         val defaults = ProxyConfig()
         val bindHost = prefs.getString("bind_host", defaults.bindHost) ?: defaults.bindHost
         val bindPort = prefs.getInt("bind_port", defaults.bindPort)
-        val savedSecret = prefs.getString("secret_hex", null)
+        val savedSecret = secretPrefs.getString("secret_hex", null) ?: prefs.getString("secret_hex", null)
         val secretHex = if (savedSecret.isNullOrBlank() || savedSecret == "dd00000000000000000000000000000000") {
             val generatedSecret = ProxyConfig.generateRandomSecret()
-            prefs.edit().putString("secret_hex", generatedSecret).commit()
+            secretPrefs.edit().putString("secret_hex", generatedSecret).commit()
+            if (prefs.contains("secret_hex")) {
+                prefs.edit().remove("secret_hex").commit()
+            }
             generatedSecret
         } else {
+            if (!secretPrefs.contains("secret_hex")) {
+                secretPrefs.edit().putString("secret_hex", savedSecret).commit()
+            }
+            if (prefs.contains("secret_hex")) {
+                prefs.edit().remove("secret_hex").commit()
+            }
             savedSecret
         }
         val cfEnabled = prefs.getBoolean("cf_proxy_enabled", defaults.cfProxyEnabled)
@@ -114,21 +124,21 @@ class PreferencesManager(context: Context) {
         val secretToSave = if (config.secretHex.isNotBlank() && config.secretHex != "dd00000000000000000000000000000000") {
             config.secretHex
         } else {
-            val existing = prefs.getString("secret_hex", null)
+            val existing = secretPrefs.getString("secret_hex", null) ?: prefs.getString("secret_hex", null)
             if (!existing.isNullOrBlank() && existing != "dd00000000000000000000000000000000") {
                 existing
             } else {
                 val newSec = ProxyConfig.generateRandomSecret()
-                prefs.edit().putString("secret_hex", newSec).commit()
                 newSec
             }
         }
         config.secretHex = secretToSave
+        secretPrefs.edit().putString("secret_hex", secretToSave).apply()
 
         prefs.edit()
+            .remove("secret_hex")
             .putString("bind_host", config.bindHost)
             .putInt("bind_port", config.bindPort)
-            .putString("secret_hex", secretToSave)
             .putBoolean("cf_proxy_enabled", config.cfProxyEnabled)
             .putString("custom_cf_domain", domainToSave)
             .putInt("pool_size", config.poolSize)
@@ -300,7 +310,7 @@ class PreferencesManager(context: Context) {
             app.config.customCfDomain = worker.domain
             app.config.useDefaultWorkerSocks5 = worker.isDeveloperWorker
             saveConfig(app.config)
-            if (app.proxyServer.isRunning) {
+            if (app.proxyServer.isRunning && app.config.isSocks5Mode) {
                 app.proxyServer.onWorkerChanged(worker.domain)
             }
         } catch (_: Exception) {

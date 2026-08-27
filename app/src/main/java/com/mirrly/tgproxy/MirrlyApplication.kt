@@ -64,18 +64,22 @@ class MirrlyApplication : Application() {
         com.mirrly.tgproxy.service.WorkerFailoverManager.init()
 
         proxyServer.pingEngine.onProbeCompleted = { probe, target ->
-            if (probe.success) {
-                com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerSuccess(target, probe.rawRttMs)
-            } else {
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                    com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerFailure(probe.failureType, target)
+            if (proxyServer.config.isSocks5Mode) {
+                if (probe.success) {
+                    com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerSuccess(target, probe.rawRttMs)
+                } else {
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerFailure(probe.failureType, target)
+                    }
                 }
             }
         }
 
         proxyServer.pingEngine.onPredictiveDegradation = { target, currentRtt, minRtt ->
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerDegradation(target, currentRtt, minRtt)
+            if (proxyServer.config.isSocks5Mode) {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerDegradation(target, currentRtt, minRtt)
+                }
             }
         }
     }

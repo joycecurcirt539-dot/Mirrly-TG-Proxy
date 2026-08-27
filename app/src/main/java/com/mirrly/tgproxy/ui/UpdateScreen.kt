@@ -81,43 +81,43 @@ fun UpdateScreen(
     }
     val devicePrimaryType = remember(supportedAbis) { ApkType.fromAbis(supportedAbis) }
 
-    // ── Default Fallback Assets for v1.1.8.1 (Always available for reinstallation) ──
+    // ── Default Fallback Assets for v1.1.8.2 (Always available for reinstallation) ──
     val defaultReleaseAssets = remember {
         listOf(
             ReleaseApkAsset(
                 name = "app-arm64-v8a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-arm64-v8a-release.apk",
-                sizeBytes = 6039029L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-arm64-v8a-release.apk",
+                sizeBytes = 7048796L,
                 apkType = ApkType.ARM64,
-                sha256 = "9811D053882B5C850D9BCF1E9E7E7F6D8650BDB9C30EAC489E6013AA005405FA"
+                sha256 = "1434D2E2F67A151B822FECA5CD4CB65655BB6B181D0ECCC68A28F0BF5E0B2F17"
             ),
             ReleaseApkAsset(
                 name = "app-universal-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-universal-release.apk",
-                sizeBytes = 15705021L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-universal-release.apk",
+                sizeBytes = 16846126L,
                 apkType = ApkType.UNIVERSAL,
-                sha256 = "433426768208F55BE59F752D4D421BE906D73D0F1D6507690FCDB0220EAF0324"
+                sha256 = "217E57B75392629EF54C056A20D96354232045F8184D6937C2C976FDE5725F2C"
             ),
             ReleaseApkAsset(
                 name = "app-armeabi-v7a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-armeabi-v7a-release.apk",
-                sizeBytes = 4871487L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-armeabi-v7a-release.apk",
+                sizeBytes = 5881256L,
                 apkType = ApkType.ARM_V7,
-                sha256 = "02C7D9882FB2238099E9EFD576005F4EADDC0C4FCFA330E164501EA0A27F46F7"
+                sha256 = "082958058F34C4231883D607A3F4AAFE67CFE52C622937C9E0E7911965577AF8"
             ),
             ReleaseApkAsset(
                 name = "app-x86_64-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-x86_64-release.apk",
-                sizeBytes = 6381844L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-x86_64-release.apk",
+                sizeBytes = 7407992L,
                 apkType = ApkType.X86_64,
-                sha256 = "2C7ECEDECBACF9E90917B1087F04BBD4ECE2AA756E18BADCEC6768B74281B6F4"
+                sha256 = "556092D75E5DE2F56541815A04C1DD0FBCC152B15F57BDBB50A6D06BA302A11A"
             ),
             ReleaseApkAsset(
                 name = "app-x86-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-x86-release.apk",
-                sizeBytes = 6275111L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-x86-release.apk",
+                sizeBytes = 7301256L,
                 apkType = ApkType.X86,
-                sha256 = "BEC86D05116E81AD54086E13D3FBF7D7ADE73A1474600033BCF3F179B60E1426"
+                sha256 = "0FFBFB8152CAB3C9C0B2C3CCABBF8F7FCC1747367DBB6B5F9661A5C6DEE3839E"
             )
         )
     }
@@ -135,8 +135,8 @@ fun UpdateScreen(
                 isUpdateAvailable = true
             )).copy(
                 isUpdateAvailable = true,
-                versionName = if (releaseInfo?.versionName == "1.1.8.1" || releaseInfo?.versionName == null) "1.1.9" else releaseInfo.versionName,
-                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-universal-release.apk",
+                versionName = if (releaseInfo?.versionName == "1.1.8.2" || releaseInfo?.versionName == null) "1.1.9" else releaseInfo.versionName,
+                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-universal-release.apk",
                 expectedSha256 = "6AB67F380035761041405B9D133A8CB383B8EF015A7E37AA1412A0323477C70E",
                 expectedSha256List = listOf(
                     "6AB67F380035761041405B9D133A8CB383B8EF015A7E37AA1412A0323477C70E",
@@ -153,12 +153,14 @@ fun UpdateScreen(
     }
 
     val availableAssets = remember(activeReleaseInfo, defaultReleaseAssets) {
-        if (!activeReleaseInfo?.apkAssets.isNullOrEmpty()) {
-            activeReleaseInfo!!.apkAssets
+        if (activeReleaseInfo?.isUpdateAvailable == true && !activeReleaseInfo.apkAssets.isNullOrEmpty()) {
+            activeReleaseInfo.apkAssets
         } else {
             defaultReleaseAssets
         }
     }
+
+    val isUpdateAvail = activeReleaseInfo?.isUpdateAvailable == true
 
     var selectedApkType by remember(activeReleaseInfo, devicePrimaryType, availableAssets) {
         val matched = availableAssets.firstOrNull { it.apkType == devicePrimaryType }
@@ -327,7 +329,12 @@ fun UpdateScreen(
                     }
 
                     // Expected SHA-256 Fingerprint Info Badge (Clickable to copy)
-                    val expectedSha = activeReleaseInfo?.expectedSha256
+                    val expectedSha = if (isUpdateAvail) {
+                        activeReleaseInfo?.expectedSha256
+                    } else {
+                        availableAssets.firstOrNull { it.apkType == selectedApkType }?.sha256
+                            ?: defaultReleaseAssets.firstOrNull { it.apkType == selectedApkType }?.sha256
+                    }
                     if (!expectedSha.isNullOrBlank()) {
                         Row(
                             modifier = Modifier
@@ -876,7 +883,7 @@ fun UpdateScreen(
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 val targetAsset = availableAssets.firstOrNull { it.apkType == selectedApkType }
-                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-universal-release.apk"
+                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-universal-release.apk"
                                                 val expectedSha = targetAsset?.sha256 ?: activeReleaseInfo?.expectedSha256
                                                 val shaList = if (!expectedSha.isNullOrBlank()) {
                                                     listOf(expectedSha) + activeReleaseInfo?.expectedSha256List.orEmpty()
@@ -1293,9 +1300,12 @@ fun UpdateScreen(
                         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
                         // 1-to-1 GitHub Markdown Content Renderer
-                        val changelogMarkdown = activeReleaseInfo?.releaseNotes?.ifBlank {
+                        val changelogMarkdown = if (isUpdateAvail && !activeReleaseInfo?.releaseNotes.isNullOrBlank()) {
+                            activeReleaseInfo!!.releaseNotes
+                        } else {
+                            "У вас установлена последняя официальная версия v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME}.\n\n" +
                             "Официальный список изменений и релизные сборки доступны в репозитории на GitHub."
-                        } ?: "Официальный список изменений загружается с GitHub..."
+                        }
 
                         GithubMarkdownText(
                             markdownText = changelogMarkdown,

@@ -13,7 +13,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Version](https://img.shields.io/badge/Релиз-v1.1.8.1-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Version](https://img.shields.io/badge/Релиз-v1.1.8.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Genesis](https://img.shields.io/badge/Генезис-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Stars](https://img.shields.io/github/stars/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=F5A623)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
@@ -503,6 +503,7 @@ cd Mirrly-TG-Proxy
 | **Август** `v1.1.7` | Anycast CDN и GPU | MTProto переведен на Anycast CDN Flowseal, задержка гонки 25 мс, Zero-Allocation рендеринг (120 FPS), Haptic. |
 | **27.08.2026** `v1.1.8` | DoH, аналитика, QoS | DoH Race Resolver, Happy Eyeballs v2, DC-Affinity, Battery & Thermal QoS, аналитика с графиком Безье, Multi-APK Engine. |
 | **27.08.2026** `v1.1.8.1` | Редизайн таймера сна | Полная переработка диалога таймера сна под стиль менеджера воркеров, подъем кнопок управления, springPress. |
+| **27.08.2026** `v1.1.8.2` | ML Kit сканер и адаптивность | Встроенный сканер Google ML Kit Vision, генератор QR-кодов и ссылок, адаптивность интерфейса и DPI, защита бэкапа. |
 
 > [!TIP]
 > В приложении встроена скрытая летопись проекта: перейдите в раздел **«О разработчике»** и нажмите **5 раз** по аватару автора или бейджу Genesis, чтобы открыть подробную историю версий.
