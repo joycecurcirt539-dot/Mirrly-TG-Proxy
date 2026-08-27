@@ -59,10 +59,26 @@ object SignatureVerifier {
                 val currentSha256 = getSignatureSha256(context)
                 val array = expectedRemoteHashes?.toTypedArray()
                 val code = verifyNative(context, currentSha256, array)
-                when (code) {
+                val nativeStatus = when (code) {
                     0 -> SignatureStatus.OFFICIAL_RELEASE
                     1 -> SignatureStatus.DEBUG_BUILD
                     else -> SignatureStatus.UNOFFICIAL_MODIFIED
+                }
+                // If native reports UNOFFICIAL — run Kotlin fallback as a secondary check.
+                // The JNI certificate-reading path can produce a different SHA than the
+                // Kotlin reflection path on some Android API levels, causing false negatives.
+                // Kotlin fallback compares against the hardcoded official key and is reliable.
+                if (nativeStatus == SignatureStatus.UNOFFICIAL_MODIFIED) {
+                    AppLogger.w(TAG, "Native returned UNOFFICIAL_MODIFIED (native SHA may differ from Kotlin SHA on this device/API), running Kotlin fallback")
+                    val kotlinStatus = verifyKotlinFallback(context, expectedRemoteHashes)
+                    if (kotlinStatus == SignatureStatus.OFFICIAL_RELEASE || kotlinStatus == SignatureStatus.DEBUG_BUILD) {
+                        AppLogger.i(TAG, "Kotlin fallback overrides native UNOFFICIAL result → $kotlinStatus")
+                        kotlinStatus
+                    } else {
+                        nativeStatus
+                    }
+                } else {
+                    nativeStatus
                 }
             } catch (e: Throwable) {
                 AppLogger.w(TAG, "Native verify call failed: ${e.message}, falling back to Kotlin verification")

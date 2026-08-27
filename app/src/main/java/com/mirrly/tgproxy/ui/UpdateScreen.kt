@@ -80,43 +80,43 @@ fun UpdateScreen(
     }
     val devicePrimaryType = remember(supportedAbis) { ApkType.fromAbis(supportedAbis) }
 
-    // ── Default Fallback Assets for v1.1.8 (Always available for reinstallation) ──
+    // ── Default Fallback Assets for v1.1.8.1 (Always available for reinstallation) ──
     val defaultReleaseAssets = remember {
         listOf(
             ReleaseApkAsset(
                 name = "app-arm64-v8a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-arm64-v8a-release.apk",
-                sizeBytes = 5824912L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-arm64-v8a-release.apk",
+                sizeBytes = 6039029L,
                 apkType = ApkType.ARM64,
-                sha256 = "6570AC87D977832A19763996193B37A8F067B47A995E5E954E802D6CE791314D"
+                sha256 = "434F686E4BB3C96541675600806845724DD78FCA9CF6FA56C313C6475B02EE1C"
             ),
             ReleaseApkAsset(
                 name = "app-universal-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-universal-release.apk",
-                sizeBytes = 15447993L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-universal-release.apk",
+                sizeBytes = 15705021L,
                 apkType = ApkType.UNIVERSAL,
-                sha256 = "8F208E01425B9487D4864E544B513A5AFBA38DF70ABBC732758F9ABD55968B91"
+                sha256 = "A743AFA73AE6630C453DCDF93DC900C316777D8AFFCBD74A0B6E6D83EA54FB9C"
             ),
             ReleaseApkAsset(
                 name = "app-armeabi-v7a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-armeabi-v7a-release.apk",
-                sizeBytes = 4618240L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-armeabi-v7a-release.apk",
+                sizeBytes = 4871487L,
                 apkType = ApkType.ARM_V7,
-                sha256 = "90E2513C2E954500759E9590C8E044DA8227B28A0A8464882DAD84DB6F69EC31"
+                sha256 = "F3035716E20C00928F733E28979146369BD404391EBF03783D303029FC0E4961"
             ),
             ReleaseApkAsset(
                 name = "app-x86_64-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-x86_64-release.apk",
-                sizeBytes = 6124912L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-x86_64-release.apk",
+                sizeBytes = 6381844L,
                 apkType = ApkType.X86_64,
-                sha256 = "8F223D6C35FB55DF609F9FE5D2E2B4C63FCDA5BFB4E01B8A8B12F729F6346858"
+                sha256 = "1CE5D2C7C7527EE4C523B16954329B6412A5BF3C9FCF9351F367E7A4AFF6FA9A"
             ),
             ReleaseApkAsset(
                 name = "app-x86-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-x86-release.apk",
-                sizeBytes = 6012491L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-x86-release.apk",
+                sizeBytes = 6275111L,
                 apkType = ApkType.X86,
-                sha256 = "9D7F8C53A1F6DCDB85A17CB43778FFC9DCA9C70DE501A42B88788F4744B7C3C3"
+                sha256 = "45778927552037987E4E8BFFC59B89BFA4FC1BB96FC4D9235186422662BD9BF6"
             )
         )
     }
@@ -134,15 +134,15 @@ fun UpdateScreen(
                 isUpdateAvailable = true
             )).copy(
                 isUpdateAvailable = true,
-                versionName = if (releaseInfo?.versionName == "1.1.8" || releaseInfo?.versionName == null) "1.1.9" else releaseInfo.versionName,
-                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-universal-release.apk",
-                expectedSha256 = "855B6021A3A26B80C1270CD5D7C89E9748BF499F9E9A66C86A8066B312F8C690",
+                versionName = if (releaseInfo?.versionName == "1.1.8.1" || releaseInfo?.versionName == null) "1.1.9" else releaseInfo.versionName,
+                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-universal-release.apk",
+                expectedSha256 = "CC9D4012B11D0BE1277CF8EF65052E4F615E14737AFE77A879529109B9684F51",
                 expectedSha256List = listOf(
-                    "855B6021A3A26B80C1270CD5D7C89E9748BF499F9E9A66C86A8066B312F8C690",
-                    "E507ED1E04D6E085EA09CA01A2ABCC339D0E1331C3977CC0924633AD5FF35703",
-                    "D537B8CFA6F8BF5351C57B2BBA4265A1387B415B739040E978EB9B2D568CAD12",
-                    "CAADBD48249071E12738857AEDD3CAE3DA63190A5EE618114110BE526869DE63",
-                    "71DFA099839DE9E18F20794771468E2203CA968BA09D4869ED6335B428DAC659"
+                    "CC9D4012B11D0BE1277CF8EF65052E4F615E14737AFE77A879529109B9684F51",
+                    "B12D75EC440C8A590C44D8720479F2258250087FC1040EA2E78D5B6A3B42E72A",
+                    "010D29523A9E6EE5D6016B062BBA381410D76FCBD48838D92F141CD7F4DD5CBF",
+                    "4CBFCCCB278AD882B1919B132CCAC65F5275C90285BC536B0B226F22ECE95722",
+                    "56176A94827D22E87E20844E099FDDE1F97A4CF1913EC0BD62AE02E82354CBB0"
                 ),
                 apkAssets = if (releaseInfo?.apkAssets.isNullOrEmpty()) defaultReleaseAssets else releaseInfo!!.apkAssets
             )
@@ -859,7 +859,7 @@ fun UpdateScreen(
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 val targetAsset = availableAssets.firstOrNull { it.apkType == selectedApkType }
-                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-universal-release.apk"
+                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.1/app-universal-release.apk"
                                                 val expectedSha = targetAsset?.sha256 ?: activeReleaseInfo?.expectedSha256
                                                 val shaList = if (!expectedSha.isNullOrBlank()) {
                                                     listOf(expectedSha) + activeReleaseInfo?.expectedSha256List.orEmpty()
