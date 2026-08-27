@@ -661,9 +661,13 @@ fun CameraQrScannerView(
                     }
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = if (isTorchOn) "🔦" else "💡",
-                        fontSize = 16.sp
+                    Icon(
+                        painter = painterResource(
+                            id = if (isTorchOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off
+                        ),
+                        contentDescription = if (isTorchOn) "Выключить подсветку" else "Включить подсветку",
+                        tint = if (isTorchOn) Color(0xFF090D16) else TextWhite,
+                        modifier = Modifier.size(19.dp)
                     )
                 }
             }
