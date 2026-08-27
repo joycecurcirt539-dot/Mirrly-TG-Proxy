@@ -139,7 +139,6 @@ fun HomeScreen(
     onOpenDiagnostics: () -> Unit = {},
     onDragWorkerManager: (Float) -> Unit = {},
     onSettleWorkerManager: (Float) -> Unit = {},
-    onUiHiddenChange: (Boolean) -> Unit = {},
     isInteractive: Boolean = true
 ) {
     val context = LocalContext.current
@@ -169,36 +168,6 @@ fun HomeScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    // ── Stealth Mode State ────────────────────────────────────────────────
-    var isUiHidden by remember { mutableStateOf(false) }
-    var eyeButtonVisible by remember { mutableStateOf(false) }
-
-    // Animate progress: 0f = shown, 1f = hidden (spring physics)
-    val uiAnimProgress by animateFloatAsState(
-        targetValue = if (isUiHidden) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "uiHideProgress"
-    )
-
-    // Callback propagation & notification toast
-    LaunchedEffect(isUiHidden) {
-        onUiHiddenChange(isUiHidden)
-        if (isUiHidden) {
-            Toast.makeText(context, "Удерживайте пальцем экран, чтобы всё вернулось", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    // Auto-hide the floating eye button after 5 seconds
-    LaunchedEffect(isUiHidden, eyeButtonVisible) {
-        if (isUiHidden && eyeButtonVisible) {
-            delay(5000)
-            eyeButtonVisible = false
-        }
     }
 
     var pendingState by remember { mutableStateOf<ProxyUiState?>(null) }
@@ -310,12 +279,8 @@ fun HomeScreen(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .adaptiveContainerWidth(600.dp)
                     .statusBarsPadding()
-                    .graphicsLayer {
-                        translationY = -120.dp.toPx() * uiAnimProgress
-                        alpha = (1f - uiAnimProgress * 2f).coerceIn(0f, 1f)
-                    }
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 // =========================================================================
@@ -403,29 +368,13 @@ fun HomeScreen(
                         modifier = Modifier.align(Alignment.Center)
                     )
 
-                    // Actions (Right) - Stealth/Eye, Update, Settings
+                    // Actions (Right) - Update, Settings
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(1.dp),
                         modifier = Modifier.align(Alignment.CenterEnd)
                     ) {
-                        // 4. Stealth Mode / Eye (Скрытие интерфейса)
-                        IconButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                isUiHidden = true
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_eye),
-                                contentDescription = "Скрыть интерфейс",
-                                tint = TextWhite,
-                                modifier = Modifier.size(19.dp)
-                            )
-                        }
-
-                        // 5. Update Center (Обновления приложения)
+                        // 1. Update Center (Обновления приложения)
                         val hasUpdate = updateInfo?.isUpdateAvailable == true
                         IconButton(
                             onClick = {
@@ -493,20 +442,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (isUiHidden) {
-                        Modifier.pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = {
-                                    eyeButtonVisible = true
-                                },
-                                onLongPress = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    isUiHidden = false
-                                    eyeButtonVisible = false
-                                }
-                            )
-                        }
-                    } else if (isInteractive) {
+                    if (isInteractive) {
                         Modifier.pointerInput(Unit) {
                             awaitPointerEventScope {
                                 while (true) {
@@ -591,16 +527,17 @@ fun HomeScreen(
             // Dynamic unified vertical Column preventing any overlap across all screen ratios & DPIs
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .adaptiveContainerWidth(600.dp)
+                    .fillMaxHeight()
                     .padding(
                         top = padding.calculateTopPadding(),
                         bottom = padding.calculateBottomPadding() + if (isCompactHeight) 4.dp else 8.dp
                     )
-                    .padding(horizontal = 20.dp),
+                    .adaptiveContentPadding(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // ─── 1. TOP SECTION (Compact update banner) ───
-                val isBannerVisible = (updateInfo?.isUpdateAvailable == true) && (updateInfo?.isIgnored != true) && !isUiHidden
+                val isBannerVisible = (updateInfo?.isUpdateAvailable == true) && (updateInfo?.isIgnored != true)
                 AnimatedVisibility(
                     visible = isBannerVisible,
                     enter = fadeIn(tween(250)) + expandVertically(tween(300)),
@@ -729,10 +666,7 @@ fun HomeScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .graphicsLayer {
-                            alpha = (1f - uiAnimProgress).coerceIn(0f, 1f)
-                        },
+                        .weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
@@ -804,10 +738,6 @@ fun HomeScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .graphicsLayer {
-                            translationY = 160.dp.toPx() * uiAnimProgress
-                            alpha = (1f - uiAnimProgress * 1.5f).coerceIn(0f, 1f)
-                        }
                         .animateContentSize(
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioLowBouncy,
@@ -1107,7 +1037,7 @@ fun HomeScreen(
                             },
                             modifier = Modifier
                                 .weight(1f)
-                                .height(if (isCompactHeight) 46.dp else 52.dp)
+                                .heightIn(min = if (isCompactHeight) 46.dp else 52.dp)
                                 .springPress(),
                             shape = RoundedCornerShape(16.dp),
                             color = Color.Transparent,
@@ -1119,7 +1049,7 @@ fun HomeScreen(
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_copy),
@@ -1132,7 +1062,9 @@ fun HomeScreen(
                                     "Скопировать",
                                     color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = if (isCompactHeight) 13.sp else 14.sp
+                                    fontSize = if (isCompactHeight) 13.sp else 14.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -1151,7 +1083,7 @@ fun HomeScreen(
                             },
                             modifier = Modifier
                                 .weight(1f)
-                                .height(if (isCompactHeight) 46.dp else 52.dp)
+                                .heightIn(min = if (isCompactHeight) 46.dp else 52.dp)
                                 .springPress(),
                             shape = RoundedCornerShape(16.dp),
                             color = Color.Transparent,
@@ -1163,7 +1095,7 @@ fun HomeScreen(
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_send),
@@ -1176,7 +1108,9 @@ fun HomeScreen(
                                     "В Telegram",
                                     color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = if (isCompactHeight) 13.sp else 14.sp
+                                    fontSize = if (isCompactHeight) 13.sp else 14.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -1236,39 +1170,6 @@ fun HomeScreen(
                 TelegramConnectDialog(
                     onDismiss = { showConnectDialog = false }
                 )
-            }
-
-            // ── FLOATING EYE BUTTON (inside Box, outside Column) ──────────
-            val eyeAlpha by animateFloatAsState(
-                targetValue = if (isUiHidden && eyeButtonVisible) 1f else 0f,
-                animationSpec = tween(durationMillis = 350),
-                label = "eyeButtonAlpha"
-            )
-            if (isUiHidden) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .wrapContentSize(Alignment.TopEnd)
-                        .padding(top = padding.calculateTopPadding() + 8.dp, end = 16.dp)
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .graphicsLayer { alpha = eyeAlpha }
-                        .background(Color(0xFF141C28).copy(alpha = 0.85f))
-                        .border(1.dp, Color(0xFF00FF87).copy(alpha = 0.7f), CircleShape)
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            isUiHidden = false
-                            eyeButtonVisible = false
-                        }
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_eye_slash),
-                        contentDescription = "Показать интерфейс",
-                        tint = Color(0xFF00FF87),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
             }
         }
     }

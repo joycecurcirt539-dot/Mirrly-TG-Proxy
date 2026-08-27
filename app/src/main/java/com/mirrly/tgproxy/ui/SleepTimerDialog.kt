@@ -78,7 +78,8 @@ fun SleepTimerDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
-                    .fillMaxSize()
+                    .align(Alignment.Center)
+                    .adaptiveContainerWidth(440.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(
                         top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,

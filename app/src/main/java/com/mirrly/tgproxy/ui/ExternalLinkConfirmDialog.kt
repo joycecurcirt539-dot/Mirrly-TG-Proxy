@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -209,9 +211,10 @@ fun ExternalLinkConfirmDialog(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .fillMaxWidth()
+                    .adaptiveContainerWidth(440.dp)
                     .padding(horizontal = 24.dp)
                     .navigationBarsPadding()
+                    .verticalScroll(rememberScrollState())
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null

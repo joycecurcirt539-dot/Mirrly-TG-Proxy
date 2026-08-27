@@ -179,7 +179,8 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
-                    .fillMaxSize()
+                    .align(Alignment.Center)
+                    .adaptiveContainerWidth(440.dp)
                     .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 44.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(
@@ -481,17 +482,21 @@ fun SettingsScreen(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
+    ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .adaptiveContainerWidth(600.dp)
+                .fillMaxHeight()
                 .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp,
                     bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp
                 )
-                .padding(horizontal = 22.dp),
+                .adaptiveContentPadding(),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             SettingsProtocolSection(

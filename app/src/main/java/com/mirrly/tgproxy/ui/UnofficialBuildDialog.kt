@@ -84,7 +84,7 @@ fun UnofficialBuildDialog(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .fillMaxWidth()
+                    .adaptiveContainerWidth(440.dp)
                     .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
                     .navigationBarsPadding()
                     .padding(bottom = 160.dp, top = 24.dp)

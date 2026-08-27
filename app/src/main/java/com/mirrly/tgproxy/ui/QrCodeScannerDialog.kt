@@ -38,6 +38,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -286,8 +288,9 @@ fun QrCodeScannerDialog(
                     color = AmoledSurfaceLow.copy(alpha = 0.92f),
                     border = BorderStroke(1.dp, AmoledBorder.copy(alpha = 0.8f)),
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .adaptiveContainerWidth(440.dp)
                         .wrapContentHeight()
+                        .verticalScroll(rememberScrollState())
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,

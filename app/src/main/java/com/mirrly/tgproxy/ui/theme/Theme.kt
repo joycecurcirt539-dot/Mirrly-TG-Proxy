@@ -176,10 +176,12 @@ fun MirrlyTheme(
     val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
 
     androidx.compose.runtime.CompositionLocalProvider(LocalProtocolColors provides protoColors) {
-        MaterialTheme(
-            colorScheme = AmoledDarkColorScheme.copy(tertiary = protoColors.primary),
-            content = content
-        )
+        ProvideAdaptiveMetrics {
+            MaterialTheme(
+                colorScheme = AmoledDarkColorScheme.copy(tertiary = protoColors.primary),
+                content = content
+            )
+        }
     }
 }
 

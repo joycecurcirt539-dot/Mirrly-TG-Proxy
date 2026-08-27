@@ -85,7 +85,7 @@ fun TelegramConnectDialog(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .fillMaxWidth()
+                    .adaptiveContainerWidth(440.dp)
                     .navigationBarsPadding()
                     .padding(bottom = 110.dp, top = 24.dp)
                     .padding(horizontal = 20.dp)

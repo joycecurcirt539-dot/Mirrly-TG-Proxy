@@ -17,21 +17,24 @@ if (-not $BatDir -or -not (Test-Path $BatDir)) {
     }
 }
 $HistoryFile = Join-Path $BatDir "mirrly_workers.txt"
-$script:CachedCfAccount = $null
-$script:WranglerVersion = "3.114.1"
+$CachedCfAccount = $null
+$WranglerVersion = "3.114.1"
+$global:WranglerVersion = "3.114.1"
+$env:WRANGLER_VERSION = "3.114.1"
 
 # ── Оптимизированный вызов Wrangler с локальным кэшированием ──────────────────
 
 function Invoke-Wrangler {
     param([Parameter(ValueFromRemainingArguments=$true)][string[]]$WranglerArgs)
     
-    # Если глобально установлен wrangler — используем его напрямую (0.5s)
+    # 1. Если глобально установлен wrangler — используем его напрямую (0.5s)
     if (Get-Command wrangler -ErrorAction SilentlyContinue) {
         return & wrangler @WranglerArgs 2>&1
     }
     
-    # Иначе используем фиксированную версию с оффлайн-кэшем npx
-    return & npx -y --prefer-offline "wrangler@$($script:WranglerVersion)" @WranglerArgs 2>&1
+    # 2. Иначе используем фиксированную версию с оффлайн-кэшем npx
+    $ver = if ($global:WranglerVersion) { $global:WranglerVersion } elseif ($env:WRANGLER_VERSION) { $env:WRANGLER_VERSION } else { "3.114.1" }
+    return & npx -y --prefer-offline "wrangler@$ver" @WranglerArgs 2>&1
 }
 
 # ── Человекочитаемая диагностика ошибок Cloudflare ───────────────────────────
@@ -150,9 +153,9 @@ function Show-Banner {
     Write-Host "  ║   Автоматическое создание и деплой узлов Cloudflare (MTProto)    ║" -ForegroundColor DarkCyan
     Write-Host "  ╚══════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
     
-    if ($script:CachedCfAccount -and $script:CachedCfAccount -ne "Не авторизован") {
+    if ($global:CachedCfAccount -and $global:CachedCfAccount -ne "Не авторизован") {
         Write-Host "  [Аккаунт: " -NoNewline -ForegroundColor DarkGray
-        Write-Host "$($script:CachedCfAccount)" -NoNewline -ForegroundColor Green
+        Write-Host "$($global:CachedCfAccount)" -NoNewline -ForegroundColor Green
         Write-Host "]" -ForegroundColor DarkGray
     } else {
         Write-Host "  [Статус: " -NoNewline -ForegroundColor DarkGray
@@ -169,24 +172,27 @@ function Refresh-CloudflareAccount {
         if ($isAuthed) {
             $accountLine = ($whoami | Select-String "Account Name|Account ID|Email" | Select-Object -First 1)
             if ($accountLine) {
-                $script:CachedCfAccount = $accountLine.ToString().Trim()
+                $global:CachedCfAccount = $accountLine.ToString().Trim()
             } else {
-                $script:CachedCfAccount = "Авторизован"
+                $global:CachedCfAccount = "Авторизован"
             }
         } else {
-            $script:CachedCfAccount = "Не авторизован"
+            $global:CachedCfAccount = "Не авторизован"
         }
     } catch {
-        $script:CachedCfAccount = "Не авторизован"
+        $global:CachedCfAccount = "Не авторизован"
     }
 }
 
-# ── Проверка и автоустановка Node.js ─────────────────────────────────────────
+# ── Проверка и автоустановка Node.js и Wrangler ───────────────────────────────
 
 function Check-NodeJs {
     try {
         $ver = (node --version 2>$null)
-        if ($ver) { return $true }
+        if ($ver) {
+            Ensure-WranglerInstalled
+            return $true
+        }
     } catch {}
 
     $commonNodePaths = @(
@@ -199,32 +205,27 @@ function Check-NodeJs {
             $env:Path = "$p;$env:Path"
             try {
                 $ver = (node --version 2>$null)
-                if ($ver) { return $true }
+                if ($ver) {
+                    Ensure-WranglerInstalled
+                    return $true
+                }
             } catch {}
         }
     }
 
     Show-Banner
-    Write-Host "  [X] Node.js не найден в системе!" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "  Для сборки и деплоя Cloudflare Worker требуется среда Node.js (v18+)." -ForegroundColor Yellow
-    Write-Host ""
+    Write-Host "  [*] Node.js не обнаружен. Выполняется автоматическая установка..." -ForegroundColor Cyan
 
     $hasWinget = (Get-Command winget -ErrorAction SilentlyContinue) -ne $null
     if ($hasWinget) {
-        Write-Host "  [1] Установить Node.js автоматически в 1 клик (через winget)" -ForegroundColor Green
-        Write-Host "  [2] Открыть сайт nodejs.org для ручной загрузки" -ForegroundColor White
-        Write-Host "  [0] Выход" -ForegroundColor DarkGray
-        Write-Host ""
-        $c = Read-LineOrEscape "  Выберите вариант (1/2/0)" ""
-        if ($c -eq "1") {
-            Write-Host "`n  [*] Запуск автоматической установки Node.js LTS через winget..." -ForegroundColor Cyan
-            winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
+        Write-Host "  [*] Запуск автоматической установки Node.js LTS через winget..." -ForegroundColor Yellow
+        try {
+            $proc = Start-Process winget -ArgumentList "install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements" -NoNewWindow -Wait -PassThru
             
             # Мгновенно обновляем PATH из реестра
             $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
             $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
-            $env:Path = "$machinePath;$userPath"
+            $env:Path = "$machinePath;$userPath;$env:Path"
 
             foreach ($p in $commonNodePaths) {
                 if ($p -and (Test-Path "$p\node.exe")) {
@@ -232,35 +233,34 @@ function Check-NodeJs {
                 }
             }
             
-            try {
-                $verAfter = (node --version 2>$null)
-                if ($verAfter) {
-                    Write-Host "`n  [OK] Node.js ($verAfter) успешно установлен и обнаружен!" -ForegroundColor Green
-                    Write-Host "  [OK] Продолжаем работу без перезапуска...`n" -ForegroundColor Green
-                    Start-Sleep -Seconds 2
-                    return $true
-                }
-            } catch {}
-            
-            Write-Host "`n  [!] Установка завершена, но процессам требуется обновление окружения." -ForegroundColor Yellow
-            Write-Host "  Перезапустите скрипт для продолжения.`n" -ForegroundColor DarkGray
-            Read-Host "  Нажмите Enter для выхода..."
-            exit 0
-        } elseif ($c -eq "2") {
-            Start-Process "https://nodejs.org/"
-            exit 1
-        } else {
-            exit 0
-        }
-    } else {
-        $open = Read-Host "  Открыть официальный сайт nodejs.org для скачивания? (Y/n)"
-        if ($open -ne "n" -and $open -ne "N") {
-            Start-Process "https://nodejs.org/"
-        }
-        Write-Host "`n  После установки Node.js перезапустите этот скрипт.`n" -ForegroundColor DarkGray
-        Read-Host "  Нажмите Enter для выхода..."
-        exit 1
+            $verAfter = (node --version 2>$null)
+            if ($verAfter) {
+                Write-Host "  [OK] Node.js ($verAfter) успешно установлен и обнаружен!`n" -ForegroundColor Green
+                Ensure-WranglerInstalled
+                Start-Sleep -Seconds 1
+                return $true
+            }
+        } catch {}
     }
+
+    Write-Host "  [!] Автоматическая установка не удалась. Открываем сайт nodejs.org..." -ForegroundColor Yellow
+    Start-Process "https://nodejs.org/"
+    Write-Host "  После установки Node.js перезапустите скрипт.`n" -ForegroundColor DarkGray
+    Read-Host "  Нажмите Enter для выхода..."
+    exit 1
+}
+
+function Ensure-WranglerInstalled {
+    if (Get-Command wrangler -ErrorAction SilentlyContinue) {
+        return
+    }
+    
+    # Проверяем кэш npm / global
+    Write-Host "  [*] Оптимизация сетевого стека Cloudflare Wrangler..." -ForegroundColor DarkGray
+    try {
+        # Фоновая быстрая установка глобального пакета для мгновенного отклика
+        Start-Process -FilePath "npm.cmd" -ArgumentList "install -g wrangler@3.114.1 --silent" -NoNewWindow -Wait -ErrorAction SilentlyContinue
+    } catch {}
 }
 
 # ── Встроенный JS-генератор QR-кода ──────────────────────────────────────────

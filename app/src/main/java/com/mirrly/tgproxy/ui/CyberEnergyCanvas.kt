@@ -79,7 +79,6 @@ fun CyberEnergyCanvas(
     state: ProxyUiState,
     isSocks5: Boolean = com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.isSocks5Flow.collectAsState().value,
     externalTouchPoint: Offset? = null,
-    isUiHidden: Boolean = false,
     isConstellationPaused: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -193,14 +192,6 @@ fun CyberEnergyCanvas(
         targetValue = targetParticleColor,
         animationSpec = tween(750, easing = FastOutSlowInEasing),
         label = "particleColor"
-    )
-
-    // Dynamic focus boost when UI is hidden
-    val focusTarget = if (isUiHidden) 1.35f else 1.0f
-    val animatedFocusBoost by animateFloatAsState(
-        targetValue = focusTarget,
-        animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioNoBouncy),
-        label = "focusBoost"
     )
 
     // Touch interaction physics state
@@ -473,7 +464,7 @@ fun CyberEnergyCanvas(
             // Twinkle alpha: crisp and visible in all 3 states
             val flicker = 0.82f + 0.18f * sin(t * 2.2f + p.phase)
             val stateAlphaMultiplier = if (isConnected) (0.65f + 0.35f * animatedEnergy) else 0.75f
-            val normalAlpha = (p.baseAlpha * flicker * stateAlphaMultiplier * animatedFocusBoost).coerceIn(0.20f, 0.90f)
+            val normalAlpha = (p.baseAlpha * flicker * stateAlphaMultiplier).coerceIn(0.20f, 0.90f)
 
             particleCoords[i * 3] = px
             particleCoords[i * 3 + 1] = py

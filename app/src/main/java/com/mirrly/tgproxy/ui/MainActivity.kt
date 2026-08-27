@@ -321,7 +321,6 @@ class MainActivity : ComponentActivity() {
                     navigateBack()
                 }
 
-                var isUiHidden by remember { mutableStateOf(false) }
                 val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
                 var globalTouchPoint by remember { mutableStateOf<Offset?>(null) }
 
@@ -341,7 +340,6 @@ class MainActivity : ComponentActivity() {
                 val onOpenHallOfFame = remember { { navigateTo("hall_of_fame") } }
                 val onOpenChronicle = remember { { navigateTo("chronicle") } }
                 val onNavigateBack = remember { { navigateBack() } }
-                val onUiHiddenChange: (Boolean) -> Unit = remember { { hidden -> isUiHidden = hidden } }
 
                 val density = LocalDensity.current.density
                 val blurCache = remember(density) { RenderEffectBlurCache(density) }
@@ -724,7 +722,6 @@ class MainActivity : ComponentActivity() {
                                 state = globalProxyState,
                                 isSocks5 = isSocks5,
                                 externalTouchPoint = globalTouchPoint,
-                                isUiHidden = isUiHidden,
                                 isConstellationPaused = (currentScreen != "home"),
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -785,7 +782,6 @@ class MainActivity : ComponentActivity() {
                                 onOpenDiagnostics = onOpenDiagnostics,
                                 onDragWorkerManager = onDragWorkerManager,
                                 onSettleWorkerManager = onSettleWorkerManager,
-                                onUiHiddenChange = onUiHiddenChange,
                                 isInteractive = (currentScreen == "home")
                             )
                         }
