@@ -5,6 +5,42 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HISTORY_FILE="${SCRIPT_DIR}/mirrly_workers.txt"
+WRANGLER_VERSION="3.114.1"
+
+invoke_wrangler() {
+    if command -v wrangler >/dev/null 2>&1; then
+        wrangler "$@"
+    else
+        npx -y --prefer-offline "wrangler@${WRANGLER_VERSION}" "$@"
+    fi
+}
+
+format_cloudflare_error() {
+    local LOG="$1"
+    echo -e "\n\033[1;33m  ╔══════════════════════════════════════════════════════════════════╗\033[0m"
+    echo -e "\033[1;33m  ║                     Диагностика ошибки                           ║\033[0m"
+    echo -e "\033[1;33m  ╚══════════════════════════════════════════════════════════════════╝\033[0m"
+
+    if echo "$LOG" | grep -qiE "10021|10000|limit reached|rate limit|100,?000 requests|exceeded"; then
+        echo -e "  \033[1;33m[!] Причина: Исчерпан суточный лимит бесплатного тарифа (100 000 req/day).\033[0m"
+        echo -e "  \033[1;36m[?] Рекомендация: Выберите пункт [6] для смены аккаунта Cloudflare или дождитесь сброса в 00:00 UTC.\033[0m\n"
+    elif echo "$LOG" | grep -qiE "Token has expired|Invalid access token|10001|Authentication error"; then
+        echo -e "  \033[1;33m[!] Причина: Истек токен авторизации Cloudflare.\033[0m"
+        echo -e "  \033[1;36m[?] Рекомендация: Выберите пункт [6] «Сменить аккаунт Cloudflare» для повторного входа.\033[0m\n"
+    elif echo "$LOG" | grep -qiE "Account Suspended|Account is blocked|10008|10014|Forbidden|Billing"; then
+        echo -e "  \033[1;33m[!] Причина: Аккаунт Cloudflare заблокирован или ограничен.\033[0m"
+        echo -e "  \033[1;36m[?] Рекомендация: Проверьте статус на dash.cloudflare.com или смените аккаунт (пункт [6]).\033[0m\n"
+    elif echo "$LOG" | grep -qiE "already exists|subdomain.*taken|10013"; then
+        echo -e "  \033[1;33m[!] Причина: Воркер с таким именем уже существует.\033[0m"
+        echo -e "  \033[1;36m[?] Рекомендация: Выберите пункт [1] (авто-имя) или укажите другое имя в пункте [2].\033[0m\n"
+    elif echo "$LOG" | grep -qiE "ETIMEDOUT|ENOTFOUND|ECONNRESET|fetch failed|Could not resolve host"; then
+        echo -e "  \033[1;33m[!] Причина: Ошибка сетевого соединения с api.cloudflare.com.\033[0m"
+        echo -e "  \033[1;36m[?] Рекомендация: Проверьте интернет или VPN и повторите попытку.\033[0m\n"
+    else
+        echo -e "  \033[1;33m[!] Непредвиденная ошибка Cloudflare API.\033[0m"
+        echo -e "  \033[1;36m[?] Проверьте логи выше или попробуйте другое имя воркера.\033[0m\n"
+    fi
+}
 
 show_banner() {
     clear
@@ -370,15 +406,15 @@ EOF
     cd "$TEMP_DIR"
 
     echo -e "\033[1;33m  [1/2] Проверка авторизации Cloudflare...\033[0m"
-    if ! npx -y wrangler@latest whoami 2>/dev/null | grep -q "You are logged in"; then
+    if ! invoke_wrangler whoami 2>/dev/null | grep -q "You are logged in"; then
         echo -e "\033[1;33m  [!] Не авторизован. Открывается браузер для входа в Cloudflare...\033[0m"
-        npx -y wrangler@latest login
+        invoke_wrangler login
     else
         echo -e "\033[1;32m  [OK] Авторизован в Cloudflare\033[0m"
     fi
 
     echo -e "\n\033[1;36m  [2/2] Публикую воркер в Cloudflare...\033[0m\n"
-    local DEPLOY_LOG=$(npx -y wrangler@latest deploy 2>&1)
+    local DEPLOY_LOG=$(invoke_wrangler deploy 2>&1)
     echo "$DEPLOY_LOG"
 
     cd "$SCRIPT_DIR"
@@ -400,7 +436,8 @@ EOF
         echo "${DATE_STR} | Name: ${WORKER_NAME} | Domain: ${DOMAIN} | Link: ${DEEP_LINK}" >> "$HISTORY_FILE"
         echo -e "\n\033[0;37m  [OK] Запись сохранена в: ${HISTORY_FILE}\033[0m"
     else
-        echo -e "\n\033[1;31m  [X] Ошибка публикации воркера. Проверьте вывод выше.\033[0m\n"
+        format_cloudflare_error "$DEPLOY_LOG"
+        echo -e "\n\033[1;31m  [X] Ошибка публикации воркера.\033[0m\n"
     fi
 }
 
@@ -473,13 +510,13 @@ remove_worker() {
     read -r -p "  Вы уверены, что хотите удалить '$WNAME'? (y/N): " CONFIRM
     if [[ "$CONFIRM" =~ ^[yY]$ ]]; then
         echo -e "\n\033[1;36m  [*] Отправка запроса на удаление '$WNAME'...\033[0m"
-        npx -y wrangler@latest delete "$WNAME" --force
+        invoke_wrangler delete "$WNAME" --force
     fi
 }
 
 switch_account() {
     echo -e "\n\033[1;33m  [*] Сброс текущей авторизации Cloudflare...\033[0m"
-    npx -y wrangler@latest logout
+    invoke_wrangler logout
     echo -e "\033[1;32m  [OK] Сессия Cloudflare сброшена.\033[0m\n"
 }
 

@@ -18,6 +18,60 @@ if (-not $BatDir -or -not (Test-Path $BatDir)) {
 }
 $HistoryFile = Join-Path $BatDir "mirrly_workers.txt"
 $script:CachedCfAccount = $null
+$script:WranglerVersion = "3.114.1"
+
+# ── Оптимизированный вызов Wrangler с локальным кэшированием ──────────────────
+
+function Invoke-Wrangler {
+    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$WranglerArgs)
+    
+    # Если глобально установлен wrangler — используем его напрямую (0.5s)
+    if (Get-Command wrangler -ErrorAction SilentlyContinue) {
+        return & wrangler @WranglerArgs 2>&1
+    }
+    
+    # Иначе используем фиксированную версию с оффлайн-кэшем npx
+    return & npx -y --prefer-offline "wrangler@$($script:WranglerVersion)" @WranglerArgs 2>&1
+}
+
+# ── Человекочитаемая диагностика ошибок Cloudflare ───────────────────────────
+
+function Format-CloudflareError([string]$RawOutput) {
+    if (-not $RawOutput) { return }
+
+    Write-Host "`n  ╔══════════════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
+    Write-Host "  ║                     Диагностика ошибки                           ║" -ForegroundColor Yellow
+    Write-Host "  ╚══════════════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
+
+    if ($RawOutput -match "10021|10000|limit reached|rate limit|100,?000 requests|exceeded|exceeded limits") {
+        Write-Host "  [!] Причина: Исчерпан суточный лимит бесплатного тарифа (100 000 req/day)." -ForegroundColor Yellow
+        Write-Host "  [?] Рекомендация: Выберите пункт [7] в меню, чтобы переключиться на" -ForegroundColor Cyan
+        Write-Host "      запасной аккаунт Cloudflare, или дождитесь сброса лимита в 00:00 UTC.`n" -ForegroundColor Cyan
+    }
+    elseif ($RawOutput -match "Token has expired|Invalid access token|10001|Authentication error|User is not logged in|logged out") {
+        Write-Host "  [!] Причина: Истек токен авторизации Cloudflare." -ForegroundColor Yellow
+        Write-Host "  [?] Рекомендация: Выберите пункт [7] «Сменить аккаунт Cloudflare»" -ForegroundColor Cyan
+        Write-Host "      для повторного входа в браузерный профиль.`n" -ForegroundColor Cyan
+    }
+    elseif ($RawOutput -match "Account Suspended|Account is blocked|10008|10014|Forbidden|Billing") {
+        Write-Host "  [!] Причина: Аккаунт Cloudflare заблокирован или временно ограничен." -ForegroundColor Yellow
+        Write-Host "  [?] Рекомендация: Проверьте статус профиля на dash.cloudflare.com" -ForegroundColor Cyan
+        Write-Host "      или переключитесь на запасной аккаунт (пункт [7]).`n" -ForegroundColor Cyan
+    }
+    elseif ($RawOutput -match "already exists|subdomain.*taken|10013") {
+        Write-Host "  [!] Причина: Воркер или поддомен с таким именем уже существует." -ForegroundColor Yellow
+        Write-Host "  [?] Рекомендация: Выберите пункт [1] (авто-имя) или укажите другое" -ForegroundColor Cyan
+        Write-Host "      уникальное имя в пункте [2].`n" -ForegroundColor Cyan
+    }
+    elseif ($RawOutput -match "ETIMEDOUT|ENOTFOUND|ECONNRESET|fetch failed|Could not resolve host|timeout") {
+        Write-Host "  [!] Причина: Ошибка сетевого соединения с серверами Cloudflare (api.cloudflare.com)." -ForegroundColor Yellow
+        Write-Host "  [?] Рекомендация: Проверьте интернет-соединение или VPN и повторите попытку.`n" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "  [!] Обнаружена непредвиденная ошибка Cloudflare API." -ForegroundColor Yellow
+        Write-Host "  [?] Проверьте текст логов выше или попробуйте сменить имя воркера.`n" -ForegroundColor Cyan
+    }
+}
 
 # ── Вспомогательные функции ввода с поддержкой Escape ────────────────────────
 
@@ -110,7 +164,7 @@ function Show-Banner {
 
 function Refresh-CloudflareAccount {
     try {
-        $whoami = npx -y wrangler@latest whoami 2>&1
+        $whoami = Invoke-Wrangler whoami
         $isAuthed = $whoami | Select-String -Pattern "You are logged in" -Quiet
         if ($isAuthed) {
             $accountLine = ($whoami | Select-String "Account Name|Account ID|Email" | Select-Object -First 1)
@@ -634,14 +688,15 @@ compatibility_date = "2025-01-01"
     Push-Location $tempDir
     $deploySuccess = $false
     $domain = ""
+    $fullOutputText = ""
 
     try {
         Write-Host "  [1/2] Проверка авторизации Cloudflare..." -ForegroundColor Yellow
-        $whoami = npx -y wrangler@latest whoami 2>&1
+        $whoami = Invoke-Wrangler whoami
         $isAuthed = $whoami | Select-String -Pattern "You are logged in" -Quiet
         if (-not $isAuthed) {
             Write-Host "  [!] Не авторизован. Открывается браузер для входа в Cloudflare..." -ForegroundColor Yellow
-            npx -y wrangler@latest login
+            Invoke-Wrangler login
             Refresh-CloudflareAccount
         } else {
             $accountLine = ($whoami | Select-String "Account Name|Account ID" | Select-Object -First 1)
@@ -655,10 +710,13 @@ compatibility_date = "2025-01-01"
 
         Write-Host "`n  [2/2] Публикую воркер в Cloudflare...`n" -ForegroundColor Cyan
 
-        $deployOutput = npx -y wrangler@latest deploy 2>&1
+        $deployOutput = Invoke-Wrangler deploy
         $deploySuccess = ($LASTEXITCODE -eq 0)
 
-        $deployOutput | ForEach-Object { Write-Host "  $_" }
+        $deployOutput | ForEach-Object { 
+            Write-Host "  $_"
+            $fullOutputText += "$_`n"
+        }
 
         if ($deploySuccess) {
             $urlMatch = $deployOutput | Select-String -Pattern 'https://([a-zA-Z0-9.-]+.workers.dev)' | Select-Object -First 1
@@ -669,13 +727,15 @@ compatibility_date = "2025-01-01"
 
     } catch {
         Write-Host "`n  [X] Ошибка во время деплоя: $_" -ForegroundColor Red
+        $fullOutputText += "$_`n"
     } finally {
         Pop-Location
         Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     if (-not $deploySuccess) {
-        Write-Host "`n  [X] Деплой не завершился успешно. Проверьте сообщения выше.`n" -ForegroundColor Red
+        Format-CloudflareError $fullOutputText
+        Write-Host "  [X] Деплой не завершился успешно.`n" -ForegroundColor Red
         return $null
     }
 
@@ -809,7 +869,7 @@ function Remove-CloudflareWorker {
 
     Write-Host "`n  [*] Отправка запроса на удаление '$wName' в Cloudflare..." -ForegroundColor Cyan
     try {
-        $delOutput = npx -y wrangler@latest delete $wName --force 2>&1
+        $delOutput = Invoke-Wrangler delete $wName --force
         $delOutput | ForEach-Object { Write-Host "  $_" }
         Write-Host "`n  [OK] Операция завершена." -ForegroundColor Green
     } catch {
@@ -822,7 +882,7 @@ function Remove-CloudflareWorker {
 function Switch-CloudflareAccount {
     Write-Host "`n  [*] Сброс текущей авторизации Cloudflare..." -ForegroundColor Yellow
     try {
-        npx -y wrangler@latest logout
+        Invoke-Wrangler logout
         $script:CachedCfAccount = "Не авторизован"
         Write-Host "  [OK] Сессия Cloudflare сброшена." -ForegroundColor Green
         Write-Host "  При следующем деплое откроется окно для входа в новый аккаунт.`n" -ForegroundColor DarkGray
