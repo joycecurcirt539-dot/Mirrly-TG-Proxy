@@ -1628,12 +1628,12 @@ fun WorkerManagerScreen(
 
                                     // Add worker button
                                     Surface(
-                                        shape = RoundedCornerShape(11.dp),
-                                        color = activeProtoColor.copy(alpha = 0.12f),
+                                        shape = RoundedCornerShape(17.dp),
+                                        color = Color.Transparent,
                                         border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.55f)),
                                         modifier = Modifier
                                             .height(34.dp)
-                                            .clip(RoundedCornerShape(11.dp))
+                                            .clip(RoundedCornerShape(17.dp))
                                             .springPress(onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                 prefillDomain = ""
@@ -1658,12 +1658,12 @@ fun WorkerManagerScreen(
 
                                     // QR Scanner quick button
                                     Surface(
-                                        shape = RoundedCornerShape(11.dp),
-                                        color = activeProtoColor.copy(alpha = 0.12f),
+                                        shape = RoundedCornerShape(17.dp),
+                                        color = Color.Transparent,
                                         border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.55f)),
                                         modifier = Modifier
                                             .height(34.dp)
-                                            .clip(RoundedCornerShape(11.dp))
+                                            .clip(RoundedCornerShape(17.dp))
                                             .springPress(onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 currentSection = ManagerSection.SCANNER
@@ -1934,50 +1934,38 @@ private fun SegmentedFilterChip(
         label = "chipTitle"
     )
 
-    val bgColor by animateColorAsState(
-        targetValue = if (isSelected) activeColor.copy(alpha = 0.10f) else Color(0xFF0D1322),
-        animationSpec = tween(180),
-        label = "chipBg"
-    )
-
     Surface(
-        shape = RoundedCornerShape(11.dp),
-        color = bgColor,
+        shape = RoundedCornerShape(17.dp),
+        color = Color.Transparent,
         border = BorderStroke(1.dp, borderColor),
         modifier = modifier
             .height(34.dp)
-            .clip(RoundedCornerShape(11.dp))
+            .clip(RoundedCornerShape(17.dp))
             .springPress(onClick = onClick)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 4.dp),
+                .padding(horizontal = 6.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = title,
                 color = titleColor,
-                fontSize = 11.sp,
+                fontSize = 11.5.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.width(3.dp))
-            Surface(
-                shape = RoundedCornerShape(5.dp),
-                color = if (isSelected) activeColor.copy(alpha = 0.22f) else Color(0xFF1E283D).copy(alpha = 0.75f)
-            ) {
-                Text(
-                    text = count.toString(),
-                    color = if (isSelected) activeColor else TextMuted,
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                    maxLines = 1
-                )
-            }
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = count.toString(),
+                color = if (isSelected) activeColor else TextMuted,
+                fontSize = 10.5.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1
+            )
         }
     }
 }
