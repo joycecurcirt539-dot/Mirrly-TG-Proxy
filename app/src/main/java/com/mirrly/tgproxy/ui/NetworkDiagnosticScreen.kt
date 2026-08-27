@@ -479,17 +479,21 @@ fun NetworkDiagnosticScreen(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
+    ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .adaptiveContainerWidth(600.dp)
+                .fillMaxHeight()
                 .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp,
                     bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp
                 )
-                .padding(horizontal = 22.dp),
+                .adaptiveContentPadding(),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             // ── HERO: DUAL QUALITY GAUGES (CHATS VS CALLS) ──

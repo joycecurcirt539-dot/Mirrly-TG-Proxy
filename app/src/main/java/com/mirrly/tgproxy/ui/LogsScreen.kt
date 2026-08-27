@@ -268,13 +268,15 @@ fun LogsScreen(
     }
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
         // 1. SCROLLABLE LOGS FEED
         if (isListEmpty) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .adaptiveContainerWidth(600.dp)
+                    .fillMaxHeight()
                     .padding(bottom = 40.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -301,13 +303,13 @@ fun LogsScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .fadingEdges(topFadeHeight = 28.dp, bottomFadeHeight = 40.dp),
+                    .adaptiveContainerWidth(600.dp)
+                    .fillMaxHeight()
+                    .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
+                    .adaptiveContentPadding(),
                 contentPadding = PaddingValues(
-                    top = headerHeightDp + 12.dp,
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
-                    start = 16.dp,
-                    end = 16.dp
+                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + headerHeightDp + 6.dp,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -315,7 +317,7 @@ fun LogsScreen(
                     items = displayedLogs,
                     key = { _, entry -> entry.id }
                 ) { index, entry ->
-                    GlassLogCard(
+                    LogCard(
                         entry = entry,
                         onCopy = onCopyLog,
                         modifier = Modifier.logItemCascadeEntrance(
@@ -330,7 +332,7 @@ fun LogsScreen(
         // 2. PINNED FROSTED GLASS HEADER (Title Bar + Optional Animated Search + 4 Segmented Chips)
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .adaptiveContainerWidth(600.dp)
                 .onGloballyPositioned { coordinates ->
                     val heightInDp = with(density) { coordinates.size.height.toDp() }
                     if (heightInDp > 0.dp && heightInDp != headerHeightDp) {
@@ -343,7 +345,7 @@ fun LogsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .adaptiveContentPadding(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Top App Bar

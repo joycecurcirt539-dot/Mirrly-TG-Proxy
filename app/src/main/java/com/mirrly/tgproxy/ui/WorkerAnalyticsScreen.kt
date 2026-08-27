@@ -255,17 +255,21 @@ fun WorkerAnalyticsScreen(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
+    ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .adaptiveContainerWidth(600.dp)
+                .fillMaxHeight()
                 .fadingEdges(topFadeHeight = 20.dp, bottomFadeHeight = 36.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 58.dp,
                     bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
                 )
-                .padding(horizontal = 14.dp),
+                .adaptiveContentPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // ── TAB SELECTOR (SOCKS5 VS MTPROTO) ──

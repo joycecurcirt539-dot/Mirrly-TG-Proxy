@@ -286,7 +286,8 @@ fun CloudflareWorkerGuideScreen(
     }
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
         // Delicate Cyber Particles floating in background behind guide interface
         CyberParticlesOverlay(
@@ -298,13 +299,14 @@ fun CloudflareWorkerGuideScreen(
         // 1. SCROLLABLE GUIDE FEED
         LazyColumn(
             modifier = Modifier
-                .fillMaxSize()
-                .nestedScroll(nestedScrollConnection),
+                .adaptiveContainerWidth(600.dp)
+                .fillMaxHeight()
+                .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
+                .nestedScroll(nestedScrollConnection)
+                .adaptiveContentPadding(),
             contentPadding = PaddingValues(
                 top = headerHeightDp + 8.dp,
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
-                start = 16.dp,
-                end = 16.dp
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
             ),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -642,7 +644,7 @@ fun CloudflareWorkerGuideScreen(
         // 3. PINNED FROSTED GLASS HEADER (Title Bar + 3 Tabs Filter Chips + Full-Width FAQ Chip)
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .adaptiveContainerWidth(600.dp)
                 .onGloballyPositioned { coordinates ->
                     val heightInDp = with(density) { coordinates.size.height.toDp() }
                     if (heightInDp > 0.dp && heightInDp != headerHeightDp) {

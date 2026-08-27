@@ -17,10 +17,11 @@ if (-not $BatDir -or -not (Test-Path $BatDir)) {
     }
 }
 $HistoryFile = Join-Path $BatDir "mirrly_workers.txt"
-$CachedCfAccount = $null
-$WranglerVersion = "3.114.1"
-$global:WranglerVersion = "3.114.1"
-$env:WRANGLER_VERSION = "3.114.1"
+$global:CachedCfAccount = "Не авторизован"
+$CachedCfAccount = "Не авторизован"
+$WranglerVersion = "latest"
+$global:WranglerVersion = "latest"
+$env:WRANGLER_VERSION = "latest"
 
 # ── Оптимизированный вызов Wrangler с локальным кэшированием ──────────────────
 
@@ -32,8 +33,8 @@ function Invoke-Wrangler {
         return & wrangler @WranglerArgs 2>&1
     }
     
-    # 2. Иначе используем фиксированную версию с оффлайн-кэшем npx
-    $ver = if ($global:WranglerVersion) { $global:WranglerVersion } elseif ($env:WRANGLER_VERSION) { $env:WRANGLER_VERSION } else { "3.114.1" }
+    # 2. Иначе используем npx с кэшем
+    $ver = if ($global:WranglerVersion) { $global:WranglerVersion } elseif ($env:WRANGLER_VERSION) { $env:WRANGLER_VERSION } else { "latest" }
     return & npx -y --prefer-offline "wrangler@$ver" @WranglerArgs 2>&1
 }
 
@@ -676,14 +677,14 @@ function Deploy-Worker([string]$WorkerName) {
     $workerJsPath     = Join-Path $tempDir "worker.js"
     $wranglerTomlPath = Join-Path $tempDir "wrangler.toml"
 
-    Set-Content -Path $workerJsPath -Value $WorkerJsCode -Encoding UTF8
+    [System.IO.File]::WriteAllText($workerJsPath, $WorkerJsCode, [System.Text.UTF8Encoding]::new($false))
 
     $tomlContent = @"
 name = "$WorkerName"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 "@
-    Set-Content -Path $wranglerTomlPath -Value $tomlContent -Encoding UTF8
+    [System.IO.File]::WriteAllText($wranglerTomlPath, $tomlContent, [System.Text.UTF8Encoding]::new($false))
 
     Push-Location $tempDir
     $deploySuccess = $false
@@ -701,8 +702,8 @@ compatibility_date = "2025-01-01"
         } else {
             $accountLine = ($whoami | Select-String "Account Name|Account ID" | Select-Object -First 1)
             if ($accountLine) {
-                $script:CachedCfAccount = $accountLine.ToString().Trim()
-                Write-Host "  [OK] $($script:CachedCfAccount)" -ForegroundColor Green
+                $global:CachedCfAccount = $accountLine.ToString().Trim()
+                Write-Host "  [OK] $($global:CachedCfAccount)" -ForegroundColor Green
             } else {
                 Write-Host "  [OK] Авторизован в Cloudflare" -ForegroundColor Green
             }
@@ -883,7 +884,7 @@ function Switch-CloudflareAccount {
     Write-Host "`n  [*] Сброс текущей авторизации Cloudflare..." -ForegroundColor Yellow
     try {
         Invoke-Wrangler logout
-        $script:CachedCfAccount = "Не авторизован"
+        $global:CachedCfAccount = "Не авторизован"
         Write-Host "  [OK] Сессия Cloudflare сброшена." -ForegroundColor Green
         Write-Host "  При следующем деплое откроется окно для входа в новый аккаунт.`n" -ForegroundColor DarkGray
     } catch {

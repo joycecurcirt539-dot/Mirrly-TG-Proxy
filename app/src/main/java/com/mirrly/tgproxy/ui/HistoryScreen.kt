@@ -87,13 +87,15 @@ fun HistoryScreen(
     }
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
         // 1. SCROLLABLE SESSION LIST LAYER
         if (historyList.isEmpty()) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .adaptiveContainerWidth(600.dp)
+                    .fillMaxHeight()
                     .padding(horizontal = 24.dp)
                     .padding(bottom = 40.dp),
                 contentAlignment = Alignment.Center
@@ -127,13 +129,13 @@ fun HistoryScreen(
         } else {
             LazyColumn(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .fadingEdges(topFadeHeight = 28.dp, bottomFadeHeight = 44.dp),
+                    .adaptiveContainerWidth(600.dp)
+                    .fillMaxHeight()
+                    .fadingEdges(topFadeHeight = 28.dp, bottomFadeHeight = 44.dp)
+                    .adaptiveContentPadding(),
                 contentPadding = PaddingValues(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp + 78.dp,
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
-                    start = 16.dp,
-                    end = 16.dp
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -152,14 +154,14 @@ fun HistoryScreen(
         // 2. PINNED AMOLED HEADER PANEL (Title + Clean Borderless Summary Stats)
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .adaptiveContainerWidth(600.dp)
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
                             Color.Black.copy(alpha = 0.98f),
                             Color.Black.copy(alpha = 0.95f),
                             Color.Black.copy(alpha = 0.88f),
-                            Color.Black.copy(alpha = 0.00f)
+                            Color.Black.copy(alpha = 0.0f)
                         )
                     )
                 )
