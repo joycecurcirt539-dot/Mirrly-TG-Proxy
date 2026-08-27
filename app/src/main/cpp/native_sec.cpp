@@ -152,6 +152,166 @@ static std::string clean_hex(const std::string& input) {
     return cleaned;
 }
 
+static bool constant_time_memcmp(const uint8_t* a, const uint8_t* b, size_t len) {
+    uint8_t diff = 0;
+    for (size_t i = 0; i < len; ++i) {
+        diff |= (a[i] ^ b[i]);
+    }
+    return diff == 0;
+}
+
+// Extracts raw APK signature certificate DER bytes directly via Android PackageManager JNI
+static bool extract_apk_signature_bytes(JNIEnv* env, jobject context, std::vector<uint8_t>& outBytes) {
+    if (env == nullptr || context == nullptr) return false;
+
+    jclass contextClass = env->GetObjectClass(context);
+    if (contextClass == nullptr) return false;
+
+    jmethodID getPackageManager = env->GetMethodID(contextClass, "getPackageManager", "()Landroid/content/pm/PackageManager;");
+    jmethodID getPackageName = env->GetMethodID(contextClass, "getPackageName", "()Ljava/lang/String;");
+    if (env->ExceptionCheck() || getPackageManager == nullptr || getPackageName == nullptr) {
+        env->ExceptionClear();
+        return false;
+    }
+
+    jobject packageManager = env->CallObjectMethod(context, getPackageManager);
+    jstring packageName = (jstring)env->CallObjectMethod(context, getPackageName);
+    if (env->ExceptionCheck() || packageManager == nullptr || packageName == nullptr) {
+        env->ExceptionClear();
+        return false;
+    }
+
+    jclass pmClass = env->GetObjectClass(packageManager);
+    jmethodID getPackageInfo = env->GetMethodID(pmClass, "getPackageInfo", "(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;");
+    if (env->ExceptionCheck() || getPackageInfo == nullptr) {
+        env->ExceptionClear();
+        return false;
+    }
+
+    jbyteArray certByteArray = nullptr;
+
+    // 1. Try modern API (Android 9+ / P): GET_SIGNING_CERTIFICATES = 0x08000000 (134217728)
+    jobject packageInfoModern = env->CallObjectMethod(packageManager, getPackageInfo, packageName, (jint)0x08000000);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        packageInfoModern = nullptr;
+    }
+
+    if (packageInfoModern != nullptr) {
+        jclass piClass = env->GetObjectClass(packageInfoModern);
+        jfieldID signingInfoField = env->GetFieldID(piClass, "signingInfo", "Landroid/content/pm/SigningInfo;");
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            signingInfoField = nullptr;
+        }
+
+        if (signingInfoField != nullptr) {
+            jobject signingInfo = env->GetObjectField(packageInfoModern, signingInfoField);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                signingInfo = nullptr;
+            }
+
+            if (signingInfo != nullptr) {
+                jclass siClass = env->GetObjectClass(signingInfo);
+                jmethodID hasMultipleSigners = env->GetMethodID(siClass, "hasMultipleSigners", "()Z");
+                jboolean multi = false;
+                if (!env->ExceptionCheck() && hasMultipleSigners != nullptr) {
+                    multi = env->CallBooleanMethod(signingInfo, hasMultipleSigners);
+                    if (env->ExceptionCheck()) { env->ExceptionClear(); multi = false; }
+                }
+
+                jmethodID getSigners = env->GetMethodID(siClass,
+                    multi ? "getApkContentsSigners" : "getSigningCertificateHistory",
+                    "()[Landroid/content/pm/Signature;");
+                if (env->ExceptionCheck()) { env->ExceptionClear(); getSigners = nullptr; }
+
+                if (getSigners != nullptr) {
+                    jobjectArray sigArray = (jobjectArray)env->CallObjectMethod(signingInfo, getSigners);
+                    if (env->ExceptionCheck()) { env->ExceptionClear(); sigArray = nullptr; }
+
+                    if (sigArray != nullptr && env->GetArrayLength(sigArray) > 0) {
+                        jobject sigObj = env->GetObjectArrayElement(sigArray, 0);
+                        if (sigObj != nullptr) {
+                            jclass sigClass = env->GetObjectClass(sigObj);
+                            jmethodID toByteArray = env->GetMethodID(sigClass, "toByteArray", "()[B");
+                            if (!env->ExceptionCheck() && toByteArray != nullptr) {
+                                certByteArray = (jbyteArray)env->CallObjectMethod(sigObj, toByteArray);
+                                if (env->ExceptionCheck()) { env->ExceptionClear(); certByteArray = nullptr; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback to legacy API: GET_SIGNATURES = 0x00000040 (64)
+    if (certByteArray == nullptr) {
+        jobject packageInfoLegacy = env->CallObjectMethod(packageManager, getPackageInfo, packageName, (jint)0x00000040);
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            packageInfoLegacy = nullptr;
+        }
+
+        if (packageInfoLegacy != nullptr) {
+            jclass legClass = env->GetObjectClass(packageInfoLegacy);
+            jfieldID sigsField = env->GetFieldID(legClass, "signatures", "[Landroid/content/pm/Signature;");
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                sigsField = nullptr;
+            }
+
+            if (sigsField != nullptr) {
+                jobjectArray sigsArray = (jobjectArray)env->GetObjectField(packageInfoLegacy, sigsField);
+                if (env->ExceptionCheck()) { env->ExceptionClear(); sigsArray = nullptr; }
+
+                if (sigsArray != nullptr && env->GetArrayLength(sigsArray) > 0) {
+                    jobject sigObj = env->GetObjectArrayElement(sigsArray, 0);
+                    if (sigObj != nullptr) {
+                        jclass sigClass = env->GetObjectClass(sigObj);
+                        jmethodID toByteArray = env->GetMethodID(sigClass, "toByteArray", "()[B");
+                        if (!env->ExceptionCheck() && toByteArray != nullptr) {
+                            certByteArray = (jbyteArray)env->CallObjectMethod(sigObj, toByteArray);
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); certByteArray = nullptr; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (certByteArray == nullptr) {
+        LOGW("Failed to extract certificate byte array from PackageManager");
+        return false;
+    }
+
+    jsize len = env->GetArrayLength(certByteArray);
+    if (len <= 0) return false;
+
+    jbyte* rawBuf = env->GetByteArrayElements(certByteArray, nullptr);
+    if (rawBuf == nullptr) return false;
+
+    outBytes.assign((const uint8_t*)rawBuf, (const uint8_t*)rawBuf + len);
+    env->ReleaseByteArrayElements(certByteArray, rawBuf, JNI_ABORT);
+
+    return !outBytes.empty();
+}
+
+// Directly computes the 32-byte SHA-256 fingerprint in C++
+static bool compute_native_signature_sha256(JNIEnv* env, jobject context, uint8_t outDigest[32]) {
+    std::vector<uint8_t> certBytes;
+    if (!extract_apk_signature_bytes(env, context, certBytes)) {
+        return false;
+    }
+
+    SHA256_CTX ctx;
+    sha256_init(&ctx);
+    sha256_update(&ctx, certBytes.data(), certBytes.size());
+    sha256_final(&ctx, outDigest);
+    return true;
+}
+
 // Native signature verification implementation
 static jint native_verify(JNIEnv* env, jclass clazz, jobject context, jstring currentSha256Str, jobjectArray expectedRemoteHashes) {
     if (context == nullptr) {
@@ -162,51 +322,58 @@ static jint native_verify(JNIEnv* env, jclass clazz, jobject context, jstring cu
         bool isDebuggable = false;
 
         // Safely check FLAG_DEBUGGABLE with JNI exception guards
-        if (context != nullptr) {
-            jclass contextClass = env->GetObjectClass(context);
-            if (contextClass != nullptr) {
-                jmethodID getAppInfo = env->GetMethodID(contextClass, "getApplicationInfo", "()Landroid/content/pm/ApplicationInfo;");
-                if (env->ExceptionCheck()) { env->ExceptionClear(); getAppInfo = nullptr; }
-                if (getAppInfo != nullptr) {
-                    jobject appInfo = env->CallObjectMethod(context, getAppInfo);
-                    if (env->ExceptionCheck()) { env->ExceptionClear(); appInfo = nullptr; }
-                    if (appInfo != nullptr) {
-                        jclass appInfoClass = env->GetObjectClass(appInfo);
-                        jfieldID flagsField = env->GetFieldID(appInfoClass, "flags", "I");
-                        if (env->ExceptionCheck()) { env->ExceptionClear(); flagsField = nullptr; }
-                        if (flagsField != nullptr) {
-                            jint flags = env->GetIntField(appInfo, flagsField);
-                            if (env->ExceptionCheck()) { env->ExceptionClear(); }
-                            // FLAG_DEBUGGABLE = 2
-                            isDebuggable = (flags & 2) != 0;
-                        }
+        jclass contextClass = env->GetObjectClass(context);
+        if (contextClass != nullptr) {
+            jmethodID getAppInfo = env->GetMethodID(contextClass, "getApplicationInfo", "()Landroid/content/pm/ApplicationInfo;");
+            if (env->ExceptionCheck()) { env->ExceptionClear(); getAppInfo = nullptr; }
+            if (getAppInfo != nullptr) {
+                jobject appInfo = env->CallObjectMethod(context, getAppInfo);
+                if (env->ExceptionCheck()) { env->ExceptionClear(); appInfo = nullptr; }
+                if (appInfo != nullptr) {
+                    jclass appInfoClass = env->GetObjectClass(appInfo);
+                    jfieldID flagsField = env->GetFieldID(appInfoClass, "flags", "I");
+                    if (env->ExceptionCheck()) { env->ExceptionClear(); flagsField = nullptr; }
+                    if (flagsField != nullptr) {
+                        jint flags = env->GetIntField(appInfo, flagsField);
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); }
+                        // FLAG_DEBUGGABLE = 2
+                        isDebuggable = (flags & 2) != 0;
                     }
                 }
             }
         }
 
-        // 1. Extract current SHA-256 clean string from jstring parameter
-        std::string currentSha256Clean;
+        // 1. Compute APK signing certificate SHA-256 directly in C++
+        uint8_t nativeDigest[32];
+        if (!compute_native_signature_sha256(env, context, nativeDigest)) {
+            LOGW("Native signature verification: Failed to compute native SHA-256 digest from PackageManager");
+            return 2; // UNOFFICIAL_MODIFIED
+        }
+        std::string nativeSha256Clean = bytes_to_hex_clean(nativeDigest, 32);
+
+        // 2. Also capture Java-computed SHA for cross-validation (without blocking)
+        std::string javaSha256Clean;
         if (currentSha256Str != nullptr) {
             const char* chars = env->GetStringUTFChars(currentSha256Str, nullptr);
             if (chars != nullptr) {
-                currentSha256Clean = clean_hex(std::string(chars));
+                javaSha256Clean = clean_hex(std::string(chars));
                 env->ReleaseStringUTFChars(currentSha256Str, chars);
+                LOGI("Java-reported SHA: %s, C++ native SHA: %s", javaSha256Clean.c_str(), nativeSha256Clean.c_str());
             }
         }
 
-        if (currentSha256Clean.empty()) {
-            return 2; // UNOFFICIAL_MODIFIED (cannot verify without signature)
-        }
-
-        // 2. Check official XOR-obfuscated SHA-256
+        // 3. Check official XOR-obfuscated SHA-256 using constant-time comparison
         uint8_t officialSha256[32];
         get_official_sha256_bytes(officialSha256);
         std::string officialSha256Clean = bytes_to_hex_clean(officialSha256, 32);
 
-        bool isKnownOfficialKey = (!currentSha256Clean.empty() && currentSha256Clean == officialSha256Clean);
+        // Match natively-computed OR java-computed SHA against the official key.
+        // They may differ due to API-level differences in how PackageManager exposes
+        // certificate bytes through JNI vs. Kotlin reflection paths.
+        bool isKnownOfficialKey = constant_time_memcmp(nativeDigest, officialSha256, 32)
+            || (!javaSha256Clean.empty() && javaSha256Clean == officialSha256Clean);
 
-        // 3. Check expected remote hashes if provided
+        // 4. Check expected remote hashes if provided (checked against both SHAs)
         bool isRemoteMatch = false;
         if (expectedRemoteHashes != nullptr) {
             jsize remoteLen = env->GetArrayLength(expectedRemoteHashes);
@@ -217,7 +384,8 @@ static jint native_verify(JNIEnv* env, jclass clazz, jobject context, jstring cu
                     if (chars != nullptr) {
                         std::string cleanExpected = clean_hex(std::string(chars));
                         env->ReleaseStringUTFChars(remoteStr, chars);
-                        if (!cleanExpected.empty() && cleanExpected == currentSha256Clean) {
+                        if (!cleanExpected.empty() &&
+                            (cleanExpected == nativeSha256Clean || cleanExpected == javaSha256Clean)) {
                             isRemoteMatch = true;
                             break;
                         }
@@ -226,8 +394,9 @@ static jint native_verify(JNIEnv* env, jclass clazz, jobject context, jstring cu
             }
         }
 
-        LOGI("Native verify: current=%s, official=%s, isKnownOfficialKey=%d, isRemoteMatch=%d, isDebuggable=%d",
-             currentSha256Clean.c_str(), officialSha256Clean.c_str(), isKnownOfficialKey, isRemoteMatch, isDebuggable);
+        LOGI("Native verify result: native=%s, java=%s, official=%s, isOfficialKey=%d, isRemoteMatch=%d, isDebuggable=%d",
+             nativeSha256Clean.c_str(), javaSha256Clean.c_str(), officialSha256Clean.c_str(),
+             isKnownOfficialKey, isRemoteMatch, isDebuggable);
 
         if (isRemoteMatch || isKnownOfficialKey) {
             return 0; // OFFICIAL_RELEASE

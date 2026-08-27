@@ -136,13 +136,13 @@ fun UpdateScreen(
                 isUpdateAvailable = true,
                 versionName = if (releaseInfo?.versionName == "1.1.8" || releaseInfo?.versionName == null) "1.1.9" else releaseInfo.versionName,
                 downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8/app-universal-release.apk",
-                expectedSha256 = "1798BD337A241AE09C82E65D1863B4FBE4348703192A1594A754FF412C524C19",
+                expectedSha256 = "855B6021A3A26B80C1270CD5D7C89E9748BF499F9E9A66C86A8066B312F8C690",
                 expectedSha256List = listOf(
-                    "1798BD337A241AE09C82E65D1863B4FBE4348703192A1594A754FF412C524C19",
-                    "D1D8C00BBE01A09A75AC78D5BBEDC68E063CB00A5C64FD234659C7BB0D6AEA67",
-                    "1CB1B99C82A7E0782E20EF85E6B63736408E93A134B2309C6BACEBA22F0C468E",
-                    "0D50020AC96B71C1B669E227A1130E1796878834563F7F30D61E977B362EE9C1",
-                    "A8B9A7DFC8EBFE46252019A450DCEB9176C0533C253566B33469CBEC4B49EEF0"
+                    "855B6021A3A26B80C1270CD5D7C89E9748BF499F9E9A66C86A8066B312F8C690",
+                    "E507ED1E04D6E085EA09CA01A2ABCC339D0E1331C3977CC0924633AD5FF35703",
+                    "D537B8CFA6F8BF5351C57B2BBA4265A1387B415B739040E978EB9B2D568CAD12",
+                    "CAADBD48249071E12738857AEDD3CAE3DA63190A5EE618114110BE526869DE63",
+                    "71DFA099839DE9E18F20794771468E2203CA968BA09D4869ED6335B428DAC659"
                 ),
                 apkAssets = if (releaseInfo?.apkAssets.isNullOrEmpty()) defaultReleaseAssets else releaseInfo!!.apkAssets
             )
