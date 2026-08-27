@@ -410,21 +410,33 @@ test_workers_health() {
     echo -e "\033[0;37m  ──────────────────────────────────────────────────────────────────\033[0m"
     if [ ! -f "$HISTORY_FILE" ]; then
         echo -e "  (История пуста)"
+        echo -e "\033[0;37m  ──────────────────────────────────────────────────────────────────\033[0m\n"
         return
     fi
+    local TOTAL=0
+    local ONLINE=0
     while IFS= read -r line; do
         DOMAIN=$(echo "$line" | grep -oE 'Domain: [^ ]+' | awk '{print $2}')
         if [ -n "$DOMAIN" ]; then
+            TOTAL=$((TOTAL + 1))
             echo -n "  • $DOMAIN ... "
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "https://${DOMAIN}/" || echo "000")
-            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "426" ] || [ "$HTTP_CODE" = "400" ]; then
-                echo -e "\033[1;32m[ONLINE] HTTP ${HTTP_CODE}\033[0m"
+            START_TIME=$(date +%s%N)
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Upgrade: websocket" --connect-timeout 6 "https://${DOMAIN}/" || echo "000")
+            END_TIME=$(date +%s%N)
+            RTT_MS=$(( (END_TIME - START_TIME) / 1000000 ))
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "426" ] || [ "$HTTP_CODE" = "400" ] || [ "$HTTP_CODE" = "101" ]; then
+                echo -e "\033[1;32m[ONLINE] WSS Relay Ready (${HTTP_CODE}, ${RTT_MS} ms)\033[0m"
+                ONLINE=$((ONLINE + 1))
+            elif [ "$HTTP_CODE" = "403" ]; then
+                echo -e "\033[1;32m[ONLINE/PROTECTED] Relay Ready (403, ${RTT_MS} ms)\033[0m"
+                ONLINE=$((ONLINE + 1))
             else
-                echo -e "\033[1;31m[UNREACHABLE] HTTP ${HTTP_CODE}\033[0m"
+                echo -e "\033[1;31m[UNREACHABLE] HTTP ${HTTP_CODE} (${RTT_MS} ms)\033[0m"
             fi
         fi
     done < "$HISTORY_FILE"
-    echo -e "\033[0;37m  ──────────────────────────────────────────────────────────────────\033[0m\n"
+    echo -e "\033[0;37m  ──────────────────────────────────────────────────────────────────\033[0m"
+    echo -e "  Итог: \033[1;32m${ONLINE}\033[0m из \033[1;37m${TOTAL}\033[0m узлов активны.\n"
 }
 
 show_saved_workers() {
@@ -432,11 +444,43 @@ show_saved_workers() {
     echo -e "\033[1;36m  Ваши созданные воркеры (${HISTORY_FILE}):\033[0m"
     echo -e "\033[0;37m  ──────────────────────────────────────────────────────────────────\033[0m"
     if [ -f "$HISTORY_FILE" ]; then
-        cat "$HISTORY_FILE"
+        nl -ba -w2 -s'. ' "$HISTORY_FILE"
+        echo -e "\033[0;37m  ──────────────────────────────────────────────────────────────────\033[0m"
+        echo -e "  \033[1;33m[1-N]\033[0m Показать QR-код для воркера | \033[0;37m[Enter] Назад в меню\033[0m"
+        read -r -p "  Ваш выбор: " CHOICE
+        if [[ "$CHOICE" =~ ^[0-9]+$ ]]; then
+            LINE=$(sed -n "${CHOICE}p" "$HISTORY_FILE")
+            LINK=$(echo "$LINE" | grep -oE 'Link: mirrly://[^\ ]+' | sed 's/Link: //')
+            if [ -n "$LINK" ]; then
+                echo -e "\n\033[1;32m  QR-код для выбранного узла:\033[0m"
+                show_qr_code "$LINK"
+                read -r -p "  Нажмите Enter для возврата..." _
+            fi
+        fi
     else
         echo -e "  (Список пуст)"
+        echo -e "\033[0;37m  ──────────────────────────────────────────────────────────────────\033[0m\n"
     fi
-    echo -e "\033[0;37m  ──────────────────────────────────────────────────────────────────\033[0m\n"
+}
+
+remove_worker() {
+    show_banner
+    echo -e "\033[1;33m  Удаление воркера из Cloudflare:\033[0m"
+    echo -e "\033[0;37m  ──────────────────────────────────────────────────────────────────\033[0m"
+    read -r -p "  Введите имя воркера для удаления: " WNAME
+    if [ -z "$WNAME" ]; then return; fi
+    WNAME=$(normalize_name "$WNAME")
+    read -r -p "  Вы уверены, что хотите удалить '$WNAME'? (y/N): " CONFIRM
+    if [[ "$CONFIRM" =~ ^[yY]$ ]]; then
+        echo -e "\n\033[1;36m  [*] Отправка запроса на удаление '$WNAME'...\033[0m"
+        npx -y wrangler@latest delete "$WNAME" --force
+    fi
+}
+
+switch_account() {
+    echo -e "\n\033[1;33m  [*] Сброс текущей авторизации Cloudflare...\033[0m"
+    npx -y wrangler@latest logout
+    echo -e "\033[1;32m  [OK] Сессия Cloudflare сброшена.\033[0m\n"
 }
 
 while true; do
@@ -444,19 +488,47 @@ while true; do
     echo -e "\033[1;33m  Выберите действие:\033[0m"
     echo -e "  \033[1;37m[1]\033[0m Создать новый воркер (авто-имя, 1 клик)"
     echo -e "  \033[1;37m[2]\033[0m Создать воркер с моим именем"
-    echo -e "  \033[1;37m[3]\033[0m Проверить доступность воркеров (Health Check)"
-    echo -e "  \033[1;37m[4]\033[0m Просмотреть список моих созданных воркеров"
-    echo -e "  \033[1;37m[5]\033[0m Сменить аккаунт Cloudflare"
+    echo -e "  \033[1;37m[3]\033[0m Проверить доступность и пинг воркеров (Health Check)"
+    echo -e "  \033[1;37m[4]\033[0m Просмотреть список и QR-коды моих воркеров"
+    echo -e "  \033[1;37m[5]\033[0m Удалить воркер из Cloudflare"
+    echo -e "  \033[1;37m[6]\033[0m Сменить аккаунт Cloudflare"
     echo -e "  \033[0;37m[0] Выход\033[0m\n"
+    read -r -p "  Ваш выбор (0-6): " ACTION
 
-    read -p "  Ваш выбор (0-5): " CHOICE
-    case "$CHOICE" in
-        1) deploy_worker ""; read -p "  Нажмите Enter для продолжения..." ;;
-        2) read -p "  Введите желаемое имя: " CNAME; deploy_worker "$CNAME"; read -p "  Нажмите Enter для продолжения..." ;;
-        3) test_workers_health; read -p "  Нажмите Enter для продолжения..." ;;
-        4) show_saved_workers; read -p "  Нажмите Enter для продолжения..." ;;
-        5) npx -y wrangler@latest logout; echo -e "\n  [OK] Сессия сброшена."; read -p "  Нажмите Enter..." ;;
-        0) echo -e "\n  До свидания!\n"; exit 0 ;;
-        *) echo -e "\n  [!] Неверный выбор." ; sleep 1 ;;
+    case "$ACTION" in
+        1)
+            deploy_worker ""
+            read -r -p "  Нажмите Enter для возврата в меню..." _
+            ;;
+        2)
+            read -r -p "  Введите желаемое имя воркера: " CUSTOM_NAME
+            if [ -n "$CUSTOM_NAME" ]; then
+                deploy_worker "$CUSTOM_NAME"
+            fi
+            read -r -p "  Нажмите Enter для возврата в меню..." _
+            ;;
+        3)
+            test_workers_health
+            read -r -p "  Нажмите Enter для возврата в меню..." _
+            ;;
+        4)
+            show_saved_workers
+            ;;
+        5)
+            remove_worker
+            read -r -p "  Нажмите Enter для возврата в меню..." _
+            ;;
+        6)
+            switch_account
+            read -r -p "  Нажмите Enter для возврата в меню..." _
+            ;;
+        0)
+            echo -e "\n\033[1;36m  До свидания!\033[0m\n"
+            exit 0
+            ;;
+        *)
+            echo -e "\033[1;33m  [!] Некорректный выбор. Повторите ввод.\033[0m"
+            sleep 1
+            ;;
     esac
 done

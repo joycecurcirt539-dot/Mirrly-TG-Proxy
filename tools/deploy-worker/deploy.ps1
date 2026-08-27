@@ -86,7 +86,7 @@ function Wait-ReturnToMenu {
     }
 }
 
-# ── Функция вывода шапки ─────────────────────────────────────────────────────
+# ── Функция вывода шапки и профиля Cloudflare ────────────────────────────────
 
 function Show-Banner {
     Clear-Host
@@ -95,18 +95,40 @@ function Show-Banner {
     Write-Host "  ║                Mirrly TG Proxy — Worker Deployer                 ║" -ForegroundColor White
     Write-Host "  ║   Автоматическое создание и деплой узлов Cloudflare (MTProto)    ║" -ForegroundColor DarkCyan
     Write-Host "  ╚══════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    if ($script:CachedCfAccount) {
-        Write-Host "  [Аккаунт Cloudflare: $($script:CachedCfAccount)]" -ForegroundColor Green
+    
+    if ($script:CachedCfAccount -and $script:CachedCfAccount -ne "Не авторизован") {
+        Write-Host "  [Аккаунт: " -NoNewline -ForegroundColor DarkGray
+        Write-Host "$($script:CachedCfAccount)" -NoNewline -ForegroundColor Green
+        Write-Host "]" -ForegroundColor DarkGray
+    } else {
+        Write-Host "  [Статус: " -NoNewline -ForegroundColor DarkGray
+        Write-Host "Не авторизован (вход при деплое)" -NoNewline -ForegroundColor Yellow
+        Write-Host "]" -ForegroundColor DarkGray
     }
     Write-Host ""
 }
 
+function Refresh-CloudflareAccount {
+    try {
+        $whoami = npx -y wrangler@latest whoami 2>&1
+        $isAuthed = $whoami | Select-String -Pattern "You are logged in" -Quiet
+        if ($isAuthed) {
+            $accountLine = ($whoami | Select-String "Account Name|Account ID|Email" | Select-Object -First 1)
+            if ($accountLine) {
+                $script:CachedCfAccount = $accountLine.ToString().Trim()
+            } else {
+                $script:CachedCfAccount = "Авторизован"
+            }
+        } else {
+            $script:CachedCfAccount = "Не авторизован"
+        }
+    } catch {
+        $script:CachedCfAccount = "Не авторизован"
+    }
+}
+
 # ── Проверка и автоустановка Node.js ─────────────────────────────────────────
 
-function Check-NodeJs {
-    try {
-        $ver = (node --version 2>$null)
-        if ($ver) { return $true }
 function Check-NodeJs {
     try {
         $ver = (node --version 2>$null)
@@ -150,7 +172,6 @@ function Check-NodeJs {
             $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
             $env:Path = "$machinePath;$userPath"
 
-            # Дополнительно подключаем стандартные пути установки
             foreach ($p in $commonNodePaths) {
                 if ($p -and (Test-Path "$p\node.exe")) {
                     $env:Path = "$p;$env:Path"
@@ -621,7 +642,7 @@ compatibility_date = "2025-01-01"
         if (-not $isAuthed) {
             Write-Host "  [!] Не авторизован. Открывается браузер для входа в Cloudflare..." -ForegroundColor Yellow
             npx -y wrangler@latest login
-            $script:CachedCfAccount = "Авторизован"
+            Refresh-CloudflareAccount
         } else {
             $accountLine = ($whoami | Select-String "Account Name|Account ID" | Select-Object -First 1)
             if ($accountLine) {
@@ -715,39 +736,60 @@ function Test-WorkersHealth {
         return
     }
 
+    $uniqueDomains = @{}
     foreach ($line in $lines) {
         $match = [System.Text.RegularExpressions.Regex]::Match($line, "Domain:\s*([a-zA-Z0-9.-]+)")
         if ($match.Success) {
-            $domain = $match.Groups[1].Value
-            Write-Host "  • $domain ... " -NoNewline -ForegroundColor White
-            $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            try {
-                $req = [System.Net.HttpWebRequest]::Create("https://$domain/")
-                $req.Timeout = 6000
-                $req.UserAgent = "Mirrly-HealthCheck/1.0"
-                $resp = $req.GetResponse()
-                $sw.Stop()
-                $code = [int]$resp.StatusCode
-                $resp.Close()
-                Write-Host "[ONLINE] 200 OK (${sw.ElapsedMilliseconds} ms)" -ForegroundColor Green
-            } catch [System.Net.WebException] {
-                $sw.Stop()
-                if ($_.Response) {
-                    $code = [int]$_.Response.StatusCode
-                    if ($code -eq 426 -or $code -eq 400 -or $code -eq 200) {
-                        Write-Host "[ONLINE] WSS Ready (${code}, ${sw.ElapsedMilliseconds} ms)" -ForegroundColor Green
-                    } else {
-                        Write-Host "[STATUS: $code] (${sw.ElapsedMilliseconds} ms)" -ForegroundColor Yellow
-                    }
-                } else {
-                    Write-Host "[UNREACHABLE] Не отвечает" -ForegroundColor Red
-                }
-            } catch {
-                Write-Host "[ERROR] $_" -ForegroundColor Red
-            }
+            $uniqueDomains[$match.Groups[1].Value] = $true
         }
     }
-    Write-Host "  ──────────────────────────────────────────────────────────────────`n" -ForegroundColor DarkGray
+
+    $onlineCount = 0
+    $totalCount = $uniqueDomains.Keys.Count
+
+    foreach ($domain in $uniqueDomains.Keys) {
+        Write-Host "  • $domain ... " -NoNewline -ForegroundColor White
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            $req = [System.Net.HttpWebRequest]::Create("https://$domain/")
+            $req.Timeout = 6000
+            $req.Headers.Add("Upgrade", "websocket")
+            $req.UserAgent = "Mirrly-HealthCheck/1.0"
+            $resp = $req.GetResponse()
+            $sw.Stop()
+            $code = [int]$resp.StatusCode
+            $resp.Close()
+            Write-Host "[ONLINE] WSS / HTTP Ready (${sw.ElapsedMilliseconds} ms)" -ForegroundColor Green
+            $onlineCount++
+        } catch [System.Net.WebException] {
+            $sw.Stop()
+            if ($_.Response) {
+                $code = [int]$_.Response.StatusCode
+                if ($code -eq 426 -or $code -eq 400 -or $code -eq 200 -or $code -eq 101) {
+                    Write-Host "[ONLINE] WSS Relay Active (Code: $code, ${sw.ElapsedMilliseconds} ms)" -ForegroundColor Green
+                    $onlineCount++
+                } elseif ($code -eq 403) {
+                    Write-Host "[ONLINE/PROTECTED] Relay Active (Code: 403, ${sw.ElapsedMilliseconds} ms)" -ForegroundColor Green
+                    $onlineCount++
+                } else {
+                    Write-Host "[BLOCKED / ERROR: $code] (${sw.ElapsedMilliseconds} ms)" -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "[UNREACHABLE] Таймаут / узел недоступен" -ForegroundColor Red
+            }
+        } catch {
+            Write-Host "[ERROR] $_" -ForegroundColor Red
+        }
+    }
+
+    Write-Host "  ──────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+    Write-Host "  Итог проверки: " -NoNewline -ForegroundColor DarkGray
+    if ($onlineCount -eq $totalCount) {
+        Write-Host "$onlineCount из $totalCount узлов активны и готовы к работе." -ForegroundColor Green
+    } else {
+        Write-Host "$onlineCount из $totalCount узлов доступны." -ForegroundColor Yellow
+    }
+    Write-Host ""
 }
 
 # ── Удаление воркера из Cloudflare ───────────────────────────────────────────
@@ -781,7 +823,7 @@ function Switch-CloudflareAccount {
     Write-Host "`n  [*] Сброс текущей авторизации Cloudflare..." -ForegroundColor Yellow
     try {
         npx -y wrangler@latest logout
-        $script:CachedCfAccount = $null
+        $script:CachedCfAccount = "Не авторизован"
         Write-Host "  [OK] Сессия Cloudflare сброшена." -ForegroundColor Green
         Write-Host "  При следующем деплое откроется окно для входа в новый аккаунт.`n" -ForegroundColor DarkGray
     } catch {
