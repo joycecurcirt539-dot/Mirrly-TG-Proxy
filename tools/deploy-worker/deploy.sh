@@ -4,7 +4,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HISTORY_FILE="${SCRIPT_DIR}/my_workers.txt"
+HISTORY_FILE="${SCRIPT_DIR}/mirrly_workers.txt"
 
 show_banner() {
     clear

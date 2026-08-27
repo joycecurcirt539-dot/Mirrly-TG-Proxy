@@ -138,6 +138,9 @@ object UpdateChecker {
                 val etag = cachedEtag
                 if (etag != null && etag.isNotBlank()) {
                     requestBuilder.header("If-None-Match", etag)
+                } else {
+                    requestBuilder.header("Cache-Control", "no-cache")
+                    requestBuilder.header("Pragma", "no-cache")
                 }
 
                 val request = requestBuilder.build()

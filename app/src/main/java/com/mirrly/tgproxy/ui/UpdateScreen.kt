@@ -42,6 +42,7 @@ import com.mirrly.tgproxy.core.ReleaseApkAsset
 import com.mirrly.tgproxy.core.ReleaseInfo
 import com.mirrly.tgproxy.service.DownloadStatus
 import com.mirrly.tgproxy.service.UpdateDownloader
+import com.mirrly.tgproxy.service.UpdateManager
 import com.mirrly.tgproxy.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -813,12 +814,26 @@ fun UpdateScreen(
 
                                                 if (!url.isNullOrBlank()) {
                                                     coroutineScope.launch {
+                                                        // Auto Force-Refresh: fetch fresh GitHub release notes without ETag (no-cache)
+                                                        val freshCheck = UpdateManager.checkForUpdates(context, notifyIfFound = false, forceRefresh = true)
+                                                        val freshInfo = freshCheck.getOrNull()
+                                                        val freshAsset = freshInfo?.apkAssets?.firstOrNull { it.apkType == selectedApkType }
+                                                        val finalUrl = freshAsset?.downloadUrl ?: url
+                                                        val freshSha = freshAsset?.sha256 ?: freshInfo?.expectedSha256
+                                                        val finalShaList = if (!freshSha.isNullOrBlank()) {
+                                                            listOf(freshSha) + freshInfo?.expectedSha256List.orEmpty()
+                                                        } else if (freshInfo != null && freshInfo.expectedSha256List.isNotEmpty()) {
+                                                            freshInfo.expectedSha256List
+                                                        } else {
+                                                            shaList
+                                                        }
+
                                                         UpdateDownloader.downloadAndVerifyApk(
                                                             context = context,
-                                                            downloadUrl = url,
-                                                            expectedSha256List = shaList,
-                                                            versionName = activeReleaseInfo?.versionName.orEmpty(),
-                                                            fileName = targetAsset?.name
+                                                            downloadUrl = finalUrl,
+                                                            expectedSha256List = finalShaList,
+                                                            versionName = freshInfo?.versionName ?: activeReleaseInfo?.versionName.orEmpty(),
+                                                            fileName = freshAsset?.name ?: targetAsset?.name
                                                         )
                                                     }
                                                 } else {
@@ -869,12 +884,26 @@ fun UpdateScreen(
 
                                                 if (!url.isNullOrBlank()) {
                                                     coroutineScope.launch {
+                                                        // Auto Force-Refresh: fetch fresh GitHub release notes without ETag (no-cache)
+                                                        val freshCheck = UpdateManager.checkForUpdates(context, notifyIfFound = false, forceRefresh = true)
+                                                        val freshInfo = freshCheck.getOrNull()
+                                                        val freshAsset = freshInfo?.apkAssets?.firstOrNull { it.apkType == selectedApkType }
+                                                        val finalUrl = freshAsset?.downloadUrl ?: url
+                                                        val freshSha = freshAsset?.sha256 ?: freshInfo?.expectedSha256
+                                                        val finalShaList = if (!freshSha.isNullOrBlank()) {
+                                                            listOf(freshSha) + freshInfo?.expectedSha256List.orEmpty()
+                                                        } else if (freshInfo != null && freshInfo.expectedSha256List.isNotEmpty()) {
+                                                            freshInfo.expectedSha256List
+                                                        } else {
+                                                            shaList
+                                                        }
+
                                                         UpdateDownloader.downloadAndVerifyApk(
                                                             context = context,
-                                                            downloadUrl = url,
-                                                            expectedSha256List = shaList,
-                                                            versionName = currentAppVer,
-                                                            fileName = targetAsset?.name
+                                                            downloadUrl = finalUrl,
+                                                            expectedSha256List = finalShaList,
+                                                            versionName = freshInfo?.versionName ?: currentAppVer,
+                                                            fileName = freshAsset?.name ?: targetAsset?.name
                                                         )
                                                     }
                                                 } else {
@@ -1119,12 +1148,26 @@ fun UpdateScreen(
 
                                             if (!validUrl.isNullOrBlank()) {
                                                 coroutineScope.launch {
+                                                    // Auto Force-Refresh on retry: fetch fresh GitHub release notes without ETag (no-cache)
+                                                    val freshCheck = UpdateManager.checkForUpdates(context, notifyIfFound = false, forceRefresh = true)
+                                                    val freshInfo = freshCheck.getOrNull()
+                                                    val freshAsset = freshInfo?.apkAssets?.firstOrNull { it.apkType == selectedApkType }
+                                                    val finalUrl = freshAsset?.downloadUrl ?: validUrl
+                                                    val freshSha = freshAsset?.sha256 ?: freshInfo?.expectedSha256
+                                                    val finalShaList = if (!freshSha.isNullOrBlank()) {
+                                                        listOf(freshSha) + freshInfo?.expectedSha256List.orEmpty()
+                                                    } else if (freshInfo != null && freshInfo.expectedSha256List.isNotEmpty()) {
+                                                        freshInfo.expectedSha256List
+                                                    } else {
+                                                        shaList
+                                                    }
+
                                                     UpdateDownloader.downloadAndVerifyApk(
                                                         context = context,
-                                                        downloadUrl = validUrl,
-                                                        expectedSha256List = shaList,
-                                                        versionName = activeReleaseInfo?.versionName.orEmpty(),
-                                                        fileName = targetAsset?.name
+                                                        downloadUrl = finalUrl,
+                                                        expectedSha256List = finalShaList,
+                                                        versionName = freshInfo?.versionName ?: activeReleaseInfo?.versionName.orEmpty(),
+                                                        fileName = freshAsset?.name ?: targetAsset?.name
                                                     )
                                                 }
                                             } else {

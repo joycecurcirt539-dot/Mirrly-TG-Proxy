@@ -8,6 +8,7 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.DohOkHttpDns
+import com.mirrly.tgproxy.core.UpdateChecker
 import com.mirrly.tgproxy.util.SignatureStatus
 import com.mirrly.tgproxy.util.SignatureVerifier
 import kotlinx.coroutines.Dispatchers
@@ -116,12 +117,31 @@ object UpdateDownloader {
                     _status.value = DownloadStatus.Verifying
                     val cachedSha = calculateSha256(destFile)
                     val normalizedCalculated = cachedSha.lowercase().replace(":", "").replace(" ", "")
-                    val matches = expectedSha256List.any { expected ->
+                    var cacheMatches = expectedSha256List.any { expected ->
                         val normalizedExpected = expected.lowercase().replace(":", "").replace(" ", "")
                         normalizedExpected == normalizedCalculated
                     }
-                    if (matches) {
-                        val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile, expectedSha256List)
+                    var cacheShaList = expectedSha256List
+
+                    if (!cacheMatches) {
+                        // Fallback check against fresh release notes before deleting cached file
+                        val freshReleaseResult = UpdateChecker.checkForUpdates(
+                            currentVersion = versionName,
+                            cachedEtag = null
+                        )
+                        val freshInfo = freshReleaseResult.getOrNull()
+                        val freshList = freshInfo?.expectedSha256List.orEmpty()
+                        if (freshList.any { expected ->
+                            val normalizedExpected = expected.lowercase().replace(":", "").replace(" ", "")
+                            normalizedExpected == normalizedCalculated
+                        }) {
+                            cacheMatches = true
+                            cacheShaList = freshList
+                        }
+                    }
+
+                    if (cacheMatches) {
+                        val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile, cacheShaList)
                         val isCurrentDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
                         val isAccepted = signatureStatus == SignatureStatus.OFFICIAL_RELEASE || (signatureStatus == SignatureStatus.DEBUG_BUILD && isCurrentDebug)
                         if (isAccepted) {
@@ -279,6 +299,7 @@ object UpdateDownloader {
                 }
                 AppLogger.i(TAG, "Calculated SHA-256: $calculatedSha256")
 
+                var effectiveShaList = expectedSha256List
                 if (expectedSha256List.isNotEmpty()) {
                     val normalizedCalculated = calculatedSha256.lowercase().replace(":", "").replace(" ", "")
                     val matches = expectedSha256List.any { expected ->
@@ -287,15 +308,36 @@ object UpdateDownloader {
                     }
 
                     if (!matches) {
-                        AppLogger.e(
+                        AppLogger.w(
                             TAG,
-                            "SHA-256 mismatch! Calculated: $normalizedCalculated, Expected list: $expectedSha256List"
+                            "SHA-256 mismatch with initial list. Performing fallback Force-Refresh of GitHub release notes..."
                         )
-                        destFile.delete()
-                        _status.value = DownloadStatus.Error("Ошибка целостности файла: SHA-256 не совпадает с официальным релизом!")
-                        return@withContext false
+                        val freshReleaseResult = UpdateChecker.checkForUpdates(
+                            currentVersion = versionName,
+                            cachedEtag = null
+                        )
+                        val freshInfo = freshReleaseResult.getOrNull()
+                        val freshShaList = freshInfo?.expectedSha256List.orEmpty()
+                        val freshMatches = freshShaList.any { expected ->
+                            val normalizedExpected = expected.lowercase().replace(":", "").replace(" ", "")
+                            normalizedExpected == normalizedCalculated
+                        }
+
+                        if (freshMatches) {
+                            AppLogger.i(TAG, "SHA-256 hash verified successfully after fallback force refresh against GitHub.")
+                            effectiveShaList = freshShaList
+                        } else {
+                            AppLogger.e(
+                                TAG,
+                                "SHA-256 mismatch even after force refresh! Calculated: $normalizedCalculated, Expected list: $expectedSha256List, Fresh list: $freshShaList"
+                            )
+                            destFile.delete()
+                            _status.value = DownloadStatus.Error("Ошибка целостности файла: SHA-256 не совпадает с официальным релизом!")
+                            return@withContext false
+                        }
+                    } else {
+                        AppLogger.i(TAG, "SHA-256 hash verified successfully against release notes.")
                     }
-                    AppLogger.i(TAG, "SHA-256 hash verified successfully against release notes.")
                 } else {
                     AppLogger.w(TAG, "No expected SHA-256 provided in release notes. Skipping strict verification.")
                 }
@@ -316,7 +358,7 @@ object UpdateDownloader {
 
 
                 // Step 4: Cryptographic signature verification of the downloaded APK BEFORE installation
-                val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile, expectedSha256List)
+                val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile, effectiveShaList)
                 val isCurrentDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
                 val isAccepted = signatureStatus == SignatureStatus.OFFICIAL_RELEASE || (signatureStatus == SignatureStatus.DEBUG_BUILD && isCurrentDebug)
 

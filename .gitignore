@@ -77,6 +77,10 @@ mirrlyengine/legacy/
 **/.wrangler/
 my_workers.txt
 **/my_workers.txt
+mirrly_workers.txt
+**/mirrly_workers.txt
+*workers.txt
+**/*workers.txt
 
 # Local Release APKs Cache
 ci_release_apks/

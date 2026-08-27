@@ -29,6 +29,7 @@ object UpdateManager {
     private const val KEY_CACHED_RELEASE_NOTES = "cached_release_notes"
     private const val KEY_CACHED_DOWNLOAD_URL = "cached_download_url"
     private const val KEY_CACHED_EXPECTED_SHA256 = "cached_expected_sha256"
+    private const val KEY_CACHED_EXPECTED_SHA256_LIST = "cached_expected_sha256_list"
     private const val KEY_CACHED_CHANGELOG_PREVIEW = "cached_changelog_preview"
     private const val KEY_CACHED_APK_ASSETS = "cached_apk_assets"
     private const val WORK_NAME = "mirrly_periodic_update_checker"
@@ -47,6 +48,7 @@ object UpdateManager {
             .remove(KEY_CACHED_RELEASE_NOTES)
             .remove(KEY_CACHED_DOWNLOAD_URL)
             .remove(KEY_CACHED_EXPECTED_SHA256)
+            .remove(KEY_CACHED_EXPECTED_SHA256_LIST)
             .remove(KEY_CACHED_CHANGELOG_PREVIEW)
             .remove(KEY_CACHED_APK_ASSETS)
             .remove(KEY_LAST_NOTIFIED_VERSION)
@@ -174,8 +176,25 @@ object UpdateManager {
                     val cachedNotes = prefs.getString(KEY_CACHED_RELEASE_NOTES, "") ?: ""
                     val cachedDownloadUrl = prefs.getString(KEY_CACHED_DOWNLOAD_URL, null)
                     val cachedSha256 = prefs.getString(KEY_CACHED_EXPECTED_SHA256, null)
+                    val cachedShaListJson = prefs.getString(KEY_CACHED_EXPECTED_SHA256_LIST, null)
                     val cachedPreview = prefs.getString(KEY_CACHED_CHANGELOG_PREVIEW, "") ?: ""
                     val cachedAssetsJson = prefs.getString(KEY_CACHED_APK_ASSETS, null)
+
+                    val restoredShaList = mutableListOf<String>()
+                    if (!cachedShaListJson.isNullOrBlank()) {
+                        runCatching {
+                            val arr = JSONArray(cachedShaListJson)
+                            for (i in 0 until arr.length()) {
+                                val sha = arr.optString(i, "")
+                                if (sha.isNotBlank()) {
+                                    restoredShaList.add(sha)
+                                }
+                            }
+                        }
+                    }
+                    if (restoredShaList.isEmpty() && cachedSha256 != null) {
+                        restoredShaList.add(cachedSha256)
+                    }
 
                     val restoredAssets = mutableListOf<ReleaseApkAsset>()
                     if (!cachedAssetsJson.isNullOrBlank()) {
@@ -208,7 +227,7 @@ object UpdateManager {
                         etag = info.etag ?: cachedEtag,
                         isNotModified = true,
                         expectedSha256 = if (isStillAvailable) cachedSha256 else null,
-                        expectedSha256List = if (isStillAvailable && cachedSha256 != null) listOf(cachedSha256) else emptyList(),
+                        expectedSha256List = if (isStillAvailable) restoredShaList else emptyList(),
                         changelogPreview = cachedPreview,
                         isIgnored = isCachedIgnored,
                         apkAssets = restoredAssets
@@ -243,12 +262,17 @@ object UpdateManager {
                         }
                     }.toString()
 
+                    val shaListJson = JSONArray().apply {
+                        info.expectedSha256List.forEach { put(it) }
+                    }.toString()
+
                     prefs.edit()
                         .putString(KEY_CACHED_VERSION, info.versionName)
                         .putString(KEY_CACHED_HTML_URL, info.htmlUrl)
                         .putString(KEY_CACHED_RELEASE_NOTES, info.releaseNotes)
                         .putString(KEY_CACHED_DOWNLOAD_URL, info.downloadUrl)
                         .putString(KEY_CACHED_EXPECTED_SHA256, info.expectedSha256)
+                        .putString(KEY_CACHED_EXPECTED_SHA256_LIST, shaListJson)
                         .putString(KEY_CACHED_CHANGELOG_PREVIEW, info.changelogPreview)
                         .putString(KEY_CACHED_APK_ASSETS, assetsJson)
                         .apply()

@@ -1,13 +1,90 @@
 <#
 .SYNOPSIS
     Mirrly TG Proxy — Автоматический деплой персонального Cloudflare Worker.
-    Умный интерактивный комбайн: создание, повторное использование, сведение лимитов нескольких аккаунтов.
+    Самодостаточный скрипт: JS-код воркера вшит внутрь, внешние файлы не нужны.
+    Поддерживает отмену операции на клавишу Escape на любом шаге.
 #>
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
-$HistoryFile = Join-Path $ScriptDir "my_workers.txt"
+# Файл истории воркеров сохраняется рядом с .bat файлом
+$BatDir = $env:MIRRLY_BAT_DIR
+if (-not $BatDir -or -not (Test-Path $BatDir)) {
+    if ($PSScriptRoot -and (Test-Path $PSScriptRoot)) {
+        $BatDir = $PSScriptRoot
+    } else {
+        $BatDir = [Environment]::GetFolderPath("MyDocuments")
+    }
+}
+$HistoryFile = Join-Path $BatDir "mirrly_workers.txt"
+
+# ── Вспомогательные функции ввода с поддержкой Escape ────────────────────────
+
+function Read-LineOrEscape([string]$PromptText, [string]$Hint = "(Esc — отмена)") {
+    Write-Host $PromptText -NoNewline -ForegroundColor Yellow
+    if ($Hint) {
+        Write-Host (' ' + $Hint + ': ') -NoNewline -ForegroundColor DarkGray
+    } else {
+        Write-Host ': ' -NoNewline -ForegroundColor Yellow
+    }
+
+    try {
+        $inputStr = New-Object System.Text.StringBuilder
+        while ($true) {
+            $keyInfo = [Console]::ReadKey($true)
+            if ($keyInfo.Key -eq [System.ConsoleKey]::Escape) {
+                Write-Host "`n  [!] Действие отменено (нажат Esc)." -ForegroundColor DarkYellow
+                return $null
+            }
+            if ($keyInfo.Key -eq [System.ConsoleKey]::Enter) {
+                Write-Host ""
+                return $inputStr.ToString()
+            }
+            if ($keyInfo.Key -eq [System.ConsoleKey]::Backspace) {
+                if ($inputStr.Length -gt 0) {
+                    $null = $inputStr.Remove($inputStr.Length - 1, 1)
+                    Write-Host "`b `b" -NoNewline
+                }
+            }
+            elseif (-not [char]::IsControl($keyInfo.KeyChar)) {
+                $null = $inputStr.Append($keyInfo.KeyChar)
+                Write-Host $keyInfo.KeyChar -NoNewline
+            }
+        }
+    } catch {
+        # Fallback для неинтерактивного окружения
+        return (Read-Host)
+    }
+}
+
+function Confirm-ActionOrEscape([string]$PromptText) {
+    Write-Host $PromptText -ForegroundColor Yellow
+    Write-Host "  Нажмите [Enter] для продолжения или [Esc] для отмены... " -NoNewline -ForegroundColor DarkGray
+    try {
+        while ($true) {
+            $keyInfo = [Console]::ReadKey($true)
+            if ($keyInfo.Key -eq [System.ConsoleKey]::Escape) {
+                Write-Host "`n  [!] Создание воркера отменено пользователем.`n" -ForegroundColor DarkYellow
+                return $false
+            }
+            if ($keyInfo.Key -eq [System.ConsoleKey]::Enter -or $keyInfo.Key -eq [System.ConsoleKey]::Spacebar) {
+                Write-Host "`n"
+                return $true
+            }
+        }
+    } catch {
+        return $true
+    }
+}
+
+function Wait-ReturnToMenu {
+    Write-Host "`n  Нажмите любую клавишу (или Esc) для возврата в меню..." -ForegroundColor DarkGray
+    try {
+        $null = [Console]::ReadKey($true)
+    } catch {
+        $null = Read-Host
+    }
+}
 
 # ── Функция вывода шапки ─────────────────────────────────────────────────────
 
@@ -28,7 +105,7 @@ function Check-NodeJs {
         $ver = (node --version 2>$null)
         if ($ver) { return $true }
     } catch {}
-    
+
     Show-Banner
     Write-Host "  [X] Node.js не найден в системе!" -ForegroundColor Red
     Write-Host ""
@@ -102,6 +179,8 @@ function ipToLong(ip) {
 
 function isTelegramIp(ipStr) {
   const cleanIp = ipStr.trim().toLowerCase();
+  
+  // IPv4 check
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(cleanIp)) {
     const targetLong = ipToLong(cleanIp);
     if (targetLong === null) return false;
@@ -114,9 +193,14 @@ function isTelegramIp(ipStr) {
     }
     return false;
   }
+
+  // IPv6 check
   for (const prefix of TG_IPV6_PREFIXES) {
-    if (cleanIp.startsWith(prefix)) return true;
+    if (cleanIp.startsWith(prefix)) {
+      return true;
+    }
   }
+
   return false;
 }
 
@@ -150,7 +234,7 @@ export default {
           service: "Mirrly TG Proxy Dedicated Worker",
           security: "Protected Telegram Relay (Allowlist Enforced)",
           compatible: ["Telegram MTProto", "Telegram SOCKS5", "Telegram VoIP Calls"],
-          version: "1.1.6.1",
+          version: "1.1.8.1",
           edge_colo: request.cf?.colo || "Global Anycast",
           timestamp: new Date().toISOString()
         }, null, 2),
@@ -307,10 +391,15 @@ function Deploy-Worker([string]$WorkerName) {
     Write-Host "`n  [*] Имя воркера: " -NoNewline -ForegroundColor Gray
     Write-Host "$WorkerName" -ForegroundColor Cyan
 
+    # Возможность прервать операцию перед деплоем
+    if (-not (Confirm-ActionOrEscape "  Готовность к публикации узла в Cloudflare:")) {
+        return $null
+    }
+
     $tempDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "mirrly-deploy-" + [System.Guid]::NewGuid().ToString("N"))
     $null = New-Item -ItemType Directory -Path $tempDir -Force
 
-    $workerJsPath = Join-Path $tempDir "worker.js"
+    $workerJsPath     = Join-Path $tempDir "worker.js"
     $wranglerTomlPath = Join-Path $tempDir "wrangler.toml"
 
     Set-Content -Path $workerJsPath -Value $WorkerJsCode -Encoding UTF8
@@ -350,7 +439,7 @@ compatibility_date = "2025-01-01"
 
         # Извлекаем домен из вывода wrangler
         if ($deploySuccess) {
-            $urlMatch = $deployOutput | Select-String -Pattern 'https://([a-zA-Z0-9\.\-]+\.workers\.dev)' |
+            $urlMatch = $deployOutput | Select-String -Pattern 'https://([a-zA-Z0-9.-]+.workers.dev)' |
                 Select-Object -First 1
             if ($urlMatch) {
                 $domain = $urlMatch.Matches[0].Groups[1].Value
@@ -394,7 +483,7 @@ compatibility_date = "2025-01-01"
         $dateStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
         $logLine = "$dateStr | Name: $WorkerName | Domain: $domain | Link: $deepLink"
         Add-Content -Path $HistoryFile -Value $logLine -Encoding UTF8 -ErrorAction SilentlyContinue
-        Write-Host "  [OK] Запись сохранена в файл: $HistoryFile" -ForegroundColor DarkGray
+        Write-Host "  [OK] Запись сохранена в: $HistoryFile" -ForegroundColor DarkGray
     } else {
         Write-Host "  Воркер '$WorkerName' опубликован!" -ForegroundColor Green
         Write-Host "  (Скопируйте публичный URL из Cloudflare Dashboard)`n" -ForegroundColor Yellow
@@ -444,48 +533,48 @@ Check-NodeJs
 
 :mainLoop while ($true) {
     Show-Banner
-    Write-Host "  Выберите действие:" -ForegroundColor Yellow
+    Write-Host "  Выберите действие (или нажмите Esc для выхода):" -ForegroundColor Yellow
     Write-Host "  [1] Создать новый воркер (авто-имя, 1 клик)" -ForegroundColor White
     Write-Host "  [2] Создать воркер с моим именем" -ForegroundColor White
     Write-Host "  [3] Сменить аккаунт Cloudflare (войти под другой почтой)" -ForegroundColor White
     Write-Host "  [4] Просмотреть список моих созданных воркеров" -ForegroundColor White
-    Write-Host "  [0] Выход" -ForegroundColor DarkGray
+    Write-Host "  [0] Выход (Esc)" -ForegroundColor DarkGray
     Write-Host ""
 
-    $choice = Read-Host "  Ваш выбор (0-4)"
+    $choice = Read-LineOrEscape "  Ваш выбор (0-4)" ""
 
-    switch ($choice) {
+    if ($null -eq $choice) {
+        Write-Host "`n  До свидания!`n" -ForegroundColor Cyan
+        break mainLoop
+    }
+
+    switch ($choice.Trim()) {
         "1" {
             $domain = Deploy-Worker ""
-            Write-Host ""
-            Read-Host "  Нажмите Enter, чтобы вернуться в меню..."
+            Wait-ReturnToMenu
         }
         "2" {
-            $customName = Read-Host "  Введите желаемое имя воркера (например: my-tg-worker)"
+            $customName = Read-LineOrEscape "  Введите желаемое имя воркера (например: my-tg-worker)"
             if (-not [string]::IsNullOrWhiteSpace($customName)) {
                 $domain = Deploy-Worker $customName.Trim()
             }
-            Write-Host ""
-            Read-Host "  Нажмите Enter, чтобы вернуться в меню..."
+            Wait-ReturnToMenu
         }
         "3" {
             Switch-CloudflareAccount
-            Write-Host ""
-            Read-Host "  Нажмите Enter, чтобы вернуться в меню..."
+            Wait-ReturnToMenu
         }
         "4" {
             Show-SavedWorkers
-            Read-Host "  Нажмите Enter, чтобы вернуться в меню..."
+            Wait-ReturnToMenu
         }
         "0" {
             Write-Host "`n  До свидания!`n" -ForegroundColor Cyan
             break mainLoop
         }
         default {
-            # По умолчанию - быстрое создание
-            $domain = Deploy-Worker ""
-            Write-Host ""
-            Read-Host "  Нажмите Enter, чтобы вернуться в меню..."
+            Write-Host "  [!] Некорректный выбор. Повторите ввод." -ForegroundColor DarkYellow
+            Start-Sleep -Milliseconds 800
         }
     }
 }

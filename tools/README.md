@@ -9,7 +9,7 @@
 ### 1. [`tools/deploy-worker/`](deploy-worker/) — Автодеплой Cloudflare Worker
 Интерактивный инструмент для автоматического создания, деплоя и управления личными воркерами Cloudflare:
 * **`deploy.bat`** — Запуск в 1 клик на Windows (двойным щелчком).
-* **`deploy.ps1`** — Интерактивный PowerShell скрипт (с поддержкой смены аккаунтов, истории в `my_workers.txt` и генерации ссылок `mirrly://`).
+* **`deploy.ps1`** — Интерактивный PowerShell скрипт (с поддержкой смены аккаунтов, истории в `mirrly_workers.txt` и генерации ссылок `mirrly://`).
 * **`deploy.sh`** — Версия для Linux, macOS и WSL.
 * **`worker.js`** — Исходный JS-код воркера с поддержкой `cloudflare:sockets`, TCP-туннелирования и защитой от open-relay.
 
