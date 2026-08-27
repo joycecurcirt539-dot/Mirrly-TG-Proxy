@@ -185,15 +185,12 @@ function Refresh-CloudflareAccount {
     }
 }
 
-# ── Проверка и автоустановка Node.js и Wrangler ───────────────────────────────
+# ── Проверка и автоустановка Node.js ─────────────────────────────────────────
 
 function Check-NodeJs {
     try {
         $ver = (node --version 2>$null)
-        if ($ver) {
-            Ensure-WranglerInstalled
-            return $true
-        }
+        if ($ver) { return $true }
     } catch {}
 
     $commonNodePaths = @(
@@ -206,10 +203,7 @@ function Check-NodeJs {
             $env:Path = "$p;$env:Path"
             try {
                 $ver = (node --version 2>$null)
-                if ($ver) {
-                    Ensure-WranglerInstalled
-                    return $true
-                }
+                if ($ver) { return $true }
             } catch {}
         }
     }
@@ -237,7 +231,6 @@ function Check-NodeJs {
             $verAfter = (node --version 2>$null)
             if ($verAfter) {
                 Write-Host "  [OK] Node.js ($verAfter) успешно установлен и обнаружен!`n" -ForegroundColor Green
-                Ensure-WranglerInstalled
                 Start-Sleep -Seconds 1
                 return $true
             }
@@ -249,19 +242,6 @@ function Check-NodeJs {
     Write-Host "  После установки Node.js перезапустите скрипт.`n" -ForegroundColor DarkGray
     Read-Host "  Нажмите Enter для выхода..."
     exit 1
-}
-
-function Ensure-WranglerInstalled {
-    if (Get-Command wrangler -ErrorAction SilentlyContinue) {
-        return
-    }
-    
-    # Проверяем кэш npm / global
-    Write-Host "  [*] Оптимизация сетевого стека Cloudflare Wrangler..." -ForegroundColor DarkGray
-    try {
-        # Фоновая быстрая установка глобального пакета для мгновенного отклика
-        Start-Process -FilePath "npm.cmd" -ArgumentList "install -g wrangler@3.114.1 --silent" -NoNewWindow -Wait -ErrorAction SilentlyContinue
-    } catch {}
 }
 
 # ── Встроенный JS-генератор QR-кода ──────────────────────────────────────────
@@ -418,16 +398,18 @@ function generateQR(text) {
     }
     return out;
 }
-const text = process.argv[1];
+const text = process.argv[2];
 if (text) console.log(generateQR(text));
 '@
 
     $tmpJs = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "mirrly_qr_" + [System.Guid]::NewGuid().ToString("N") + ".js")
     try {
-        [System.IO.File]::WriteAllText($tmpJs, $qrScript, [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllText($tmpJs, $qrScript, [System.Text.UTF8Encoding]::new($false))
         Write-Host "  Наведите камеру смартфона или сканер в Mirrly TG Proxy:" -ForegroundColor Yellow
-        $qrOut = node $tmpJs $Text
-        Write-Host $qrOut -ForegroundColor White
+        $qrOut = & node $tmpJs "$Text"
+        if ($qrOut) {
+            Write-Host $qrOut -ForegroundColor White
+        }
     } catch {} finally {
         Remove-Item $tmpJs -Force -ErrorAction SilentlyContinue
     }

@@ -317,7 +317,7 @@ fun LogsScreen(
                     items = displayedLogs,
                     key = { _, entry -> entry.id }
                 ) { index, entry ->
-                    LogCard(
+                    GlassLogCard(
                         entry = entry,
                         onCopy = onCopyLog,
                         modifier = Modifier.logItemCascadeEntrance(

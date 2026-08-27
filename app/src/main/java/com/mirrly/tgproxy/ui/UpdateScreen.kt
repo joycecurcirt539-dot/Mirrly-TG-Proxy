@@ -212,19 +212,21 @@ fun UpdateScreen(
     )
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
         // 1. SCROLLABLE CONTENT LAYER (Scrolls all the way under frosted top bar)
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .adaptiveContainerWidth(600.dp)
+                .fillMaxHeight()
                 .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
                 .verticalScroll(scrollState)
                 .padding(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp,
                     bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp
                 )
-                .padding(horizontal = 20.dp),
+                .adaptiveContentPadding(),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
 

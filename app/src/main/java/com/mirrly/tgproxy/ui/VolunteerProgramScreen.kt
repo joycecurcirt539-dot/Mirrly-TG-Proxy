@@ -87,18 +87,20 @@ fun VolunteerProgramScreen(
     }
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .adaptiveContainerWidth(600.dp)
+                .fillMaxHeight()
                 .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
                 .verticalScroll(scrollState)
                 .padding(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp,
                     bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
                 )
-                .padding(horizontal = 20.dp),
+                .adaptiveContentPadding(),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             // ── 1. HERO RECRUITMENT BANNER CARD ──

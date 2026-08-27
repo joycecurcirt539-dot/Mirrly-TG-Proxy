@@ -417,7 +417,8 @@ fun ProjectChronicleScreen(
     val cyanAccent = Color(0xFF00B4D8)
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
         // ── 0. BACKGROUND QUANTUM MATRIX & PARTICLES ──
         GenesisQuantumMatrixCanvas()
@@ -429,14 +430,15 @@ fun ProjectChronicleScreen(
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .adaptiveContainerWidth(600.dp)
+                .fillMaxHeight()
                 .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
                 .verticalScroll(scrollState)
                 .padding(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp,
                     bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
                 )
-                .padding(horizontal = 20.dp),
+                .adaptiveContentPadding(),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
 
