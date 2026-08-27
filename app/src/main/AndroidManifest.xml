@@ -42,6 +42,8 @@
     <application
         android:name=".MirrlyApplication"
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true"
         android:icon="@drawable/ic_launcher_mirrly"
@@ -49,6 +51,10 @@
         android:label="${appLabel}"
         android:supportsRtl="true"
         android:theme="@style/Theme.Mirrly">
+
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode" />
 
         <activity
             android:name=".ui.MainActivity"

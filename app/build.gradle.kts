@@ -183,8 +183,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
-    // Google ML Kit Barcode Scanning (Google Lens Engine for instant QR detection)
-    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // Google Play Services ML Kit Barcode Scanning (Uses OS/Google Play model, zero APK size bloat)
+    implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
 
     // ZXing Core for standalone fallback
     implementation("com.google.zxing:core:3.5.3")
