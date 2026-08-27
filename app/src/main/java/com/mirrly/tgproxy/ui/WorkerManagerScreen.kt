@@ -293,6 +293,11 @@ fun WorkerManagerScreen(
     }
 
     fun shareWorker(worker: WorkerProfile) {
+        if (worker.isDeveloperWorker) {
+            Toast.makeText(context, "Официальными воркерами разработчика делиться нельзя", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         val encodedDomain = Uri.encode(worker.domain)
         val encodedName = Uri.encode(worker.name)
         val deepLink = "mirrly://worker?domain=$encodedDomain&name=$encodedName"
@@ -865,10 +870,10 @@ fun WorkerManagerScreen(
                 }
                 ManagerSection.SHARE -> {
                     ShareWorkerContent(
-                        workers = allWorkers,
+                        workers = customWorkers,
                         activeWorkerId = activeWorkerId,
                         activeAccentColor = activeProtoColor,
-                        selectedWorker = selectedShareWorker,
+                        selectedWorker = selectedShareWorker?.takeIf { !it.isDeveloperWorker },
                         onSelectWorker = { selectedShareWorker = it },
                         onShare = { shareWorker(it) },
                         onAddWorkerClick = {
@@ -1436,43 +1441,46 @@ fun WorkerManagerScreen(
 
                 // 4-Segment Primary Section Switcher Pill ([ Воркеры ] [ Поделиться ] [ Сканер ] [ Инструкция ])
                 val sections = remember { ManagerSection.values() }
-                val sectionCapsuleWidth = 348.dp
-                val sectionCapsuleHeight = 35.dp
+                val sectionCapsuleHeight = 36.dp
                 val sectionInnerPadding = 3.dp
-                val sectionTabWidth = (sectionCapsuleWidth - sectionInnerPadding * 2) / sections.size
                 val selectedIndex = sections.indexOf(currentSection).coerceAtLeast(0)
 
-                val animatedSectionPillOffset by animateDpAsState(
-                    targetValue = sectionTabWidth * selectedIndex,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    ),
-                    label = "sectionPillOffset"
-                )
-
                 Box(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Box(
+                    BoxWithConstraints(
                         modifier = Modifier
-                            .width(sectionCapsuleWidth)
+                            .fillMaxWidth()
                             .height(sectionCapsuleHeight)
-                            .clip(RoundedCornerShape(17.dp))
+                            .clip(RoundedCornerShape(18.dp))
                             .background(Color.Transparent)
-                            .border(1.dp, Color(0xFF1E2434), RoundedCornerShape(17.dp))
+                            .border(1.dp, Color(0xFF1E2434), RoundedCornerShape(18.dp))
                             .padding(sectionInnerPadding)
                     ) {
+                        val availableWidth = maxWidth
+                        val sectionTabWidth = availableWidth / sections.size
+
+                        val animatedSectionPillOffset by animateDpAsState(
+                            targetValue = sectionTabWidth * selectedIndex,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            label = "sectionPillOffset"
+                        )
+
                         // Sliding Glowing Indicator Pill
                         Box(
                             modifier = Modifier
                                 .offset(x = animatedSectionPillOffset)
                                 .width(sectionTabWidth)
                                 .fillMaxHeight()
-                                .clip(RoundedCornerShape(14.dp))
+                                .clip(RoundedCornerShape(15.dp))
                                 .background(activeProtoColor.copy(alpha = 0.20f))
-                                .border(1.2.dp, activeProtoColor.copy(alpha = 0.85f), RoundedCornerShape(14.dp))
+                                .border(1.2.dp, activeProtoColor.copy(alpha = 0.85f), RoundedCornerShape(15.dp))
                         )
 
                         // Segment Labels Row
@@ -1486,7 +1494,7 @@ fun WorkerManagerScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .fillMaxHeight()
-                                        .clip(RoundedCornerShape(14.dp))
+                                        .clip(RoundedCornerShape(15.dp))
                                         .clickable(
                                             interactionSource = remember { MutableInteractionSource() },
                                             indication = null
@@ -1589,18 +1597,18 @@ fun WorkerManagerScreen(
                                         count = allWorkers.size,
                                         isSelected = selectedFilter == WmWorkerFilterType.ALL,
                                         activeColor = activeProtoColor,
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier.weight(0.9f),
                                         onClick = {
                                             selectedFilter = WmWorkerFilterType.ALL
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         }
                                     )
                                     SegmentedFilterChip(
-                                        title = "Официальные",
+                                        title = "Офиц.",
                                         count = devWorkers.size,
                                         isSelected = selectedFilter == WmWorkerFilterType.DEVELOPER,
                                         activeColor = activeProtoColor,
-                                        modifier = Modifier.weight(1.3f),
+                                        modifier = Modifier.weight(1.05f),
                                         onClick = {
                                             selectedFilter = WmWorkerFilterType.DEVELOPER
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1611,7 +1619,7 @@ fun WorkerManagerScreen(
                                         count = customWorkers.size,
                                         isSelected = selectedFilter == WmWorkerFilterType.CUSTOM,
                                         activeColor = activeProtoColor,
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier.weight(1.05f),
                                         onClick = {
                                             selectedFilter = WmWorkerFilterType.CUSTOM
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1926,9 +1934,15 @@ private fun SegmentedFilterChip(
         label = "chipTitle"
     )
 
+    val bgColor by animateColorAsState(
+        targetValue = if (isSelected) activeColor.copy(alpha = 0.10f) else Color(0xFF0D1322),
+        animationSpec = tween(180),
+        label = "chipBg"
+    )
+
     Surface(
         shape = RoundedCornerShape(11.dp),
-        color = Color.Transparent,
+        color = bgColor,
         border = BorderStroke(1.dp, borderColor),
         modifier = modifier
             .height(34.dp)
@@ -1945,19 +1959,25 @@ private fun SegmentedFilterChip(
             Text(
                 text = title,
                 color = titleColor,
-                fontSize = 11.5.sp,
+                fontSize = 11.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = count.toString(),
-                color = if (isSelected) activeColor else TextMuted,
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1
-            )
+            Spacer(modifier = Modifier.width(3.dp))
+            Surface(
+                shape = RoundedCornerShape(5.dp),
+                color = if (isSelected) activeColor.copy(alpha = 0.22f) else Color(0xFF1E283D).copy(alpha = 0.75f)
+            ) {
+                Text(
+                    text = count.toString(),
+                    color = if (isSelected) activeColor else TextMuted,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -3117,13 +3137,13 @@ private fun ShareWorkerContent(
                     modifier = Modifier.size(56.dp)
                 )
                 Text(
-                    text = "Нет доступных воркеров",
+                    text = "Нет личных воркеров",
                     color = TextWhite,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Добавьте или создайте свой воркер, чтобы сгенерировать QR-код и поделиться им с друзьями.",
+                    text = "Официальными узлами разработчика делиться нельзя. Добавьте или создайте свой личный воркер, чтобы сгенерировать QR-код и отправить его другу.",
                     color = TextMuted,
                     fontSize = 12.5.sp,
                     textAlign = TextAlign.Center,
