@@ -18,18 +18,25 @@
 
 package com.mirrly.tgproxy.ui
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,6 +44,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -61,6 +69,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -69,12 +78,14 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -85,7 +96,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
-import androidx.compose.ui.platform.LocalClipboardManager
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.DomainFormatStatus
 import com.mirrly.tgproxy.core.TgConstants
@@ -99,6 +109,8 @@ import kotlinx.coroutines.launch
 
 enum class ManagerSection(val title: String) {
     WORKERS("Воркеры"),
+    SHARE("Поделиться"),
+    SCANNER("Сканер"),
     GUIDE("Инструкция")
 }
 
@@ -170,6 +182,7 @@ fun WorkerManagerScreen(
     var showQrScanner by remember { mutableStateOf(false) }
     var prefillDomain by remember { mutableStateOf("") }
     var prefillName by remember { mutableStateOf("") }
+    var selectedShareWorker by remember { mutableStateOf<WorkerProfile?>(null) }
     var workerToDelete by remember { mutableStateOf<WorkerProfile?>(null) }
 
     // Guide State
@@ -186,8 +199,6 @@ fun WorkerManagerScreen(
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         onBack()
     }
-
-
 
     fun copyDeployCommandToClipboard() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -219,9 +230,15 @@ fun WorkerManagerScreen(
                 selectedFilter = filterTypes[currentIndex + 1]
             } else {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                currentSection = ManagerSection.GUIDE
-                selectedGuideTab = WmGuideTab.PC
+                currentSection = ManagerSection.SHARE
             }
+        } else if (currentSection == ManagerSection.SHARE) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            currentSection = ManagerSection.SCANNER
+        } else if (currentSection == ManagerSection.SCANNER) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            currentSection = ManagerSection.GUIDE
+            selectedGuideTab = WmGuideTab.PC
         } else {
             val currentIndex = allGuideTabs.indexOf(selectedGuideTab)
             if (currentIndex < allGuideTabs.size - 1) {
@@ -238,6 +255,12 @@ fun WorkerManagerScreen(
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 selectedFilter = filterTypes[currentIndex - 1]
             }
+        } else if (currentSection == ManagerSection.SHARE) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            currentSection = ManagerSection.WORKERS
+        } else if (currentSection == ManagerSection.SCANNER) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            currentSection = ManagerSection.SHARE
         } else {
             val currentIndex = allGuideTabs.indexOf(selectedGuideTab)
             if (currentIndex > 0) {
@@ -245,8 +268,7 @@ fun WorkerManagerScreen(
                 selectedGuideTab = allGuideTabs[currentIndex - 1]
             } else {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                currentSection = ManagerSection.WORKERS
-                selectedFilter = WmWorkerFilterType.CUSTOM
+                currentSection = ManagerSection.SCANNER
             }
         }
     }
@@ -270,22 +292,20 @@ fun WorkerManagerScreen(
     }
 
     fun shareWorker(worker: WorkerProfile) {
-        if (worker.isDeveloperWorker) {
-            Toast.makeText(context, "Официальным узлом нельзя делиться", Toast.LENGTH_SHORT).show()
-            return
-        }
         val encodedDomain = Uri.encode(worker.domain)
         val encodedName = Uri.encode(worker.name)
-        val link = "https://mirrly.app/worker?domain=$encodedDomain&name=$encodedName"
+        val deepLink = "mirrly://worker?domain=$encodedDomain&name=$encodedName"
+        val httpsLink = "https://mirrly.app/worker?domain=$encodedDomain&name=$encodedName"
 
         val shareText = buildString {
-            append("С тобой поделились ссылкой на подключение Cloudflare Worker для приложения Mirrly TG Proxy:\n\n")
-            append("Ссылка для импорта в приложение автоматически — просто нажми на неё, и у тебя откроется приложение:\n")
-            append("$link\n\n")
-            append("У тебя не открылась ссылка автоматически?\n")
-            append("Загляди в менеджер воркеров в приложении, нужно выдать разрешение!\n\n")
-            append("Чтобы добавить домен вручную, он должен соответствовать такому формату: \"${worker.domain}\"\n\n")
-            append("Следи за новыми обновлениями на GitHub:\n")
+            append("С тобой поделились подключением Cloudflare Worker для Mirrly TG Proxy:\n\n")
+            append("Имя узла: ${worker.name}\n")
+            append("Домен: ${worker.domain}\n\n")
+            append("Ссылка для импорта в приложение:\n")
+            append("$deepLink\n\n")
+            append("Веб-ссылка:\n")
+            append("$httpsLink\n\n")
+            append("Скачать актуальную сборку Mirrly TG Proxy:\n")
             append("https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases")
         }
         val intent = Intent(Intent.ACTION_SEND).apply {
@@ -575,11 +595,13 @@ fun WorkerManagerScreen(
             alphaMultiplier = 0.50f
         )
 
-        // 1. SCROLLABLE BODY CONTENT (AnimatedContent between WORKERS and GUIDE)
+        // 1. SCROLLABLE BODY CONTENT (AnimatedContent between WORKERS, SHARE, SCANNER and GUIDE)
         AnimatedContent(
             targetState = currentSection,
             transitionSpec = {
-                if (targetState == ManagerSection.GUIDE) {
+                val fromIndex = ManagerSection.values().indexOf(initialState)
+                val toIndex = ManagerSection.values().indexOf(targetState)
+                if (toIndex >= fromIndex) {
                     (slideInHorizontally(
                         animationSpec = spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow),
                         initialOffsetX = { fullWidth -> (fullWidth * 0.28f).toInt() }
@@ -738,7 +760,10 @@ fun WorkerManagerScreen(
                                         Toast.makeText(context, "Активирован: ${worker.name}", Toast.LENGTH_SHORT).show()
                                     },
                                     onShare = if (!worker.isDeveloperWorker) {
-                                        { shareWorker(worker) }
+                                        {
+                                            selectedShareWorker = worker
+                                            currentSection = ManagerSection.SHARE
+                                        }
                                     } else null,
                                     onDelete = if (!worker.isDeveloperWorker) {
                                         {
@@ -749,66 +774,53 @@ fun WorkerManagerScreen(
                                 )
                             }
 
-                            // App Links Integration Card at bottom
-                            item(key = "app_links_card") {
+                            // App Links Info Banner
+                            item(key = "deep_link_perm_info") {
                                 Surface(
                                     shape = RoundedCornerShape(13.dp),
-                                    color = Color.Transparent,
-                                    border = BorderStroke(1.dp, Color(0xFF181E2E)),
+                                    color = Color.White.copy(alpha = 0.03f),
+                                    border = BorderStroke(1.dp, Color(0xFF1E283D)),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(top = 4.dp)
+                                        .padding(top = 4.dp, bottom = 4.dp)
                                 ) {
                                     Column(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(6.dp)
-                                                    .clip(CircleShape)
-                                                    .background(activeProtoColor)
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_diag_protocol),
+                                                contentDescription = null,
+                                                tint = activeProtoColor,
+                                                modifier = Modifier.size(16.dp)
                                             )
-                                            Surface(
-                                                shape = RoundedCornerShape(5.dp),
-                                                color = Color.Transparent,
-                                                border = BorderStroke(1.dp, Color(0xFF1E283D))
-                                            ) {
-                                                Text(
-                                                    text = "Интеграция",
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = TextMuted,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
-                                                )
-                                            }
                                             Text(
-                                                text = "Открытие ссылок в приложении",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold,
+                                                text = "Импорт узлов по ссылке",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.5.sp,
                                                 color = TextWhite
                                             )
                                         }
                                         Text(
-                                            text = "Чтобы ссылки вида https://mirrly.app/worker?... открывались напрямую в приложении, включите поддержку ссылок в системных параметрах Android.",
-                                            fontSize = 12.sp,
+                                            text = "Если вы переходите по ссылке с воркером, но она открывается в браузере, а не в приложении, разрешите Mirrly TG Proxy открывать поддерживаемые ссылки по умолчанию в настройках Android.",
+                                            fontSize = 11.5.sp,
                                             color = TextMuted,
-                                            lineHeight = 16.sp
+                                            lineHeight = 15.5.sp
                                         )
                                         Surface(
-                                            shape = RoundedCornerShape(10.dp),
-                                            color = activeProtoColor.copy(alpha = 0.08f),
-                                            border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.35f)),
+                                            shape = RoundedCornerShape(9.dp),
+                                            color = activeProtoColor.copy(alpha = 0.12f),
+                                            border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.40f)),
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(36.dp)
-                                                .clip(RoundedCornerShape(10.dp))
+                                                .height(32.dp)
+                                                .clip(RoundedCornerShape(9.dp))
                                                 .springPress(onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                     try {
                                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                                             val intent = Intent(
@@ -849,6 +861,53 @@ fun WorkerManagerScreen(
                             }
                         }
                     }
+                }
+                ManagerSection.SHARE -> {
+                    ShareWorkerContent(
+                        workers = allWorkers,
+                        activeWorkerId = activeWorkerId,
+                        activeAccentColor = activeProtoColor,
+                        selectedWorker = selectedShareWorker,
+                        onSelectWorker = { selectedShareWorker = it },
+                        onShare = { shareWorker(it) },
+                        onAddWorkerClick = {
+                            prefillDomain = ""
+                            prefillName = ""
+                            showAddDialog = true
+                        },
+                        headerPadding = headerHeightDp
+                    )
+                }
+                ManagerSection.SCANNER -> {
+                    ScannerWorkerContent(
+                        activeAccentColor = activeProtoColor,
+                        onQrScanned = { rawScanned ->
+                            val parsed = WorkerDomainNormalizer.normalize(rawScanned)
+                            if (parsed.isValid) {
+                                prefillDomain = parsed.cleanDomain
+                                prefillName = parsed.suggestedName
+                                showAddDialog = true
+                                Toast.makeText(context, "QR-код распознан: ${parsed.cleanDomain}", Toast.LENGTH_SHORT).show()
+                            } else if (rawScanned.isNotBlank()) {
+                                prefillDomain = rawScanned
+                                prefillName = ""
+                                showAddDialog = true
+                            }
+                        },
+                        onPasteFromClipboard = {
+                            val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip?.getItemAt(0)?.text?.toString().orEmpty().trim()
+                            if (clip.isNotBlank()) {
+                                val parsed = WorkerDomainNormalizer.normalize(clip)
+                                prefillDomain = parsed.cleanDomain
+                                prefillName = parsed.suggestedName
+                                showAddDialog = true
+                                Toast.makeText(context, "Адрес вставлен из буфера", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Буфер обмена пуст", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        headerPadding = headerHeightDp
+                    )
                 }
                 ManagerSection.GUIDE -> {
                     LazyColumn(
@@ -1374,14 +1433,16 @@ fun WorkerManagerScreen(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
 
-                // 2-Segment Primary Section Switcher Pill ([ Воркеры ] [ Инструкция ])
-                val sectionCapsuleWidth = 240.dp
-                val sectionCapsuleHeight = 34.dp
+                // 4-Segment Primary Section Switcher Pill ([ Воркеры ] [ Поделиться ] [ Сканер ] [ Инструкция ])
+                val sections = remember { ManagerSection.values() }
+                val sectionCapsuleWidth = 348.dp
+                val sectionCapsuleHeight = 35.dp
                 val sectionInnerPadding = 3.dp
-                val sectionTabWidth = (sectionCapsuleWidth - sectionInnerPadding * 2) / 2
+                val sectionTabWidth = (sectionCapsuleWidth - sectionInnerPadding * 2) / sections.size
+                val selectedIndex = sections.indexOf(currentSection).coerceAtLeast(0)
 
                 val animatedSectionPillOffset by animateDpAsState(
-                    targetValue = if (currentSection == ManagerSection.GUIDE) sectionTabWidth else 0.dp,
+                    targetValue = sectionTabWidth * selectedIndex,
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioLowBouncy,
                         stiffness = Spring.StiffnessMediumLow
@@ -1418,56 +1479,34 @@ fun WorkerManagerScreen(
                             modifier = Modifier.fillMaxSize(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Workers Tab
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        if (currentSection != ManagerSection.WORKERS) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            currentSection = ManagerSection.WORKERS
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Воркеры",
-                                    color = if (currentSection == ManagerSection.WORKERS) activeProtoColor else TextMuted,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (currentSection == ManagerSection.WORKERS) FontWeight.Bold else FontWeight.Medium,
-                                    letterSpacing = 0.3.sp
-                                )
-                            }
-
-                            // Guide Tab
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        if (currentSection != ManagerSection.GUIDE) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            currentSection = ManagerSection.GUIDE
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Инструкция",
-                                    color = if (currentSection == ManagerSection.GUIDE) activeProtoColor else TextMuted,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (currentSection == ManagerSection.GUIDE) FontWeight.Bold else FontWeight.Medium,
-                                    letterSpacing = 0.3.sp
-                                )
+                            sections.forEach { sec ->
+                                val isSelected = currentSection == sec
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            if (currentSection != sec) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                currentSection = sec
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = sec.title,
+                                        color = if (isSelected) activeProtoColor else TextMuted,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        letterSpacing = 0.2.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
                     }
@@ -1618,7 +1657,7 @@ fun WorkerManagerScreen(
                                             .clip(RoundedCornerShape(11.dp))
                                             .springPress(onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                showQrScanner = true
+                                                currentSection = ManagerSection.SCANNER
                                             })
                                     ) {
                                         Row(
@@ -1642,6 +1681,62 @@ fun WorkerManagerScreen(
                                             )
                                         }
                                     }
+                                }
+                            }
+                        }
+                        ManagerSection.SHARE -> {
+                            Surface(
+                                shape = RoundedCornerShape(11.dp),
+                                color = AmoledSurfaceLow,
+                                border = BorderStroke(1.dp, AmoledBorder),
+                                modifier = Modifier.fillMaxWidth().height(34.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_send),
+                                        contentDescription = null,
+                                        tint = activeProtoColor,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "QR-код и быстрый импорт воркера для друзей",
+                                        color = TextMuted,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                        ManagerSection.SCANNER -> {
+                            Surface(
+                                shape = RoundedCornerShape(11.dp),
+                                color = AmoledSurfaceLow,
+                                border = BorderStroke(1.dp, AmoledBorder),
+                                modifier = Modifier.fillMaxWidth().height(34.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_diag_worker),
+                                        contentDescription = null,
+                                        tint = activeProtoColor,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Считывание QR из батника (.bat) и приложения",
+                                        color = TextMuted,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
                             }
                         }
@@ -2981,3 +3076,541 @@ private fun DeleteWorkerConfirmDialog(
         }
     }
 }
+
+@Composable
+private fun ShareWorkerContent(
+    workers: List<WorkerProfile>,
+    activeWorkerId: String,
+    activeAccentColor: Color,
+    selectedWorker: WorkerProfile?,
+    onSelectWorker: (WorkerProfile) -> Unit,
+    onShare: (WorkerProfile) -> Unit,
+    onAddWorkerClick: () -> Unit,
+    headerPadding: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val clipboardManager = LocalClipboardManager.current
+
+    val currentWorker = selectedWorker
+        ?: workers.firstOrNull { it.id == activeWorkerId }
+        ?: workers.firstOrNull()
+
+    if (currentWorker == null) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(top = headerPadding, bottom = 32.dp, start = 20.dp, end = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.padding(24.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_diag_worker),
+                    contentDescription = null,
+                    tint = TextMuted.copy(alpha = 0.5f),
+                    modifier = Modifier.size(56.dp)
+                )
+                Text(
+                    text = "Нет доступных воркеров",
+                    color = TextWhite,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Добавьте или создайте свой воркер, чтобы сгенерировать QR-код и поделиться им с друзьями.",
+                    color = TextMuted,
+                    fontSize = 12.5.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 17.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    shape = RoundedCornerShape(13.dp),
+                    color = activeAccentColor.copy(alpha = 0.14f),
+                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(13.dp))
+                        .springPress(onClick = onAddWorkerClick)
+                ) {
+                    Text(
+                        text = "+ Добавить воркер",
+                        color = activeAccentColor,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                    )
+                }
+            }
+        }
+    } else {
+        val encodedDomain = Uri.encode(currentWorker.domain)
+        val encodedName = Uri.encode(currentWorker.name)
+        val deepLink = "mirrly://worker?domain=$encodedDomain&name=$encodedName"
+
+        val qrBitmap = remember(deepLink) {
+            QrCodeGenerator.generateQrBitmap(
+                content = deepLink,
+                sizePx = 600,
+                darkColor = android.graphics.Color.WHITE,
+                lightColor = android.graphics.Color.TRANSPARENT
+            )
+        }
+
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    top = headerPadding + 8.dp,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
+                    start = 16.dp,
+                    end = 16.dp
+                ),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Worker Selector Horizontal Row
+            if (workers.size > 1) {
+                Text(
+                    text = "Выберите узел для генерации QR-кода:",
+                    color = TextMuted,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    workers.forEach { w ->
+                        val isSelected = w.id == currentWorker.id
+                        val isActive = w.id == activeWorkerId
+                        val chipBorder = if (isSelected) activeAccentColor else AmoledBorder
+                        val chipBg = if (isSelected) activeAccentColor.copy(alpha = 0.15f) else AmoledSurfaceLow
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = chipBg,
+                            border = BorderStroke(1.dp, chipBorder),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSelectWorker(w)
+                                })
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                            ) {
+                                if (isActive) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(activeAccentColor)
+                                    )
+                                }
+                                Text(
+                                    text = w.name,
+                                    color = if (isSelected) activeAccentColor else TextWhite,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // QR Code Card in Liquid Glass Amoled Style
+            Surface(
+                shape = RoundedCornerShape(26.dp),
+                color = AmoledSurfaceLow.copy(alpha = 0.92f),
+                border = BorderStroke(1.2.dp, activeAccentColor.copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Header with Worker Name Badge
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = activeAccentColor.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.35f))
+                        ) {
+                            Text(
+                                text = currentWorker.name,
+                                color = activeAccentColor,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    // QR Code Frame
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(230.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF0F1522))
+                            .border(BorderStroke(1.dp, AmoledBorder.copy(alpha = 0.9f)), RoundedCornerShape(20.dp))
+                            .padding(14.dp)
+                    ) {
+                        if (qrBitmap != null) {
+                            Image(
+                                bitmap = qrBitmap.asImageBitmap(),
+                                contentDescription = "QR код воркера",
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            CircularProgressIndicator(color = activeAccentColor, modifier = Modifier.size(36.dp))
+                        }
+                    }
+
+                    // Domain address badge
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.White.copy(alpha = 0.04f),
+                        border = BorderStroke(1.dp, Color(0xFF1E283D)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                clipboardManager.setText(AnnotatedString(currentWorker.domain))
+                                Toast.makeText(context, "Домен скопирован в буфер обмена", Toast.LENGTH_SHORT).show()
+                            }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Домен узла",
+                                    color = TextMuted,
+                                    fontSize = 10.5.sp
+                                )
+                                Text(
+                                    text = currentWorker.domain,
+                                    color = TextWhite,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_copy),
+                                contentDescription = "Копировать",
+                                tint = activeAccentColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Quick Actions Buttons Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Share to Telegram / Social Apps
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = activeAccentColor.copy(alpha = 0.16f),
+                    border = BorderStroke(1.2.dp, activeAccentColor.copy(alpha = 0.7f)),
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onShare(currentWorker)
+                        })
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_send),
+                            contentDescription = null,
+                            tint = activeAccentColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Отправить другу",
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = activeAccentColor
+                        )
+                    }
+                }
+
+                // Copy Link
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = AmoledSurfaceLow,
+                    border = BorderStroke(1.dp, AmoledBorder),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            clipboardManager.setText(AnnotatedString(deepLink))
+                            Toast.makeText(context, "Ссылка mirrly:// скопирована", Toast.LENGTH_SHORT).show()
+                        })
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(horizontal = 10.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_copy),
+                            contentDescription = null,
+                            tint = TextWhite,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Ссылка",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextWhite
+                        )
+                    }
+                }
+            }
+
+            // Info Card
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.White.copy(alpha = 0.03f),
+                border = BorderStroke(1.dp, AmoledBorder.copy(alpha = 0.6f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_info_circle),
+                        contentDescription = null,
+                        tint = activeAccentColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Ваш друг может отсканировать этот QR-код на соседней вкладке «Сканер» или перейти по скопированной ссылке для автоматического добавления узла.",
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScannerWorkerContent(
+    activeAccentColor: Color,
+    onQrScanned: (String) -> Unit,
+    onPasteFromClipboard: () -> Unit,
+    headerPadding: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasCameraPermission = isGranted
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasCameraPermission) {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(
+                top = headerPadding + 8.dp,
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
+                start = 16.dp,
+                end = 16.dp
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Camera Viewport Card
+        Surface(
+            shape = RoundedCornerShape(26.dp),
+            color = AmoledSurfaceLow.copy(alpha = 0.92f),
+            border = BorderStroke(1.2.dp, activeAccentColor.copy(alpha = 0.45f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                if (hasCameraPermission) {
+                    CameraQrScannerView(
+                        activeAccentColor = activeAccentColor,
+                        onScanned = { rawText ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onQrScanned(rawText)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(290.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(20.dp))
+                    )
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(260.dp)
+                            .background(AmoledSurface, RoundedCornerShape(20.dp))
+                            .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(20.dp))
+                            .padding(20.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_diag_worker),
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(44.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Доступ к камере отключен",
+                            color = TextWhite,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Разрешите доступ к камере в настройках устройства для работы сканера.",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = activeAccentColor.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
+                                    try {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.fromParts("package", context.packageName, null)
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {
+                                        permissionLauncher.launch(Manifest.permission.CAMERA)
+                                    }
+                                })
+                        ) {
+                            Text(
+                                text = "Предоставить доступ",
+                                color = activeAccentColor,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Subtitle
+                Text(
+                    text = "Наведите камеру на QR-код из консоли деплоя (.bat) или из приложения друга.",
+                    color = TextMuted,
+                    fontSize = 11.5.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+
+        // Quick Action: Paste from clipboard
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = AmoledSurfaceLow,
+            border = BorderStroke(1.dp, AmoledBorder),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .springPress(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onPasteFromClipboard()
+                })
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(horizontal = 14.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_copy),
+                    contentDescription = null,
+                    tint = activeAccentColor,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Вставить адрес или ссылку из буфера",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite
+                )
+            }
+        }
+    }
+}
+

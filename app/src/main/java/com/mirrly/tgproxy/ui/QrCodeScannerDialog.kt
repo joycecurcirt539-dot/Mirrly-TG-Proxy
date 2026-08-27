@@ -65,10 +65,43 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.google.zxing.*
 import com.google.zxing.common.HybridBinarizer
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ui.theme.*
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+
+object QrCodeGenerator {
+    fun generateQrBitmap(
+        content: String,
+        sizePx: Int = 512,
+        darkColor: Int = android.graphics.Color.WHITE,
+        lightColor: Int = android.graphics.Color.TRANSPARENT
+    ): android.graphics.Bitmap? {
+        if (content.isBlank()) return null
+        return try {
+            val hints = mapOf(
+                EncodeHintType.CHARACTER_SET to "UTF-8",
+                EncodeHintType.MARGIN to 1,
+                EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M
+            )
+            val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
+            val width = matrix.width
+            val height = matrix.height
+            val pixels = IntArray(width * height)
+            for (y in 0 until height) {
+                val offset = y * width
+                for (x in 0 until width) {
+                    pixels[offset + x] = if (matrix.get(x, y)) darkColor else lightColor
+                }
+            }
+            android.graphics.Bitmap.createBitmap(pixels, width, height, android.graphics.Bitmap.Config.ARGB_8888)
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
 
 @Composable
 fun QrCodeScannerDialog(
@@ -306,7 +339,7 @@ fun QrCodeScannerDialog(
 }
 
 @Composable
-private fun CameraQrScannerView(
+fun CameraQrScannerView(
     activeAccentColor: Color,
     onScanned: (String) -> Unit,
     modifier: Modifier = Modifier
