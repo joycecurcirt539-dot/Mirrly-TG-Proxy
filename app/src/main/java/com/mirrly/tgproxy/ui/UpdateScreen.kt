@@ -87,37 +87,37 @@ fun UpdateScreen(
             ReleaseApkAsset(
                 name = "app-arm64-v8a-release.apk",
                 downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-arm64-v8a-release.apk",
-                sizeBytes = 7048920L,
+                sizeBytes = 7185312L,
                 apkType = ApkType.ARM64,
-                sha256 = "69CEDDD1ACD287ACC0C9A80080E73AB080BC77EF2BFB4039BA878B12B3C18285"
+                sha256 = "1FDE62A0055BC452B5FEFB9CA77D8221486B4E0A320CEB84A9A0B9D5301ECC1D"
             ),
             ReleaseApkAsset(
                 name = "app-universal-release.apk",
                 downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-universal-release.apk",
-                sizeBytes = 16846250L,
+                sizeBytes = 17232762L,
                 apkType = ApkType.UNIVERSAL,
-                sha256 = "B6D9E950D998123273BDC70B90C172841563E5BC6B95BEDFCF9AC08FFD90E9B0"
+                sha256 = "E590DD61BDCC4466532BC0FC1B784DE3147F8C0D6BAAEC4D88251E2C0ECB51F3"
             ),
             ReleaseApkAsset(
                 name = "app-armeabi-v7a-release.apk",
                 downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-armeabi-v7a-release.apk",
-                sizeBytes = 5881380L,
+                sizeBytes = 6003316L,
                 apkType = ApkType.ARM_V7,
-                sha256 = "CA963A3AF98CF6A95BC7EB2E8DC15B3A430280BD9F74B78B97EFC3483B08C87A"
+                sha256 = "2AB5B722946E342CBCCB45A0610E9ED4477869C4B8E209EDD5F6A3518FCA8E8B"
             ),
             ReleaseApkAsset(
                 name = "app-x86_64-release.apk",
                 downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-x86_64-release.apk",
-                sizeBytes = 7408116L,
+                sizeBytes = 7548868L,
                 apkType = ApkType.X86_64,
-                sha256 = "A6B9B35B49E3D7074892D6B5DF199462A46660EC9BFC3FA2CC78B3E597236C1E"
+                sha256 = "385431F62EC2E785F680F44A0A02A1E248A6A9CAA08AF87375421F1327C8203F"
             ),
             ReleaseApkAsset(
                 name = "app-x86-release.apk",
                 downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-x86-release.apk",
-                sizeBytes = 7301380L,
+                sizeBytes = 7436556L,
                 apkType = ApkType.X86,
-                sha256 = "A4D3147850FB54B3451A155E62A8515C9258FE9E981DFA8E0E38970EE087363A"
+                sha256 = "260FA112A9BEBC66E992D72E10F05B545021FA5F96593B2C5795BBA020BA31EC"
             )
         )
     }
