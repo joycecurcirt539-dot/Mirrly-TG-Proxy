@@ -101,6 +101,7 @@ object AppLogger {
         log(LogLevel.ERROR, tag, finalMessage)
     }
 
+    @Synchronized
     fun startLogcatReader(pid: Int = -1) {
         if (isLogcatReaderStarted) return
         isLogcatReaderStarted = true

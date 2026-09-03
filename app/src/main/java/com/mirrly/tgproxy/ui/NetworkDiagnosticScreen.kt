@@ -65,7 +65,8 @@ import com.mirrly.tgproxy.ui.theme.*
 @Composable
 fun NetworkDiagnosticScreen(
     onBack: () -> Unit,
-    onOpenAnalytics: (() -> Unit)? = null
+    onOpenAnalytics: (() -> Unit)? = null,
+    onOpenSpeedTest: (() -> Unit)? = null
 ) {
     val haptic = LocalHapticFeedback.current
     val app = MirrlyApplication.instance
@@ -639,6 +640,80 @@ fun NetworkDiagnosticScreen(
                                 fontWeight = FontWeight.Medium,
                                 color = mosColor,
                                 maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── TUNNEL SPEED TEST PROMO CARD ──
+            if (onOpenSpeedTest != null) {
+                val speedTestAccent = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.White.copy(alpha = 0.03f))
+                        .border(1.dp, speedTestAccent.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenSpeedTest()
+                        }
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(speedTestAccent.copy(alpha = 0.15f))
+                                    .border(1.dp, speedTestAccent.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_refresh),
+                                    contentDescription = null,
+                                    tint = speedTestAccent,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+
+                            Column {
+                                Text(
+                                    text = "Тест скорости туннеля",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Text(
+                                    text = "Замер Download, Upload, Ping и Jitter через Cloudflare",
+                                    fontSize = 11.5.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = speedTestAccent.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, speedTestAccent.copy(alpha = 0.5f))
+                        ) {
+                            Text(
+                                text = "СТАРТ",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                color = speedTestAccent,
+                                letterSpacing = 0.8.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
                         }
                     }

@@ -25,6 +25,9 @@ class BootReceiver : BroadcastReceiver() {
             val prefsManager = PreferencesManager(context)
             val config = prefsManager.loadConfig()
 
+            // Восстановление будильников расписания после перезагрузки
+            ScheduleManager.syncSchedule(context)
+
             if (config.autostartOnBoot) {
                 AppLogger.i("BootReceiver", "Автозапуск при включении активен, запускается служба прокси...")
                 val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {

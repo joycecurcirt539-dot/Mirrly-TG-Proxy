@@ -145,6 +145,7 @@ fun DialogBackdropBox(
     content: @Composable BoxScope.() -> Unit
 ) {
     val isBlurActive = rememberDialogBlurState(blurRadiusPx = blurRadiusPx)
+    val scrimInteractionSource = remember { MutableInteractionSource() }
     val scrimColor = if (isBlurActive) {
         Color.Black.copy(alpha = 0.35f)
     } else {
@@ -156,7 +157,7 @@ fun DialogBackdropBox(
             .fillMaxSize()
             .background(scrimColor)
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = scrimInteractionSource,
                 indication = null
             ) { onDismiss() }
             .then(modifier)

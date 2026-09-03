@@ -13,7 +13,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Version](https://img.shields.io/badge/Релиз-v1.1.8.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Version](https://img.shields.io/badge/Релиз-v1.1.8.3-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Genesis](https://img.shields.io/badge/Генезис-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Stars](https://img.shields.io/github/stars/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=F5A623)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
@@ -192,11 +192,20 @@
 * **Экспоненциальное сглаживание скорости (`EmaSpeedFilter`)**: двухканальный EMA-фильтр для устранения джиттера и стабилизации UI-спидометров.
 * **Многофакторная авто-адаптация стека (`NetworkConditionEvaluator`)**: оценка RTT, джиттера, MOS, QoS и динамическое переключение `TCP_NODELAY` и размеров буфера.
 
-### Управление энергопотреблением
+### Управление энергопотреблением и фоновой работой
 
+* **Screen-Off троттлинг уведомлений (`ProxyForegroundService`)**: полная приостановка циклов обновления системных уведомлений при выключенном экране (`Intent.ACTION_SCREEN_OFF`), обеспечивающая 0 пробуждений процессора в час (0 Wakeups/hr) в режиме ожидания.
+* **On-Demand чтение системных логов (`AppLogger`)**: запуск процесса чтения logcat исключительно при активном просмотре экрана «Логи» (`LogsScreen`) и моментальное завершение процесса при закрытии вкладки.
+* **Адаптивный Watchdog воркеров (`WorkerFailoverManager`)**: активация фонового мониторинга только при фиксации деградировавших или изолированных узлов с автоматической остановкой после стабилизации.
 * **Battery & Thermal QoS (`BatteryThermalQoSEngine`)**: уменьшение пула сокетов и таймаутов при низком заряде или нагреве, восстановление при заряде выше 50% или подключении питания. Использует Android Thermal API.
 * **Adaptive Heartbeat (`AdaptiveHeartbeatEngine`)**: адаптивная частота keep-alive пингов по типу сети: Wi-Fi 45–60 сек, сотовая 15–20 сек, с учетом состояния экрана.
 * **Predictive Pre-Warm (`PredictivePreWarmManager`)**: упреждающий прогрев пула WSS-сокетов при разблокировке экрана и подключении питания (дебаунс 30 сек).
+
+### Умный таймер сна и расписание работы
+
+* **Автоотключение при старте (Auto-Stop on Start)**: возможность настройки таймера выключения прокси (5, 10, 15, 30, 60 мин) сразу при старте соединения.
+* **Таймер сна (`SleepTimerManager`)**: гибкие пресеты отключения (5 мин .. 4 часа), плавный слайдер точной настройки и быстрое продление времени в один клик.
+* **Недельный планировщик расписания (`ScheduleManager`)**: точный запуск и остановка службы через системный `AlarmManager.setExactAndAllowWhileIdle` с поддержкой режимов «Каждый день», «Будние дни», «Выходные дни» и «Выборочные дни недели». Автосинхронизация при загрузке системы (`BootReceiver`).
 
 ### Оркестратор переключения протоколов
 
@@ -505,6 +514,7 @@ cd Mirrly-TG-Proxy
 | **27.08.2026** `v1.1.8` | DoH, аналитика, QoS | DoH Race Resolver, Happy Eyeballs v2, DC-Affinity, Battery & Thermal QoS, аналитика с графиком Безье, Multi-APK Engine. |
 | **27.08.2026** `v1.1.8.1` | Редизайн таймера сна | Полная переработка диалога таймера сна под стиль менеджера воркеров, подъем кнопок управления, springPress. |
 | **27.08.2026** `v1.1.8.2` | ML Kit сканер и адаптивность | Встроенный сканер Google ML Kit Vision, генератор QR-кодов и ссылок, адаптивность интерфейса и DPI, защита бэкапа. |
+| **01.09.2026** `v1.1.8.3` | Спидтест, SOCKS5 Auth, Deep Dormancy | Тест скорости туннеля, SOCKS5-аутентификация RFC 1929, расписание и таймер сна, спящий режим Deep Dormancy. |
 
 > [!TIP]
 > В приложении встроена скрытая летопись проекта: перейдите в раздел **«О разработчике»** и нажмите **5 раз** по аватару автора или бейджу Genesis, чтобы открыть подробную историю версий.
@@ -528,9 +538,10 @@ cd Mirrly-TG-Proxy
 
 ### Охотники за багами
 
-* **[Grovymon](https://github.com/Grovymon)** — аудит безопасности ядра, выявление багов Window Insets (Redmi Note 13 Pro+ 5G, Android 16), диагностика сетевых сбоев (Issues #3, #4, #5, #7, #8).
+* **[Grovymon](https://github.com/Grovymon)** — аудит безопасности ядра, выявление багов Window Insets (Redmi Note 13 Pro+ 5G, Android 16), исследование обхода блокировок на LTE (Т-Мобайл), обнаружение пропуска Rust-ядра в релизе и инициатива внедрения авторизации SOCKS5 RFC 1929 (Issues #3, #4, #5, #7, #8, #15, #16, #18, #19, #20).
 * **[zzzxxx888207-design](https://github.com/zzzxxx888207-design)** — диагностика сброса ключа прокси в памяти (Xiaomi 12T, POCO X8 Pro Max), отладка Cloudflare Workers (Issues #1, #9, #10, #13).
-* **[BbIBux](https://github.com/BbIBux)** — диагностика загрузки медиа в MTProto (T2, Ростелеком), исправление прозрачности диалогов (Issues #11, #12, #13).
+* **[BbIBux](https://github.com/BbIBux)** — диагностика загрузки медиа в MTProto (T2, Ростелеком), исправление прозрачности диалогов, добавление личного воркера (Issues #11, #12, #17).
+* **[ustiprog](https://github.com/ustiprog)** — инициатива внедрения постоянного таймера сна (Auto-Stop on Start) и предоставление аналитики разряда аккумулятора в режиме ожидания при выключенном интернете (Issue #21).
 * **[VikKalm](https://github.com/VikKalm)** — логи и локализация блокировки воркеров в v1.1.2 на Android 13 arm64-v8a (Issue #6).
 * **[liveonloan](https://github.com/liveonloan)** — выявление визуального бага перекрытия системной навигацией кнопок таймера сна (Realme GT7, Android 16) (Issue #14).
 

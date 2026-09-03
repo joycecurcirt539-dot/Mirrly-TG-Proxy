@@ -43,6 +43,9 @@ class ProxyForegroundService : Service() {
     @Volatile
     private var isReconnectingNetwork = false
 
+    @Volatile
+    private var isScreenOn = true
+
     companion object {
         const val ACTION_START = "com.mirrly.tgproxy.START"
         const val ACTION_STOP = "com.mirrly.tgproxy.STOP"
@@ -69,17 +72,18 @@ class ProxyForegroundService : Service() {
             val app = MirrlyApplication.instance
 
             if (newType == "DISCONNECTED") {
-                AppLogger.i(TAG, "Связь с сетью потеряна (DISCONNECTED). Сброс сокетов...")
-                app.proxyServer.resetWsPool()
+                AppLogger.i(TAG, "Связь с сетью потеряна (DISCONNECTED). Перевод в спящий режим ожидания сети...")
+                app.proxyServer.setNetworkDormancy(true)
+                WorkerFailoverManager.stopRecoveryWatchdog()
                 return@NetworkChangeObserver
             }
 
             if (app.proxyServer.isRunning) {
                 val isMobile = newType.contains("Mobile", ignoreCase = true) || newType.contains("Cellular", ignoreCase = true)
-                app.proxyServer.setNetworkInterface(isMobile)
+                app.proxyServer.setNetworkInterface(isMobile, isScreenOn = isScreenOn)
 
-                // Мгновенный сброс активных сессий и прогрев сокетов на новом интерфейсе для моментального реконнекта Telegram
-                app.proxyServer.onNetworkRestored()
+                // Выход из спящего режима, сброс DoH и мгновенный прогрев сокетов
+                app.proxyServer.setNetworkDormancy(false)
 
                 if (app.config.tcpNoDelayMode == com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO) {
                     val eval = NetworkConditionEvaluator.evaluate(
@@ -187,6 +191,13 @@ class ProxyForegroundService : Service() {
         val server = app.proxyServer
         if (!server.isRunning) {
             serviceScope.launch(Dispatchers.IO) {
+                if (app.config.isSocks5Mode && !app.config.hasSocks5Auth) {
+                    val (u, p) = com.mirrly.tgproxy.core.ProxyConfig.generateRandomSocks5Credentials()
+                    app.config.socks5Username = u
+                    app.config.socks5Password = p
+                    app.prefsManager.saveConfig(app.config)
+                    com.mirrly.tgproxy.core.NativeProxy.setSocks5Auth(u, p)
+                }
                 val started = server.start(cacheDir)
                 if (started) {
                     SessionHistoryManager.onSessionStarted(
@@ -195,17 +206,25 @@ class ProxyForegroundService : Service() {
                     )
                     WorkerRequestTracker.onSessionStarted()
                     DonationManager.recordSuccessfulConnection(this@ProxyForegroundService)
+
+                    if (app.prefsManager.isAutoStopOnStartEnabled() && !SleepTimerManager.timerState.value.isActive) {
+                        val autoStopMin = app.prefsManager.getAutoStopMinutes()
+                        AppLogger.i(TAG, "Автоотключение при запуске активно: запуск таймера на $autoStopMin мин")
+                        SleepTimerManager.startTimer(this@ProxyForegroundService, autoStopMin)
+                    }
                 }
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     ProxyTileService.requestSync(this@ProxyForegroundService)
                     startNotificationUpdates()
                     startWakeLockRefresh()
+                    WorkerFailoverManager.startRecoveryWatchdogIfNeeded()
                 }
             }
         } else {
             ProxyTileService.requestSync(this)
             startNotificationUpdates()
             startWakeLockRefresh()
+            WorkerFailoverManager.startRecoveryWatchdogIfNeeded()
         }
         return START_REDELIVER_INTENT
     }
@@ -318,6 +337,7 @@ class ProxyForegroundService : Service() {
     }
 
     private fun startNotificationUpdates() {
+        if (!isScreenOn) return
         updateJob?.cancel()
         updateJob = serviceScope.launch {
             val app = MirrlyApplication.instance
@@ -327,10 +347,10 @@ class ProxyForegroundService : Service() {
 
             server.measurePingAsync()
 
-            while (isActive && server.isRunning) {
-                delay(1000)
-                secondsCounter++
-                pingCounter++
+            while (isActive && server.isRunning && isScreenOn) {
+                delay(2000)
+                secondsCounter += 2
+                pingCounter += 2
 
                 if (secondsCounter >= 10) {
                     ValueTriggerManager.addActiveSeconds(this@ProxyForegroundService, secondsCounter)
@@ -369,13 +389,27 @@ class ProxyForegroundService : Service() {
         }
     }
 
+    private fun stopNotificationUpdates() {
+        updateJob?.cancel()
+        updateJob = null
+    }
+
     private fun updateNotificationImmediately() {
         serviceScope.launch {
-            updateNotificationInternal()
+            updateNotificationInternal(force = true)
         }
     }
 
-    private fun updateNotificationInternal() {
+    @Volatile
+    private var lastNotifiedIndicator: ProxyStatusIndicator? = null
+    @Volatile
+    private var lastNotifiedTitle: String? = null
+    @Volatile
+    private var lastNotifiedText: String? = null
+    @Volatile
+    private var lastNotifiedTimestamp: Long = 0L
+
+    private fun updateNotificationInternal(force: Boolean = false) {
         val app = MirrlyApplication.instance
         val server = app.proxyServer
         if (isStopping || !server.isRunning) return
@@ -466,6 +500,20 @@ class ProxyForegroundService : Service() {
             }
         }
 
+        val now = System.currentTimeMillis()
+        val hasChanged = statusIndicator != lastNotifiedIndicator || title != lastNotifiedTitle || text != lastNotifiedText
+        val timeSinceLastNotify = now - lastNotifiedTimestamp
+
+        // Пропускаем отправку в NotificationManager, если данные не изменились и прошло менее 4 секунд
+        if (!force && !hasChanged && timeSinceLastNotify < 4000L) {
+            return
+        }
+
+        lastNotifiedIndicator = statusIndicator
+        lastNotifiedTitle = title
+        lastNotifiedText = text
+        lastNotifiedTimestamp = now
+
         val updatedNotification = NotificationHelper.buildNotification(
             context = this@ProxyForegroundService,
             statusText = title,
@@ -487,10 +535,14 @@ class ProxyForegroundService : Service() {
         if (isStopping) return
         isStopping = true
 
-        updateJob?.cancel()
-        updateJob = null
+        stopNotificationUpdates()
+        lastNotifiedIndicator = null
+        lastNotifiedTitle = null
+        lastNotifiedText = null
+        lastNotifiedTimestamp = 0L
 
         SleepTimerManager.cancelTimer(this)
+        WorkerFailoverManager.stopRecoveryWatchdog()
         networkObserver?.stop()
         networkObserver = null
         wakeLockJob?.cancel()
@@ -543,6 +595,12 @@ class ProxyForegroundService : Service() {
 
     private fun initBatteryAndThermalMonitoring() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+        isScreenOn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
+            powerManager?.isInteractive ?: true
+        } else {
+            @Suppress("DEPRECATION")
+            powerManager?.isScreenOn ?: true
+        }
 
         // 1. Android 10+ Thermal Status Listener
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
@@ -558,10 +616,33 @@ class ProxyForegroundService : Service() {
             }
         }
 
-        // 2. Battery & Power Save Broadcast Receiver
+        // 2. Battery, Screen & Power Save Broadcast Receiver
         val bReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                updateDeviceQoSState()
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> {
+                        isScreenOn = false
+                        val isMobile = networkObserver?.getCurrentNetworkTypeName()?.let {
+                            it.contains("Mobile", ignoreCase = true) || it.contains("Cellular", ignoreCase = true)
+                        } ?: false
+                        MirrlyApplication.instance.proxyServer.setNetworkInterface(isMobile, isScreenOn = false)
+                        stopNotificationUpdates()
+                        AppLogger.d(TAG, "Экран выключен: пауза фонового обновления уведомлений")
+                    }
+                    Intent.ACTION_SCREEN_ON -> {
+                        isScreenOn = true
+                        val isMobile = networkObserver?.getCurrentNetworkTypeName()?.let {
+                            it.contains("Mobile", ignoreCase = true) || it.contains("Cellular", ignoreCase = true)
+                        } ?: false
+                        MirrlyApplication.instance.proxyServer.setNetworkInterface(isMobile, isScreenOn = true)
+                        AppLogger.d(TAG, "Экран включен: возобновление обновления уведомлений")
+                        updateNotificationImmediately()
+                        startNotificationUpdates()
+                    }
+                    else -> {
+                        updateDeviceQoSState()
+                    }
+                }
             }
         }
         val filter = IntentFilter().apply {
@@ -569,12 +650,14 @@ class ProxyForegroundService : Service() {
             addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
             addAction(Intent.ACTION_POWER_CONNECTED)
             addAction(Intent.ACTION_POWER_DISCONNECTED)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
         }
         try {
             registerReceiver(bReceiver, filter)
             batteryReceiver = bReceiver
         } catch (t: Throwable) {
-            AppLogger.w(TAG, "Не удалось зарегистрировать battery receiver: ${t.message}")
+            AppLogger.w(TAG, "Не удалось зарегистрировать battery/screen receiver: ${t.message}")
         }
 
         updateDeviceQoSState()
@@ -604,7 +687,47 @@ class ProxyForegroundService : Service() {
                 isPowerSaveMode = isPowerSave,
                 thermalStatus = thermal
             )
+
+            checkBatteryGuard(
+                batteryPct = batteryPct,
+                isCharging = isCharging,
+                isPowerSave = isPowerSave
+            )
         } catch (_: Exception) {}
+    }
+
+    private fun checkBatteryGuard(batteryPct: Int, isCharging: Boolean, isPowerSave: Boolean) {
+        val app = MirrlyApplication.instance
+        val config = app.config
+        if (!config.isBatteryGuardEnabled) return
+        if (!app.proxyServer.isRunning) return
+        if (isCharging) return
+
+        if (batteryPct in 1..config.batteryGuardThreshold) {
+            AppLogger.w(TAG, "Защита аккумулятора: уровень заряда $batteryPct% упал ниже установленного порога (${config.batteryGuardThreshold}%). Остановка прокси.")
+            stopProxyWithReason("Защита аккумулятора: прокси отключен при заряде $batteryPct%")
+            return
+        }
+
+        if (config.batteryGuardStopOnPowerSave && isPowerSave) {
+            AppLogger.w(TAG, "Защита аккумулятора: активирован системный режим энергосбережения Android. Остановка прокси.")
+            stopProxyWithReason("Защита аккумулятора: включен режим энергосбережения Android")
+            return
+        }
+    }
+
+    private fun stopProxyWithReason(reason: String) {
+        serviceScope.launch(Dispatchers.Main) {
+            try {
+                Toast.makeText(applicationContext, reason, Toast.LENGTH_LONG).show()
+                val stopIntent = Intent(applicationContext, ProxyForegroundService::class.java).apply {
+                    action = ACTION_STOP
+                }
+                startService(stopIntent)
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Ошибка автоматической остановки прокси: ${e.message}")
+            }
+        }
     }
 
     override fun onDestroy() {

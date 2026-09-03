@@ -66,7 +66,7 @@ async fn handle_socks5_client(mut client: TcpStream, cancel: CancellationToken) 
     }
     let _ = sock.set_tcp_keepalive(&ka);
 
-    // 1. Handshake: Auth methods
+    // 1. Handshake: Auth methods (RFC 1928 / RFC 1929)
     let mut header = [0u8; 2];
     let auth_res = tokio::select! {
         _ = cancel.cancelled() => return,
@@ -87,8 +87,104 @@ async fn handle_socks5_client(mut client: TcpStream, cancel: CancellationToken) 
     if read_m_res.is_err() {
         return;
     }
-    if client.write_all(&[0x05, 0x00]).await.is_err() {
-        return;
+
+    let (auth_required, expected_user, expected_pass) = {
+        let auth = SOCKS5_AUTH.read();
+        let has_user = !auth.username.is_empty();
+        let has_pass = !auth.password.is_empty();
+        (has_user || has_pass, auth.username.clone(), auth.password.clone())
+    };
+
+    if auth_required {
+        // If client doesn't support Username/Password auth (0x02), reject with 0xFF (No acceptable methods)
+        if !methods.contains(&0x02) {
+            crate::lwarn!("SOCKS5 client did not offer Username/Password auth (methods: {:?})", methods);
+            let _ = client.write_all(&[0x05, 0xFF]).await;
+            return;
+        }
+
+        // Tell client to proceed with Username/Password auth (0x02)
+        if client.write_all(&[0x05, 0x02]).await.is_err() {
+            return;
+        }
+
+        // Sub-negotiation RFC 1929:
+        // +----+------+----------+------+----------+
+        // |VER | ULEN |  UNAME   | PLEN |  PASSWD  |
+        // +----+------+----------+------+----------+
+        // | 1  |  1   | 1 to 255 |  1   | 1 to 255 |
+        // +----+------+----------+------+----------+
+        let mut auth_ver_ulen = [0u8; 2];
+        let auth_sub_res = tokio::select! {
+            _ = cancel.cancelled() => return,
+            res = tokio::time::timeout(Duration::from_secs(5), client.read_exact(&mut auth_ver_ulen)) => res,
+        };
+        if auth_sub_res.is_err() || auth_sub_res.unwrap().is_err() {
+            return;
+        }
+        if auth_ver_ulen[0] != 0x01 {
+            let _ = client.write_all(&[0x01, 0xFF]).await;
+            return;
+        }
+        let ulen = auth_ver_ulen[1] as usize;
+        let mut uname_buf = vec![0u8; ulen];
+        if client.read_exact(&mut uname_buf).await.is_err() {
+            return;
+        }
+
+        let mut plen_buf = [0u8; 1];
+        if client.read_exact(&mut plen_buf).await.is_err() {
+            return;
+        }
+        let plen = plen_buf[0] as usize;
+        let mut pass_buf = vec![0u8; plen];
+        if client.read_exact(&mut pass_buf).await.is_err() {
+            return;
+        }
+
+        let given_user = String::from_utf8_lossy(&uname_buf);
+        let given_pass = String::from_utf8_lossy(&pass_buf);
+
+        if given_user == expected_user && given_pass == expected_pass {
+            // Authentication SUCCESS (0x00)
+            if client.write_all(&[0x01, 0x00]).await.is_err() {
+                return;
+            }
+        } else {
+            crate::lwarn!("SOCKS5 auth rejected: username '{}' mismatch", given_user);
+            let _ = client.write_all(&[0x01, 0xFF]).await;
+            return;
+        }
+    } else {
+        // No authentication required (open mode)
+        if methods.contains(&0x00) {
+            if client.write_all(&[0x05, 0x00]).await.is_err() {
+                return;
+            }
+        } else if methods.contains(&0x02) {
+            // If client specifically requested 0x02, gracefully accept
+            if client.write_all(&[0x05, 0x02]).await.is_err() {
+                return;
+            }
+            let mut auth_ver_ulen = [0u8; 2];
+            if client.read_exact(&mut auth_ver_ulen).await.is_err() {
+                return;
+            }
+            let ulen = auth_ver_ulen[1] as usize;
+            let mut uname_buf = vec![0u8; ulen];
+            let _ = client.read_exact(&mut uname_buf).await;
+            let mut plen_buf = [0u8; 1];
+            let _ = client.read_exact(&mut plen_buf).await;
+            let plen = plen_buf[0] as usize;
+            let mut pass_buf = vec![0u8; plen];
+            let _ = client.read_exact(&mut pass_buf).await;
+            if client.write_all(&[0x01, 0x00]).await.is_err() {
+                return;
+            }
+        } else {
+            let _ = client.write_all(&[0x05, 0xFF]).await;
+            return;
+        }
     }
 
     // 2. Request details

@@ -178,7 +178,7 @@ private val ContributorsList = listOf(
         name = "Grovymon",
         handle = "@Grovymon",
         role = "Охотник за багами & Аудит безопасности",
-        contribution = "Автор Issues #3, #4, #5, #7, #8. Обнаружил баги Window Insets под системную панель навигации (Redmi Note 13 Pro+ 5G, Android 16), залипание плашки обновления при актуальной версии, блокировки воркеров на мобильной сети Т-Мобайл и уязвимость отключенной валидации TLS-сертификатов NoServerCertVerifier.",
+        contribution = "Автор Issues #3, #4, #5, #7, #8, #15, #16, #18, #19, #20. Обнаружил баги Window Insets под системную панель навигации (Redmi Note 13 Pro+ 5G, Android 16), залипание плашки обновления, уязвимость валидации TLS-сертификатов NoServerCertVerifier, исследовал обход блокировок на LTE (Т-Мобайл), выявил пропуск Rust-ядра в релизе и инициировал внедрение обязательной авторизации SOCKS5 RFC 1929.",
         tier = ContributorTier.BUG_HUNTER,
         githubUrl = "https://github.com/Grovymon"
     ),
@@ -196,9 +196,18 @@ private val ContributorsList = listOf(
         name = "BbIBux",
         handle = "@BbIBux",
         role = "Охотник за багами & Диагностика MTProto",
-        contribution = "Автор Issues #11, #12, #13. Обнаружил сбой загрузки медиафайлов (фото и видео) в MTProto на сетях T2 и Ростелеком после удаления MsgSplitter, сообщил о дефекте прозрачности подложки диалоговых окон и исследовал доменную адресацию воркеров.",
+        contribution = "Автор Issues #11, #12, #17. Обнаружил сбой загрузки медиафайлов (фото и видео) в MTProto на сетях T2 и Ростелеком после удаления MsgSplitter, сообщил о дефекте прозрачности подложки диалоговых окон и исследовал добавление пользовательских воркеров.",
         tier = ContributorTier.BUG_HUNTER,
         githubUrl = "https://github.com/BbIBux"
+    ),
+    Contributor(
+        id = "ustiprog",
+        name = "ustiprog",
+        handle = "@ustiprog",
+        role = "Охотник за багами & Архитектор энергоэффективности",
+        contribution = "Автор Issue #21. Инициировал разработку постоянного таймера сна (Auto-Stop on Start) и предоставил детальную аналитику разряда аккумулятора в режиме ожидания при выключенном интернете, что послужило основой для реализации спящего режима Deep Dormancy и системы расписания работы.",
+        tier = ContributorTier.BUG_HUNTER,
+        githubUrl = "https://github.com/ustiprog"
     ),
     Contributor(
         id = "vikkalm",

@@ -335,6 +335,7 @@ class MainActivity : ComponentActivity() {
                 val onOpenLicense = remember { { navigateTo("license") } }
                 val onOpenTerms = remember { { navigateTo("terms") } }
                 val onOpenDiagnostics = remember { { navigateTo("diagnostics") } }
+                val onOpenSpeedTest = remember { { navigateTo("speed_test") } }
                 val onOpenWorkerAnalytics = remember { { navigateTo("worker_analytics") } }
                 val onOpenVolunteers = remember { { navigateTo("volunteers") } }
                 val onOpenHallOfFame = remember { { navigateTo("hall_of_fame") } }
@@ -455,6 +456,7 @@ class MainActivity : ComponentActivity() {
                     val isTerms = currentScreen == "terms"
                     val isUpdate = currentScreen == "update"
                     val isDiagnostic = currentScreen == "diagnostics"
+                    val isSpeedTest = currentScreen == "speed_test"
                     val isAnalytics = currentScreen == "worker_analytics"
                     val isVolunteers = currentScreen == "volunteers"
                     val isHallOfFame = currentScreen == "hall_of_fame"
@@ -541,7 +543,11 @@ class MainActivity : ComponentActivity() {
                     )
 
                     val diagnosticOffsetFraction = animateFloatAsState(
-                        targetValue = if (isDiagnostic) 0f else 1.0f,
+                        targetValue = when {
+                            isDiagnostic -> 0f
+                            isSpeedTest -> -0.15f
+                            else -> 1.0f
+                        },
                         animationSpec = tween(pushMs, easing = navEasing),
                         label = "diagnosticOffset"
                     )
@@ -554,6 +560,22 @@ class MainActivity : ComponentActivity() {
                         targetValue = if (isDiagnostic) 1.0f else 0.0f,
                         animationSpec = tween(220),
                         label = "diagnosticAlpha"
+                    )
+
+                    val speedTestOffsetFraction = animateFloatAsState(
+                        targetValue = if (isSpeedTest) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "speedTestOffset"
+                    )
+                    val speedTestScale = animateFloatAsState(
+                        targetValue = if (isSpeedTest) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "speedTestScale"
+                    )
+                    val speedTestAlpha = animateFloatAsState(
+                        targetValue = if (isSpeedTest) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "speedTestAlpha"
                     )
 
                     val analyticsOffsetFraction = animateFloatAsState(
@@ -575,7 +597,7 @@ class MainActivity : ComponentActivity() {
                     val homeOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings || isAbout || isLicense || isTerms || isUpdate || isDiagnostic || isAnalytics || isVolunteers || isHallOfFame || isChronicle -> -0.15f
+                            isSettings || isAbout || isLicense || isTerms || isUpdate || isDiagnostic || isSpeedTest || isAnalytics || isVolunteers || isHallOfFame || isChronicle -> -0.15f
                             isLogs || isHistory -> 0.15f
                             else -> 0f
                         },
@@ -780,6 +802,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenWorkerGuide = onOpenWorkerGuide,
                                 onOpenWorkerManager = onOpenWorkerManager,
                                 onOpenDiagnostics = onOpenDiagnostics,
+                                onOpenSpeedTest = onOpenSpeedTest,
                                 onDragWorkerManager = onDragWorkerManager,
                                 onSettleWorkerManager = onSettleWorkerManager,
                                 isInteractive = (currentScreen == "home")
@@ -801,7 +824,8 @@ class MainActivity : ComponentActivity() {
                         ) {
                             LogsScreen(
                                 onBack = onNavigateBack,
-                                onOpenSettings = onOpenSettings
+                                onOpenSettings = onOpenSettings,
+                                isVisible = isLogs
                             )
                         }
                     }
@@ -866,7 +890,8 @@ class MainActivity : ComponentActivity() {
                                 prefs = app.prefsManager,
                                 onBack = onNavigateBack,
                                 initialSection = workerManagerSection,
-                                onOpenAnalytics = onOpenWorkerAnalytics
+                                onOpenAnalytics = onOpenWorkerAnalytics,
+                                onOpenSpeedTest = onOpenSpeedTest
                             )
                         }
                     }
@@ -964,7 +989,26 @@ class MainActivity : ComponentActivity() {
                         ) {
                             NetworkDiagnosticScreen(
                                 onBack = onNavigateBack,
-                                onOpenAnalytics = onOpenWorkerAnalytics
+                                onOpenAnalytics = onOpenWorkerAnalytics,
+                                onOpenSpeedTest = onOpenSpeedTest
+                            )
+                        }
+                    }
+
+                    // ── 10.1 TUNNEL SPEED TEST SCREEN (Full Tab) ──
+                    if (activeScreens.contains("speed_test")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * speedTestOffsetFraction.value
+                                    scaleX = speedTestScale.value
+                                    scaleY = speedTestScale.value
+                                    alpha = speedTestAlpha.value
+                                }
+                        ) {
+                            TunnelSpeedTestScreen(
+                                onBack = onNavigateBack
                             )
                         }
                     }

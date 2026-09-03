@@ -46,7 +46,12 @@ data class ProxyConfig(
     var tcpNoDelay: Boolean = true,
     var bufferSizeBytes: Int = 262144, // 256KB default buffer
     var socks5Port: Int = 10808,
+    var socks5Username: String = "",
+    var socks5Password: String = "",
     var useDefaultWorkerSocks5: Boolean = true,
+    var isBatteryGuardEnabled: Boolean = false,
+    var batteryGuardThreshold: Int = 15,
+    var batteryGuardStopOnPowerSave: Boolean = true,
     // proxyModeName — единый источник истины (MTPROTO или SOCKS5)
     var proxyModeName: String = ProxyMode.MTPROTO.name
 ) {
@@ -66,6 +71,10 @@ data class ProxyConfig(
     /** Короткий computed helper — true если включён режим SOCKS5. */
     val isSocks5Mode: Boolean
         get() = proxyMode == ProxyMode.SOCKS5
+
+    /** True, если для SOCKS5 настроена аутентификация (логин или пароль). */
+    val hasSocks5Auth: Boolean
+        get() = socks5Username.isNotBlank() || socks5Password.isNotBlank()
 
     /** Порт, который сейчас активен (зависит от режима). */
     val activePort: Int
@@ -137,6 +146,15 @@ data class ProxyConfig(
             val randomBytes = ByteArray(16)
             java.security.SecureRandom().nextBytes(randomBytes)
             return "dd" + bytesToHex(randomBytes)
+        }
+
+        fun generateRandomSocks5Credentials(): Pair<String, String> {
+            val randomBytes = ByteArray(8)
+            java.security.SecureRandom().nextBytes(randomBytes)
+            val hex = bytesToHex(randomBytes)
+            val user = "mirrly_" + hex.take(6)
+            val pass = hex.substring(6)
+            return Pair(user, pass)
         }
     }
 }

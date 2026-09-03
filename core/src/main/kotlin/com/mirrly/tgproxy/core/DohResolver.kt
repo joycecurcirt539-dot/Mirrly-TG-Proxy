@@ -301,7 +301,7 @@ object DohResolver {
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/dns-json")
-            .header("User-Agent", "MirrlyTGProxy-DoH/1.1.8.2")
+            .header("User-Agent", "MirrlyTGProxy-DoH/1.1.8.3")
             .build()
 
         return try {

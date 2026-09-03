@@ -26,6 +26,33 @@ class Socks5ProtocolTest {
     }
 
     @Test
+    fun testSocks5AuthenticationUrlGeneration() {
+        val config = ProxyConfig(
+            bindHost = "127.0.0.1",
+            socks5Port = 10808,
+            socks5Username = "admin_user",
+            socks5Password = "secret@123!",
+            proxyModeName = ProxyMode.SOCKS5.name
+        )
+        val server = LocalProxyServer(config)
+        assertTrue(config.hasSocks5Auth)
+
+        val socksUrl = server.getTelegramSocks5Url()
+        assertEquals("tg://socks?server=127.0.0.1&port=10808&user=admin_user&pass=secret%40123%21", socksUrl)
+    }
+
+    @Test
+    fun testSocks5RandomCredentialsGeneration() {
+        val (user, pass) = ProxyConfig.generateRandomSocks5Credentials()
+        assertTrue(user.startsWith("mirrly_"))
+        assertTrue(pass.isNotBlank())
+        assertNotEquals(user, pass)
+
+        val config = ProxyConfig(socks5Username = user, socks5Password = pass)
+        assertTrue(config.hasSocks5Auth)
+    }
+
+    @Test
     fun testDcMappingForSocks5() {
         // DC1
         assertEquals(Pair(1, false), TgConstants.findDcByTarget("149.154.175.50"))
@@ -127,5 +154,21 @@ class Socks5ProtocolTest {
         // Changing worker in MTProto mode should not trigger worker update or change ping target
         mtprotoServer.onWorkerChanged("another.worker.dev")
         assertEquals("kws2.pclead.co.uk", mtprotoServer.pingEngine.target)
+    }
+
+    @Test
+    fun testBatteryGuardConfigProperties() {
+        val config = ProxyConfig()
+        assertFalse(config.isBatteryGuardEnabled)
+        assertEquals(15, config.batteryGuardThreshold)
+        assertTrue(config.batteryGuardStopOnPowerSave)
+
+        config.isBatteryGuardEnabled = true
+        config.batteryGuardThreshold = 20
+        config.batteryGuardStopOnPowerSave = false
+
+        assertTrue(config.isBatteryGuardEnabled)
+        assertEquals(20, config.batteryGuardThreshold)
+        assertFalse(config.batteryGuardStopOnPowerSave)
     }
 }

@@ -412,6 +412,9 @@ fun SettingsScreen(
             socks5PortText.toIntOrNull()?.let { it < 1 || it > 65535 } ?: socks5PortText.isNotEmpty()
         }
     }
+    var socks5UserText by remember(config.socks5Username) { mutableStateOf(config.socks5Username) }
+    var socks5PassText by remember(config.socks5Password) { mutableStateOf(config.socks5Password) }
+    var showSocks5Pass by remember { mutableStateOf(false) }
     var secretText by remember(config.secretHex) { mutableStateOf(config.secretHex) }
     var showSecret by remember { mutableStateOf(false) }
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
@@ -423,6 +426,7 @@ fun SettingsScreen(
     var infoKey by remember { mutableStateOf<String?>(null) }
     var pendingIssueRedirectUrl by remember { mutableStateOf<String?>(null) }
     val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
+    var sleepTimerInitialTab by remember { mutableStateOf(TimerDialogTab.TIMER) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showDonateConfirmDialog by remember { mutableStateOf(false) }
 
@@ -458,6 +462,26 @@ fun SettingsScreen(
         val p = socks5PortText.toIntOrNull()
         if (p != null && p in 1..65535 && p != config.socks5Port) {
             config.socks5Port = p
+            restartProxyIfNeeded()
+        }
+    }
+
+    LaunchedEffect(socks5UserText) {
+        delay(600)
+        val trimmed = socks5UserText.trim()
+        if (trimmed != config.socks5Username) {
+            config.socks5Username = trimmed
+            NativeProxy.setSocks5Auth(config.socks5Username, config.socks5Password)
+            restartProxyIfNeeded()
+        }
+    }
+
+    LaunchedEffect(socks5PassText) {
+        delay(600)
+        val trimmed = socks5PassText.trim()
+        if (trimmed != config.socks5Password) {
+            config.socks5Password = trimmed
+            NativeProxy.setSocks5Auth(config.socks5Username, config.socks5Password)
             restartProxyIfNeeded()
         }
     }
@@ -518,6 +542,29 @@ fun SettingsScreen(
                 socks5PortText = socks5PortText,
                 onSocks5PortChange = { socks5PortText = it },
                 isSocks5PortError = isSocks5PortError,
+                socks5UserText = socks5UserText,
+                onSocks5UserChange = { socks5UserText = it },
+                socks5PassText = socks5PassText,
+                onSocks5PassChange = { socks5PassText = it },
+                showSocks5Pass = showSocks5Pass,
+                onToggleShowSocks5Pass = { showSocks5Pass = !showSocks5Pass },
+                onGenerateSocks5Auth = {
+                    val (u, p) = ProxyConfig.generateRandomSocks5Credentials()
+                    socks5UserText = u
+                    socks5PassText = p
+                    config.socks5Username = u
+                    config.socks5Password = p
+                    NativeProxy.setSocks5Auth(u, p)
+                    restartProxyIfNeeded()
+                },
+                onClearSocks5Auth = {
+                    socks5UserText = ""
+                    socks5PassText = ""
+                    config.socks5Username = ""
+                    config.socks5Password = ""
+                    NativeProxy.setSocks5Auth("", "")
+                    restartProxyIfNeeded()
+                },
                 secretText = secretText,
                 onSecretChange = { secretText = it },
                 showSecret = showSecret,
@@ -566,7 +613,14 @@ fun SettingsScreen(
                     app.saveConfig()
                 },
                 timerState = timerState,
-                onOpenSleepTimer = { showSleepTimerDialog = true },
+                onOpenSleepTimer = {
+                    sleepTimerInitialTab = TimerDialogTab.TIMER
+                    showSleepTimerDialog = true
+                },
+                onOpenSchedule = {
+                    sleepTimerInitialTab = TimerDialogTab.SCHEDULE
+                    showSleepTimerDialog = true
+                },
                 onInfoClick = { infoKey = it }
             )
 
@@ -601,7 +655,10 @@ fun SettingsScreen(
         }
 
         if (showSleepTimerDialog) {
-            SleepTimerDialog(onDismiss = { showSleepTimerDialog = false })
+            SleepTimerDialog(
+                initialTab = sleepTimerInitialTab,
+                onDismiss = { showSleepTimerDialog = false }
+            )
         }
     }
 }
@@ -746,6 +803,14 @@ private fun SettingsNetworkSection(
     socks5PortText: String,
     onSocks5PortChange: (String) -> Unit,
     isSocks5PortError: Boolean,
+    socks5UserText: String,
+    onSocks5UserChange: (String) -> Unit,
+    socks5PassText: String,
+    onSocks5PassChange: (String) -> Unit,
+    showSocks5Pass: Boolean,
+    onToggleShowSocks5Pass: () -> Unit,
+    onGenerateSocks5Auth: () -> Unit,
+    onClearSocks5Auth: () -> Unit,
     secretText: String,
     onSecretChange: (String) -> Unit,
     showSecret: Boolean,
@@ -798,40 +863,7 @@ private fun SettingsNetworkSection(
                     )
                 )
             }
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("Порт SOCKS5", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    InfoButton { onInfoClick("port") }
-                }
-                OutlinedTextField(
-                    value = socks5PortText,
-                    onValueChange = onSocks5PortChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    isError = isSocks5PortError,
-                    shape = RoundedCornerShape(14.dp),
-                    supportingText = if (isSocks5PortError) {
-                        { Text("Введите число от 1 до 65535", color = Color(0xFFEF4444), fontSize = 12.sp) }
-                    } else null,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedBorderColor = if (isSocks5PortError) Color(0xFFEF4444) else ActiveGreenLed,
-                        unfocusedBorderColor = if (isSocks5PortError) Color(0xFFEF4444) else Color(0xFF1E2333),
-                        focusedTextColor = TextWhite,
-                        unfocusedTextColor = TextWhite,
-                        errorBorderColor = Color(0xFFEF4444),
-                        errorTextColor = TextWhite
-                    )
-                )
-            }
-        }
 
-        if (selectedMode == ProxyMode.MTPROTO) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -894,6 +926,175 @@ private fun SettingsNetworkSection(
                         unfocusedTextColor = TextWhite
                     )
                 )
+            }
+        } else {
+            // SOCKS5 Mode Settings
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Порт SOCKS5", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    InfoButton { onInfoClick("port") }
+                }
+                OutlinedTextField(
+                    value = socks5PortText,
+                    onValueChange = onSocks5PortChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = isSocks5PortError,
+                    shape = RoundedCornerShape(14.dp),
+                    supportingText = if (isSocks5PortError) {
+                        { Text("Введите число от 1 до 65535", color = Color(0xFFEF4444), fontSize = 12.sp) }
+                    } else null,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedBorderColor = if (isSocks5PortError) Color(0xFFEF4444) else Socks5Accent,
+                        unfocusedBorderColor = if (isSocks5PortError) Color(0xFFEF4444) else Color(0xFF1E2333),
+                        focusedTextColor = TextWhite,
+                        unfocusedTextColor = TextWhite,
+                        errorBorderColor = Color(0xFFEF4444),
+                        errorTextColor = TextWhite
+                    )
+                )
+            }
+
+            // SOCKS5 Auth Card (RFC 1929)
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.White.copy(alpha = 0.03f), RoundedCornerShape(16.dp))
+                    .border(BorderStroke(1.dp, Color(0xFF1E2433)), RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("Авторизация SOCKS5", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        InfoButton { onInfoClick("socks5_auth") }
+                    }
+
+                    val hasAuth = socks5UserText.isNotBlank() || socks5PassText.isNotBlank()
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (hasAuth) Socks5Accent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.06f),
+                        border = BorderStroke(1.dp, if (hasAuth) Socks5Accent.copy(alpha = 0.5f) else Color(0xFF1E2433))
+                    ) {
+                        Text(
+                            text = if (hasAuth) "RFC 1929" else "БЕЗ ПАРОЛЯ",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (hasAuth) Socks5Accent else TextMuted,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
+                // SOCKS5 Username
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Логин (Username)", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    OutlinedTextField(
+                        value = socks5UserText,
+                        onValueChange = onSocks5UserChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text("Без логина (открытый)", color = TextMuted, fontSize = 13.sp) },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedBorderColor = Socks5Accent,
+                            unfocusedBorderColor = Color(0xFF1E2333),
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite
+                        )
+                    )
+                }
+
+                // SOCKS5 Password
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Пароль (Password)", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    OutlinedTextField(
+                        value = socks5PassText,
+                        onValueChange = onSocks5PassChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text("Без пароля (открытый)", color = TextMuted, fontSize = 13.sp) },
+                        shape = RoundedCornerShape(12.dp),
+                        visualTransformation = if (showSocks5Pass) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(
+                                onClick = {
+                                    onToggleShowSocks5Pass()
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Crossfade(targetState = showSocks5Pass, animationSpec = tween(180), label = "socks5EyeFade") { isVisible ->
+                                    Icon(
+                                        painter = painterResource(id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye),
+                                        contentDescription = null,
+                                        tint = if (isVisible) Socks5Accent else TextMuted,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedBorderColor = Socks5Accent,
+                            unfocusedBorderColor = Color(0xFF1E2333),
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite
+                        )
+                    )
+                }
+
+                // Action buttons: Generate / Clear
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = {
+                            onGenerateSocks5Auth()
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Socks5Accent.copy(alpha = 0.18f),
+                            contentColor = Socks5Accent
+                        ),
+                        border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.4f)),
+                        modifier = Modifier.weight(1f).height(38.dp)
+                    ) {
+                        Text("Сгенерировать логин и пароль", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    if (socks5UserText.isNotBlank() || socks5PassText.isNotBlank()) {
+                        OutlinedButton(
+                            onClick = {
+                                onClearSocks5Auth()
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                            modifier = Modifier.height(38.dp)
+                        ) {
+                            Text("Очистить", color = TextWhite, fontSize = 12.sp)
+                        }
+                    }
+                }
             }
         }
     }
@@ -1305,11 +1506,13 @@ private fun SettingsSystemSection(
     onAutostartChange: (Boolean) -> Unit,
     timerState: com.mirrly.tgproxy.service.SleepTimerState,
     onOpenSleepTimer: () -> Unit,
+    onOpenSchedule: () -> Unit,
     onInfoClick: (String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     val app = MirrlyApplication.instance
     var disableAnimations by remember { mutableStateOf(app.prefsManager.areAnimationsDisabled()) }
+    val scheduleConfig = remember { app.prefsManager.loadScheduleConfig() }
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 4),
@@ -1370,6 +1573,181 @@ private fun SettingsSystemSection(
                 tint = if (timerState.isActive) ActiveGreenLed else TextMuted,
                 modifier = Modifier.size(20.dp)
             )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onOpenSchedule()
+                }
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text("Расписание работы прокси", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(
+                    text = if (scheduleConfig.isEnabled) "Включено • ${scheduleConfig.getSummaryText()}" else "Выключено • Запуск и остановка по времени",
+                    color = if (scheduleConfig.isEnabled) ActiveGreenLed else TextMuted,
+                    fontSize = 11.5.sp
+                )
+            }
+            Icon(
+                painter = painterResource(id = R.drawable.ic_chevron_right),
+                contentDescription = null,
+                tint = if (scheduleConfig.isEnabled) ActiveGreenLed else TextMuted,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        // ── ЗАЩИТА АККУМУЛЯТОРА (BATTERY SAVER GUARD) ──
+        var isBatteryGuardEnabled by remember { mutableStateOf(app.config.isBatteryGuardEnabled) }
+        var batteryGuardThreshold by remember { mutableStateOf(app.config.batteryGuardThreshold) }
+        var batteryGuardStopOnPowerSave by remember { mutableStateOf(app.config.batteryGuardStopOnPowerSave) }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.White.copy(alpha = 0.03f))
+                .border(1.dp, if (isBatteryGuardEnabled) ActiveGreenLed.copy(alpha = 0.35f) else Color(0xFF1E2333), RoundedCornerShape(18.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("Защита аккумулятора", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        InfoButton { onInfoClick("battery_guard") }
+                    }
+                    Text(
+                        text = if (isBatteryGuardEnabled) "Автоотключение при заряде ниже $batteryGuardThreshold% или энергосбережении" else "Выключена • Автоматическое сохранение заряда батареи",
+                        color = if (isBatteryGuardEnabled) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+                InertialSpringSwitch(
+                    checked = isBatteryGuardEnabled,
+                    onCheckedChange = { checked ->
+                        isBatteryGuardEnabled = checked
+                        app.config.isBatteryGuardEnabled = checked
+                        app.saveConfig()
+                    }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isBatteryGuardEnabled,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF1E2333)))
+
+                    // Threshold selector
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Порог отключения по заряду:",
+                            color = TextWhite.copy(alpha = 0.9f),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(5, 10, 15, 20, 25).forEach { threshold ->
+                                val isSelected = batteryGuardThreshold == threshold
+                                val chipBorder by animateColorAsState(
+                                    targetValue = if (isSelected) ActiveGreenLed else Color(0xFF1E2333),
+                                    animationSpec = tween(200),
+                                    label = "threshBorder_$threshold"
+                                )
+                                val chipBg by animateColorAsState(
+                                    targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.12f) else Color.Transparent,
+                                    animationSpec = tween(200),
+                                    label = "threshBg_$threshold"
+                                )
+                                val chipTextColor by animateColorAsState(
+                                    targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                                    animationSpec = tween(200),
+                                    label = "threshText_$threshold"
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(chipBg)
+                                        .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            batteryGuardThreshold = threshold
+                                            app.config.batteryGuardThreshold = threshold
+                                            app.saveConfig()
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "$threshold%",
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = chipTextColor
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Power Save Mode trigger switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = "Отключать при энергосбережении Android",
+                                color = TextWhite.copy(alpha = 0.9f),
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Срабатывает при активации системного режима экономии энергии",
+                                color = TextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                        InertialSpringSwitch(
+                            checked = batteryGuardStopOnPowerSave,
+                            onCheckedChange = { checked ->
+                                batteryGuardStopOnPowerSave = checked
+                                app.config.batteryGuardStopOnPowerSave = checked
+                                app.saveConfig()
+                            }
+                        )
+                    }
+                }
+            }
         }
 
         Row(
@@ -1874,6 +2252,16 @@ private fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
             "Оптимизирует энергопотребление и снижает нагрузку на процессор устройства.\n\nПри включении тумблера убираются фоновые визуальные частицы и тяжёлые анимации, что продлевает время автономной работы батареи и обеспечивает максимальную плавность на бюджетных устройствах."
         "protocols_info" -> "Режимы работы прокси" to
             "• MTProto (рекомендуется):\nНативный протокол Telegram с WsPool, Fake-TLS и турбо-буферами. Максимальная скорость. Используй эту ссылку: tg://proxy?...secret=dd...\n\n• SOCKS5 (для звонков и чатов):\nПрозрачный TCP relay. Telegram шифрует данные самостоятельно. Поддерживает чаты, медиа и голосовые/видеозвонки одновременно. Используй tg://socks?...\n\nПримечание: оба режима не работают одновременно — выбери один."
+        "socks5_auth" -> "Авторизация SOCKS5 (RFC 1929)" to
+            "Опциональная защита локального SOCKS5-сервера логином и паролем:\n\n• Без авторизации (по умолчанию):\nЕсли логин и пароль оставлены пустыми, прокси работает в открытом режиме. Telegram подключается без ввода учетных данных.\n\n• С логином и паролем:\nЕсли заданы логин и пароль, подключение требует успешной аутентификации по RFC 1929. При клике на «Подключить Telegram» или копировании ссылки логин и пароль автоматически добавляются в параметры tg://socks.\n\n• Безопасность:\nЗащищает локальный порт от использования сторонними приложениями."
+        "battery_guard" -> "Защита аккумулятора (Battery Saver Guard)" to
+            "Интеллектуальная защита от глубокого разряда аккумулятора при длительной работе прокси:\n\n" +
+            "• Порог отключения по заряду:\n" +
+            "Служба прокси плавно завершает активную сессию и закрывает сетевые сокеты, если уровень заряда батареи падает ниже заданного значения (от 5% до 25%).\n\n" +
+            "• Режим энергосбережения Android:\n" +
+            "Автоматическая остановка прокси при активации системного режима экономии энергии Android (Power Save Mode).\n\n" +
+            "• Исключение при зарядке:\n" +
+            "Если устройство подключено к зарядному устройству или беспроводной зарядке, прокси продолжает работать без ограничений."
         else -> return
     }
     InfoDialog(title = dlgTitle, body = dlgBody, onDismiss = onDismiss)

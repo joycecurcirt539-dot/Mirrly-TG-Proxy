@@ -81,6 +81,8 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
     )
 
+    val speedTestEngine = TunnelSpeedTestEngine()
+
     val currentPingMs: Long
         get() = pingEngine.smoothedPingMs
 
@@ -137,15 +139,25 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             ""
         }
 
+        if (config.isSocks5Mode && !config.hasSocks5Auth) {
+            val (u, p) = ProxyConfig.generateRandomSocks5Credentials()
+            config.socks5Username = u
+            config.socks5Password = p
+        }
+
         NativeProxy.setCfProxyConfig(
             enabled = useCf,
             userDomain = workerDomain
+        )
+        NativeProxy.setSocks5Auth(
+            username = config.socks5Username,
+            password = config.socks5Password
         )
 
         var code: Int
 
         if (config.isSocks5Mode) {
-            AppLogger.i("LocalProxyServer", "Запуск нативного SOCKS5 движка на порту ${config.socks5Port}...")
+            AppLogger.i("LocalProxyServer", "Запуск нативного SOCKS5 движка на порту ${config.socks5Port} (auth=${config.hasSocks5Auth})...")
             code = NativeProxy.startSocks5Proxy(
                 host = config.bindHost,
                 port = config.socks5Port,
@@ -462,6 +474,26 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         adaptiveHeartbeatEngine.isScreenOn = isScreenOn
     }
 
+    fun setNetworkDormancy(isDormant: Boolean) {
+        pingEngine.setDormant(isDormant)
+        if (isDormant) {
+            AppLogger.i("LocalProxyServer", "Вход в спящий режим ожидания сети (Deep Dormancy / Offline). Сброс сокетов и пауза фоновых опросов.")
+            stats.connectionQuality = ConnectionQuality.OFFLINE
+            stats.lastFailureType = FailureType.NETWORK_LOST
+            stats.healthVerdict = "Ожидание сети"
+            stats.healthDetail = "Связь с интернетом отсутствует. Ожидание подключения..."
+            stats.healthScore = 0
+            if (isNativeRunning) {
+                try {
+                    NativeProxy.resetNetworkSockets()
+                } catch (_: Exception) {}
+            }
+        } else {
+            AppLogger.i("LocalProxyServer", "Выход из спящего режима ожидания сети (Network Restored).")
+            onNetworkRestored()
+        }
+    }
+
     fun resetWsPool() {
         if (isNativeRunning) {
             try {
@@ -494,7 +526,16 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     }
 
     fun getTelegramSocks5Url(): String {
-        // Include empty user/pass for compatibility with all Telegram versions (NO AUTH mode)
-        return "tg://socks?server=${config.bindHost}&port=${config.activePort}&user=&pass="
+        val userParam = try {
+            java.net.URLEncoder.encode(config.socks5Username, "UTF-8")
+        } catch (_: Exception) {
+            config.socks5Username
+        }
+        val passParam = try {
+            java.net.URLEncoder.encode(config.socks5Password, "UTF-8")
+        } catch (_: Exception) {
+            config.socks5Password
+        }
+        return "tg://socks?server=${config.bindHost}&port=${config.activePort}&user=$userParam&pass=$passParam"
     }
 }

@@ -69,18 +69,47 @@ object WorkerFailoverManager {
         for (w in allWorkers) {
             circuitRecords.putIfAbsent(w.id, WorkerCircuitRecord(workerId = w.id, domain = w.domain))
         }
-
-        startRecoveryWatchdog()
     }
 
-    private fun startRecoveryWatchdog() {
+    fun startRecoveryWatchdogIfNeeded() {
+        val app = MirrlyApplication.instance
+        if (!app.proxyServer.isRunning || !app.config.isSocks5Mode || !app.prefsManager.isAutoFailoverEnabled()) return
         if (recoveryJob?.isActive == true) return
+
+        val hasOpenCircuits = circuitRecords.values.any { it.state == CircuitState.OPEN || it.state == CircuitState.HALF_OPEN }
+        if (!hasOpenCircuits) return
+
         recoveryJob = scope.launch {
+            AppLogger.d("WorkerFailover", "Запущен адаптивный Recovery Watchdog для проверки узлов в карантине")
             while (isActive) {
-                delay(15000) // Фоновый опрос каждые 15 сек
+                delay(15000)
+
+                if (!app.proxyServer.isRunning || !app.config.isSocks5Mode || !app.prefsManager.isAutoFailoverEnabled()) {
+                    AppLogger.d("WorkerFailover", "Служба прокси остановлена или failover отключен. Остановка Watchdog.")
+                    break
+                }
+
+                val openRecords = circuitRecords.values.filter { it.state == CircuitState.OPEN || it.state == CircuitState.HALF_OPEN }
+                if (openRecords.isEmpty()) {
+                    AppLogger.d("WorkerFailover", "Все узлы в статусе CLOSED. Watchdog завершил работу.")
+                    break
+                }
+
                 checkAndProbeRecoveredWorkers()
+
+                val remainingOpen = circuitRecords.values.filter { it.state == CircuitState.OPEN || it.state == CircuitState.HALF_OPEN }
+                if (remainingOpen.isEmpty()) {
+                    AppLogger.i("WorkerFailover", "Все сбойные узлы успешно восстановились. Watchdog завершил работу.")
+                    break
+                }
             }
+            recoveryJob = null
         }
+    }
+
+    fun stopRecoveryWatchdog() {
+        recoveryJob?.cancel()
+        recoveryJob = null
     }
 
     fun getCircuitRecord(workerId: String): WorkerCircuitRecord? = circuitRecords[workerId]
@@ -99,6 +128,12 @@ object WorkerFailoverManager {
         val allWorkers = app.prefsManager.getDeveloperWorkers() + app.prefsManager.getCustomWorkers()
         val activeWorker = allWorkers.find { it.id == activeId || it.domain.equals(domain, ignoreCase = true) } ?: return@withLock
 
+        // При полном отключении сетевого интерфейса (NETWORK_LOST) не наказываем воркер и не запускаем ротацию
+        if (failureType == FailureType.NETWORK_LOST) {
+            AppLogger.d("WorkerFailover", "Сетевой интерфейс отключен (NETWORK_LOST). Failover приостановлен до появления сети.")
+            return@withLock
+        }
+
         val record = circuitRecords.getOrPut(activeWorker.id) {
             WorkerCircuitRecord(workerId = activeWorker.id, domain = activeWorker.domain)
         }
@@ -113,6 +148,7 @@ object WorkerFailoverManager {
                 "$logLabel сработал для '${activeWorker.name}' (${failureType.description}). Мгновенный переход на резервный узел..."
             )
             triggerFailover(activeWorker, failureType, allWorkers)
+            startRecoveryWatchdogIfNeeded()
         }
     }
 
@@ -171,6 +207,7 @@ object WorkerFailoverManager {
             }
             record.recordFailure(FailureType.PREDICTIVE_DEGRADATION, customCooldownMs = 45_000L)
             triggerFailover(activeWorker, FailureType.PREDICTIVE_DEGRADATION, allWorkers)
+            startRecoveryWatchdogIfNeeded()
         }
     }
 

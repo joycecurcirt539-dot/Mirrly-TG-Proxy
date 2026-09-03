@@ -100,6 +100,20 @@ pub static DEV_SOCKS5_WORKERS: &[&str] = &[
 
 pub static LAST_SOCKS5_WORKER: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(String::new()));
 
+// SOCKS5 User/Password Authentication (RFC 1928 / RFC 1929)
+#[derive(Clone, Default, Debug)]
+pub struct Socks5AuthConfig {
+    pub username: String,
+    pub password: String,
+}
+
+pub static SOCKS5_AUTH: Lazy<RwLock<Socks5AuthConfig>> = Lazy::new(|| {
+    RwLock::new(Socks5AuthConfig {
+        username: String::new(),
+        password: String::new(),
+    })
+});
+
 pub static CFPROXY_ENC: &[&str] = &[
     "virkgj.com",
     "vmmzovy.com",

@@ -137,6 +137,7 @@ fun HomeScreen(
     onOpenWorkerGuide: () -> Unit = {},
     onOpenWorkerManager: () -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
+    onOpenSpeedTest: () -> Unit = {},
     onDragWorkerManager: (Float) -> Unit = {},
     onSettleWorkerManager: (Float) -> Unit = {},
     isInteractive: Boolean = true
@@ -252,6 +253,7 @@ fun HomeScreen(
     val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showConnectDialog by remember { mutableStateOf(false) }
+    var showSocks5AuthRequiredDialog by remember { mutableStateOf(false) }
 
     // Safety timeout to prevent stuck connecting/disconnecting UI
     LaunchedEffect(pendingState) {
@@ -694,6 +696,10 @@ fun HomeScreen(
                                         serviceIntent.action = ProxyForegroundService.ACTION_STOP
                                         context.startService(serviceIntent)
                                     } else {
+                                        if (app.config.isSocks5Mode && !app.config.hasSocks5Auth) {
+                                            showSocks5AuthRequiredDialog = true
+                                            return@clickable
+                                        }
                                         pendingState = ProxyUiState.CONNECTING
                                         serviceIntent.action = ProxyForegroundService.ACTION_START
                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -895,7 +901,9 @@ fun HomeScreen(
                     // User-friendly Status line (Replaces raw internal IP and socket debug counts)
                     val statusSubtitle = when (currentState) {
                         ProxyUiState.CONNECTED -> {
-                            if (app.config.cfProxyEnabled) {
+                            if (telemetry.healthVerdict.contains("Ожидание сети", ignoreCase = true) || (telemetry.healthScore == 0 && telemetry.pingMs < 0)) {
+                                "Ожидание сети • Офлайн"
+                            } else if (app.config.cfProxyEnabled) {
                                 "Cloudflare WSS • Защищено"
                             } else {
                                 "Локальный прокси • Защищено"
@@ -925,7 +933,14 @@ fun HomeScreen(
                     ) {
                         // Download Speed & Total (Weight 1f)
                         Column(
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onOpenSpeedTest()
+                                }
+                                .padding(vertical = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -969,7 +984,14 @@ fun HomeScreen(
 
                         // Upload Speed & Total (Weight 1f)
                         Column(
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onOpenSpeedTest()
+                                }
+                                .padding(vertical = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1169,6 +1191,34 @@ fun HomeScreen(
             if (showConnectDialog) {
                 TelegramConnectDialog(
                     onDismiss = { showConnectDialog = false }
+                )
+            }
+
+            if (showSocks5AuthRequiredDialog) {
+                Socks5AuthRequiredDialog(
+                    onDismiss = { showSocks5AuthRequiredDialog = false },
+                    onConfirm = { user, pass ->
+                        showSocks5AuthRequiredDialog = false
+                        app.config.socks5Username = user
+                        app.config.socks5Password = pass
+                        app.prefsManager.saveConfig(app.config)
+                        com.mirrly.tgproxy.core.NativeProxy.setSocks5Auth(user, pass)
+
+                        pendingState = ProxyUiState.CONNECTING
+                        val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
+                            action = ProxyForegroundService.ACTION_START
+                        }
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                context.startForegroundService(serviceIntent)
+                            } else {
+                                context.startService(serviceIntent)
+                            }
+                        } catch (e: Exception) {
+                            pendingState = null
+                            AppLogger.e("HomeScreen", "Ошибка запуска службы после настройки SOCKS5 auth: ${e.message}")
+                        }
+                    }
                 )
             }
         }

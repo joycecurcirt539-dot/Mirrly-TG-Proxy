@@ -38,6 +38,7 @@ interface ProxyLibrary : Library {
     fun SetCfProxyCacheDir(cacheDir: String)
     fun SetCfProxyConfig(enabled: Int, userDomain: String)
     fun SetSecret(secret: String)
+    fun SetSocks5Auth(username: String, password: String)
     fun GetSecretWithPrefix(): Pointer?
     fun GetStats(): Pointer?
     fun FreeString(p: Pointer)
@@ -138,6 +139,14 @@ object NativeProxy {
             ProxyLibrary.INSTANCE.SetSecret(secret)
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [setSecret]: ${t.message}", t)
+        }
+    }
+
+    fun setSocks5Auth(username: String, password: String) {
+        try {
+            ProxyLibrary.INSTANCE.SetSocks5Auth(username, password)
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [setSocks5Auth]: ${t.message}", t)
         }
     }
 

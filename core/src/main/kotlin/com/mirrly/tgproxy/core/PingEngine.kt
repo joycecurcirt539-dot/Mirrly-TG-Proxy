@@ -172,6 +172,10 @@ class PingEngine(
     var currentSnapshot: PingSnapshot = PingSnapshot()
         private set
 
+    @Volatile
+    var isDormant: Boolean = false
+        private set
+
     val smoothedPingMs: Long
         get() = currentSnapshot.smoothedPingMs
 
@@ -188,6 +192,10 @@ class PingEngine(
         if (workerJob?.isActive == true) return
         workerJob = scope.launch {
             while (isActive) {
+                if (isDormant) {
+                    delay(30000L)
+                    continue
+                }
                 val probe = executeProbe()
                 recordProbe(probe)
 
@@ -205,6 +213,32 @@ class PingEngine(
 
     fun reset() {
         resetInternal()
+    }
+
+    /**
+     * Переводит PingEngine в режим глубокого энергосбережения при полном отсутствии сети
+     * или мгновенно пробуждает при восстановлении интернет-соединения.
+     */
+    fun setDormant(dormant: Boolean) {
+        isDormant = dormant
+        if (dormant) {
+            currentSnapshot = currentSnapshot.copy(
+                quality = ConnectionQuality.OFFLINE,
+                lastFailureType = FailureType.NETWORK_LOST,
+                healthReport = currentSnapshot.healthReport.copy(
+                    score = 0,
+                    chatScore = 0,
+                    callScore = 0,
+                    verdict = "Нет интернет-соединения",
+                    detail = "Связь с сетью потеряна. Ожидание подключения..."
+                )
+            )
+        } else {
+            // При пробуждении запускаем немедленную быструю пробу
+            scope.launch {
+                triggerSingleProbe()
+            }
+        }
     }
 
     private fun resetInternal() {
@@ -503,14 +537,30 @@ class PingEngine(
      * Динамический интервал между пробами:
      * - При активном трафике не нагружаем радиомодем (15 сек).
      * - В покое — каждые 5 сек.
-     * - При сбоях — адаптивный backoff для быстрой диагностики (1.5с -> 3с -> 6с).
+     * - При сбоях — адаптивный backoff:
+     *   - Полное отсутствие сети (NETWORK_LOST или затяжной DNS_FAILURE) -> 5с -> 15с -> 30с (0 нагрузки на CPU и батарею).
+     *   - DPI блокировки / 429 / таймаут узла -> 1.5с -> 3с -> 6с для быстрого failover переключения.
      */
     private fun calculateNextProbeDelay(lastSuccess: Boolean): Long {
+        if (isDormant) {
+            return 30000L
+        }
         if (!lastSuccess) {
-            return when (consecutiveFailures) {
-                1 -> 1500L
-                2 -> 3000L
-                else -> 6000L
+            val isTotalOutage = lastFailureType == FailureType.NETWORK_LOST ||
+                    (lastFailureType == FailureType.DNS_FAILURE && consecutiveFailures >= 3)
+
+            return if (isTotalOutage) {
+                when {
+                    consecutiveFailures <= 2 -> 5000L
+                    consecutiveFailures <= 5 -> 15000L
+                    else -> 30000L
+                }
+            } else {
+                when (consecutiveFailures) {
+                    1 -> 1500L
+                    2 -> 3000L
+                    else -> 6000L
+                }
             }
         }
         val throughput = trafficThroughputProvider()

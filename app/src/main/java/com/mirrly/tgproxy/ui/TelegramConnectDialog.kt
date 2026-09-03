@@ -53,6 +53,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.ui.theme.*
 
 @Composable
@@ -65,7 +66,7 @@ fun TelegramConnectDialog(
     val server = app.proxyServer
 
     val mtprotoUrl = remember(app.config.secretHex, app.config.bindHost, app.config.bindPort) { server.getTelegramProxyUrl() }
-    val socks5Url = remember(app.config.bindHost, app.config.activePort) { server.getTelegramSocks5Url() }
+    val socks5Url = remember(app.config.bindHost, app.config.activePort, app.config.socks5Username, app.config.socks5Password) { server.getTelegramSocks5Url() }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -281,6 +282,34 @@ fun TelegramConnectDialog(
                             lineHeight = 17.sp
                         )
 
+                        if (app.config.hasSocks5Auth) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.White.copy(alpha = 0.04f),
+                                border = BorderStroke(1.dp, Color(0xFF1E2433)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Логин: ${app.config.socks5Username.ifEmpty { "—" }}",
+                                        fontSize = 11.sp,
+                                        color = TextWhite.copy(alpha = 0.85f),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "Пароль: ${if (app.config.socks5Password.isNotEmpty()) "••••••••" else "—"}",
+                                        fontSize = 11.sp,
+                                        color = TextWhite.copy(alpha = 0.85f),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -288,6 +317,13 @@ fun TelegramConnectDialog(
                             Button(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (!app.config.hasSocks5Auth) {
+                                        val (u, p) = ProxyConfig.generateRandomSocks5Credentials()
+                                        app.config.socks5Username = u
+                                        app.config.socks5Password = p
+                                        app.prefsManager.saveConfig(app.config)
+                                        com.mirrly.tgproxy.core.NativeProxy.setSocks5Auth(u, p)
+                                    }
                                     if (!app.config.isSocks5Mode) {
                                         app.config.proxyModeName = com.mirrly.tgproxy.core.ProxyMode.SOCKS5.name
                                         app.prefsManager.saveConfig(app.config)
@@ -296,7 +332,7 @@ fun TelegramConnectDialog(
                                         }
                                     }
                                     onDismiss()
-                                    applyToTelegramPackages(context, socks5Url)
+                                    applyToTelegramPackages(context, server.getTelegramSocks5Url())
                                 },
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(

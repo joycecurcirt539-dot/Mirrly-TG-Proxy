@@ -148,7 +148,8 @@ fun WorkerManagerScreen(
     prefs: PreferencesManager,
     onBack: () -> Unit,
     initialSection: ManagerSection = ManagerSection.WORKERS,
-    onOpenAnalytics: (() -> Unit)? = null
+    onOpenAnalytics: (() -> Unit)? = null,
+    onOpenSpeedTest: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current

@@ -360,6 +360,18 @@ pub unsafe extern "C" fn SetSecret(c_secret: *const c_char) {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn SetSocks5Auth(
+    c_username: *const c_char,
+    c_password: *const c_char,
+) {
+    let username = cstr_to_string(c_username);
+    let password = cstr_to_string(c_password);
+    let mut auth = SOCKS5_AUTH.write();
+    auth.username = username;
+    auth.password = password;
+}
+
+#[no_mangle]
 pub extern "C" fn GetStats() -> *mut c_char {
     let s = STATS.summary();
     CString::new(s).unwrap_or_default().into_raw()

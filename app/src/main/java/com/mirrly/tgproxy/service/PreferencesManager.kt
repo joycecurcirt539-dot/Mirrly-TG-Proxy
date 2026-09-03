@@ -87,6 +87,8 @@ class PreferencesManager(context: Context) {
         val tcpNoDelay = prefs.getBoolean("tcp_nodelay", defaults.tcpNoDelay)
         val bufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
         val socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
+        val socks5Username = prefs.getString("socks5_username", defaults.socks5Username) ?: defaults.socks5Username
+        val socks5Password = prefs.getString("socks5_password", defaults.socks5Password) ?: defaults.socks5Password
         val useDefaultWorkerSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
 
         // Миграция: если proxy_mode ещё не сохранён, читаем старый socks5_enabled
@@ -97,6 +99,10 @@ class PreferencesManager(context: Context) {
             if (prefs.getBoolean("socks5_enabled", false)) ProxyMode.SOCKS5.name
             else ProxyMode.MTPROTO.name
         }
+
+        val isBatteryGuardEnabled = prefs.getBoolean("is_battery_guard_enabled", defaults.isBatteryGuardEnabled)
+        val batteryGuardThreshold = prefs.getInt("battery_guard_threshold", defaults.batteryGuardThreshold)
+        val batteryGuardStopOnPowerSave = prefs.getBoolean("battery_guard_stop_on_powersave", defaults.batteryGuardStopOnPowerSave)
 
         return ProxyConfig(
             bindHost = bindHost,
@@ -111,7 +117,12 @@ class PreferencesManager(context: Context) {
             tcpNoDelay = tcpNoDelay,
             bufferSizeBytes = bufferSizeBytes,
             socks5Port = socks5Port,
+            socks5Username = socks5Username,
+            socks5Password = socks5Password,
             useDefaultWorkerSocks5 = useDefaultWorkerSocks5,
+            isBatteryGuardEnabled = isBatteryGuardEnabled,
+            batteryGuardThreshold = batteryGuardThreshold,
+            batteryGuardStopOnPowerSave = batteryGuardStopOnPowerSave,
             proxyModeName = proxyModeName
         )
     }
@@ -148,7 +159,12 @@ class PreferencesManager(context: Context) {
             .putBoolean("tcp_nodelay", config.tcpNoDelay)
             .putInt("buffer_size_bytes", config.bufferSizeBytes)
             .putInt("socks5_port", config.socks5Port)
+            .putString("socks5_username", config.socks5Username)
+            .putString("socks5_password", config.socks5Password)
             .putBoolean("use_default_worker_socks5", config.useDefaultWorkerSocks5)
+            .putBoolean("is_battery_guard_enabled", config.isBatteryGuardEnabled)
+            .putInt("battery_guard_threshold", config.batteryGuardThreshold)
+            .putBoolean("battery_guard_stop_on_powersave", config.batteryGuardStopOnPowerSave)
             .putString("proxy_mode", config.proxyModeName)
             .apply()
         _isSocks5Flow.value = config.isSocks5Mode
@@ -348,5 +364,67 @@ class PreferencesManager(context: Context) {
         val cleanIgnored = com.mirrly.tgproxy.core.UpdateChecker.cleanVersionString(ignored)
         val cleanVersion = com.mirrly.tgproxy.core.UpdateChecker.cleanVersionString(version)
         return cleanIgnored.isNotBlank() && cleanIgnored == cleanVersion
+    }
+
+    // ── Auto-Stop on Start Settings ─────────────────────────────────────────
+
+    fun isAutoStopOnStartEnabled(): Boolean {
+        return prefs.getBoolean("auto_stop_on_start_enabled", false)
+    }
+
+    fun setAutoStopOnStartEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("auto_stop_on_start_enabled", enabled).apply()
+    }
+
+    fun getAutoStopMinutes(): Int {
+        return prefs.getInt("auto_stop_minutes", 5)
+    }
+
+    fun setAutoStopMinutes(minutes: Int) {
+        prefs.edit().putInt("auto_stop_minutes", minutes.coerceIn(1, 360)).apply()
+    }
+
+    // ── Proxy Schedule Settings ─────────────────────────────────────────────
+
+    fun loadScheduleConfig(): ScheduleConfig {
+        val isEnabled = prefs.getBoolean("schedule_enabled", false)
+        val startHour = prefs.getInt("schedule_start_hour", 8)
+        val startMinute = prefs.getInt("schedule_start_minute", 0)
+        val stopHour = prefs.getInt("schedule_stop_hour", 23)
+        val stopMinute = prefs.getInt("schedule_stop_minute", 0)
+        val daysModeStr = prefs.getString("schedule_days_mode", ScheduleDaysMode.EVERY_DAY.name)
+        val daysMode = ScheduleDaysMode.fromName(daysModeStr)
+        val customDaysSet = prefs.getStringSet("schedule_custom_days", null)
+        val customDays = customDaysSet?.mapNotNull { it.toIntOrNull() }?.toSet() ?: setOf(
+            java.util.Calendar.MONDAY,
+            java.util.Calendar.TUESDAY,
+            java.util.Calendar.WEDNESDAY,
+            java.util.Calendar.THURSDAY,
+            java.util.Calendar.FRIDAY,
+            java.util.Calendar.SATURDAY,
+            java.util.Calendar.SUNDAY
+        )
+
+        return ScheduleConfig(
+            isEnabled = isEnabled,
+            startHour = startHour,
+            startMinute = startMinute,
+            stopHour = stopHour,
+            stopMinute = stopMinute,
+            daysMode = daysMode,
+            customDays = customDays
+        )
+    }
+
+    fun saveScheduleConfig(config: ScheduleConfig) {
+        prefs.edit()
+            .putBoolean("schedule_enabled", config.isEnabled)
+            .putInt("schedule_start_hour", config.startHour)
+            .putInt("schedule_start_minute", config.startMinute)
+            .putInt("schedule_stop_hour", config.stopHour)
+            .putInt("schedule_stop_minute", config.stopMinute)
+            .putString("schedule_days_mode", config.daysMode.name)
+            .putStringSet("schedule_custom_days", config.customDays.map { it.toString() }.toSet())
+            .apply()
     }
 }

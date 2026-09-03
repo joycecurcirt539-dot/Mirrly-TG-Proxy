@@ -121,6 +121,12 @@ object ProtocolSwitchManager {
 
                     // PHASE 2: 1-SECOND CALM DARK PAUSE & THEME ACCENT MORPH
                     // Switch mode and persist config during the dark pause
+                    if (newTarget == ProxyMode.SOCKS5 && !app.config.hasSocks5Auth) {
+                        val (u, p) = com.mirrly.tgproxy.core.ProxyConfig.generateRandomSocks5Credentials()
+                        app.config.socks5Username = u
+                        app.config.socks5Password = p
+                        com.mirrly.tgproxy.core.NativeProxy.setSocks5Auth(u, p)
+                    }
                     app.config.proxyModeName = newTarget.name
                     _targetMode.value = newTarget
                     withContext(Dispatchers.IO) {

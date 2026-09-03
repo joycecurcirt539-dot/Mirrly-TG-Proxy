@@ -88,7 +88,8 @@ private fun matchesFilter(entry: LogEntry, query: String, level: LogLevel?): Boo
 @Composable
 fun LogsScreen(
     onBack: () -> Unit,
-    onOpenSettings: (() -> Unit)? = null
+    onOpenSettings: (() -> Unit)? = null,
+    isVisible: Boolean = true
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -96,6 +97,16 @@ fun LogsScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+
+    // Start logcat reader on demand ONLY when LogsScreen is active and visible
+    DisposableEffect(isVisible) {
+        if (isVisible) {
+            AppLogger.startLogcatReader(android.os.Process.myPid())
+        }
+        onDispose {
+            AppLogger.stopLogcatReader()
+        }
+    }
 
     var isSearchVisible by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }

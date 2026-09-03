@@ -81,43 +81,43 @@ fun UpdateScreen(
     }
     val devicePrimaryType = remember(supportedAbis) { ApkType.fromAbis(supportedAbis) }
 
-    // ── Default Fallback Assets for v1.1.8.2 (Always available for reinstallation) ──
+    // ── Default Fallback Assets for v1.1.8.3 (Always available for reinstallation) ──
     val defaultReleaseAssets = remember {
         listOf(
             ReleaseApkAsset(
                 name = "app-arm64-v8a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-arm64-v8a-release.apk",
-                sizeBytes = 7048796L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-arm64-v8a-release.apk",
+                sizeBytes = 7048920L,
                 apkType = ApkType.ARM64,
-                sha256 = "1434D2E2F67A151B822FECA5CD4CB65655BB6B181D0ECCC68A28F0BF5E0B2F17"
+                sha256 = "69CEDDD1ACD287ACC0C9A80080E73AB080BC77EF2BFB4039BA878B12B3C18285"
             ),
             ReleaseApkAsset(
                 name = "app-universal-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-universal-release.apk",
-                sizeBytes = 16846126L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-universal-release.apk",
+                sizeBytes = 16846250L,
                 apkType = ApkType.UNIVERSAL,
-                sha256 = "217E57B75392629EF54C056A20D96354232045F8184D6937C2C976FDE5725F2C"
+                sha256 = "B6D9E950D998123273BDC70B90C172841563E5BC6B95BEDFCF9AC08FFD90E9B0"
             ),
             ReleaseApkAsset(
                 name = "app-armeabi-v7a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-armeabi-v7a-release.apk",
-                sizeBytes = 5881256L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-armeabi-v7a-release.apk",
+                sizeBytes = 5881380L,
                 apkType = ApkType.ARM_V7,
-                sha256 = "082958058F34C4231883D607A3F4AAFE67CFE52C622937C9E0E7911965577AF8"
+                sha256 = "CA963A3AF98CF6A95BC7EB2E8DC15B3A430280BD9F74B78B97EFC3483B08C87A"
             ),
             ReleaseApkAsset(
                 name = "app-x86_64-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-x86_64-release.apk",
-                sizeBytes = 7407992L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-x86_64-release.apk",
+                sizeBytes = 7408116L,
                 apkType = ApkType.X86_64,
-                sha256 = "556092D75E5DE2F56541815A04C1DD0FBCC152B15F57BDBB50A6D06BA302A11A"
+                sha256 = "A6B9B35B49E3D7074892D6B5DF199462A46660EC9BFC3FA2CC78B3E597236C1E"
             ),
             ReleaseApkAsset(
                 name = "app-x86-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-x86-release.apk",
-                sizeBytes = 7301256L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-x86-release.apk",
+                sizeBytes = 7301380L,
                 apkType = ApkType.X86,
-                sha256 = "0FFBFB8152CAB3C9C0B2C3CCABBF8F7FCC1747367DBB6B5F9661A5C6DEE3839E"
+                sha256 = "A4D3147850FB54B3451A155E62A8515C9258FE9E981DFA8E0E38970EE087363A"
             )
         )
     }
@@ -135,8 +135,8 @@ fun UpdateScreen(
                 isUpdateAvailable = true
             )).copy(
                 isUpdateAvailable = true,
-                versionName = if (releaseInfo?.versionName == "1.1.8.2" || releaseInfo?.versionName == null) "1.1.9" else releaseInfo.versionName,
-                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-universal-release.apk",
+                versionName = if (releaseInfo?.versionName == "1.1.8.3" || releaseInfo?.versionName == null) "1.1.9" else releaseInfo.versionName,
+                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-universal-release.apk",
                 expectedSha256 = "6AB67F380035761041405B9D133A8CB383B8EF015A7E37AA1412A0323477C70E",
                 expectedSha256List = listOf(
                     "6AB67F380035761041405B9D133A8CB383B8EF015A7E37AA1412A0323477C70E",
@@ -883,7 +883,7 @@ fun UpdateScreen(
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 val targetAsset = availableAssets.firstOrNull { it.apkType == selectedApkType }
-                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.2/app-universal-release.apk"
+                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-universal-release.apk"
                                                 val expectedSha = targetAsset?.sha256 ?: activeReleaseInfo?.expectedSha256
                                                 val shaList = if (!expectedSha.isNullOrBlank()) {
                                                     listOf(expectedSha) + activeReleaseInfo?.expectedSha256List.orEmpty()
@@ -1466,6 +1466,11 @@ fun SelectApkTypeDialog(
 ) {
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
+    val greenLed = ActiveGreenLed
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val contentInteractionSource = remember { MutableInteractionSource() }
+    val scrollState = rememberScrollState()
     var currentChoice by remember(selectedType) { mutableStateOf(selectedType) }
     var expandedDetailsType by remember { mutableStateOf<ApkType?>(null) }
 
@@ -1484,14 +1489,14 @@ fun SelectApkTypeDialog(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
                     .padding(
-                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 40.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                        top = statusBarTop + 40.dp,
+                        bottom = navBarBottom + 24.dp
                     )
                     .padding(horizontal = 20.dp)
                     .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
+                        interactionSource = contentInteractionSource,
                         indication = null
                     ) {}
             ) {
@@ -1537,7 +1542,7 @@ fun SelectApkTypeDialog(
                         Icon(
                             painter = painterResource(id = R.drawable.ic_shield),
                             contentDescription = null,
-                            tint = ActiveGreenLed,
+                            tint = greenLed,
                             modifier = Modifier.size(18.dp)
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1546,7 +1551,7 @@ fun SelectApkTypeDialog(
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                color = ActiveGreenLed
+                                color = greenLed
                             )
                             Text(
                                 text = "Рекомендуется: ${devicePrimaryType.title} (${devicePrimaryType.abiName})",
@@ -1635,15 +1640,15 @@ fun SelectApkTypeDialog(
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
-                                                .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                                .background(greenLed.copy(alpha = 0.12f))
+                                                .border(1.dp, greenLed.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text(
                                                 text = "РЕКОМЕНДОВАНО",
                                                 fontSize = 8.5.sp,
                                                 fontWeight = FontWeight.Black,
-                                                color = ActiveGreenLed,
+                                                color = greenLed,
                                                 letterSpacing = 0.4.sp
                                             )
                                         }

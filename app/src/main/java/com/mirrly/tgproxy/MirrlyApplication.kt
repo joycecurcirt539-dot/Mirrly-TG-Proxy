@@ -41,7 +41,6 @@ class MirrlyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        com.mirrly.tgproxy.core.AppLogger.startLogcatReader(android.os.Process.myPid())
         prefsManager = PreferencesManager(this)
         com.mirrly.tgproxy.service.SessionHistoryManager.init(this)
         com.mirrly.tgproxy.service.WorkerRequestTracker.init(this)
@@ -62,6 +61,7 @@ class MirrlyApplication : Application() {
         UpdateManager.onAppInit(this)
         UpdateManager.scheduleDaytimeCheck(this)
         com.mirrly.tgproxy.service.WorkerFailoverManager.init()
+        com.mirrly.tgproxy.service.ScheduleManager.syncSchedule(this)
 
         proxyServer.pingEngine.onProbeCompleted = { probe, target ->
             if (proxyServer.config.isSocks5Mode) {
