@@ -1371,6 +1371,31 @@
 
 **Исправить:** маршрут формируется из явного профиля; DNS даёт адрес соединения, не выбирает протокол. **Принять:** VPS по домену, VPS по IP, CDN с serverAddress override и нестандартный порт используют одинаково корректные заданные transport/security semantics.
 
+**Статус: [ВЫПОЛНЕНО (P1)].**
+
+Реализовано в `mirrlyengine/src/vless.rs`:
+
+1. **`effective_transport()` (VlessConfig и VlessProfile)** — убрано угадывание по path-строке (`path.contains("ws")`). Пустой transport теперь возвращает `"tcp"` (по VLESS spec) без анализа URI path, который является HTTP-путём, а не протокольным селектором.
+
+2. **`is_direct_vps()` (оба типа)** — новая explicit-first логика:
+   - `security = reality` или `public_key` присутствует → всегда direct
+   - `transport` или `security` задан явно → routing по transport, не по адресу:
+     - `transport = tcp` → direct (независимо от домена/IP)
+     - `transport = ws` + `server_address` задан → direct (CDN IP override)
+     - `transport = ws` + нет `server_address` + CF-домен → CF-worker flow
+     - `transport = ws` + нет `server_address` + non-CF домен → direct
+   - Оба поля пустые (legacy-профиль) → fallback на эвристику адреса с `lwarn!`
+
+3. **Добавлены тесты** (7 шт.) покрывают все сценарии из критериев приёмки:
+   - `test_v12_effective_transport_no_path_guessing`
+   - `test_v12_vps_by_domain_with_explicit_transport`
+   - `test_v12_vps_by_ip_with_explicit_transport`
+   - `test_v12_cdn_with_server_address_override`
+   - `test_v12_cloudflare_worker_domain_not_direct`
+   - `test_v12_nonstandard_port_routing_by_transport_not_address`
+   - `test_v12_reality_always_direct_regardless_of_address`
+   - `test_v12_profile_effective_transport_no_path_guessing`
+
 ## 8. Общая маршрутизация, состояние и ресурсы — 10 задач
 
 ### O01 — Один владелец маршрута и каскада

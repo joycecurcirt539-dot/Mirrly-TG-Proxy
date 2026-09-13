@@ -2167,15 +2167,17 @@ pub async fn dial_single_vless_config(
         let security = cfg.effective_security().to_string();
         let fingerprint = cfg.effective_fingerprint().to_string();
 
+        // Routing source: explicit transport/security profile fields (V12).
+        // The dial address is resolved from server_address/domain; it does NOT determine the protocol path.
         ldebug!(
-            "VLESS [{}] universal dialer (direct VPS): dial {}:{} sni={} host={} transport={} security={}",
+            "VLESS [{}] direct-VPS route (transport={} security={}): dial {}:{} sni={} host={}",
             cfg.id,
+            transport,
+            security,
             host_to_dial,
             server_port,
             tls_sni,
             host_header,
-            transport,
-            security
         );
 
         let candidate_addrs: Vec<SocketAddr> = if let Ok(ip) = host_to_dial.parse::<IpAddr>() {
