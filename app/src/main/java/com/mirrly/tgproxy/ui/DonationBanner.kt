@@ -85,14 +85,7 @@ fun DonationBanner(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(22.dp))
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xF0121826),
-                        Color(0xF00B101D)
-                    )
-                )
-            )
+            .background(Color.Transparent)
             .border(
                 width = 1.dp,
                 brush = Brush.horizontalGradient(

@@ -20,10 +20,12 @@ package com.mirrly.tgproxy.ui
 
 import android.app.TimePickerDialog
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -109,11 +111,12 @@ fun SleepTimerDialog(
                     .align(Alignment.Center)
                     .adaptiveContainerWidth(440.dp)
                     .verticalScroll(scrollState)
+                    .navigationBarsPadding()
                     .padding(
-                        top = statusBarTop + 60.dp,
-                        bottom = navBarBottom + 24.dp
+                        top = statusBarTop + 44.dp,
+                        bottom = 72.dp
                     )
-                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = 20.dp)
                     .clickable(
                         interactionSource = contentInteractionSource,
                         indication = null
@@ -209,6 +212,7 @@ fun SleepTimerDialog(
 
                 if (selectedTab == TimerDialogTab.TIMER) {
                     // ── TIMER TAB CONTENT ───────────────────────────────────
+                    // CARD 1: ONE-OFF SLEEP TIMER
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = Color.White.copy(alpha = 0.04f),
@@ -220,7 +224,7 @@ fun SleepTimerDialog(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
-                                text = if (timerState.isActive) "ТЕКУЩИЙ СТАТУС:" else "ПАРАМЕТРЫ АВТООТКЛЮЧЕНИЯ:",
+                                text = if (timerState.isActive) "ТЕКУЩИЙ СТАТУС:" else "РАЗОВЫЙ ТАЙМЕР СНА:",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (timerState.isActive) greenLed else accentColor,
@@ -237,7 +241,7 @@ fun SleepTimerDialog(
                                 text = if (timerState.isActive) {
                                     "Прокси-сервер автоматически остановится в $targetTimeStr. Соединение и фоновые службы будут безопасно отключены."
                                 } else {
-                                    "Выберите время, через которое прокси-сервер автоматически отключится для экономии заряда батареи и мобильного трафика."
+                                    "Выберите время, через которое прокси-сервер автоматически отключится в текущей сессии для экономии заряда и мобильного трафика."
                                 },
                                 fontSize = 12.5.sp,
                                 color = TextWhite.copy(alpha = 0.8f),
@@ -304,6 +308,61 @@ fun SleepTimerDialog(
                                     QuickExtendChip("+1 ч", accentColor, Modifier.weight(1f)) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         SleepTimerManager.extendTimer(context, 60)
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                // Active Timer Actions: Закрыть / Отключить
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = Color.Transparent,
+                                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(46.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .springPress(onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                onDismiss()
+                                            })
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "Закрыть",
+                                                color = TextWhite.copy(alpha = 0.90f),
+                                                fontWeight = FontWeight.Medium,
+                                                fontSize = 14.sp
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = Color(0xFFEF4444).copy(alpha = 0.18f),
+                                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.50f)),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(46.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .springPress(onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                SleepTimerManager.cancelTimer(context)
+                                                onDismiss()
+                                            })
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "Отключить",
+                                                color = Color(0xFFEF4444),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp
+                                            )
+                                        }
                                     }
                                 }
                             } else {
@@ -390,66 +449,143 @@ fun SleepTimerDialog(
                                     }
                                 }
 
-                                // Auto-stop on Start option
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFF0F172A).copy(alpha = 0.35f),
-                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                // Action buttons for one-off timer: Отклонить / Запустить таймер
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column(
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = Color.Transparent,
+                                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)),
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            .weight(1f)
+                                            .height(46.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .springPress(onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                onDismiss()
+                                            })
                                     ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                                Text(
-                                                    text = "Автоотключение при старте",
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = TextWhite
-                                                )
-                                                Text(
-                                                    text = "Автоматически выключать через $autoStopMinutes мин после запуска",
-                                                    fontSize = 11.sp,
-                                                    color = TextMuted
-                                                )
-                                            }
-                                            InertialSpringSwitch(
-                                                checked = autoStopOnStartEnabled,
-                                                onCheckedChange = {
-                                                    autoStopOnStartEnabled = it
-                                                    app.prefsManager.setAutoStopOnStartEnabled(it)
-                                                }
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "Отклонить",
+                                                color = TextWhite.copy(alpha = 0.90f),
+                                                fontWeight = FontWeight.Medium,
+                                                fontSize = 14.sp
                                             )
                                         }
+                                    }
 
-                                        if (autoStopOnStartEnabled) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                listOf(5, 10, 15, 30, 60).forEach { m ->
-                                                    PresetChip(
-                                                        title = "$m мин",
-                                                        isSelected = autoStopMinutes == m,
-                                                        activeColor = accentColor,
-                                                        modifier = Modifier.weight(1f)
-                                                    ) {
-                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        autoStopMinutes = m
-                                                        app.prefsManager.setAutoStopMinutes(m)
-                                                    }
-                                                }
-                                            }
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = accentColor,
+                                        modifier = Modifier
+                                            .weight(1.3f)
+                                            .height(46.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .springPress(onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                SleepTimerManager.startTimer(context, customMinutes.toInt())
+                                                onDismiss()
+                                            })
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "Запустить таймер",
+                                                color = Color(0xFF0A0E1A),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp
+                                            )
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    // CARD 2: AUTO-STOP ON START (Independent persistent rule)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White.copy(alpha = 0.04f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                    Text(
+                                        text = "Автоотключение при старте",
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TextWhite
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = if (autoStopOnStartEnabled) {
+                                            "Отключение через $autoStopMinutes мин после запуска"
+                                        } else {
+                                            "Автоматический таймер при каждом старте"
+                                        },
+                                        fontSize = 11.5.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                                InertialSpringSwitch(
+                                    checked = autoStopOnStartEnabled,
+                                    onCheckedChange = {
+                                        autoStopOnStartEnabled = it
+                                        app.prefsManager.setAutoStopOnStartEnabled(it)
+                                    }
+                                )
+                            }
+
+                            if (autoStopOnStartEnabled) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    listOf(5, 10, 15, 30, 60).forEach { m ->
+                                        PresetChip(
+                                            title = "$m мин",
+                                            isSelected = autoStopMinutes == m,
+                                            activeColor = accentColor,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            autoStopMinutes = m
+                                            app.prefsManager.setAutoStopMinutes(m)
+                                        }
+                                    }
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(top = 2.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(greenLed)
+                                    )
+                                    Text(
+                                        text = "Настройка сохраняется автоматически для каждого запуска",
+                                        fontSize = 10.5.sp,
+                                        color = TextMuted.copy(alpha = 0.8f)
+                                    )
                                 }
                             }
                         }
@@ -689,116 +825,9 @@ fun SleepTimerDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Action Buttons below
-                if (selectedTab == TimerDialogTab.TIMER) {
-                    if (timerState.isActive) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .springPress(onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onDismiss()
-                                    })
-                            ) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "Закрыть",
-                                        color = TextWhite.copy(alpha = 0.90f),
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 14.sp
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color(0xFFEF4444).copy(alpha = 0.18f),
-                                border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.50f)),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .springPress(onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        SleepTimerManager.cancelTimer(context)
-                                        onDismiss()
-                                    })
-                            ) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "Отключить",
-                                        color = Color(0xFFEF4444),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .springPress(onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onDismiss()
-                                    })
-                            ) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "Отклонить",
-                                        color = TextWhite.copy(alpha = 0.90f),
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 14.sp
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = accentColor,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .springPress(onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        SleepTimerManager.startTimer(context, customMinutes.toInt())
-                                        onDismiss()
-                                    })
-                            ) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "Запустить",
-                                        color = Color(0xFF0A0E1A),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // Schedule Action Button (Готово / Сохранить)
+                // Schedule Action Button (Готово / Сохранить)
+                if (selectedTab == TimerDialogTab.SCHEDULE) {
+                    Spacer(modifier = Modifier.height(4.dp))
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = accentColor,

@@ -20,6 +20,7 @@ import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.ConnectionQuality
 import com.mirrly.tgproxy.core.SpeedPreset
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,11 +41,22 @@ class ProxyForegroundService : Service() {
     private var thermalListener: Any? = null
     private var batteryReceiver: BroadcastReceiver? = null
 
+    private var batteryGuardCountdownJob: Job? = null
+    @Volatile
+    private var isBatteryGuardCountdownActive = false
+    @Volatile
+    private var batteryGuardDismissedForThreshold = false
+
     @Volatile
     private var isReconnectingNetwork = false
 
     @Volatile
     private var isScreenOn = true
+
+    // Защита от параллельного запуска авторегистрации WARP при повторных onStartCommand
+    // (возникает из-за START_REDELIVER_INTENT при убийстве сервиса во время регистрации)
+    @Volatile
+    private var warpRegistrationInProgress = false
 
     companion object {
         const val ACTION_START = "com.mirrly.tgproxy.START"
@@ -54,10 +66,30 @@ class ProxyForegroundService : Service() {
         const val ACTION_COPY_LINK = "com.mirrly.tgproxy.COPY_LINK"
         const val ACTION_EXTEND_TIMER = "com.mirrly.tgproxy.EXTEND_TIMER"
         const val ACTION_CANCEL_TIMER = "com.mirrly.tgproxy.CANCEL_TIMER"
+        const val ACTION_CANCEL_BATTERY_GUARD = "com.mirrly.tgproxy.CANCEL_BATTERY_GUARD"
 
         private const val WAKELOCK_TIMEOUT_MS = 30L * 60 * 1000
         private const val WAKELOCK_REFRESH_MS = 25L * 60 * 1000
         private const val TAG = "ProxyForegroundService"
+
+        fun restartIfRunning(context: Context) {
+            val app = MirrlyApplication.instance
+            app.saveConfig()
+            if (app.proxyServer.isRunning) {
+                val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
+                    action = ACTION_RESTART
+                }
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        context.startForegroundService(serviceIntent)
+                    } else {
+                        context.startService(serviceIntent)
+                    }
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "Не удалось перезапустить службу прокси: ${e.message}")
+                }
+            }
+        }
     }
 
     override fun onCreate() {
@@ -102,6 +134,12 @@ class ProxyForegroundService : Service() {
                         showToastOnMainThread("Переключено на мобильную сеть. Прокси активен (${humanBytes(totalBytes)} за сессию)")
                     } else {
                         showToastOnMainThread("Переключено на мобильную сеть. Прокси активен")
+                    }
+                }
+
+                if (app.config.isMasqueUplink || app.config.isHybridUplink) {
+                    serviceScope.launch(Dispatchers.IO) {
+                        checkAndTuneWarpEndpoint()
                     }
                 }
             }
@@ -162,7 +200,14 @@ class ProxyForegroundService : Service() {
                 updateNotificationImmediately()
                 return START_REDELIVER_INTENT
             }
+            ACTION_CANCEL_BATTERY_GUARD -> {
+                cancelBatteryGuardCountdown(userDismissed = true)
+                showToastOnMainThread("Автоотключение отменено. Прокси продолжает работу")
+                return START_REDELIVER_INTENT
+            }
         }
+
+        batteryGuardDismissedForThreshold = false
 
         val notification = NotificationHelper.buildNotification(
             context = this,
@@ -198,6 +243,29 @@ class ProxyForegroundService : Service() {
                     app.prefsManager.saveConfig(app.config)
                     com.mirrly.tgproxy.core.NativeProxy.setSocks5Auth(u, p)
                 }
+                val needsWarp = app.config.isMasqueUplink || app.config.isHybridUplink || app.config.isAwgUplink || app.config.isWarpCascadeUplink
+                val hasInvalidWarpCredentials = app.config.warpToken.isBlank() ||
+                    app.config.warpToken == "mirrly-bootstrap-token" ||
+                    app.config.warpPrivateKey == com.mirrly.tgproxy.core.WarpAccountManager.BOOTSTRAP_PROFILE.privateKeyBase64
+                if (needsWarp && hasInvalidWarpCredentials && !warpRegistrationInProgress) {
+                    warpRegistrationInProgress = true
+                    AppLogger.i(TAG, "WARP активен, профиль не обнаружен или содержит заглушку. Регистрация живого аккаунта...")
+                    try {
+                        val regResult = com.mirrly.tgproxy.core.WarpAccountManager.registerAndActivate(
+                            fallbackToBootstrap = false
+                        )
+                        regResult.onSuccess { profile ->
+                            app.prefsManager.saveWarpProfile(profile)
+                            app.config.applyWarpProfile(profile)
+                            app.prefsManager.saveConfig(app.config)
+                            AppLogger.i(TAG, "WARP профиль успешно создан: ${profile.getSummary()}")
+                        }.onFailure { err ->
+                            AppLogger.w(TAG, "Авторегистрация WARP не удалась: ${err.message}")
+                        }
+                    } finally {
+                        warpRegistrationInProgress = false
+                    }
+                }
                 val started = server.start(cacheDir)
                 if (started) {
                     SessionHistoryManager.onSessionStarted(
@@ -206,6 +274,18 @@ class ProxyForegroundService : Service() {
                     )
                     WorkerRequestTracker.onSessionStarted()
                     DonationManager.recordSuccessfulConnection(this@ProxyForegroundService)
+
+                    if (app.config.isMasqueUplink || app.config.isHybridUplink) {
+                        serviceScope.launch(Dispatchers.IO) {
+                            checkAndTuneWarpEndpoint()
+                        }
+                    } else if (app.config.isVlessUplink) {
+                        serviceScope.launch(Dispatchers.IO) {
+                            try {
+                                com.mirrly.tgproxy.core.VlessPresetsRepository.fetchFreshPublicPresets(socks5Port = app.config.socks5Port)
+                            } catch (_: Exception) {}
+                        }
+                    }
 
                     if (app.prefsManager.isAutoStopOnStartEnabled() && !SleepTimerManager.timerState.value.isActive) {
                         val autoStopMin = app.prefsManager.getAutoStopMinutes()
@@ -408,12 +488,39 @@ class ProxyForegroundService : Service() {
     private var lastNotifiedText: String? = null
     @Volatile
     private var lastNotifiedTimestamp: Long = 0L
+    @Volatile
+    private var lastNotifiedCascadeStageCode: Int = 0
 
     private fun updateNotificationInternal(force: Boolean = false) {
         val app = MirrlyApplication.instance
         val server = app.proxyServer
         if (isStopping || !server.isRunning) return
         val stats = server.stats
+
+        // Мягкие уведомления при каскадном фоллбэке (Failover)
+        val stageCode = stats.activeCascadeStageCode
+        if (app.config.isSocks5Mode && stageCode > 0 && stageCode != lastNotifiedCascadeStageCode) {
+            val previousStage = lastNotifiedCascadeStageCode
+            lastNotifiedCascadeStageCode = stageCode
+
+            if (app.config.isMasqueUplink) {
+                if (stageCode == 2) {
+                    NotificationHelper.showFailoverNotification(
+                        context = this@ProxyForegroundService,
+                        title = "Mirrly TG Proxy",
+                        message = "WARP MASQUE недоступен у вашего оператора, активирован AmneziaWG"
+                    )
+                }
+            } else if (app.config.isAwgUplink) {
+                if (stageCode == 1) {
+                    NotificationHelper.showFailoverNotification(
+                        context = this@ProxyForegroundService,
+                        title = "Mirrly TG Proxy",
+                        message = "WARP AmneziaWG недоступен у вашего оператора, активирован MASQUE"
+                    )
+                }
+            }
+        }
 
         val activeConns = stats.activeConnections.get()
         val dlSpeed = humanBytes(stats.downloadSpeedBps)
@@ -460,24 +567,37 @@ class ProxyForegroundService : Service() {
                     "Восстановление связи... | $netName"
                 )
             }
-            isWorker -> {
+            app.config.isSocks5Mode -> {
+                val currentStage = stats.activeCascadeStageCode
+                val uplinkLabel = when {
+                    app.config.isMasqueUplink && currentStage == 2 -> "AmneziaWG (Фоллбэк)"
+                    app.config.isAwgUplink && currentStage == 1 -> "MASQUE (Фоллбэк)"
+                    currentStage == 1 -> "WARP MASQUE"
+                    currentStage == 2 -> "WARP AmneziaWG"
+                    app.config.isLivenessProbeEnabled && stats.activeCascadeStage.isNotBlank() -> stats.activeCascadeStage
+                    app.config.isVlessUplink -> "VLESS"
+                    app.config.isMasqueUplink -> "WARP MASQUE"
+                    app.config.isAwgUplink -> "WARP AmneziaWG"
+                    isWorker -> "Worker"
+                    else -> "SOCKS5"
+                }
                 if (pingMs > 0) {
                     val indicator = if (quality == ConnectionQuality.POOR || pingMs > 600L) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
                     Triple(
                         indicator,
                         "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "Worker: $pingDisplay | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        "$uplinkLabel: $pingDisplay | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
                     )
                 } else if (activeConns > 0) {
                     Triple(
                         ProxyStatusIndicator.GREEN,
                         "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "Worker: Туннель активен | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        "$uplinkLabel: Туннель активен | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
                     )
                 } else {
                     Triple(
                         ProxyStatusIndicator.YELLOW,
-                        "Mirrly TG Proxy [$protoLabel] • Worker подключается",
+                        "Mirrly TG Proxy [$protoLabel] • $uplinkLabel подключается",
                         "Проверка шлюза... | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
                     )
                 }
@@ -540,8 +660,11 @@ class ProxyForegroundService : Service() {
         lastNotifiedTitle = null
         lastNotifiedText = null
         lastNotifiedTimestamp = 0L
+        lastNotifiedCascadeStageCode = 0
 
         SleepTimerManager.cancelTimer(this)
+        cancelBatteryGuardCountdown(userDismissed = false)
+        batteryGuardDismissedForThreshold = false
         WorkerFailoverManager.stopRecoveryWatchdog()
         networkObserver?.stop()
         networkObserver = null
@@ -674,12 +797,7 @@ class ProxyForegroundService : Service() {
                 0
             }
 
-            val bIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-            val level = bIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: 100
-            val scale = bIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: 100
-            val batteryPct = if (scale > 0) (level * 100) / scale else level
-            val status = bIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-            val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+            val (batteryPct, isCharging) = getBatteryInfo()
 
             app.proxyServer.qosEngine.updateState(
                 batteryPercent = batteryPct,
@@ -699,20 +817,177 @@ class ProxyForegroundService : Service() {
     private fun checkBatteryGuard(batteryPct: Int, isCharging: Boolean, isPowerSave: Boolean) {
         val app = MirrlyApplication.instance
         val config = app.config
-        if (!config.isBatteryGuardEnabled) return
-        if (!app.proxyServer.isRunning) return
-        if (isCharging) return
 
-        if (batteryPct in 1..config.batteryGuardThreshold) {
-            AppLogger.w(TAG, "Защита аккумулятора: уровень заряда $batteryPct% упал ниже установленного порога (${config.batteryGuardThreshold}%). Остановка прокси.")
-            stopProxyWithReason("Защита аккумулятора: прокси отключен при заряде $batteryPct%")
+        if (!config.isBatteryGuardEnabled || !app.proxyServer.isRunning) {
+            if (isBatteryGuardCountdownActive) {
+                cancelBatteryGuardCountdown(userDismissed = false)
+            }
             return
         }
 
-        if (config.batteryGuardStopOnPowerSave && isPowerSave) {
-            AppLogger.w(TAG, "Защита аккумулятора: активирован системный режим энергосбережения Android. Остановка прокси.")
-            stopProxyWithReason("Защита аккумулятора: включен режим энергосбережения Android")
+        if (isCharging) {
+            if (isBatteryGuardCountdownActive) {
+                AppLogger.i(TAG, "Подключено зарядное устройство: обратный отсчет защиты аккумулятора отменен")
+                cancelBatteryGuardCountdown(userDismissed = false)
+            }
+            batteryGuardDismissedForThreshold = false
             return
+        }
+
+        val isLowBattery = batteryPct in 1..config.batteryGuardThreshold
+        val isPowerSaveTrigger = config.batteryGuardStopOnPowerSave && isPowerSave
+
+        if (!isLowBattery && !isPowerSaveTrigger) {
+            if (isBatteryGuardCountdownActive) {
+                cancelBatteryGuardCountdown(userDismissed = false)
+            }
+            batteryGuardDismissedForThreshold = false
+            return
+        }
+
+        if (batteryGuardDismissedForThreshold) {
+            return
+        }
+
+        if (isBatteryGuardCountdownActive) {
+            return
+        }
+
+        val reason = if (isLowBattery) {
+            "Заряд батареи упал до $batteryPct% (порог: ${config.batteryGuardThreshold}%)"
+        } else {
+            "Активирован системный режим энергосбережения Android"
+        }
+
+        startBatteryGuardCountdown(reason = reason, initialBatteryPct = batteryPct)
+    }
+
+    private fun startBatteryGuardCountdown(reason: String, initialBatteryPct: Int) {
+        if (isBatteryGuardCountdownActive) return
+        isBatteryGuardCountdownActive = true
+
+        val totalSeconds = 300 // 5 минут
+        val targetTimeMs = System.currentTimeMillis() + totalSeconds * 1000L
+
+        AppLogger.w(TAG, "Защита аккумулятора: $reason. Запуск 5-минутного таймера предупреждения перед остановкой.")
+
+        NotificationHelper.showBatteryGuardWarningNotification(
+            context = this,
+            targetTimeMs = targetTimeMs,
+            remainingSeconds = totalSeconds,
+            reason = reason,
+            batteryPct = initialBatteryPct
+        )
+
+        batteryGuardCountdownJob?.cancel()
+        batteryGuardCountdownJob = serviceScope.launch(Dispatchers.Default) {
+            var remaining = totalSeconds
+            try {
+                while (remaining > 0 && isActive) {
+                    delay(1000)
+                    remaining--
+
+                    val app = MirrlyApplication.instance
+                    if (!app.config.isBatteryGuardEnabled || !app.proxyServer.isRunning) {
+                        withContext(Dispatchers.Main) {
+                            cancelBatteryGuardCountdown(userDismissed = false)
+                        }
+                        return@launch
+                    }
+
+                    val (currentPct, isCharging) = getBatteryInfo()
+                    if (isCharging) {
+                        AppLogger.i(TAG, "Зарядное устройство подключено: отмена обратного отсчета защиты аккумулятора")
+                        withContext(Dispatchers.Main) {
+                            cancelBatteryGuardCountdown(userDismissed = false)
+                        }
+                        return@launch
+                    }
+
+                    if (remaining % 60 == 0 || remaining == 30 || remaining == 10) {
+                        withContext(Dispatchers.Main) {
+                            if (isBatteryGuardCountdownActive) {
+                                NotificationHelper.showBatteryGuardWarningNotification(
+                                    context = this@ProxyForegroundService,
+                                    targetTimeMs = targetTimeMs,
+                                    remainingSeconds = remaining,
+                                    reason = reason,
+                                    batteryPct = if (currentPct > 0) currentPct else initialBatteryPct
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (isActive && isBatteryGuardCountdownActive) {
+                    AppLogger.w(TAG, "5-минутный таймер защиты аккумулятора истек. Остановка прокси.")
+                    withContext(Dispatchers.Main) {
+                        isBatteryGuardCountdownActive = false
+                        NotificationHelper.cancelBatteryGuardNotification(this@ProxyForegroundService)
+                        stopProxyWithReason("Защита аккумулятора: $reason")
+                        NotificationHelper.showBatteryGuardStoppedNotification(
+                            context = this@ProxyForegroundService,
+                            reason = reason
+                        )
+                    }
+                }
+            } catch (_: CancellationException) {
+                // Таймер отменен
+            }
+        }
+    }
+
+    private fun cancelBatteryGuardCountdown(userDismissed: Boolean) {
+        batteryGuardCountdownJob?.cancel()
+        batteryGuardCountdownJob = null
+        isBatteryGuardCountdownActive = false
+        if (userDismissed) {
+            batteryGuardDismissedForThreshold = true
+            AppLogger.i(TAG, "Пользователь отменил автоотключение прокси по защите батареи")
+        }
+        NotificationHelper.cancelBatteryGuardNotification(this)
+    }
+
+    private fun getBatteryInfo(): Pair<Int, Boolean> {
+        return try {
+            val bIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val level = bIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: 100
+            val scale = bIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: 100
+            val pct = if (scale > 0) (level * 100) / scale else level
+            val status = bIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+            Pair(pct, isCharging)
+        } catch (_: Exception) {
+            Pair(100, false)
+        }
+    }
+
+    private suspend fun checkAndTuneWarpEndpoint() {
+        val app = MirrlyApplication.instance
+        val currentEp = app.config.warpPeerEndpoint
+        val (_, port) = com.mirrly.tgproxy.core.WarpEndpointScanner.parseEndpoint(currentEp)
+
+        // Порт 2408 и пустые порты известны 100% блокировками ТСПУ в РФ
+        val isSuspectPort = port == 2408 || port <= 0
+        if (!isSuspectPort) {
+            val probe = com.mirrly.tgproxy.core.WarpEndpointScanner.probeEndpoint(currentEp, timeoutMs = 650, useFragmentation = true)
+            if (probe.isAlive) {
+                AppLogger.d(TAG, "Текущий Anycast-эндпоинт WARP активен: $currentEp (RTT=${probe.rttMs}мс)")
+                return
+            }
+        }
+
+        AppLogger.i(TAG, "Эндпоинт $currentEp недоступен (блокировка ТСПУ). Запуск автоподбора живых Anycast-портов...")
+        try {
+            val best = com.mirrly.tgproxy.core.WarpEndpointScanner.findBestEndpoint(useFragmentation = true, maxCandidatesToProbe = 18)
+            if (best != null && best.endpoint != currentEp) {
+                AppLogger.i(TAG, "Автоматически подобран рабочий Anycast-порт WARP: ${best.endpoint} (${best.rttMs}мс)")
+                app.config.warpPeerEndpoint = best.endpoint
+                app.prefsManager.saveConfig(app.config)
+                app.proxyServer.applyWarpEndpoint(best.endpoint)
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Ошибка автоматического подбора портов WARP: ${e.message}")
         }
     }
 

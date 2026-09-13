@@ -171,6 +171,12 @@ fun HomeScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val uplinkMode by app.prefsManager.uplinkModeFlow.collectAsState()
+    val warpProfile = remember(isAppResumed, isSocks5) { app.prefsManager.getWarpProfile() }
+    val vlessUuid = remember(isAppResumed) { app.prefsManager.getVlessUuid().ifEmpty { app.config.vlessUuid } }
+    val vlessPath = remember(isAppResumed) { app.prefsManager.getVlessPath().ifEmpty { app.config.vlessPath } }
+    var showUplinkStateDialog by remember { mutableStateOf(false) }
+
     var pendingState by remember { mutableStateOf<ProxyUiState?>(null) }
     var lastPowerClickMs by remember { mutableLongStateOf(0L) }
 
@@ -434,7 +440,11 @@ fun HomeScreen(
                     onSwitchProtocol = { target ->
                         switchProtocol(target)
                     },
-                    onOpenWorkerManager = onOpenWorkerManager
+                    onOpenWorkerManager = onOpenWorkerManager,
+                    uplinkMode = uplinkMode,
+                    warpProfile = warpProfile,
+                    vlessUuid = vlessUuid,
+                    onOpenUplinkState = { showUplinkStateDialog = true }
                 )
             }
         },
@@ -489,11 +499,11 @@ fun HomeScreen(
             val isVeryCompactHeight = screenHeight < 620.dp
 
             val ringSize = when {
-                isVeryCompactHeight -> 175.dp
-                isCompactHeight -> 205.dp
-                else -> 235.dp
+                isVeryCompactHeight -> 165.dp
+                isCompactHeight -> 190.dp
+                else -> 215.dp
             }
-            val powerIconSize = ringSize * (170f / 240f)
+            val powerIconSize = ringSize * (155f / 220f)
 
             var showDonationBanner by remember {
                 mutableStateOf(com.mirrly.tgproxy.service.DonationManager.shouldShowDonationBanner(context))
@@ -546,17 +556,15 @@ fun HomeScreen(
                     exit = fadeOut(tween(200)) + shrinkVertically(tween(250))
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        // Offset matching SOCKS5 active worker badge height (23.dp) + 5.dp safety margin
-                        Spacer(modifier = Modifier.height(28.dp))
                         updateInfo?.let { info ->
                             val updateYellow = Color(0xFFFFB703)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = updateYellow.copy(alpha = 0.08f),
-                                border = BorderStroke(1.dp, updateYellow.copy(alpha = 0.55f)),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, updateYellow.copy(alpha = 0.50f)),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 2.dp)
+                                    .padding(vertical = 4.dp)
                                     .clip(RoundedCornerShape(12.dp))
                                     .springPress(onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -644,20 +652,22 @@ fun HomeScreen(
 
                 // ─── 2. CENTER SECTION (Power button) ───
                 val isProxyRunning = currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING
-                val shouldShowWorkerNotice = isSocks5 && activeWorker.isDeveloperWorker && isProxyRunning
-                var isWorkerNoticeVisible by remember { mutableStateOf(false) }
+                val isWarpMissing = isSocks5 && (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.HYBRID) && (warpProfile == null || !warpProfile.isWarpEnabled)
+                val isDeveloperWorkerActive = isSocks5 && uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WORKER && activeWorker.isDeveloperWorker && isProxyRunning
+                val shouldShowUplinkNotice = isWarpMissing || isDeveloperWorkerActive
+                var isUplinkNoticeVisible by remember { mutableStateOf(false) }
 
-                LaunchedEffect(shouldShowWorkerNotice) {
-                    if (shouldShowWorkerNotice) {
-                        delay(1400)
-                        isWorkerNoticeVisible = true
+                LaunchedEffect(shouldShowUplinkNotice) {
+                    if (shouldShowUplinkNotice) {
+                        delay(1200)
+                        isUplinkNoticeVisible = true
                     } else {
-                        isWorkerNoticeVisible = false
+                        isUplinkNoticeVisible = false
                     }
                 }
 
                 val buttonInertiaOffsetY by animateDpAsState(
-                    targetValue = if (isWorkerNoticeVisible && shouldShowWorkerNotice) (-4).dp else 0.dp,
+                    targetValue = if (isUplinkNoticeVisible && shouldShowUplinkNotice) (-4).dp else 0.dp,
                     animationSpec = spring(
                         dampingRatio = 0.88f,
                         stiffness = Spring.StiffnessLow
@@ -721,20 +731,9 @@ fun HomeScreen(
                             modifier = Modifier.size(ringSize)
                         )
 
-                        val iconTint = when (currentState) {
-                            ProxyUiState.CONNECTED, ProxyUiState.CONNECTING -> protoColors.primary
-                            ProxyUiState.DISCONNECTING, ProxyUiState.DISCONNECTED -> Color(0xFF333D4F)
-                        }
-                        val animatedIconTint by animateColorAsState(
-                            targetValue = iconTint,
-                            animationSpec = tween(550, easing = FastOutSlowInEasing),
-                            label = "iconTint"
-                        )
-
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_power),
-                            contentDescription = "Включение прокси",
-                            tint = animatedIconTint,
+                        AnimatedWarpGlider(
+                            state = currentState,
+                            isSocks5 = isSocks5,
                             modifier = Modifier.size(powerIconSize)
                         )
                     }
@@ -752,9 +751,9 @@ fun HomeScreen(
                         ),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // SOCKS5 Developer Worker Info Notice (Smooth expanding/shrinking from center with staggered delay)
+                    // SOCKS5 Uplink / Worker Info Notice (Smooth expanding/shrinking from center with staggered delay)
                     AnimatedVisibility(
-                        visible = isWorkerNoticeVisible && shouldShowWorkerNotice,
+                        visible = isUplinkNoticeVisible && shouldShowUplinkNotice,
                         enter = scaleIn(
                             initialScale = 0.92f,
                             animationSpec = spring(
@@ -778,38 +777,85 @@ fun HomeScreen(
                             shrinkTowards = Alignment.CenterVertically
                         ) + fadeOut(animationSpec = tween(280, easing = FastOutSlowInEasing))
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .padding(bottom = if (isCompactHeight) 5.dp else 7.dp)
-                        ) {
-                            Text(
-                                text = "${activeWorker.name} (Общий пул)",
-                                color = Color(0xFFFF9E00).copy(alpha = 0.75f),
-                                fontSize = if (isCompactHeight) 10.5.sp else 11.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = FontFamily.Monospace,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Лимит запросов может исчерпаться. Выберите другой воркер в менеджере или разверните личный.",
-                                color = Color(0xFFFFB74D).copy(alpha = 0.50f),
-                                fontSize = if (isCompactHeight) 9.5.sp else 10.5.sp,
-                                fontFamily = FontFamily.Monospace,
-                                textAlign = TextAlign.Center,
-                                lineHeight = if (isCompactHeight) 13.sp else 14.5.sp
-                            )
+                        if (isWarpMissing) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, Color(0xFFFF9E00).copy(alpha = 0.45f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp)
+                                    .padding(bottom = if (isCompactHeight) 5.dp else 7.dp)
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onOpenSettings()
+                                    }
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = if (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE) "WARP MASQUE: Требуется регистрация" else "Гибридный режим: Требуется WARP",
+                                        color = Color(0xFFFF9E00),
+                                        fontSize = if (isCompactHeight) 10.5.sp else 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Нажмите для перехода в Настройки и создания профиля",
+                                        color = Color(0xFFFFB74D).copy(alpha = 0.70f),
+                                        fontSize = if (isCompactHeight) 9.5.sp else 10.5.sp,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        } else if (isDeveloperWorkerActive) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, Color(0xFFFF9E00).copy(alpha = 0.35f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp)
+                                    .padding(bottom = if (isCompactHeight) 5.dp else 7.dp)
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onOpenWorkerManager()
+                                    }
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "${activeWorker.name} (Общий пул)",
+                                        color = Color(0xFFFF9E00).copy(alpha = 0.85f),
+                                        fontSize = if (isCompactHeight) 10.5.sp else 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = FontFamily.Monospace,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Лимит запросов может исчерпаться. Выберите другой воркер в менеджере или разверните личный.",
+                                        color = Color(0xFFFFB74D).copy(alpha = 0.60f),
+                                        fontSize = if (isCompactHeight) 9.5.sp else 10.5.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        textAlign = TextAlign.Center,
+                                        lineHeight = if (isCompactHeight) 13.sp else 14.5.sp
+                                    )
+                                }
+                            }
                         }
                     }
 
-                    // Unified Central Time & Sleep Timer Capsule (Cyber aesthetic) + Liquid Wave SQI Orb
+                    // Unified Central Time & Sleep Timer Capsule (Cyber aesthetic)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(bottom = 6.dp)
+                        modifier = Modifier.padding(bottom = 4.dp)
                     ) {
                         Surface(
                             onClick = {
@@ -817,7 +863,11 @@ fun HomeScreen(
                                 showSleepTimerDialog = true
                             },
                             shape = RoundedCornerShape(16.dp),
-                            color = Color.White.copy(alpha = 0.04f),
+                            color = Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.35f) else AmoledBorder
+                            ),
                             modifier = Modifier
                                 .animateContentSize(
                                     animationSpec = spring(
@@ -825,11 +875,12 @@ fun HomeScreen(
                                         stiffness = Spring.StiffnessMediumLow
                                     )
                                 )
+                                .springPress()
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                             ) {
                                 val dotColor = when (currentState) {
                                     ProxyUiState.CONNECTED -> protoColors.primary
@@ -860,7 +911,7 @@ fun HomeScreen(
                                 RollingNumberText(
                                     text = statusText,
                                     color = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else if (currentState == ProxyUiState.DISCONNECTING) Color(0xFFFF9E00) else TextMuted,
-                                    fontSize = if (isCompactHeight) 14.sp else 15.sp,
+                                    fontSize = if (isCompactHeight) 13.5.sp else 14.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 1.1.sp
                                 )
@@ -872,7 +923,7 @@ fun HomeScreen(
                                         modifier = Modifier
                                             .width(1.dp)
                                             .height(13.dp)
-                                            .background(Color.White.copy(alpha = 0.20f))
+                                            .background(AmoledBorder)
                                     )
 
                                     Row(
@@ -888,7 +939,7 @@ fun HomeScreen(
                                         RollingNumberText(
                                             text = timerState.formatRemainingTime(),
                                             color = Color(0xFFFF9E00),
-                                            fontSize = if (isCompactHeight) 14.sp else 15.sp,
+                                            fontSize = if (isCompactHeight) 13.5.sp else 14.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             letterSpacing = 1.1.sp
                                         )
@@ -898,143 +949,236 @@ fun HomeScreen(
                         }
                     }
 
-                    // User-friendly Status line (Replaces raw internal IP and socket debug counts)
+                    // User-friendly Status line (Reflects active protocol and uplink mode)
                     val statusSubtitle = when (currentState) {
                         ProxyUiState.CONNECTED -> {
                             if (telemetry.healthVerdict.contains("Ожидание сети", ignoreCase = true) || (telemetry.healthScore == 0 && telemetry.pingMs < 0)) {
                                 "Ожидание сети • Офлайн"
-                            } else if (app.config.cfProxyEnabled) {
-                                "Cloudflare WSS • Защищено"
+                            } else if (!isSocks5) {
+                                if (app.config.cfProxyEnabled) {
+                                    "MTProto Anycast Flowseal • Защищено"
+                                } else {
+                                    "MTProto Direct (Fake-TLS) • Защищено"
+                                }
                             } else {
-                                "Локальный прокси • Защищено"
+                                when (uplinkMode) {
+                                    com.mirrly.tgproxy.core.UplinkMode.WORKER -> {
+                                        "Cloudflare WSS (${activeWorker.name}) • Защищено"
+                                    }
+                                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> {
+                                        val ip = warpProfile?.clientIpv4?.ifEmpty { "Anycast" } ?: "Anycast"
+                                        "WARP MASQUE ($ip) • Защищено"
+                                    }
+                                    com.mirrly.tgproxy.core.UplinkMode.VLESS -> {
+                                        "VLESS over WSS (TLS 1.3 Chrome) • Защищено"
+                                    }
+                                    com.mirrly.tgproxy.core.UplinkMode.HYBRID -> {
+                                        "Гибрид Worker (${activeWorker.name}) + WARP • Защищено"
+                                    }
+                                    com.mirrly.tgproxy.core.UplinkMode.AWG -> {
+                                        "AmneziaWG (WARP Anycast) • Защищено"
+                                    }
+                                    com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> {
+                                        "WARP Cascade (Worker + AWG) • Защищено"
+                                    }
+                                }
                             }
                         }
-                        ProxyUiState.CONNECTING -> "Установка защищенного соединения..."
+                        ProxyUiState.CONNECTING -> {
+                            if (!isSocks5) {
+                                "Подключение к Telegram (MTProto)..."
+                            } else {
+                                when (uplinkMode) {
+                                    com.mirrly.tgproxy.core.UplinkMode.WORKER -> "Подключение к Cloudflare Worker WSS..."
+                                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "Подключение к Cloudflare WARP Anycast..."
+                                    com.mirrly.tgproxy.core.UplinkMode.VLESS -> "Установка VLESS over WSS соединения..."
+                                    com.mirrly.tgproxy.core.UplinkMode.HYBRID -> "Инициализация гибридного туннеля Worker + WARP..."
+                                    com.mirrly.tgproxy.core.UplinkMode.AWG -> "Установка AmneziaWG туннеля к WARP Anycast..."
+                                    com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> "Инициализация WARP Cascade (Worker + AWG)..."
+                                }
+                            }
+                        }
                         ProxyUiState.DISCONNECTING -> "Остановка соединения..."
-                        ProxyUiState.DISCONNECTED -> "Защита отключена • Нажмите кнопку для старта"
+                        ProxyUiState.DISCONNECTED -> {
+                            if (isSocks5 && (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.HYBRID) && (warpProfile == null || !warpProfile.isWarpEnabled)) {
+                                "WARP MASQUE • Требуется регистрация в Настройках"
+                            } else {
+                                "Защита отключена • Нажмите кнопку для старта"
+                            }
+                        }
                     }
 
                     Text(
                         text = statusSubtitle,
                         color = if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.9f) else TextMuted,
-                        fontSize = if (isCompactHeight) 11.5.sp else 12.sp,
+                        fontSize = if (isCompactHeight) 11.sp else 11.5.sp,
                         fontWeight = if (currentState == ProxyUiState.CONNECTED) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
                         softWrap = false,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showUplinkStateDialog = true
+                            }
                     )
 
-                    Spacer(modifier = Modifier.height(if (isCompactHeight) 8.dp else 12.dp))
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
 
-                    // Telemetry Download & Upload speeds (50/50 centered with Quality Orb divider)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                    // ─── UNIFIED NETWORK DASHBOARD WIDGET (SPEEDS + SQI ORB + WSPOOL GRAPH) ───
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(
+                            1.dp,
+                            if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.25f) else AmoledBorder
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 2.dp)
                     ) {
-                        // Download Speed & Total (Weight 1f)
                         Column(
                             modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onOpenSpeedTest()
-                                }
-                                .padding(vertical = 4.dp),
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_arrow_down),
-                                    contentDescription = null,
-                                    tint = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else TextMuted,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Входящий", color = TextMuted, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
-                            }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            RollingNumberText(
-                                text = telemetry.dlSpeed,
-                                color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = if (isCompactHeight) 15.sp else 17.sp
-                            )
-                            RollingNumberText(
-                                text = "Всего: ${telemetry.totalRecv}",
-                                color = TextMuted,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Normal
-                            )
-                        }
-
-                        // Quality Indicator Orb replacing static divider
-                        LiquidWaveQualityCircle(
-                            score = if (currentState == ProxyUiState.CONNECTED) telemetry.healthScore else 0,
-                            isProxyActive = currentState == ProxyUiState.CONNECTED,
-                            isSocks5 = isSocks5,
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onOpenDiagnostics()
-                            },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .springPress()
-                        )
-
-                        // Upload Speed & Total (Weight 1f)
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onOpenSpeedTest()
+                            // Part A: Speeds & SQI Orb
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Download Speed & Total (Weight 1f)
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            onOpenSpeedTest()
+                                        }
+                                        .padding(vertical = 2.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_arrow_down),
+                                            contentDescription = null,
+                                            tint = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else TextMuted,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            "Входящий",
+                                            color = TextMuted,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    RollingNumberText(
+                                        text = telemetry.dlSpeed,
+                                        color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = if (isCompactHeight) 14.sp else 16.sp
+                                    )
+                                    Text(
+                                        text = "Всего: ${telemetry.totalRecv}",
+                                        color = TextMuted.copy(alpha = 0.70f),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        maxLines = 1
+                                    )
                                 }
-                                .padding(vertical = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_arrow_up),
-                                    contentDescription = null,
-                                    tint = TextMuted,
-                                    modifier = Modifier.size(14.dp)
+
+                                // Center SQI Quality Orb
+                                LiquidWaveQualityCircle(
+                                    score = if (currentState == ProxyUiState.CONNECTED) telemetry.healthScore else 0,
+                                    isProxyActive = currentState == ProxyUiState.CONNECTED,
+                                    isSocks5 = isSocks5,
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onOpenDiagnostics()
+                                    },
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .springPress()
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Исходящий", color = TextMuted, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+
+                                // Upload Speed & Total (Weight 1f)
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            onOpenSpeedTest()
+                                        }
+                                        .padding(vertical = 2.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_arrow_up),
+                                            contentDescription = null,
+                                            tint = TextMuted,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            "Исходящий",
+                                            color = TextMuted,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    RollingNumberText(
+                                        text = telemetry.ulSpeed,
+                                        color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = if (isCompactHeight) 14.sp else 16.sp
+                                    )
+                                    Text(
+                                        text = "Всего: ${telemetry.totalSent}",
+                                        color = TextMuted.copy(alpha = 0.70f),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        maxLines = 1
+                                    )
+                                }
                             }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            RollingNumberText(
-                                text = telemetry.ulSpeed,
-                                color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = if (isCompactHeight) 15.sp else 17.sp
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Subtle divider line inside widget
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(0.8.dp)
+                                    .background(AmoledBorder.copy(alpha = 0.5f))
                             )
-                            RollingNumberText(
-                                text = "Всего: ${telemetry.totalSent}",
-                                color = TextMuted,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Normal
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Part B: WsPool Smooth Bezier Socket Stability Graph
+                            WsPoolStabilityGraph(
+                                isProxyActive = currentState == ProxyUiState.CONNECTED,
+                                activeConns = telemetry.activeConns,
+                                maxPoolSize = app.config.poolSize,
+                                accentColor = protoColors.primary,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(if (isCompactHeight) 38.dp else 44.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(if (isCompactHeight) 8.dp else 12.dp))
-
-                    // WsPool Real-Time Smooth Bezier Socket Stability Graph
-                    WsPoolStabilityGraph(
-                        isProxyActive = currentState == ProxyUiState.CONNECTED,
-                        activeConns = telemetry.activeConns,
-                        maxPoolSize = app.config.poolSize,
-                        accentColor = protoColors.primary,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(if (isCompactHeight) 48.dp else 58.dp)
-                            .padding(horizontal = 12.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(if (isCompactHeight) 8.dp else 12.dp))
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
 
                     // Action Buttons Dock (Always visible, requiring Proxy ON)
                     Row(
@@ -1059,32 +1203,32 @@ fun HomeScreen(
                             },
                             modifier = Modifier
                                 .weight(1f)
-                                .heightIn(min = if (isCompactHeight) 46.dp else 52.dp)
+                                .height(44.dp)
                                 .springPress(),
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(12.dp),
                             color = Color.Transparent,
                             border = BorderStroke(
                                 1.dp,
-                                if (currentState == ProxyUiState.CONNECTED) Color(0xFF1F2433) else Color(0xFF161A26)
+                                if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.35f) else AmoledBorder
                             )
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_copy),
                                     contentDescription = "Скопировать",
                                     tint = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(if (isCompactHeight) 17.dp else 19.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     "Скопировать",
                                     color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = if (isCompactHeight) 13.sp else 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
                                     maxLines = 1,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
@@ -1105,32 +1249,32 @@ fun HomeScreen(
                             },
                             modifier = Modifier
                                 .weight(1f)
-                                .heightIn(min = if (isCompactHeight) 46.dp else 52.dp)
+                                .height(44.dp)
                                 .springPress(),
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color.Transparent,
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.12f) else Color.Transparent,
                             border = BorderStroke(
                                 1.dp,
-                                if (currentState == ProxyUiState.CONNECTED) Color(0xFF1F2433) else Color(0xFF161A26)
+                                if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.70f) else AmoledBorder
                             )
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_send),
                                     contentDescription = "В Telegram",
                                     tint = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else TextMuted.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(if (isCompactHeight) 17.dp else 19.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     "В Telegram",
                                     color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = if (isCompactHeight) 13.sp else 14.sp,
+                                    fontSize = 13.sp,
                                     maxLines = 1,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
@@ -1218,6 +1362,27 @@ fun HomeScreen(
                             pendingState = null
                             AppLogger.e("HomeScreen", "Ошибка запуска службы после настройки SOCKS5 auth: ${e.message}")
                         }
+                    }
+                )
+            }
+
+            if (showUplinkStateDialog) {
+                UplinkStateDialog(
+                    uplinkMode = uplinkMode,
+                    isSocks5 = isSocks5,
+                    activeWorker = activeWorker,
+                    warpProfile = warpProfile,
+                    vlessUuid = vlessUuid,
+                    vlessPath = vlessPath,
+                    isProxyRunning = currentState == ProxyUiState.CONNECTED,
+                    onDismiss = { showUplinkStateDialog = false },
+                    onOpenSettings = {
+                        showUplinkStateDialog = false
+                        onOpenSettings()
+                    },
+                    onOpenWorkerManager = {
+                        showUplinkStateDialog = false
+                        onOpenWorkerManager()
                     }
                 )
             }
@@ -1492,6 +1657,341 @@ fun RotatingProxyRing(
                     center = Offset(innerDotX, innerDotY)
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun AnimatedWarpGlider(
+    state: ProxyUiState,
+    isSocks5: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // ── BATTERY LIFECYCLE GUARD: MONITOR APP FOREGROUND/BACKGROUND STATE ──
+    var isAppResumed by remember { mutableStateOf(true) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP -> {
+                    isAppResumed = false
+                }
+                Lifecycle.Event.ON_RESUME,
+                Lifecycle.Event.ON_START -> {
+                    isAppResumed = true
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val app = MirrlyApplication.instance
+    val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
+
+    // High performance frame clock
+    val timeState = produceState(initialValue = 0L, isAppResumed, isAnimationsDisabled) {
+        if (!isAppResumed || isAnimationsDisabled) return@produceState
+        val startNano = System.nanoTime() - value
+        while (isAppResumed && !isAnimationsDisabled) {
+            withFrameNanos { frameTimeNanos ->
+                value = frameTimeNanos - startNano
+            }
+        }
+    }
+
+    val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+
+    // Color transition based on proxy state
+    val targetJetColor = when (state) {
+        ProxyUiState.CONNECTING -> protoColors.light
+        ProxyUiState.CONNECTED -> protoColors.primary
+        ProxyUiState.DISCONNECTING -> protoColors.primary.copy(alpha = 0.55f)
+        ProxyUiState.DISCONNECTED -> Color(0xFF384355) // Sleek Dark Titanium
+    }
+    val animatedJetColor by animateColorAsState(
+        targetValue = targetJetColor,
+        animationSpec = tween(550, easing = FastOutSlowInEasing),
+        label = "jetColor"
+    )
+
+    // Engine thrust & particle intensity
+    val targetThrust = when (state) {
+        ProxyUiState.CONNECTING -> 0.85f
+        ProxyUiState.CONNECTED -> 1.0f
+        ProxyUiState.DISCONNECTING -> 0.20f
+        ProxyUiState.DISCONNECTED -> 0.0f
+    }
+    val animatedThrust by animateFloatAsState(
+        targetValue = targetThrust,
+        animationSpec = tween(600, easing = FastOutSlowInEasing),
+        label = "jetThrust"
+    )
+
+    // Vertical altitude lift when active
+    val targetLiftDp = when (state) {
+        ProxyUiState.CONNECTING -> (-4).dp
+        ProxyUiState.CONNECTED -> (-2.5).dp
+        ProxyUiState.DISCONNECTING -> (-1).dp
+        ProxyUiState.DISCONNECTED -> 0.dp
+    }
+    val animatedLiftDp by animateDpAsState(
+        targetValue = targetLiftDp,
+        animationSpec = spring(
+            dampingRatio = 0.82f,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "jetLift"
+    )
+
+    val density = LocalDensity.current
+    val strokeWidthPx = remember(density) { with(density) { 2.dp.toPx() } }
+    val spineStrokePx = remember(density) { with(density) { 2.4.dp.toPx() } }
+    val dotRadiusPx = remember(density) { with(density) { 2.2.dp.toPx() } }
+    val liftPx = with(density) { animatedLiftDp.toPx() }
+
+    // Reusable Path instances to prevent frame GC allocations
+    val leftWingPath = remember { Path() }
+    val rightWingPath = remember { Path() }
+    val keelPath = remember { Path() }
+    val flamePath = remember { Path() }
+
+    Canvas(modifier = modifier) {
+        val t = if (!isAnimationsDisabled) timeState.value / 1_000_000_000f else 0f
+        val diameter = size.minDimension
+        val cx = size.width / 2f
+        val cy = size.height / 2f + liftPx
+
+        // Flight dynamics: gentle aerodynamic pitch & roll
+        val isGliderActive = state == ProxyUiState.CONNECTED || state == ProxyUiState.CONNECTING
+        val floatAmp = if (isGliderActive) diameter * 0.024f else diameter * 0.010f
+        val floatFrequency = if (isGliderActive) 2.4f else 1.3f
+        val driftY = kotlin.math.sin(t * floatFrequency) * floatAmp
+
+        // High frequency vibration during connecting (micro-thrust rumble)
+        val rumbleY = if (state == ProxyUiState.CONNECTING) kotlin.math.sin(t * 36f) * (diameter * 0.008f) else 0f
+        val effectiveCy = cy + driftY + rumbleY
+
+        // Aerodynamic banking roll
+        val rollAngle = if (state == ProxyUiState.CONNECTED) {
+            kotlin.math.sin(t * 1.7f) * 2.2f
+        } else if (state == ProxyUiState.CONNECTING) {
+            kotlin.math.sin(t * 8f) * 1.2f
+        } else {
+            0f
+        }
+
+        // Glider scale factors
+        val planeH = diameter * 0.52f
+        val planeW = diameter * 0.48f
+
+        // Key geometric vertices (symmetrical supersonic stealth delta)
+        val nose = Offset(cx, effectiveCy - planeH * 0.44f)
+        val leftTip = Offset(cx - planeW * 0.48f, effectiveCy + planeH * 0.26f)
+        val rightTip = Offset(cx + planeW * 0.48f, effectiveCy + planeH * 0.26f)
+        val leftNotch = Offset(cx - planeW * 0.16f, effectiveCy + planeH * 0.16f)
+        val rightNotch = Offset(cx + planeW * 0.16f, effectiveCy + planeH * 0.16f)
+        val tailCenter = Offset(cx, effectiveCy + planeH * 0.09f)
+        val keelTip = Offset(cx, effectiveCy + planeH * 0.35f)
+
+        // Winglet tips (aerodynamic fins)
+        val leftWinglet = Offset(cx - planeW * 0.49f, effectiveCy + planeH * 0.13f)
+        val rightWinglet = Offset(cx + planeW * 0.49f, effectiveCy + planeH * 0.13f)
+
+        rotate(degrees = rollAngle, pivot = Offset(cx, effectiveCy)) {
+            // ── 1. SUPERSONIC WARP SHOCKWAVE RINGS (Trail behind the jet) ──
+            if (animatedThrust > 0.02f) {
+                val ringCount = 3
+                for (i in 0 until ringCount) {
+                    val ringPhase = (t * 0.85f + i * (1f / ringCount)) % 1.0f
+                    val ringCenterY = tailCenter.y + ringPhase * (diameter * 0.28f)
+                    val ringHalfW = (planeW * 0.30f) + ringPhase * (planeW * 0.45f)
+                    val ringHalfH = (diameter * 0.05f) * (1f + ringPhase * 0.4f)
+                    val ringAlpha = (1f - ringPhase) * animatedThrust * 0.55f
+
+                    if (ringAlpha > 0.01f) {
+                        drawArc(
+                            color = animatedJetColor.copy(alpha = ringAlpha),
+                            startAngle = 15f,
+                            sweepAngle = 150f,
+                            useCenter = false,
+                            topLeft = Offset(cx - ringHalfW, ringCenterY - ringHalfH),
+                            size = Size(ringHalfW * 2, ringHalfH * 2),
+                            style = Stroke(width = strokeWidthPx * 0.8f, cap = StrokeCap.Round)
+                        )
+                    }
+                }
+            }
+
+            // ── 2. AFTERBURNER THRUSTER FLAME (Plasma core) ──
+            if (animatedThrust > 0.02f) {
+                val flameFlicker = 0.88f + 0.24f * kotlin.math.sin(t * 22f)
+                val flameLen = planeH * 0.22f * flameFlicker * animatedThrust
+                val flameW = planeW * 0.09f * animatedThrust
+
+                flamePath.reset()
+                flamePath.moveTo(tailCenter.x - flameW, tailCenter.y)
+                flamePath.lineTo(tailCenter.x, tailCenter.y + flameLen)
+                flamePath.lineTo(tailCenter.x + flameW, tailCenter.y)
+                flamePath.close()
+
+                drawPath(
+                    path = flamePath,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = animatedThrust * 0.95f),
+                            animatedJetColor.copy(alpha = animatedThrust * 0.75f),
+                            Color.Transparent
+                        ),
+                        startY = tailCenter.y,
+                        endY = tailCenter.y + flameLen
+                    )
+                )
+
+                // Engine nozzle glow ring
+                drawCircle(
+                    color = animatedJetColor.copy(alpha = animatedThrust * 0.9f),
+                    radius = strokeWidthPx * 1.5f,
+                    center = tailCenter
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = animatedThrust),
+                    radius = strokeWidthPx * 0.7f,
+                    center = tailCenter
+                )
+            }
+
+            // ── 3. VENTRAL KEEL / STABILIZER FLAP ──
+            keelPath.reset()
+            keelPath.moveTo(tailCenter.x, tailCenter.y)
+            keelPath.lineTo(leftNotch.x, leftNotch.y)
+            keelPath.lineTo(keelTip.x, keelTip.y)
+            keelPath.lineTo(rightNotch.x, rightNotch.y)
+            keelPath.close()
+
+            drawPath(
+                path = keelPath,
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.12f else 0.04f)
+            )
+            drawPath(
+                path = keelPath,
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.40f else 0.25f),
+                style = Stroke(width = strokeWidthPx * 0.7f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+
+            // ── 4. LEFT WING (Translucent Facet) ──
+            leftWingPath.reset()
+            leftWingPath.moveTo(nose.x, nose.y)
+            leftWingPath.lineTo(leftTip.x, leftTip.y)
+            leftWingPath.lineTo(leftNotch.x, leftNotch.y)
+            leftWingPath.lineTo(tailCenter.x, tailCenter.y)
+            leftWingPath.close()
+
+            drawPath(
+                path = leftWingPath,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        animatedJetColor.copy(alpha = if (isGliderActive) 0.22f else 0.06f),
+                        animatedJetColor.copy(alpha = if (isGliderActive) 0.08f else 0.02f)
+                    ),
+                    start = nose,
+                    end = leftTip
+                )
+            )
+            // Left wing contour & winglet
+            drawPath(
+                path = leftWingPath,
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.95f else 0.50f),
+                style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+            // Left winglet fin
+            drawLine(
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.90f else 0.40f),
+                start = leftTip,
+                end = leftWinglet,
+                strokeWidth = strokeWidthPx,
+                cap = StrokeCap.Round
+            )
+
+            // ── 5. RIGHT WING (Specular 3D Facet) ──
+            rightWingPath.reset()
+            rightWingPath.moveTo(nose.x, nose.y)
+            rightWingPath.lineTo(rightTip.x, rightTip.y)
+            rightWingPath.lineTo(rightNotch.x, rightNotch.y)
+            rightWingPath.lineTo(tailCenter.x, tailCenter.y)
+            rightWingPath.close()
+
+            drawPath(
+                path = rightWingPath,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        animatedJetColor.copy(alpha = if (isGliderActive) 0.34f else 0.10f),
+                        animatedJetColor.copy(alpha = if (isGliderActive) 0.14f else 0.04f)
+                    ),
+                    start = nose,
+                    end = rightTip
+                )
+            )
+            // Right wing contour & winglet
+            drawPath(
+                path = rightWingPath,
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.95f else 0.50f),
+                style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+            // Right winglet fin
+            drawLine(
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.90f else 0.40f),
+                start = rightTip,
+                end = rightWinglet,
+                strokeWidth = strokeWidthPx,
+                cap = StrokeCap.Round
+            )
+
+            // ── 6. CENTRAL ENERGY SPINE & RUNNING DATA PACKET ──
+            drawLine(
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 1.0f else 0.70f),
+                start = nose,
+                end = tailCenter,
+                strokeWidth = spineStrokePx,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.60f else 0.35f),
+                start = tailCenter,
+                end = keelTip,
+                strokeWidth = strokeWidthPx * 0.8f,
+                cap = StrokeCap.Round
+            )
+
+            // Data impulse running down the spine in active mode
+            if (isGliderActive) {
+                val packetPhase = (t * 2.2f) % 1.0f
+                val packetY = nose.y + (tailCenter.y - nose.y) * packetPhase
+
+                drawCircle(
+                    color = Color.White,
+                    radius = dotRadiusPx,
+                    center = Offset(cx, packetY)
+                )
+                drawCircle(
+                    color = animatedJetColor.copy(alpha = 0.6f),
+                    radius = dotRadiusPx * 2.2f,
+                    center = Offset(cx, packetY)
+                )
+            }
+
+            // Nose tip beacon dot
+            drawCircle(
+                color = if (isGliderActive) Color.White else animatedJetColor.copy(alpha = 0.6f),
+                radius = dotRadiusPx * 0.9f,
+                center = nose
+            )
         }
     }
 }
@@ -1907,14 +2407,26 @@ fun WsPoolStabilityGraph(
 
         Spacer(modifier = Modifier.height(3.dp))
 
-        // Subtle dark muted caption under graph
-        Text(
-            text = "АКТИВНОСТЬ СОКЕТОВ WSPOOL",
-            color = TextMuted.copy(alpha = 0.50f),
-            fontSize = 9.5.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.2.sp
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "WSPOOL СОКЕТЫ",
+                color = TextMuted.copy(alpha = 0.55f),
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.1.sp
+            )
+            Text(
+                text = if (isProxyActive) "$activeConns / $maxPoolSize активных" else "остановлен",
+                color = if (isProxyActive) accentColor.copy(alpha = 0.85f) else TextMuted.copy(alpha = 0.45f),
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
     }
 }
 
@@ -1922,7 +2434,7 @@ fun WsPoolStabilityGraph(
  * Modern tactile Protocol Switcher Header.
  * Supports smooth horizontal drag gestures with physics resistance,
  * instant tap switching, sliding pill indicator, anti-spam locking,
- * static pill position, app title "Мирли", and elegant drop-down active worker badge in SOCKS5 mode.
+ * static pill position, app title "Мирли", and elegant active worker badge in SOCKS5 mode.
  */
 @Composable
 fun ProtocolSwitcherHeader(
@@ -1932,6 +2444,10 @@ fun ProtocolSwitcherHeader(
     isSwitching: Boolean,
     onSwitchProtocol: (com.mirrly.tgproxy.core.ProxyMode) -> Unit,
     onOpenWorkerManager: () -> Unit = {},
+    uplinkMode: com.mirrly.tgproxy.core.UplinkMode = com.mirrly.tgproxy.core.UplinkMode.WORKER,
+    warpProfile: com.mirrly.tgproxy.core.WarpProfile? = null,
+    vlessUuid: String = "",
+    onOpenUplinkState: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1944,10 +2460,15 @@ fun ProtocolSwitcherHeader(
     val capsuleWidth = 168.dp
     val capsuleHeight = 31.dp
     val tabWidth = capsuleWidth / 2
-    val badgeOffsetY = with(density) { (capsuleHeight + 3.dp).roundToPx() }
 
     // Optimistic UI state for instant 0ms response
     var optimisticIsSocks5 by remember(isSocks5) { mutableStateOf(isSocks5) }
+
+    val switcherAccentColor by animateColorAsState(
+        targetValue = if (optimisticIsSocks5) Socks5Accent else MtprotoAccent,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "switcherAccentColor"
+    )
 
     // Smooth, slow, controlled, and physically natural sliding animation
     val animatedPillOffset by animateDpAsState(
@@ -2040,10 +2561,10 @@ fun ProtocolSwitcherHeader(
                         .fillMaxHeight()
                         .padding(2.5.dp)
                         .clip(RoundedCornerShape(13.dp))
-                        .background(protoColors.primary.copy(alpha = 0.16f))
+                        .background(switcherAccentColor.copy(alpha = 0.16f))
                         .border(
                             1.dp,
-                            protoColors.primary.copy(alpha = 0.55f),
+                            switcherAccentColor.copy(alpha = 0.55f),
                             RoundedCornerShape(13.dp)
                         )
                 )
@@ -2073,7 +2594,7 @@ fun ProtocolSwitcherHeader(
                     ) {
                         Text(
                             text = "MTProto",
-                            color = if (!optimisticIsSocks5) protoColors.primary else TextMuted,
+                            color = if (!optimisticIsSocks5) switcherAccentColor else TextMuted,
                             fontSize = 12.sp,
                             fontWeight = if (!optimisticIsSocks5) FontWeight.Bold else FontWeight.Medium,
                             letterSpacing = 0.3.sp
@@ -2100,7 +2621,7 @@ fun ProtocolSwitcherHeader(
                     ) {
                         Text(
                             text = "SOCKS5",
-                            color = if (optimisticIsSocks5) protoColors.primary else TextMuted,
+                            color = if (optimisticIsSocks5) switcherAccentColor else TextMuted,
                             fontSize = 12.sp,
                             fontWeight = if (optimisticIsSocks5) FontWeight.Bold else FontWeight.Medium,
                             letterSpacing = 0.3.sp
@@ -2108,55 +2629,112 @@ fun ProtocolSwitcherHeader(
                     }
                 }
             }
+        }
 
-            // SOCKS5 Active Worker Indicator Dropdown Badge
-            Box(
-                modifier = Modifier
-                    .layout { measurable, constraints ->
-                        val placeable = measurable.measure(constraints)
-                        layout(placeable.width, 0) {
-                            placeable.placeRelative(0, badgeOffsetY)
-                        }
-                    }
-            ) {
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = optimisticIsSocks5,
-                    enter = fadeIn(tween(220)) + expandVertically(tween(220)),
-                    exit = fadeOut(tween(160)) + shrinkVertically(tween(160))
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.Transparent)
-                            .border(0.8.dp, protoColors.primary.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-                            .clickable(
-                                interactionSource = badgeInteractionSource,
-                                indication = null
-                            ) {
-                                HapticHelper.performSoftTick(context)
-                                onOpenWorkerManager()
-                            }
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(4.5.dp)
-                                .clip(CircleShape)
-                                .background(protoColors.primary)
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // SOCKS5 / MTProto Active Uplink Indicator Badge
+        val isWarpActive = warpProfile != null && warpProfile.isWarpEnabled
+
+        val (badgeText, badgeBaseColor, badgeClick) = if (!optimisticIsSocks5) {
+            // MTProto Mode (Uses Anycast Flowseal CDN, independent of Cloudflare Workers)
+            Triple(
+                "Anycast Flowseal",
+                MtprotoAccent,
+                onOpenUplinkState
+            )
+        } else {
+            // SOCKS5 Mode
+            when (uplinkMode) {
+                com.mirrly.tgproxy.core.UplinkMode.WORKER -> Triple(
+                    "Worker • ${activeWorker.name}",
+                    Socks5Accent,
+                    onOpenWorkerManager
+                )
+                com.mirrly.tgproxy.core.UplinkMode.MASQUE -> {
+                    if (isWarpActive) {
+                        Triple(
+                            "WARP MASQUE • ${warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2"}",
+                            Socks5Accent,
+                            onOpenUplinkState
                         )
-                        Spacer(modifier = Modifier.width(4.5.dp))
-                        Text(
-                            text = activeWorker.name,
-                            color = protoColors.primary,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1
+                    } else {
+                        Triple(
+                            "WARP • Нужна регистрация",
+                            Color(0xFFFF9E00),
+                            onOpenUplinkState
                         )
                     }
                 }
+                com.mirrly.tgproxy.core.UplinkMode.VLESS -> Triple(
+                    "VLESS over WSS • TLS 1.3",
+                    Socks5Accent,
+                    onOpenUplinkState
+                )
+                com.mirrly.tgproxy.core.UplinkMode.HYBRID -> {
+                    if (isWarpActive) {
+                        Triple(
+                            "Гибрид • ${activeWorker.name} + WARP",
+                            Socks5Accent,
+                            onOpenUplinkState
+                        )
+                    } else {
+                        Triple(
+                            "Гибрид • Нужен WARP",
+                            Color(0xFFFF9E00),
+                            onOpenUplinkState
+                        )
+                    }
+                }
+                com.mirrly.tgproxy.core.UplinkMode.AWG -> Triple(
+                    "AmneziaWG • WARP Anycast",
+                    Socks5Accent,
+                    onOpenUplinkState
+                )
+                com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> Triple(
+                    "WARP Cascade • Worker + AWG",
+                    Socks5Accent,
+                    onOpenUplinkState
+                )
             }
+        }
+
+        val animatedBadgeColor by animateColorAsState(
+            targetValue = badgeBaseColor,
+            animationSpec = tween(300, easing = FastOutSlowInEasing),
+            label = "badgeColor"
+        )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Transparent)
+                .border(0.8.dp, animatedBadgeColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                .clickable(
+                    interactionSource = badgeInteractionSource,
+                    indication = null
+                ) {
+                    HapticHelper.performSoftTick(context)
+                    badgeClick()
+                }
+                .padding(horizontal = 8.dp, vertical = 2.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(4.5.dp)
+                    .clip(CircleShape)
+                    .background(animatedBadgeColor)
+            )
+            Spacer(modifier = Modifier.width(4.5.dp))
+            Text(
+                text = badgeText,
+                color = animatedBadgeColor,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
         }
     }
 }
@@ -2231,8 +2809,8 @@ fun LiquidWaveQualityCircle(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .clip(CircleShape)
-            .background(Color(0xFF0B101C).copy(alpha = 0.85f))
-            .border(1.2.dp, animatedColor.copy(alpha = 0.45f), CircleShape)
+            .background(Color.Transparent)
+            .border(1.dp, animatedColor.copy(alpha = 0.45f), CircleShape)
             .clickable(onClick = onClick)
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -2312,6 +2890,250 @@ fun LiquidWaveQualityCircle(
         )
     }
 }
+
+@Composable
+fun UplinkStateDialog(
+    uplinkMode: com.mirrly.tgproxy.core.UplinkMode,
+    isSocks5: Boolean,
+    activeWorker: com.mirrly.tgproxy.core.WorkerProfile,
+    warpProfile: com.mirrly.tgproxy.core.WarpProfile?,
+    vlessUuid: String,
+    vlessPath: String,
+    isProxyRunning: Boolean,
+    onDismiss: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenWorkerManager: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val isWarpActive = warpProfile != null && warpProfile.isWarpEnabled
+    var showInfoDialog by remember { mutableStateOf(false) }
+    val modeTitle = if (!isSocks5) {
+        "MTProto Direct / WSS"
+    } else {
+        when (uplinkMode) {
+            com.mirrly.tgproxy.core.UplinkMode.WORKER -> "Cloudflare Worker WSS"
+            com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "Cloudflare WARP MASQUE"
+            com.mirrly.tgproxy.core.UplinkMode.VLESS -> "VLESS over WSS"
+            com.mirrly.tgproxy.core.UplinkMode.HYBRID -> "Гибрид Worker + WARP"
+            com.mirrly.tgproxy.core.UplinkMode.AWG -> "AmneziaWG (WARP Anycast)"
+            com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> "WARP Cascade (Worker + AWG)"
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = Color(0xFF0C0C10),
+            border = BorderStroke(1.dp, AmoledBorder),
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .padding(vertical = 24.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Состояние аплинка",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            InfoButton {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showInfoDialog = true
+                            }
+                        }
+                        Text(
+                            text = "Сетевой транспорт и статус шифрования",
+                            fontSize = 11.sp,
+                            color = TextMuted
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.5f))
+                    ) {
+                        Text(
+                            text = modeTitle,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ActiveGreenLed,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                // Details Card (100% transparent background, borders only)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, AmoledBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        if (!isSocks5) {
+                            UplinkStateRow("Протокол", "Telegram MTProto (:1080)")
+                            UplinkStateRow("Транспорт", "Anycast CDN Flowseal (kws*.apiws)")
+                            UplinkStateRow("Шифрование", "Fake-TLS 1.3 (dd-secret)")
+                            UplinkStateRow("Кэш-узлы", "20 гео-распределенных CDN-нод")
+                        } else {
+                            when (uplinkMode) {
+                                com.mirrly.tgproxy.core.UplinkMode.WORKER -> {
+                                    UplinkStateRow("Протокол", "SOCKS5 TCP Relay")
+                                    UplinkStateRow("Транспорт", "Cloudflare Worker WSS :443")
+                                    UplinkStateRow("Активный воркер", activeWorker.name)
+                                    UplinkStateRow("Домен узла", activeWorker.domain)
+                                    UplinkStateRow("Пул соединений", if (activeWorker.isDeveloperWorker) "Общий пул разработчиков" else "Персональный воркер")
+                                }
+                                com.mirrly.tgproxy.core.UplinkMode.MASQUE -> {
+                                    UplinkStateRow("Протокол", "Cloudflare WARP Anycast MASQUE")
+                                    UplinkStateRow("Регистрация", if (isWarpActive) "Активен • Зарегистрирован" else "Не зарегистрирован", isAlert = !isWarpActive)
+                                    UplinkStateRow("Клиентский IPv4", warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2")
+                                    UplinkStateRow("Anycast шлюз", warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
+                                    UplinkStateRow("Криптография mTLS", if (warpProfile?.clientCertBase64?.isNotBlank() == true) "ECDSA P-256 готов" else "Ключи отсутствуют")
+                                    UplinkStateRow("Лицензия", if (warpProfile?.isWarpPlus == true) "Cloudflare WARP+ Unlimited" else "WARP Free")
+                                }
+                                com.mirrly.tgproxy.core.UplinkMode.VLESS -> {
+                                    UplinkStateRow("Протокол", "VLESS v0 over WebSocket")
+                                    UplinkStateRow("UUID клиента", if (vlessUuid.length > 14) "${vlessUuid.take(8)}...${vlessUuid.takeLast(4)}" else vlessUuid)
+                                    UplinkStateRow("WebSocket путь", vlessPath)
+                                    UplinkStateRow("Хост / SNI", "${activeWorker.domain}:443")
+                                    UplinkStateRow("Маскировка TLS", "TLS 1.3 Chrome (utls-mimic)")
+                                }
+                                com.mirrly.tgproxy.core.UplinkMode.HYBRID -> {
+                                    UplinkStateRow("Архитектура", "Worker WSS -> WARP MASQUE")
+                                    UplinkStateRow("Первый хоп (Worker)", "${activeWorker.name} (${activeWorker.domain})")
+                                    UplinkStateRow("Второй хоп (WARP)", if (isWarpActive) "MASQUE (${warpProfile?.clientIpv4})" else "Не зарегистрирован", isAlert = !isWarpActive)
+                                    UplinkStateRow("Anycast шлюз", warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
+                                }
+                                com.mirrly.tgproxy.core.UplinkMode.AWG -> {
+                                    UplinkStateRow("Протокол", "AmneziaWG (обфусцированный WireGuard)")
+                                    UplinkStateRow("Регистрация", if (isWarpActive) "Активен • WARP Anycast" else "Не зарегистрирован", isAlert = !isWarpActive)
+                                    UplinkStateRow("Anycast шлюз", warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
+                                    UplinkStateRow("Клиентский IPv4", warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2")
+                                    UplinkStateRow("Обфускация (Jc)", "4 junk-пакета перед хэндшейком")
+                                    UplinkStateRow("Маскировка I1", "QUIC Initial (SNI camouflage)")
+                                }
+                                com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> {
+                                    UplinkStateRow("Архитектура", "MASQUE -> AWG -> Worker WSS")
+                                    UplinkStateRow("Уровень 1 (MASQUE)", if (isWarpActive) "WARP HTTP/3 Anycast" else "Не зарегистрирован", isAlert = !isWarpActive)
+                                    UplinkStateRow("Уровень 2 (AWG)", if (isWarpActive) "AmneziaWG Anycast (Jc=4)" else "Не зарегистрирован", isAlert = !isWarpActive)
+                                    UplinkStateRow("Уровень 3 (WSS)", "${activeWorker.name} — гарантированный TCP 443")
+                                    UplinkStateRow("Anycast шлюз", warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
+                                }
+                            }
+                        }
+
+                        UplinkStateRow("Статус движка", if (isProxyRunning) "Туннель запущен" else "Остановлен")
+                    }
+                }
+
+                // Action Buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onOpenSettings()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = ActiveGreenLed
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(38.dp)
+                    ) {
+                        Text(
+                            text = "Настройки аплинка",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onDismiss()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = TextWhite
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, AmoledBorder),
+                        modifier = Modifier
+                            .weight(0.7f)
+                            .height(38.dp)
+                    ) {
+                        Text(
+                            text = "Закрыть",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showInfoDialog) {
+        SettingsInfoDialog(
+            infoKey = "uplink_modes_info",
+            onDismiss = { showInfoDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun UplinkStateRow(label: String, value: String, isAlert: Boolean = false) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = 11.5.sp,
+            color = TextMuted
+        )
+        Text(
+            text = value,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (isAlert) Color(0xFFFF9E00) else TextWhite,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
+    }
+}
+
 
 
 

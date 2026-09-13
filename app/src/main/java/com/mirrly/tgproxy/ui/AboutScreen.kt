@@ -890,7 +890,7 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = "Разработано с ❤️ Mirrly Dev",
+                    text = "Разработано командой Mirrly Dev",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextMuted

@@ -54,14 +54,7 @@ fun ValueStarBanner(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(22.dp))
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xD9121824),
-                        Color(0xC00A0F1A)
-                    )
-                )
-            )
+            .background(Color.Transparent)
             .border(
                 width = 1.dp,
                 brush = Brush.horizontalGradient(

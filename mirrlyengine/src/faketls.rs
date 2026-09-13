@@ -220,8 +220,13 @@ mod tests {
         client_hello_body.extend_from_slice(&[0x00, 0x00]); // 0 extensions
 
         let body_len = client_hello_body.len() as u16;
-        let mut client_hello =
-            vec![0x16, 0x03, 0x01, (body_len >> 8) as u8, (body_len & 0xff) as u8];
+        let mut client_hello = vec![
+            0x16,
+            0x03,
+            0x01,
+            (body_len >> 8) as u8,
+            (body_len & 0xff) as u8,
+        ];
         client_hello.extend_from_slice(&client_hello_body);
 
         let initial_5 = client_hello[..5].to_vec();
@@ -239,7 +244,9 @@ mod tests {
 
             // Client sends ApplicationData
             let test_payload = b"Hello MTProto via FakeTLS";
-            write_tls_app_data(&mut client_sock, test_payload).await.unwrap();
+            write_tls_app_data(&mut client_sock, test_payload)
+                .await
+                .unwrap();
 
             // Client receives ApplicationData response
             let response = read_tls_app_data(&mut client_sock).await.unwrap();
@@ -247,14 +254,18 @@ mod tests {
         });
 
         // Server handles handshake
-        handle_fake_tls_handshake(&mut server_sock, &initial_5).await.unwrap();
+        handle_fake_tls_handshake(&mut server_sock, &initial_5)
+            .await
+            .unwrap();
 
         // Server reads client's ApplicationData
         let received = read_tls_app_data(&mut server_sock).await.unwrap();
         assert_eq!(&received[..], b"Hello MTProto via FakeTLS");
 
         // Server replies with ApplicationData
-        write_tls_app_data(&mut server_sock, b"MTProto Response from DC").await.unwrap();
+        write_tls_app_data(&mut server_sock, b"MTProto Response from DC")
+            .await
+            .unwrap();
 
         client_task.await.unwrap();
     }

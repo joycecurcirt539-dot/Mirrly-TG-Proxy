@@ -65,10 +65,32 @@ data class DohStats(
  * Провайдер DNS-over-HTTPS.
  */
 data class DohProvider(
+    val id: String,
     val name: String,
+    val description: String,
     val endpointUrl: String,
-    val isGoogleStyle: Boolean = false
-)
+    val isDefaultEnabled: Boolean,
+    val isGoogleStyle: Boolean = false,
+    val acceptHeader: String = "application/dns-json",
+    val useDnsParam: Boolean = false
+) {
+    constructor(
+        name: String,
+        endpointUrl: String,
+        isGoogleStyle: Boolean = false,
+        acceptHeader: String = "application/dns-json",
+        useDnsParam: Boolean = false
+    ) : this(
+        id = name.lowercase().replace("-", "_").replace(" ", "_"),
+        name = name,
+        description = "",
+        endpointUrl = endpointUrl,
+        isDefaultEnabled = true,
+        isGoogleStyle = isGoogleStyle,
+        acceptHeader = acceptHeader,
+        useDnsParam = useDnsParam
+    )
+}
 
 /**
  * Высокопроизводительный и защищенный от цензуры DNS-over-HTTPS (DoH) резолвер.
@@ -95,33 +117,188 @@ object DohResolver {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    val DEFAULT_PROVIDERS = listOf(
+    val ALL_PROVIDERS: List<DohProvider> = listOf(
         DohProvider(
-            name = "Cloudflare-Primary",
+            id = "adguard",
+            name = "AdGuard DNS",
+            description = "Блокировка рекламы и трекеров (Anycast)",
+            endpointUrl = "https://94.140.14.14/resolve",
+            isDefaultEnabled = true,
+            isGoogleStyle = true,
+            acceptHeader = "application/dns-json"
+        ),
+        DohProvider(
+            id = "dnssb",
+            name = "DNS.SB (Primary)",
+            description = "Приватный DNS без логов и цензуры (Anycast)",
+            endpointUrl = "https://185.222.222.222/dns-query",
+            isDefaultEnabled = true,
+            acceptHeader = "application/dns-json"
+        ),
+        DohProvider(
+            id = "dnssb_sec",
+            name = "DNS.SB (Secondary)",
+            description = "Резервный европейский Anycast-узел",
+            endpointUrl = "https://45.11.45.11/dns-query",
+            isDefaultEnabled = true,
+            acceptHeader = "application/dns-json"
+        ),
+        DohProvider(
+            id = "nextdns",
+            name = "NextDNS",
+            description = "Глобальная сверхбыстрая Anycast-сеть",
+            endpointUrl = "https://dns.nextdns.io/dns-query",
+            isDefaultEnabled = true,
+            acceptHeader = "application/dns-json"
+        ),
+        DohProvider(
+            id = "controld",
+            name = "Control D (Standard)",
+            description = "Высокоскоростной DNS без цензуры",
+            endpointUrl = "https://freedns.controld.com/p0",
+            isDefaultEnabled = true,
+            acceptHeader = "application/dns-message"
+        ),
+        DohProvider(
+            id = "controld_uncensored",
+            name = "Control D (Uncensored)",
+            description = "Открытый резолвер без каких-либо фильтров",
+            endpointUrl = "https://freedns.controld.com/uncensored",
+            isDefaultEnabled = false,
+            acceptHeader = "application/dns-message"
+        ),
+        DohProvider(
+            id = "controld_malware",
+            name = "Control D (Security)",
+            description = "Фильтрация вредоносных сайтов и фишинга",
+            endpointUrl = "https://freedns.controld.com/malware",
+            isDefaultEnabled = false,
+            acceptHeader = "application/dns-message"
+        ),
+        DohProvider(
+            id = "quad9",
+            name = "Quad9 DNS",
+            description = "Швейцарский Anycast без коммерческого трекинга",
+            endpointUrl = "https://dns.quad9.net/dns-query",
+            isDefaultEnabled = false,
+            acceptHeader = "application/dns-message"
+        ),
+        DohProvider(
+            id = "geohide",
+            name = "GeoHide DNS",
+            description = "Обход региональных блокировок и цензуры",
+            endpointUrl = "https://dns.geohide.ru/dns-query",
+            isDefaultEnabled = false,
+            acceptHeader = "application/dns-message",
+            useDnsParam = true
+        ),
+        DohProvider(
+            id = "xbox",
+            name = "Xbox DNS",
+            description = "Smart DNS для сервисов Microsoft и игр",
+            endpointUrl = "https://xbox-dns.ru/dns-query",
+            isDefaultEnabled = false,
+            acceptHeader = "application/dns-message",
+            useDnsParam = true
+        ),
+        DohProvider(
+            id = "cloudflare",
+            name = "Cloudflare (1.1.1.1)",
+            description = "Глобальный Anycast (может замедляться в РФ)",
             endpointUrl = "https://1.1.1.1/dns-query",
-            isGoogleStyle = false
+            isDefaultEnabled = false,
+            acceptHeader = "application/dns-json"
         ),
         DohProvider(
-            name = "Cloudflare-Secondary",
+            id = "cloudflare_sec",
+            name = "Cloudflare (1.0.0.1)",
+            description = "Второй Anycast-адрес Cloudflare",
             endpointUrl = "https://1.0.0.1/dns-query",
-            isGoogleStyle = false
+            isDefaultEnabled = false,
+            acceptHeader = "application/dns-json"
         ),
         DohProvider(
-            name = "Google-Primary",
+            id = "google",
+            name = "Google DNS (8.8.8.8)",
+            description = "Резервный глобальный резолвер Google",
             endpointUrl = "https://8.8.8.8/resolve",
-            isGoogleStyle = true
+            isDefaultEnabled = false,
+            isGoogleStyle = true,
+            acceptHeader = "application/dns-json"
         ),
         DohProvider(
-            name = "Google-Secondary",
+            id = "google_sec",
+            name = "Google DNS (8.8.4.4)",
+            description = "Второй глобальный адрес Google Public DNS",
             endpointUrl = "https://8.8.4.4/resolve",
-            isGoogleStyle = true
-        ),
-        DohProvider(
-            name = "Quad9",
-            endpointUrl = "https://9.9.9.9/dns-query",
-            isGoogleStyle = false
+            isDefaultEnabled = false,
+            isGoogleStyle = true,
+            acceptHeader = "application/dns-json"
         )
     )
+
+    fun buildDnsQueryPacket(domain: String, type: Int = 1): ByteArray {
+        val stream = java.io.ByteArrayOutputStream(64)
+        // Transaction ID: 0x0000
+        stream.write(0); stream.write(0)
+        // Flags: 0x0100 (Standard query, RD = 1)
+        stream.write(1); stream.write(0)
+        // QDCOUNT: 1
+        stream.write(0); stream.write(1)
+        // ANCOUNT, NSCOUNT, ARCOUNT: 0
+        stream.write(0); stream.write(0)
+        stream.write(0); stream.write(0)
+        stream.write(0); stream.write(0)
+        // QNAME
+        for (part in domain.split('.')) {
+            if (part.isNotEmpty()) {
+                val bytes = part.toByteArray(Charsets.US_ASCII)
+                stream.write(bytes.size)
+                stream.write(bytes)
+            }
+        }
+        stream.write(0) // Root label
+        // QTYPE: 1 (A)
+        stream.write(0); stream.write(type)
+        // QCLASS: 1 (IN)
+        stream.write(0); stream.write(1)
+        return stream.toByteArray()
+    }
+
+    fun buildDnsQueryUrl(provider: DohProvider, domain: String): String {
+        return if (provider.useDnsParam) {
+            val packet = buildDnsQueryPacket(domain)
+            val b64 = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(packet)
+            "${provider.endpointUrl}?dns=$b64"
+        } else {
+            "${provider.endpointUrl}?name=$domain&type=A"
+        }
+    }
+
+    val DEFAULT_ENABLED_PROVIDER_IDS: Set<String> = ALL_PROVIDERS
+        .filter { it.isDefaultEnabled }
+        .map { it.id }
+        .toSet()
+
+    val DEFAULT_PROVIDERS: List<DohProvider>
+        get() = ALL_PROVIDERS
+
+    @Volatile
+    private var activeProviderIds: Set<String> = DEFAULT_ENABLED_PROVIDER_IDS
+
+    fun setActiveProviders(ids: Set<String>) {
+        activeProviderIds = if (ids.isEmpty()) DEFAULT_ENABLED_PROVIDER_IDS else ids
+    }
+
+    fun getActiveProviders(): List<DohProvider> {
+        val currentIds = activeProviderIds
+        val filtered = ALL_PROVIDERS.filter { currentIds.contains(it.id) }
+        return if (filtered.isNotEmpty()) filtered else ALL_PROVIDERS.filter { it.isDefaultEnabled }
+    }
+
+    fun getActiveProviderIds(): Set<String> = activeProviderIds
+
+    fun getActiveEndpointsCsv(): String = getActiveProviders().joinToString(",") { it.endpointUrl }
 
     val CF_ANYCAST_FALLBACK_IPS: List<InetAddress> = listOf(
         "188.114.96.1",
@@ -262,13 +439,16 @@ object DohResolver {
      * Возвращает первый валидный ответ с IPv4/IPv6 адресами и отменяет остальные запросы.
      */
     private suspend fun raceResolve(domain: String): Triple<List<InetAddress>, Long, String>? {
+        val providers = getActiveProviders()
+        if (providers.isEmpty()) return null
+
         return withTimeoutOrNull(RACE_TIMEOUT_MS) {
             val deferred = CompletableDeferred<Triple<List<InetAddress>, Long, String>>()
             val raceJob = Job()
             val failuresCount = AtomicInteger(0)
-            val totalProviders = DEFAULT_PROVIDERS.size
+            val totalProviders = providers.size
 
-            for (provider in DEFAULT_PROVIDERS) {
+            for (provider in providers) {
                 scope.launch(raceJob) {
                     val result = queryDohProvider(provider, domain)
                     if (result != null && result.first.isNotEmpty()) {
@@ -294,25 +474,124 @@ object DohResolver {
     }
 
     /**
-     * Выполняет HTTPS запрос к указанному DoH провайдеру и парсит ответ.
+     * Выполняет HTTPS запрос к указанному DoH провайдеру и парсит ответ (поддерживает JSON и RFC 8484 Wireformat).
      */
     private fun queryDohProvider(provider: DohProvider, domain: String): Pair<List<InetAddress>, Long>? {
         val url = "${provider.endpointUrl}?name=$domain&type=A"
         val request = Request.Builder()
             .url(url)
-            .header("Accept", "application/dns-json")
-            .header("User-Agent", "MirrlyTGProxy-DoH/1.1.8.3")
+            .header("Accept", provider.acceptHeader)
+            .header("User-Agent", "MirrlyTGProxy-DoH/1.1.8.4")
             .build()
 
         return try {
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
-                val body = response.body?.string() ?: return null
-                parseDohJsonResponse(body, domain)
+                val bytes = response.body?.bytes() ?: return null
+                val contentType = response.header("Content-Type") ?: ""
+                if (contentType.contains("application/dns-message")) {
+                    parseDnsWireResponse(bytes)
+                } else {
+                    val bodyStr = String(bytes, Charsets.UTF_8).trim()
+                    if (bodyStr.startsWith("{")) {
+                        parseDohJsonResponse(bodyStr, domain)
+                    } else {
+                        parseDnsWireResponse(bytes)
+                    }
+                }
             }
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Парсинг бинарного DNS-пакета RFC 8484 (Wireformat) от Control D / Quad9 / OpenDNS.
+     */
+    fun parseDnsWireResponse(bytes: ByteArray): Pair<List<InetAddress>, Long>? {
+        if (bytes.size < 12) return null
+        return try {
+            val buffer = java.nio.ByteBuffer.wrap(bytes)
+            buffer.short // txid
+            val flags = buffer.short.toInt() and 0xFFFF
+            val rcode = flags and 0x000F
+            if (rcode != 0) return null // 0 = NOERROR
+
+            val qdCount = buffer.short.toInt() and 0xFFFF
+            val anCount = buffer.short.toInt() and 0xFFFF
+            buffer.short // nsCount
+            buffer.short // arCount
+
+            // Пропуск секции Question
+            for (i in 0 until qdCount) {
+                if (!skipDnsName(buffer)) return null
+                if (buffer.remaining() < 4) return null
+                buffer.short // qtype
+                buffer.short // qclass
+            }
+
+            val addresses = mutableListOf<InetAddress>()
+            var minTtl = DEFAULT_TTL_SECONDS
+
+            // Чтение записей Answer
+            for (i in 0 until anCount) {
+                if (!skipDnsName(buffer)) break
+                if (buffer.remaining() < 10) break
+                val type = buffer.short.toInt() and 0xFFFF
+                val clazz = buffer.short.toInt() and 0xFFFF
+                val ttl = buffer.int.toLong() and 0xFFFFFFFFL
+                val rdLength = buffer.short.toInt() and 0xFFFF
+
+                if (buffer.remaining() < rdLength) break
+
+                if (type == 1 && rdLength == 4) { // A Record (IPv4)
+                    val ipBytes = ByteArray(4)
+                    buffer.get(ipBytes)
+                    try {
+                        addresses.add(InetAddress.getByAddress(ipBytes))
+                        if (ttl in 1 until minTtl) minTtl = ttl
+                    } catch (_: Exception) {}
+                } else if (type == 28 && rdLength == 16) { // AAAA Record (IPv6)
+                    val ipBytes = ByteArray(16)
+                    buffer.get(ipBytes)
+                    try {
+                        addresses.add(InetAddress.getByAddress(ipBytes))
+                        if (ttl in 1 until minTtl) minTtl = ttl
+                    } catch (_: Exception) {}
+                } else {
+                    buffer.position(buffer.position() + rdLength)
+                }
+            }
+
+            if (addresses.isNotEmpty()) Pair(addresses, minTtl) else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun skipDnsName(buffer: java.nio.ByteBuffer): Boolean {
+        var jumps = 0
+        while (buffer.hasRemaining()) {
+            val len = buffer.get().toInt() and 0xFF
+            if (len == 0) return true
+            if ((len and 0xC0) == 0xC0) {
+                // Указатель сжатия DNS: 2 байта
+                if (buffer.hasRemaining()) {
+                    buffer.get()
+                    return true
+                } else {
+                    return false
+                }
+            } else {
+                if (buffer.remaining() >= len) {
+                    buffer.position(buffer.position() + len)
+                } else {
+                    return false
+                }
+            }
+            if (++jumps > 128) return false
+        }
+        return false
     }
 
     /**

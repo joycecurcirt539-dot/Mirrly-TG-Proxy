@@ -53,6 +53,25 @@ Write-Host "Toolchain bin:    $ndkBin"
 # Add NDK bin to PATH
 $env:PATH = "$ndkBin;$env:PATH"
 
+# Configure MSVC and Windows SDK LIB paths for host build scripts and proc-macros
+if ($IsWindows -or $env:OS -like "*Windows*") {
+    $msvcCandidates = @(
+        "C:\Program Files\Microsoft Visual Studio\*\Community\VC\Tools\MSVC\*\lib\onecore\x64",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\*\lib\x64",
+        "C:\Program Files\Microsoft Visual Studio\*\Community\VC\Tools\MSVC\*\lib\x64",
+        "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\*\lib\onecore\x64",
+        "C:\Program Files (x86)\Microsoft Visual Studio\*\Community\VC\Tools\MSVC\*\lib\onecore\x64"
+    )
+    $msvcLibDir = $msvcCandidates | ForEach-Object { Resolve-Path $_ -ErrorAction SilentlyContinue } | Where-Object { Test-Path (Join-Path $_.Path "msvcrt.lib") } | Select-Object -First 1 -ExpandProperty Path
+    $sdkUmDir = Resolve-Path "C:\Program Files (x86)\Windows Kits\10\Lib\*\um\x64" -ErrorAction SilentlyContinue | Select-Object -Last 1 -ExpandProperty Path
+    $sdkUcrtDir = Resolve-Path "C:\Program Files (x86)\Windows Kits\10\Lib\*\ucrt\x64" -ErrorAction SilentlyContinue | Select-Object -Last 1 -ExpandProperty Path
+
+    $libEntries = @($msvcLibDir, $sdkUmDir, $sdkUcrtDir) | Where-Object { $_ -and (Test-Path $_) }
+    if ($libEntries.Count -gt 0) {
+        $env:LIB = ($libEntries -join ";") + $(if ($env:LIB) { ";$env:LIB" } else { "" })
+    }
+}
+
 # 2. Configure API Level (minSdk = 26)
 $apiLevel = 26
 

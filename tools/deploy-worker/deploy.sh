@@ -237,17 +237,10 @@ deploy_worker() {
 import { connect } from 'cloudflare:sockets';
 
 const TG_IPV4_SUBNETS = [
-  { ip: "91.108.4.0", mask: 22 },
-  { ip: "91.108.8.0", mask: 22 },
-  { ip: "91.108.12.0", mask: 22 },
-  { ip: "91.108.16.0", mask: 22 },
-  { ip: "91.108.20.0", mask: 22 },
-  { ip: "91.108.36.0", mask: 23 },
-  { ip: "91.108.38.0", mask: 23 },
-  { ip: "91.108.56.0", mask: 22 },
-  { ip: "149.154.160.0", mask: 20 },
-  { ip: "91.105.192.0", mask: 23 },
-  { ip: "185.76.151.0", mask: 24 }
+  { ip: "91.108.0.0", mask: 16 },    // Telegram AS44907 (полный диапазон 91.108.0.0 - 91.108.255.255)
+  { ip: "149.154.160.0", mask: 20 }, // Telegram AS62041 (149.154.160.0 - 149.154.175.255)
+  { ip: "91.105.192.0", mask: 23 },  // Telegram AS59930 (91.105.192.0 - 91.105.193.255)
+  { ip: "185.76.151.0", mask: 24 }   // Telegram AS62014 (185.76.151.0 - 185.76.151.255)
 ];
 
 const TG_IPV6_PREFIXES = [
@@ -303,7 +296,7 @@ function isTelegramHost(hostStr) {
   const cleanHost = hostStr.trim().toLowerCase();
   if (isTelegramIp(cleanHost)) return true;
   if (TG_EXACT_DOMAINS.has(cleanHost)) return true;
-  if (cleanHost.endsWith('.telegram.org') || cleanHost.endsWith('.t.me') || cleanHost.endsWith('.telesco.pe')) return true;
+  if (cleanHost.endsWith('.telegram.org') || cleanHost.endsWith('.t.me') || cleanHost.endsWith('.telesco.pe') || cleanHost.endsWith('.telegram-cdn.org') || cleanHost.endsWith('.cdn-telegram.org')) return true;
   return false;
 }
 
@@ -318,8 +311,35 @@ export default {
     }
 
     const url = new URL(request.url);
-    const targetHost = url.searchParams.get('ip') || url.searchParams.get('host') || '149.154.167.50';
-    const targetPort = parseInt(url.searchParams.get('port') || '443', 10);
+    let targetHost = url.searchParams.get('host') || url.searchParams.get('ip');
+    let targetPort = parseInt(url.searchParams.get('port'), 10);
+
+    if (!targetHost || isNaN(targetPort)) {
+      const targetParam = url.searchParams.get('target');
+      if (targetParam) {
+        if (targetParam.startsWith('[')) {
+          const closeBracket = targetParam.indexOf(']');
+          if (closeBracket !== -1) {
+            targetHost = targetParam.substring(1, closeBracket);
+            const afterBracket = targetParam.substring(closeBracket + 1);
+            if (afterBracket.startsWith(':')) {
+              targetPort = parseInt(afterBracket.substring(1), 10);
+            }
+          }
+        } else {
+          const lastColon = targetParam.lastIndexOf(':');
+          if (lastColon !== -1 && targetParam.indexOf(':') === lastColon) {
+            targetHost = targetParam.substring(0, lastColon);
+            targetPort = parseInt(targetParam.substring(lastColon + 1), 10);
+          } else {
+            targetHost = targetParam;
+          }
+        }
+      }
+    }
+
+    if (!targetHost) targetHost = '149.154.167.50';
+    if (isNaN(targetPort) || targetPort <= 0 || targetPort > 65535) targetPort = 443;
 
     if (!ALLOWED_PORTS.has(targetPort)) {
       return new Response(`Forbidden: Port ${targetPort} is not allowed for Telegram traffic.`, { status: 403 });

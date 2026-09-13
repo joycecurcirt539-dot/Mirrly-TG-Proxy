@@ -15,6 +15,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.json:json:20240303")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.83")
     compileOnly("net.java.dev.jna:jna:5.14.0")
     
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")

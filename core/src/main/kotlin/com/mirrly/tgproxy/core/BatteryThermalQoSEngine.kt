@@ -32,8 +32,15 @@ data class DeviceThermalState(
 )
 
 class BatteryThermalQoSEngine(
+    isEnabled: Boolean = true,
     private val onThrottleLevelChanged: ((QoSThrottleLevel) -> Unit)? = null
 ) {
+    constructor(onThrottleLevelChanged: ((QoSThrottleLevel) -> Unit)?) : this(true, onThrottleLevelChanged)
+
+    @Volatile
+    var isEnabled: Boolean = isEnabled
+        private set
+
     @Volatile
     var currentState: DeviceThermalState = DeviceThermalState()
         private set
@@ -47,6 +54,22 @@ class BatteryThermalQoSEngine(
 
     val maxAllowedBufferSizeBytes: Int
         get() = currentThrottleLevel.maxBufferSizeBytes
+
+    fun setEnabled(enabled: Boolean) {
+        if (isEnabled != enabled) {
+            isEnabled = enabled
+            val newLevel = evaluateThrottleLevel(currentState, isEnabled)
+            if (newLevel != currentThrottleLevel) {
+                val oldLevel = currentThrottleLevel
+                currentThrottleLevel = newLevel
+                AppLogger.i(
+                    "QoS",
+                    "Переключение активности QoS ($enabled): ${oldLevel.name} -> ${newLevel.name} (${newLevel.description})"
+                )
+                onThrottleLevelChanged?.invoke(newLevel)
+            }
+        }
+    }
 
     fun updateState(
         batteryPercent: Int,
@@ -62,7 +85,7 @@ class BatteryThermalQoSEngine(
         )
         currentState = newState
 
-        val newLevel = evaluateThrottleLevel(newState)
+        val newLevel = evaluateThrottleLevel(newState, isEnabled)
         if (newLevel != currentThrottleLevel) {
             val oldLevel = currentThrottleLevel
             currentThrottleLevel = newLevel
@@ -83,7 +106,17 @@ class BatteryThermalQoSEngine(
         const val THERMAL_STATUS_EMERGENCY = 5
         const val THERMAL_STATUS_SHUTDOWN = 6
 
-        fun evaluateThrottleLevel(state: DeviceThermalState): QoSThrottleLevel {
+        fun evaluateThrottleLevel(state: DeviceThermalState, isEnabled: Boolean = true): QoSThrottleLevel {
+            if (!isEnabled) {
+                // Если пользователь отключил троттлинг энергосбережения,
+                // критический перегрев (THERMAL_STATUS_CRITICAL+) защищает чип от физического повреждения,
+                // но режимы энергосбережения, разряд батареи и умеренный нагрев не ограничивают скорость.
+                if (state.thermalStatus >= THERMAL_STATUS_CRITICAL) {
+                    return QoSThrottleLevel.SEVERE
+                }
+                return QoSThrottleLevel.NONE
+            }
+
             // 1. Сильный нагрев или системный режим экстремального энергосбережения
             if (state.thermalStatus >= THERMAL_STATUS_SEVERE ||
                 state.isPowerSaveMode ||

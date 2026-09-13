@@ -101,4 +101,60 @@ class BatteryThermalQoSTest {
         val level = BatteryThermalQoSEngine.evaluateThrottleLevel(state)
         assertEquals(QoSThrottleLevel.SEVERE, level)
     }
+
+    @Test
+    fun testDisabledQoSAllowsFullSpeedEvenInPowerSaveAndLowBattery() {
+        val state = DeviceThermalState(
+            batteryPercent = 5,
+            isCharging = false,
+            isPowerSaveMode = true,
+            thermalStatus = BatteryThermalQoSEngine.THERMAL_STATUS_MODERATE
+        )
+        val level = BatteryThermalQoSEngine.evaluateThrottleLevel(state, isEnabled = false)
+        assertEquals(QoSThrottleLevel.NONE, level, "Disabled QoS must allow full performance without power save restrictions")
+        assertEquals(16, level.maxPoolSize)
+        assertEquals(2097152, level.maxBufferSizeBytes)
+    }
+
+    @Test
+    fun testDisabledQoSStillProtectsHardwareAtCriticalThermal() {
+        val state = DeviceThermalState(
+            batteryPercent = 90,
+            isCharging = false,
+            isPowerSaveMode = false,
+            thermalStatus = BatteryThermalQoSEngine.THERMAL_STATUS_CRITICAL
+        )
+        val level = BatteryThermalQoSEngine.evaluateThrottleLevel(state, isEnabled = false)
+        assertEquals(QoSThrottleLevel.SEVERE, level, "Critical thermal status must protect hardware even if QoS is disabled")
+    }
+
+    @Test
+    fun testDynamicSetEnabledUpdatesThrottleLevel() {
+        var notifiedLevel: QoSThrottleLevel? = null
+        val engine = BatteryThermalQoSEngine(isEnabled = true) { newLevel ->
+            notifiedLevel = newLevel
+        }
+
+        engine.updateState(
+            batteryPercent = 5,
+            isCharging = false,
+            isPowerSaveMode = true,
+            thermalStatus = BatteryThermalQoSEngine.THERMAL_STATUS_NONE
+        )
+        assertEquals(QoSThrottleLevel.SEVERE, engine.currentThrottleLevel)
+        assertEquals(2, engine.maxAllowedPoolSize)
+
+        // User turns off QoS throttling ("пофиг на телефон, пусть работает на максимум")
+        engine.setEnabled(false)
+        assertEquals(QoSThrottleLevel.NONE, engine.currentThrottleLevel)
+        assertEquals(16, engine.maxAllowedPoolSize)
+        assertEquals(2097152, engine.maxAllowedBufferSizeBytes)
+        assertEquals(QoSThrottleLevel.NONE, notifiedLevel)
+
+        // User re-enables QoS throttling
+        engine.setEnabled(true)
+        assertEquals(QoSThrottleLevel.SEVERE, engine.currentThrottleLevel)
+        assertEquals(2, engine.maxAllowedPoolSize)
+        assertEquals(QoSThrottleLevel.SEVERE, notifiedLevel)
+    }
 }

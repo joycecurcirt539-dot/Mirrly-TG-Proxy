@@ -83,4 +83,29 @@ class TunnelSpeedTestEngineTest {
         assertEquals(30.5, updated.currentSpeedMbps)
         assertEquals("DME", updated.edgeColo)
     }
+
+    @Test
+    fun testAllSequentialStagesExist() {
+        val stages = SpeedTestStage.values().toList()
+        assertTrue(stages.contains(SpeedTestStage.IDLE))
+        assertTrue(stages.contains(SpeedTestStage.PING))
+        assertTrue(stages.contains(SpeedTestStage.DOWNLOAD))
+        assertTrue(stages.contains(SpeedTestStage.UPLOAD))
+        assertTrue(stages.contains(SpeedTestStage.ANALYSIS))
+        assertTrue(stages.contains(SpeedTestStage.COMPLETED))
+        assertTrue(stages.contains(SpeedTestStage.CANCELLED))
+        assertTrue(stages.contains(SpeedTestStage.ERROR))
+    }
+
+    @Test
+    fun testOnTestCompletedCallbackCanBeRegistered() {
+        val engine = TunnelSpeedTestEngine()
+        var completedCalled = false
+        engine.onTestCompleted = {
+            completedCalled = true
+        }
+        assertNotNull(engine.onTestCompleted)
+        assertFalse(completedCalled)
+    }
 }
+

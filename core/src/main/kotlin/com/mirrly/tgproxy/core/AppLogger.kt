@@ -81,6 +81,7 @@ object AppLogger {
         if (HumanLogTranslator.shouldIgnoreLogcatLine(tag, message)) return
 
         val entry = LogEntry(level = level, tag = tag, rawMessage = message)
+        println("[$tag] $message")
         logQueue.addLast(entry)
         if (logQueue.size > MAX_LOGS) {
             logQueue.removeFirst()

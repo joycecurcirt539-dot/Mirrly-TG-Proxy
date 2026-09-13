@@ -212,4 +212,83 @@ class DohResolverTest {
         val anycastIps = DohResolver.CF_ANYCAST_FALLBACK_IPS.map { it.hostAddress }
         assertTrue(addresses.any { anycastIps.contains(it.hostAddress) || it.hostAddress.startsWith("104.") || it.hostAddress.startsWith("172.") || it.hostAddress.startsWith("188.114.") })
     }
+
+    @Test
+    fun testDohProvidersConfigurationAndCloudflareExclusionByDefault() {
+        val all = DohResolver.ALL_PROVIDERS
+        assertEquals(14, all.size)
+
+        val defaultIds = DohResolver.DEFAULT_ENABLED_PROVIDER_IDS
+        // Cloudflare, Google, Quad9, GeoHide and Xbox must NOT be enabled by default
+        assertFalse(defaultIds.contains("cloudflare"))
+        assertFalse(defaultIds.contains("cloudflare_sec"))
+        assertFalse(defaultIds.contains("google"))
+        assertFalse(defaultIds.contains("google_sec"))
+        assertFalse(defaultIds.contains("quad9"))
+        assertFalse(defaultIds.contains("controld_uncensored"))
+        assertFalse(defaultIds.contains("controld_malware"))
+        assertFalse(defaultIds.contains("geohide"))
+        assertFalse(defaultIds.contains("xbox"))
+
+        // AdGuard, DNS.SB, NextDNS, Control D must be enabled by default
+        assertTrue(defaultIds.contains("adguard"))
+        assertTrue(defaultIds.contains("dnssb"))
+        assertTrue(defaultIds.contains("dnssb_sec"))
+        assertTrue(defaultIds.contains("nextdns"))
+        assertTrue(defaultIds.contains("controld"))
+
+        // Verify active providers filtering
+        DohResolver.setActiveProviders(setOf("adguard", "dnssb"))
+        assertEquals(2, DohResolver.getActiveProviders().size)
+        val csv = DohResolver.getActiveEndpointsCsv()
+        assertTrue(csv.contains("94.140.14.14/resolve"))
+        assertTrue(csv.contains("185.222.222.222"))
+        assertFalse(csv.contains("1.1.1.1"))
+
+        // Reset
+        DohResolver.setActiveProviders(DohResolver.DEFAULT_ENABLED_PROVIDER_IDS)
+    }
+
+    @Test
+    fun testParseDnsWireResponse() {
+        // Real DNS response packet for api.telegram.org -> 149.154.166.110 (TTL 274)
+        val testWireBytes = byteArrayOf(
+            0x12, 0x34, 0x81.toByte(), 0x80.toByte(), 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+            0x03, 'a'.code.toByte(), 'p'.code.toByte(), 'i'.code.toByte(),
+            0x08, 't'.code.toByte(), 'e'.code.toByte(), 'l'.code.toByte(), 'e'.code.toByte(), 'g'.code.toByte(), 'r'.code.toByte(), 'a'.code.toByte(), 'm'.code.toByte(),
+            0x03, 'o'.code.toByte(), 'r'.code.toByte(), 'g'.code.toByte(), 0x00,
+            0x00, 0x01, 0x00, 0x01,
+            0xc0.toByte(), 0x0c, 0x00, 0x01, 0x00, 0x01,
+            0x00, 0x00, 0x01, 0x12, // TTL = 274
+            0x00, 0x04,
+            0x95.toByte(), 0x9a.toByte(), 0xa6.toByte(), 0x6e // 149.154.166.110
+        )
+
+        val result = DohResolver.parseDnsWireResponse(testWireBytes)
+        assertNotNull(result)
+        assertEquals(1, result!!.first.size)
+        assertEquals("149.154.166.110", result.first[0].hostAddress)
+        assertEquals(274L, result.second)
+    }
+
+    @Test
+    fun testBuildDnsQueryPacketAndUrl() {
+        val packet = DohResolver.buildDnsQueryPacket("api.telegram.org")
+        assertTrue(packet.isNotEmpty())
+
+        val geohide = DohResolver.ALL_PROVIDERS.first { it.id == "geohide" }
+        assertTrue(geohide.useDnsParam)
+        val geohideUrl = DohResolver.buildDnsQueryUrl(geohide, "api.telegram.org")
+        assertTrue(geohideUrl.startsWith("https://dns.geohide.ru/dns-query?dns="))
+
+        val xbox = DohResolver.ALL_PROVIDERS.first { it.id == "xbox" }
+        assertTrue(xbox.useDnsParam)
+        val xboxUrl = DohResolver.buildDnsQueryUrl(xbox, "api.telegram.org")
+        assertTrue(xboxUrl.startsWith("https://xbox-dns.ru/dns-query?dns="))
+
+        val adguard = DohResolver.ALL_PROVIDERS.first { it.id == "adguard" }
+        assertFalse(adguard.useDnsParam)
+        val adguardUrl = DohResolver.buildDnsQueryUrl(adguard, "api.telegram.org")
+        assertEquals("https://94.140.14.14/resolve?name=api.telegram.org&type=A", adguardUrl)
+    }
 }

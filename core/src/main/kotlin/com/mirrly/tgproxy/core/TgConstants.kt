@@ -19,17 +19,10 @@ import { connect } from 'cloudflare:sockets';
 
 // Telegram IPv4 Subnets (AS44907, AS62041, AS59930, AS62014)
 const TG_IPV4_SUBNETS = [
-  { ip: "91.108.4.0", mask: 22 },
-  { ip: "91.108.8.0", mask: 22 },
-  { ip: "91.108.12.0", mask: 22 },
-  { ip: "91.108.16.0", mask: 22 },
-  { ip: "91.108.20.0", mask: 22 },
-  { ip: "91.108.36.0", mask: 23 },
-  { ip: "91.108.38.0", mask: 23 },
-  { ip: "91.108.56.0", mask: 22 },
-  { ip: "149.154.160.0", mask: 20 },
-  { ip: "91.105.192.0", mask: 23 },
-  { ip: "185.76.151.0", mask: 24 }
+  { ip: "91.108.0.0", mask: 16 },    // Telegram AS44907 (полный диапазон 91.108.0.0 - 91.108.255.255)
+  { ip: "149.154.160.0", mask: 20 }, // Telegram AS62041 (149.154.160.0 - 149.154.175.255)
+  { ip: "91.105.192.0", mask: 23 },  // Telegram AS59930 (91.105.192.0 - 91.105.193.255)
+  { ip: "185.76.151.0", mask: 24 }   // Telegram AS62014 (185.76.151.0 - 185.76.151.255)
 ];
 
 // Telegram IPv6 Subnets
@@ -100,7 +93,8 @@ function isTelegramDomain(domain) {
     d.endsWith(".telesco.pe") ||
     d.endsWith(".telegram.dog") ||
     d.endsWith(".telegra.ph") ||
-    d.endsWith(".cdn-telegram.org")
+    d.endsWith(".cdn-telegram.org") ||
+    d.endsWith(".telegram-cdn.org")
   );
 }
 
@@ -115,6 +109,96 @@ export default {
 
     const upgradeHeader = request.headers.get('Upgrade');
     if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
+      // WARP Client API Reverse Proxy (Bypasses ISP / TSPU SNI blocks on api.cloudflareclient.com)
+      if (
+        url.pathname === '/warp-reg' ||
+        url.pathname.startsWith('/warp-reg/') ||
+        url.pathname === '/warp-api' ||
+        url.pathname.startsWith('/warp-api/')
+      ) {
+        // Handle CORS Preflight
+        if (request.method === 'OPTIONS') {
+          return new Response(null, {
+            status: 204,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+              "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+              "Access-Control-Allow-Headers": "*",
+              "Access-Control-Max-Age": "86400"
+            }
+          });
+        }
+
+        try {
+          let targetPath = '/reg';
+          if (url.pathname.startsWith('/warp-api')) {
+            targetPath = url.pathname.substring('/warp-api'.length);
+            if (!targetPath || targetPath === '/') {
+              targetPath = '/reg';
+            }
+          } else if (url.pathname.startsWith('/warp-reg')) {
+            targetPath = url.pathname.substring('/warp-reg'.length);
+            if (!targetPath || targetPath === '/') {
+              targetPath = '/reg';
+            }
+          }
+
+          if (!targetPath.startsWith('/')) {
+            targetPath = '/' + targetPath;
+          }
+
+          const cfUrl = 'https://api.cloudflareclient.com/v0a4471' + targetPath + url.search;
+
+          const cfHeaders = {
+            "Content-Type": request.headers.get("Content-Type") || "application/json; charset=UTF-8",
+            "Accept": request.headers.get("Accept") || "application/json",
+            "User-Agent": request.headers.get("User-Agent") || "WARP for Android",
+            "CF-Client-Version": request.headers.get("CF-Client-Version") || "a-6.35-4471"
+          };
+
+          const auth = request.headers.get("Authorization");
+          if (auth) {
+            cfHeaders["Authorization"] = auth;
+          }
+
+          const fetchOptions = {
+            method: request.method,
+            headers: cfHeaders
+          };
+
+          if (request.method !== 'GET' && request.method !== 'HEAD') {
+            const reqBody = await request.text();
+            if (reqBody && reqBody.length > 0) {
+              fetchOptions.body = reqBody;
+            }
+          }
+
+          // Direct request across internal Cloudflare edge network
+          const cfResp = await fetch(cfUrl, fetchOptions);
+          const data = await cfResp.text();
+
+          return new Response(data, {
+            status: cfResp.status,
+            statusText: cfResp.statusText,
+            headers: {
+              "Content-Type": cfResp.headers.get("Content-Type") || "application/json; charset=utf-8",
+              "Cache-Control": "no-store, no-cache, must-revalidate",
+              "Access-Control-Allow-Origin": "*",
+              "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+              "Access-Control-Allow-Headers": "*"
+            }
+          });
+        } catch (err) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 502,
+            headers: {
+              "Content-Type": "application/json; charset=utf-8",
+              "Access-Control-Allow-Origin": "*"
+            }
+          });
+        }
+      }
+
       return new Response(
         JSON.stringify({
           status: "online",

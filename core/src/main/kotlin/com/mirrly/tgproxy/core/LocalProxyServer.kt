@@ -74,7 +74,15 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     )
 
     val qosEngine = BatteryThermalQoSEngine(
-        onThrottleLevelChanged = {
+        isEnabled = config.isAdaptiveQoSEnabled,
+        onThrottleLevelChanged = { newLevel ->
+            if (isNativeRunning) {
+                try {
+                    NativeProxy.setBatteryQoSLevel(newLevel)
+                } catch (t: Throwable) {
+                    AppLogger.w("LocalProxyServer", "setBatteryQoSLevel($newLevel) не удался: ${t.message}")
+                }
+            }
             if (config.isAutoSpeedPreset && isNativeRunning) {
                 updateAutoTuning()
             }
@@ -82,6 +90,22 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     )
 
     val speedTestEngine = TunnelSpeedTestEngine()
+
+    val activeLivenessProbe = ActiveLivenessProbe(
+        isSocks5ModeProvider = { config.isSocks5Mode },
+        socks5PortProvider = { config.socks5Port },
+        socks5AuthProvider = { Pair(config.socks5Username, config.socks5Password) },
+        trafficThroughputProvider = { stats.downloadSpeedBps }, // Only count verified incoming RX throughput, not outgoing TX
+        onCascadeTriggered = { oldStage, newStage, reason ->
+            handleCascadeTransition(oldStage, newStage, reason)
+        }
+    ).apply {
+        onProbeCompleted = { res ->
+            stats.lastActiveProbeRttMs = res.rttMs
+            stats.isProbeAlive = res.isAlive
+            stats.activeCascadeStage = currentStage.title
+        }
+    }
 
     val currentPingMs: Long
         get() = pingEngine.smoothedPingMs
@@ -114,10 +138,12 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         if (cacheDir != null) {
             try {
                 NativeProxy.setCfProxyCacheDir(cacheDir.absolutePath)
+                VlessPresetsRepository.loadDynamicPool(cacheDir)
             } catch (t: Throwable) {
-                AppLogger.e("LocalProxyServer", "Не удалось установить кэш-директорию Cloudflare: ${t.message}")
+                AppLogger.e("LocalProxyServer", "Не удалось установить кэш-директорию Cloudflare/VLESS: ${t.message}")
             }
         }
+        VlessPresetsRepository.syncFallbackPoolToNative()
 
         NativeProxy.setPoolSize(config.poolSize.coerceIn(2, 16))
         
@@ -129,9 +155,16 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         currentEffectiveTcpNoDelay = initialNoDelay
         NativeProxy.setTcpNoDelay(initialNoDelay)
 
-        val useCf = config.cfProxyEnabled
+        val useCf = if (config.isAnyWarpUplink) false else config.cfProxyEnabled
         val workerDomain = if (config.isSocks5Mode) {
-            config.getEffectiveCfDomain()
+            if (config.isAnyWarpUplink) {
+                // В режиме WARP использование любых воркеров (пользовательских или дефолтных) категорически запрещено
+                ""
+            } else if (config.isVlessUplink) {
+                config.getEffectiveVlessDomain()
+            } else {
+                config.getEffectiveCfDomain()
+            }
         } else {
             // MTProto маршрутизируется исключительно через глобальный Anycast CDN Flowseal (kws{dc}.{domain}/apiws).
             // Пользовательские воркеры и воркеры разработчика намеренно НЕ применяются к MTProto,
@@ -145,14 +178,65 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             config.socks5Password = p
         }
 
-        NativeProxy.setCfProxyConfig(
-            enabled = useCf,
-            userDomain = workerDomain
-        )
+        if (config.isAnyWarpUplink) {
+            NativeProxy.setCfProxyConfig(
+                enabled = false,
+                userDomain = ""
+            )
+        } else {
+            NativeProxy.setCfProxyConfig(
+                enabled = useCf,
+                userDomain = workerDomain
+            )
+        }
         NativeProxy.setSocks5Auth(
             username = config.socks5Username,
             password = config.socks5Password
         )
+        DohResolver.setActiveProviders(config.enabledDohProviderIds)
+        NativeProxy.setDohEndpoints(DohResolver.getActiveEndpointsCsv())
+        NativeProxy.setUplinkMode(config.uplinkMode)
+        NativeProxy.setVlessExtendedConfig(
+            uuid = config.vlessUuid,
+            path = config.vlessPath,
+            domain = config.getEffectiveVlessDomain(),
+            serverAddress = config.getEffectiveVlessServerAddress(),
+            serverPort = config.getEffectiveVlessServerPort(),
+            tlsSni = config.getEffectiveVlessSni(),
+            hostHeader = config.getEffectiveVlessHost(),
+            transport = config.vlessTransport,
+            security = config.vlessSecurity,
+            publicKey = config.vlessPublicKey,
+            shortId = config.vlessShortId,
+            fingerprint = config.vlessFingerprint,
+            spiderX = config.vlessSpiderX,
+            flow = config.vlessFlow,
+            headerType = config.vlessHeaderType
+        )
+        NativeProxy.setOperaVpnConfig(
+            vlessEnabled = config.useOperaVpnForVless,
+            warpEnabled = config.useOperaVpnForWarp,
+            endpoint = config.getEffectiveOperaEndpoint()
+        )
+        // Для всех WARP-режимов настраиваем MASQUE + AWG для гладкого двухканального каскада
+        if (config.isAnyWarpUplink) {
+            NativeProxy.setWarpFullConfig(
+                endpoint = config.effectiveMasquePeerEndpoint,
+                sni = "consumer-masque-proxy.cloudflareclient.com",
+                authToken = config.effectiveMasqueToken,
+                clientIpv4 = config.effectiveMasqueClientIpv4,
+                clientIpv6 = config.effectiveMasqueClientIpv6,
+                p256PrivateKey = config.warpP256PrivateKey,
+                clientCert = config.warpClientCert,
+                peerPublicKey = config.effectiveMasquePeerPublicKey,
+                uriTemplate = config.warpUriTemplate
+            )
+
+            val awgIni = config.awgCustomIni.trim().ifEmpty {
+                config.getAmneziaWgConfig(cleanEndpoint = config.warpPeerEndpoint)
+            }
+            NativeProxy.setAwgConfig(awgIni)
+        }
 
         var code: Int
 
@@ -226,6 +310,10 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             }
         }
 
+        if (isNativeRunning) {
+            NativeProxy.setBatteryQoSLevel(qosEngine.currentThrottleLevel)
+        }
+
         speedJob = scope.launch {
             while (isActive && isRunning) {
                 if (isNativeRunning) {
@@ -235,6 +323,16 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                             stats.parseNativeStats(nativeStats)
                         }
                     } catch (_: Exception) {}
+
+                    val rawStage = NativeProxy.getActiveCascadeStage()
+                    if (rawStage > 0) {
+                        stats.activeCascadeStageCode = rawStage
+                        stats.activeCascadeStage = when (rawStage) {
+                            1 -> "WARP MASQUE"
+                            2 -> "WARP AmneziaWG"
+                            else -> stats.activeCascadeStage
+                        }
+                    }
                 }
                 stats.updateSpeed()
                 val snapshot = pingEngine.currentSnapshot
@@ -269,6 +367,24 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
         pingEngine.start()
         adaptiveHeartbeatEngine.start()
+
+        activeLivenessProbe.isEnabled = config.isLivenessProbeEnabled
+        activeLivenessProbe.timeoutMs = config.livenessProbeTimeoutMs
+        activeLivenessProbe.failoverThreshold = config.livenessProbeFailoverThreshold
+        if (config.isSocks5Mode && config.isLivenessProbeEnabled) {
+            val initialStage = when {
+                config.isVlessUplink -> CascadeStage.STAGE_3_VLESS_PRESET
+                config.isMasqueUplink -> {
+                    val (ip, _) = WarpEndpointScanner.parseEndpoint(config.warpPeerEndpoint)
+                    if (ip.contains(":")) CascadeStage.STAGE_0_IPV6_WARP
+                    else CascadeStage.STAGE_1_SCANNED_WARP
+                }
+                else -> CascadeStage.STAGE_1_SCANNED_WARP
+            }
+            activeLivenessProbe.setInitialStage(initialStage)
+            stats.activeCascadeStage = initialStage.title
+            activeLivenessProbe.start()
+        }
         return true
     }
 
@@ -285,6 +401,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         speedJob = null
         pingEngine.stop()
         adaptiveHeartbeatEngine.stop()
+        activeLivenessProbe.stop()
         isNativeRunning = false
         autoConsecutiveHighTicks = 0
         autoConsecutiveLowTicks = 0
@@ -418,6 +535,18 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
     }
 
+    /**
+     * Динамически включает или отключает троттлинг энергосбережения и адаптивного QoS.
+     */
+    fun setAdaptiveQoSEnabled(enabled: Boolean) {
+        config.isAdaptiveQoSEnabled = enabled
+        qosEngine.setEnabled(enabled)
+        AppLogger.i("LocalProxyServer", "Смена режима адаптивного QoS/троттлинга → $enabled")
+        if (config.isAutoSpeedPreset && isNativeRunning) {
+            updateAutoTuning()
+        }
+    }
+
     fun measurePingAsync(dcId: Int = 2) {
         scope.launch(Dispatchers.IO) {
             pingEngine.triggerSingleProbe()
@@ -426,20 +555,21 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     fun onWorkerChanged(newWorkerDomain: String) {
         config.customCfDomain = newWorkerDomain
-        if (config.isSocks5Mode) {
-            DohResolver.clearCache()
-            pingEngine.reset()
-            updateWorkerConfig()
-        }
+        DohResolver.clearCache()
+        pingEngine.reset()
+        updateWorkerConfig()
     }
 
     fun updateWorkerConfig() {
-        if (!config.isSocks5Mode) {
-            // MTProto маршрутизируется исключительно через глобальный Anycast CDN Flowseal (kws{dc}.{domain}/apiws).
-            // Пользовательские воркеры и воркеры разработчика не используются для MTProto.
+        if (config.isAnyWarpUplink) {
+            AppLogger.i("LocalProxyServer", "В режиме WARP использование воркеров отключено.")
             return
         }
-        val effectiveDomain = config.getEffectiveCfDomain()
+        val effectiveDomain = if (config.isVlessUplink) {
+            config.getEffectiveVlessDomain()
+        } else {
+            config.getEffectiveCfDomain()
+        }
         AppLogger.i("LocalProxyServer", "Обновление конфигурации воркера → '$effectiveDomain'")
         if (isNativeRunning) {
             try {
@@ -454,6 +584,273 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
         measurePingAsync()
     }
+
+    /**
+     * Динамически применяет выбранный набор DoH-провайдеров без перезапуска службы.
+     */
+    fun applyDohConfig(providerIds: Set<String>) {
+        config.enabledDohProviderIds = providerIds
+        DohResolver.setActiveProviders(providerIds)
+        DohResolver.clearCache()
+        val endpointsCsv = DohResolver.getActiveEndpointsCsv()
+        AppLogger.i("LocalProxyServer", "Обновлены DoH провайдеры (${providerIds.size} активных) → $endpointsCsv")
+        if (isNativeRunning) {
+            try {
+                NativeProxy.setDohEndpoints(endpointsCsv)
+                NativeProxy.resetNetworkSockets()
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "Сбой применения DoH провайдеров в NativeProxy: ${t.message}")
+            }
+        }
+    }
+
+    /**
+     * Динамически применяет выбранный режим аплинка (Worker WSS / WARP MASQUE / Hybrid).
+     */
+    fun applyUplinkMode(mode: UplinkMode) {
+        config.uplinkModeName = mode.name
+        AppLogger.i("LocalProxyServer", "Применение режима аплинка: ${mode.displayName}")
+        val syncStage = when (mode) {
+            UplinkMode.VLESS -> CascadeStage.STAGE_3_VLESS_PRESET
+            UplinkMode.MASQUE -> {
+                val (ip, _) = WarpEndpointScanner.parseEndpoint(config.warpPeerEndpoint)
+                if (ip.contains(":")) CascadeStage.STAGE_0_IPV6_WARP
+                else CascadeStage.STAGE_1_SCANNED_WARP
+            }
+            UplinkMode.AWG, UplinkMode.WARP_CASCADE -> CascadeStage.STAGE_1_SCANNED_WARP
+            else -> CascadeStage.STAGE_1_SCANNED_WARP
+        }
+        activeLivenessProbe.setInitialStage(syncStage)
+        stats.activeCascadeStage = syncStage.title
+        if (isNativeRunning) {
+            try {
+                NativeProxy.setUplinkMode(mode)
+                if (mode == UplinkMode.VLESS) {
+                    NativeProxy.setCfProxyConfig(
+                        enabled = config.cfProxyEnabled,
+                        userDomain = config.getEffectiveVlessDomain()
+                    )
+                    NativeProxy.setVlessExtendedConfig(
+                        uuid = config.vlessUuid,
+                        path = config.vlessPath,
+                        domain = config.getEffectiveVlessDomain(),
+                        serverAddress = config.getEffectiveVlessServerAddress(),
+                        serverPort = config.getEffectiveVlessServerPort(),
+                        tlsSni = config.getEffectiveVlessSni(),
+                        hostHeader = config.getEffectiveVlessHost(),
+                        transport = config.vlessTransport,
+                        security = config.vlessSecurity,
+                        publicKey = config.vlessPublicKey,
+                        shortId = config.vlessShortId,
+                        fingerprint = config.vlessFingerprint,
+                        spiderX = config.vlessSpiderX,
+                        flow = config.vlessFlow,
+                        headerType = config.vlessHeaderType
+                    )
+                } else if (mode == UplinkMode.WORKER) {
+                    NativeProxy.setCfProxyConfig(
+                        enabled = config.cfProxyEnabled,
+                        userDomain = config.getEffectiveCfDomain()
+                    )
+                } else {
+                    // Режимы WARP (MASQUE, AWG, WARP_CASCADE, HYBRID):
+                    // Воркеры разработчика и пользовательские воркеры полностью отключены
+                    NativeProxy.setCfProxyConfig(
+                        enabled = false,
+                        userDomain = ""
+                    )
+                }
+                if (mode == UplinkMode.MASQUE || mode == UplinkMode.HYBRID || mode == UplinkMode.AWG || mode == UplinkMode.WARP_CASCADE) {
+                    NativeProxy.setWarpFullConfig(
+                        endpoint = config.effectiveMasquePeerEndpoint,
+                        sni = "consumer-masque-proxy.cloudflareclient.com",
+                        authToken = config.effectiveMasqueToken,
+                        clientIpv4 = config.effectiveMasqueClientIpv4,
+                        clientIpv6 = config.effectiveMasqueClientIpv6,
+                        p256PrivateKey = config.warpP256PrivateKey,
+                        clientCert = config.warpClientCert,
+                        peerPublicKey = config.effectiveMasquePeerPublicKey,
+                        uriTemplate = config.warpUriTemplate
+                    )
+
+                    val awgIni = config.awgCustomIni.trim().ifEmpty {
+                        config.getAmneziaWgConfig(cleanEndpoint = config.warpPeerEndpoint)
+                    }
+                    NativeProxy.setAwgConfig(awgIni)
+                }
+                NativeProxy.resetNetworkSockets()
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "Сбой применения режима аплинка в NativeProxy: ${t.message}")
+            }
+        }
+    }
+
+    /**
+     * Применяет полный пресет VLESS (включая Reality/Vision/Transport) к конфигурации и нативному ядру.
+     */
+    fun applyVlessPreset(preset: VlessPreset) {
+        VlessPresetsRepository.applyPreset(preset, config)
+        applyVlessConfig(
+            uuid = preset.uuid,
+            path = preset.path,
+            domain = preset.domain,
+            serverAddress = preset.serverAddress,
+            serverPort = preset.effectiveServerPort,
+            tlsSni = preset.tlsSni,
+            hostHeader = preset.hostHeader,
+            transport = preset.transport,
+            security = preset.security,
+            publicKey = preset.publicKey,
+            shortId = preset.shortId,
+            fingerprint = preset.fingerprint,
+            spiderX = preset.spiderX,
+            flow = preset.flow,
+            headerType = preset.headerType
+        )
+    }
+
+    /**
+     * Динамически применяет конфигурацию VLESS (UUID, путь, домен, Clean IP, SNI и Extended Security/Transport).
+     */
+    fun applyVlessConfig(
+        uuid: String,
+        path: String,
+        domain: String = "",
+        serverAddress: String = "",
+        serverPort: Int = 443,
+        tlsSni: String = "",
+        hostHeader: String = "",
+        transport: String = "",
+        security: String = "",
+        publicKey: String = "",
+        shortId: String = "",
+        fingerprint: String = "",
+        spiderX: String = "",
+        flow: String = "",
+        headerType: String = ""
+    ) {
+        config.vlessUuid = uuid
+        config.vlessPath = path
+        if (domain.isNotBlank()) {
+            config.vlessDomain = domain
+        }
+        if (serverAddress.isNotBlank()) {
+            config.vlessServerAddress = serverAddress
+        }
+        if (serverPort > 0) {
+            config.vlessServerPort = serverPort
+        }
+        if (tlsSni.isNotBlank()) {
+            config.vlessTlsSni = tlsSni
+        }
+        if (hostHeader.isNotBlank()) {
+            config.vlessHostHeader = hostHeader
+        }
+        if (transport.isNotBlank()) {
+            config.vlessTransport = transport
+        }
+        if (security.isNotBlank()) {
+            config.vlessSecurity = security
+        }
+        if (publicKey.isNotBlank()) {
+            config.vlessPublicKey = publicKey
+        }
+        if (shortId.isNotBlank()) {
+            config.vlessShortId = shortId
+        }
+        if (fingerprint.isNotBlank()) {
+            config.vlessFingerprint = fingerprint
+        }
+        if (spiderX.isNotBlank()) {
+            config.vlessSpiderX = spiderX
+        }
+        if (flow.isNotBlank()) {
+            config.vlessFlow = flow
+        }
+        if (headerType.isNotBlank()) {
+            config.vlessHeaderType = headerType
+        }
+        val effectiveDomain = if (domain.isNotBlank()) domain else config.getEffectiveVlessDomain()
+        val effectiveServerAddr = config.getEffectiveVlessServerAddress()
+        val effectivePort = config.getEffectiveVlessServerPort()
+        val effectiveSni = config.getEffectiveVlessSni()
+        val effectiveHost = config.getEffectiveVlessHost()
+        AppLogger.i("LocalProxyServer", "Применение конфигурации VLESS: uuid=$uuid, path=$path, server=$effectiveServerAddr:$effectivePort, sni=$effectiveSni, host=$effectiveHost, transport=${config.vlessTransport}, sec=${config.vlessSecurity}")
+        if (isNativeRunning) {
+            try {
+                NativeProxy.setVlessExtendedConfig(
+                    uuid = uuid,
+                    path = path,
+                    domain = effectiveDomain,
+                    serverAddress = effectiveServerAddr,
+                    serverPort = effectivePort,
+                    tlsSni = effectiveSni,
+                    hostHeader = effectiveHost,
+                    transport = config.vlessTransport,
+                    security = config.vlessSecurity,
+                    publicKey = config.vlessPublicKey,
+                    shortId = config.vlessShortId,
+                    fingerprint = config.vlessFingerprint,
+                    spiderX = config.vlessSpiderX,
+                    flow = config.vlessFlow,
+                    headerType = config.vlessHeaderType
+                )
+                NativeProxy.resetNetworkSockets()
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "Сбой применения VLESS конфигурации в NativeProxy: ${t.message}")
+            }
+        }
+    }
+
+    /**
+     * Динамически обновляет рабочий эндпоинт Anycast Cloudflare WARP/MASQUE.
+     */
+    fun applyWarpEndpoint(endpoint: String) {
+        config.warpPeerEndpoint = endpoint
+        config.warpMasquePeerEndpoint = endpoint
+        AppLogger.i("LocalProxyServer", "Применение нового эндпоинта WARP Anycast: $endpoint")
+        if (isNativeRunning && (config.isMasqueUplink || config.isHybridUplink)) {
+            try {
+                NativeProxy.setWarpFullConfig(
+                    endpoint = endpoint,
+                    sni = "consumer-masque-proxy.cloudflareclient.com",
+                    authToken = config.effectiveMasqueToken,
+                    clientIpv4 = config.effectiveMasqueClientIpv4,
+                    clientIpv6 = config.effectiveMasqueClientIpv6,
+                    p256PrivateKey = config.warpP256PrivateKey,
+                    clientCert = config.warpClientCert,
+                    peerPublicKey = config.effectiveMasquePeerPublicKey,
+                    uriTemplate = config.warpUriTemplate
+                )
+                NativeProxy.resetNetworkSockets()
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "Сбой обновления эндпоинта WARP в NativeProxy: ${t.message}")
+            }
+        }
+    }
+
+    /**
+     * Динамически применяет конфигурацию Opera VPN прокси для VLESS и WARP.
+     */
+    fun applyOperaVpnConfig() {
+        AppLogger.i("LocalProxyServer", "Применение конфигурации Opera VPN: vless=${config.useOperaVpnForVless}, warp=${config.useOperaVpnForWarp}, ep=${config.getEffectiveOperaEndpoint()}")
+        if (isNativeRunning) {
+            try {
+                NativeProxy.setOperaVpnConfig(
+                    vlessEnabled = config.useOperaVpnForVless,
+                    warpEnabled = config.useOperaVpnForWarp,
+                    endpoint = config.getEffectiveOperaEndpoint()
+                )
+                NativeProxy.resetNetworkSockets()
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "Сбой применения Opera VPN конфигурации в NativeProxy: ${t.message}")
+            }
+        }
+    }
+
+    fun getWarpStatus(): String? = NativeProxy.getWarpStatus()
+
+    fun getVlessStatus(): String? = NativeProxy.getVlessStatus()
 
     fun onNetworkRestored() {
         AppLogger.i("LocalProxyServer", "Сетевое подключение восстановлено. Сброс сокетов, DoH-кэша, Happy Eyeballs рейтинга и PingEngine...")
@@ -472,10 +869,12 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     fun setNetworkInterface(isMobile: Boolean, isScreenOn: Boolean = true) {
         adaptiveHeartbeatEngine.isMobileNetwork = isMobile
         adaptiveHeartbeatEngine.isScreenOn = isScreenOn
+        activeLivenessProbe.isScreenOn = isScreenOn
     }
 
     fun setNetworkDormancy(isDormant: Boolean) {
         pingEngine.setDormant(isDormant)
+        activeLivenessProbe.isDormant = isDormant
         if (isDormant) {
             AppLogger.i("LocalProxyServer", "Вход в спящий режим ожидания сети (Deep Dormancy / Offline). Сброс сокетов и пауза фоновых опросов.")
             stats.connectionQuality = ConnectionQuality.OFFLINE
@@ -537,5 +936,59 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             config.socks5Password
         }
         return "tg://socks?server=${config.bindHost}&port=${config.activePort}&user=$userParam&pass=$passParam"
+    }
+
+    private fun handleCascadeTransition(oldStage: CascadeStage, newStage: CascadeStage, reason: String) {
+        stats.activeCascadeStage = newStage.title
+        AppLogger.w("LocalProxyServer", "Каскадный переход аплинка: [${oldStage.title}] -> [${newStage.title}]. Причина: $reason")
+
+        when (newStage) {
+            CascadeStage.STAGE_0_IPV6_WARP -> {
+                val ipv6 = WarpEndpointScanner.CLEAN_IPV6_POOL.firstOrNull() ?: "2606:4700:d0::a29f:c001"
+                applyWarpEndpoint("[$ipv6]:8095")
+                applyUplinkMode(UplinkMode.MASQUE)
+            }
+            CascadeStage.STAGE_1_SCANNED_WARP -> {
+                scope.launch(Dispatchers.IO) {
+                    val best = WarpEndpointScanner.findBestEndpoint(
+                        useFragmentation = true,
+                        maxCandidatesToProbe = 16,
+                        timeoutMs = 600
+                    )
+                    if (best != null) {
+                        applyWarpEndpoint(best.endpoint)
+                    } else {
+                        applyWarpEndpoint("188.114.96.1:8095")
+                    }
+                    applyUplinkMode(UplinkMode.MASQUE)
+                }
+            }
+            CascadeStage.STAGE_2_MASQUE_HTTP3 -> {
+                applyWarpEndpoint("188.114.96.1:443")
+                applyUplinkMode(UplinkMode.MASQUE)
+            }
+            CascadeStage.STAGE_3_VLESS_PRESET -> {
+                val preset = VlessPresetsRepository.getDefaultPreset()
+                applyVlessPreset(preset)
+                applyUplinkMode(UplinkMode.VLESS)
+            }
+        }
+    }
+
+    /**
+     * Динамически включает/выключает быструю контрольную пробу туннеля.
+     */
+    fun applyLivenessProbeConfig(enabled: Boolean, timeoutMs: Int = 800, threshold: Int = 2) {
+        config.isLivenessProbeEnabled = enabled
+        config.livenessProbeTimeoutMs = timeoutMs
+        config.livenessProbeFailoverThreshold = threshold
+        activeLivenessProbe.isEnabled = enabled
+        activeLivenessProbe.timeoutMs = timeoutMs
+        activeLivenessProbe.failoverThreshold = threshold
+        if (enabled && isRunning && config.isSocks5Mode) {
+            activeLivenessProbe.start()
+        } else if (!enabled) {
+            activeLivenessProbe.stop()
+        }
     }
 }

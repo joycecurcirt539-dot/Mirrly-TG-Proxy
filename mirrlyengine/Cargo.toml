@@ -33,7 +33,10 @@ serde_json = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-manual-roots-no-provider", "json"] }
 parking_lot = "0.12"
 socket2 = { version = "0.5", features = ["all"] }
+quinn = { version = "0.11", default-features = false, features = ["rustls", "runtime-tokio"] }
 url = "2.5"
+bytes = "1"
+smoltcp = { version = "0.11", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp"] }
 
 [profile.release]
 opt-level = 3

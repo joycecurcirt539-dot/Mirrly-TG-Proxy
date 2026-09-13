@@ -43,9 +43,27 @@ class MirrlyApplication : Application() {
         instance = this
         prefsManager = PreferencesManager(this)
         com.mirrly.tgproxy.service.SessionHistoryManager.init(this)
+        com.mirrly.tgproxy.service.SpeedTestHistoryManager.init(this)
         com.mirrly.tgproxy.service.WorkerRequestTracker.init(this)
         config = prefsManager.loadConfig()
         proxyServer = LocalProxyServer(config)
+        proxyServer.speedTestEngine.onTestCompleted = { completedState ->
+            val isSocks = config.isSocks5Mode
+            com.mirrly.tgproxy.service.SpeedTestHistoryManager.addRecord(
+                com.mirrly.tgproxy.service.SpeedTestRecord(
+                    downloadSpeedMbps = completedState.downloadSpeedMbps,
+                    uploadSpeedMbps = completedState.uploadSpeedMbps,
+                    pingMs = completedState.pingMs,
+                    jitterMs = completedState.jitterMs,
+                    edgeColo = completedState.edgeColo,
+                    targetDomain = completedState.targetDomain,
+                    protocol = if (isSocks) "SOCKS5" else "MTProto",
+                    qualityGrade = completedState.qualityGrade,
+                    overallScore = completedState.suitability.overallScore,
+                    durationMs = completedState.durationMs
+                )
+            )
+        }
         proxyServer.stats.externalByteProvider = {
             val uid = android.os.Process.myUid()
             val rx = android.net.TrafficStats.getUidRxBytes(uid)

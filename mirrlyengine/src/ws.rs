@@ -11,7 +11,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
@@ -30,21 +32,159 @@ pub const OP_PONG: u8 = 0xA;
 pub const MAX_WS_OUTGOING_FRAME: usize = 32 * 1024;
 
 // ---------------------------------------------------------------------------
-// TLS config: Secure WebPKI Root CA Verification + session cache (100 sessions)
+// TLS config: Secure WebPKI Root CA Verification + Browser Fingerprint Emulation
 // ---------------------------------------------------------------------------
 
 use once_cell::sync::Lazy;
 
-static TLS_CONFIG: Lazy<Arc<ClientConfig>> = Lazy::new(|| {
+fn order_cipher_suites_for_profile(
+    suites: &[rustls::SupportedCipherSuite],
+    fp: &str,
+) -> Vec<rustls::SupportedCipherSuite> {
+    use rustls::CipherSuite;
+    let is_firefox = fp.eq_ignore_ascii_case("firefox");
+    let is_safari = fp.eq_ignore_ascii_case("safari") || fp.eq_ignore_ascii_case("ios");
+
+    let priority_order: &[CipherSuite] = if is_firefox {
+        &[
+            CipherSuite::TLS13_AES_128_GCM_SHA256,
+            CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
+            CipherSuite::TLS13_AES_256_GCM_SHA384,
+            CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+            CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+            CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+            CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+            CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+            CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        ]
+    } else if is_safari {
+        &[
+            CipherSuite::TLS13_AES_128_GCM_SHA256,
+            CipherSuite::TLS13_AES_256_GCM_SHA384,
+            CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
+            CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+            CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+            CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+            CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+            CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+            CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        ]
+    } else {
+        // Chrome & Default profile
+        &[
+            CipherSuite::TLS13_AES_128_GCM_SHA256,
+            CipherSuite::TLS13_AES_256_GCM_SHA384,
+            CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
+            CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+            CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+            CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+            CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+            CipherSuite::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+            CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        ]
+    };
+
+    let mut ordered = Vec::with_capacity(suites.len());
+    for &target in priority_order {
+        if let Some(&suite) = suites.iter().find(|s| s.suite() == target) {
+            if !ordered
+                .iter()
+                .any(|s: &rustls::SupportedCipherSuite| s.suite() == target)
+            {
+                ordered.push(suite);
+            }
+        }
+    }
+    for &suite in suites {
+        if !ordered
+            .iter()
+            .any(|s: &rustls::SupportedCipherSuite| s.suite() == suite.suite())
+        {
+            ordered.push(suite);
+        }
+    }
+    ordered
+}
+
+pub fn build_tls_config_for_fingerprint(fp: &str) -> Arc<ClientConfig> {
     let mut root_store = RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-    let mut cfg = ClientConfig::builder()
+    let mut provider = rustls::crypto::ring::default_provider();
+    provider.cipher_suites = order_cipher_suites_for_profile(&provider.cipher_suites, fp);
+
+    let mut cfg = ClientConfig::builder_with_provider(Arc::new(provider))
+        .with_safe_default_protocol_versions()
+        .expect("Safe TLS protocol versions")
         .with_root_certificates(root_store)
         .with_no_client_auth();
-    cfg.resumption = rustls::client::Resumption::in_memory_sessions(100);
+
+    // Emulate modern browser ALPN: HTTP/1.1 for WebSocket RFC 6455
+    cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+    cfg.resumption = rustls::client::Resumption::in_memory_sessions(128);
+
     Arc::new(cfg)
-});
+}
+
+pub static TLS_CONFIG_CHROME: Lazy<Arc<ClientConfig>> =
+    Lazy::new(|| build_tls_config_for_fingerprint("chrome"));
+pub static TLS_CONFIG_FIREFOX: Lazy<Arc<ClientConfig>> =
+    Lazy::new(|| build_tls_config_for_fingerprint("firefox"));
+pub static TLS_CONFIG_SAFARI: Lazy<Arc<ClientConfig>> =
+    Lazy::new(|| build_tls_config_for_fingerprint("safari"));
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FingerprintCapability {
+    /// Native cipher suite ordering and TLS record profile (chrome, firefox, safari, ios, randomized)
+    Supported,
+    /// Known browser alias mapped to Chrome cipher suites
+    Mapped,
+    /// Unrecognized string safely falling back to Chrome profile without weakening security
+    UnsupportedFallback,
+}
+
+pub fn classify_fingerprint(fp: &str) -> (&'static str, FingerprintCapability) {
+    let lower = fp.trim().to_ascii_lowercase();
+    match lower.as_str() {
+        "firefox" => ("firefox", FingerprintCapability::Supported),
+        "safari" => ("safari", FingerprintCapability::Supported),
+        "ios" => ("ios", FingerprintCapability::Supported),
+        "randomized" => ("randomized", FingerprintCapability::Supported),
+        "chrome" | "" => ("chrome", FingerprintCapability::Supported),
+        "edge" | "360" | "qq" | "android" => ("chrome", FingerprintCapability::Mapped),
+        _ => ("chrome", FingerprintCapability::UnsupportedFallback),
+    }
+}
+
+pub fn get_tls_config_for_fingerprint(fp: &str) -> Arc<ClientConfig> {
+    let lower = fp.trim().to_ascii_lowercase();
+    match lower.as_str() {
+        "firefox" => TLS_CONFIG_FIREFOX.clone(),
+        "safari" | "ios" => TLS_CONFIG_SAFARI.clone(),
+        "randomized" => {
+            let mut rng = rand::thread_rng();
+            match rand::RngCore::next_u32(&mut rng) % 3 {
+                0 => TLS_CONFIG_CHROME.clone(),
+                1 => TLS_CONFIG_FIREFOX.clone(),
+                _ => TLS_CONFIG_SAFARI.clone(),
+            }
+        }
+        "chrome" | "" => TLS_CONFIG_CHROME.clone(),
+        "edge" | "360" | "qq" | "android" => {
+            crate::ldebug!("TLS fingerprint '{}' mapped to rustls Chrome cipher suites", lower);
+            TLS_CONFIG_CHROME.clone()
+        }
+        unsupported => {
+            crate::lwarn!(
+                "Unsupported TLS fingerprint '{}'; falling back to Chrome profile without altering security (uTLS Parrot extension simulation not supported)",
+                unsupported
+            );
+            TLS_CONFIG_CHROME.clone()
+        }
+    }
+}
+
+pub static TLS_CONFIG: Lazy<Arc<ClientConfig>> = Lazy::new(|| TLS_CONFIG_CHROME.clone());
 
 // ---------------------------------------------------------------------------
 // WsHandshakeError
@@ -113,7 +253,10 @@ pub fn is_http_status_error(err: &WsError, code: i32) -> bool {
 
 pub fn is_cooldown_error(err: &WsError) -> bool {
     if let Some(code) = err.handshake_status() {
-        matches!(code, 429 | 500 | 502 | 503 | 504 | 520 | 521 | 522 | 523 | 524)
+        matches!(
+            code,
+            429 | 500 | 502 | 503 | 504 | 520 | 521 | 522 | 523 | 524
+        )
     } else {
         false
     }
@@ -126,18 +269,79 @@ impl From<std::io::Error> for WsError {
 }
 
 // ---------------------------------------------------------------------------
+// WsStream: Unified transport wrapper for TLS and plain TCP WebSocket
+// ---------------------------------------------------------------------------
+
+pub enum WsStream {
+    Tls(TlsStream<TcpStream>),
+    Plain(TcpStream),
+}
+
+impl AsyncRead for WsStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            WsStream::Tls(s) => Pin::new(s).poll_read(cx, buf),
+            WsStream::Plain(s) => Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for WsStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            WsStream::Tls(s) => Pin::new(s).poll_write(cx, buf),
+            WsStream::Plain(s) => Pin::new(s).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            WsStream::Tls(s) => Pin::new(s).poll_flush(cx),
+            WsStream::Plain(s) => Pin::new(s).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            WsStream::Tls(s) => Pin::new(s).poll_shutdown(cx),
+            WsStream::Plain(s) => Pin::new(s).poll_shutdown(cx),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // RawWebSocket
 // ---------------------------------------------------------------------------
 
 pub struct RawWebSocket {
-    reader: tokio::sync::Mutex<BufReader<tokio::io::ReadHalf<TlsStream<TcpStream>>>>,
-    writer: tokio::sync::Mutex<tokio::io::WriteHalf<TlsStream<TcpStream>>>,
+    reader: tokio::sync::Mutex<BufReader<tokio::io::ReadHalf<WsStream>>>,
+    writer: tokio::sync::Mutex<tokio::io::WriteHalf<WsStream>>,
     pub closed: AtomicBool,
+    buffered_payload: tokio::sync::Mutex<Option<Vec<u8>>>,
+    pub early_data_sent: bool,
 }
 
 impl RawWebSocket {
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Relaxed)
+    }
+
+    pub fn is_early_data_sent(&self) -> bool {
+        self.early_data_sent
+    }
+
+    pub async fn inject_initial_payload(&self, data: Vec<u8>) {
+        if !data.is_empty() {
+            *self.buffered_payload.lock().await = Some(data);
+        }
     }
 
     pub async fn send(&self, data: &[u8]) -> Result<(), WsError> {
@@ -244,6 +448,9 @@ impl RawWebSocket {
     }
 
     pub async fn recv(&self) -> Result<Vec<u8>, WsError> {
+        if let Some(buf) = self.buffered_payload.lock().await.take() {
+            return Ok(buf);
+        }
         let mut assembling_buf: Option<Vec<u8>> = None;
         while !self.is_closed() {
             let (fin, opcode, payload) = match self.read_frame().await {
@@ -397,7 +604,7 @@ impl RawWebSocket {
 pub const MAX_FRAME_PAYLOAD: u64 = 16 * 1024 * 1024;
 
 async fn read_frame_locked(
-    reader: &mut BufReader<tokio::io::ReadHalf<TlsStream<TcpStream>>>,
+    reader: &mut BufReader<tokio::io::ReadHalf<WsStream>>,
 ) -> Result<(bool, u8, Vec<u8>), WsError> {
     let mut hdr = [0u8; 2];
     reader.read_exact(&mut hdr).await?;
@@ -423,7 +630,10 @@ async fn read_frame_locked(
     }
 
     if length > MAX_FRAME_PAYLOAD {
-        return Err(WsError::Other(format!("frame too large: {} bytes (max {})", length, MAX_FRAME_PAYLOAD)));
+        return Err(WsError::Other(format!(
+            "frame too large: {} bytes (max {})",
+            length, MAX_FRAME_PAYLOAD
+        )));
     }
     let mut payload = vec![0u8; length as usize];
     if length > 0 {
@@ -441,7 +651,11 @@ async fn read_frame_locked(
 
 pub fn build_frame_ext(opcode: u8, data: &[u8], mask: bool, fin: bool) -> Vec<u8> {
     let length = data.len();
-    let fb = if fin { 0x80 | (opcode & 0x0F) } else { opcode & 0x0F };
+    let fb = if fin {
+        0x80 | (opcode & 0x0F)
+    } else {
+        opcode & 0x0F
+    };
 
     let mut header_size = 2;
     if mask {
@@ -511,7 +725,7 @@ pub fn build_frame(opcode: u8, data: &[u8], mask: bool) -> Vec<u8> {
 // Connection helpers
 // ---------------------------------------------------------------------------
 
-fn set_sock_opts(stream: &TcpStream) {
+pub fn set_sock_opts(stream: &TcpStream) {
     let nodelay = TCP_NODELAY.load(Ordering::Relaxed);
     let _ = stream.set_nodelay(nodelay);
     let sock = socket2::SockRef::from(stream);
@@ -553,7 +767,26 @@ pub fn compute_sec_websocket_accept(key: &str) -> String {
     base64::engine::general_purpose::STANDARD.encode(digest.as_ref())
 }
 
-fn server_name(domain: &str) -> ServerName<'static> {
+/// Encodes raw binary data as a URL-safe unpadded Base64 string for RFC 8441 / Xray Sec-WebSocket-Protocol Early Data.
+pub fn encode_ws_early_data(data: &[u8]) -> String {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data)
+}
+
+/// Parses the early data maximum byte length from a WebSocket path (e.g., "/vless-ws?ed=2048" -> Some(2048)).
+pub fn parse_early_data_header_len(path: &str) -> Option<usize> {
+    if let Some(pos) = path.find("ed=") {
+        let after = &path[pos + 3..];
+        let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(limit) = digits.parse::<usize>() {
+            if limit > 0 {
+                return Some(limit);
+            }
+        }
+    }
+    None
+}
+
+pub fn server_name(domain: &str) -> ServerName<'static> {
     ServerName::try_from(domain.to_string())
         .unwrap_or_else(|_| ServerName::IpAddress("127.0.0.1".parse::<IpAddr>().unwrap().into()))
 }
@@ -565,7 +798,9 @@ pub async fn happy_eyeballs_tcp_connect(
     total_timeout: Duration,
 ) -> Result<(TcpStream, SocketAddr), WsError> {
     if addrs.is_empty() {
-        return Err(WsError::Other("no candidate addresses provided".to_string()));
+        return Err(WsError::Other(
+            "no candidate addresses provided".to_string(),
+        ));
     }
     if addrs.len() == 1 {
         let addr = addrs[0];
@@ -684,8 +919,53 @@ pub async fn happy_eyeballs_tcp_connect(
     if let Some(e) = last_err {
         Err(WsError::Io(e))
     } else {
-        Err(WsError::Other("all connection candidates failed".to_string()))
+        Err(WsError::Other(
+            "all connection candidates failed".to_string(),
+        ))
     }
+}
+
+pub async fn ws_handshake_split_host_fp(
+    raw_conn: TcpStream,
+    dial_ip: &str,
+    tls_sni: &str,
+    host_header: &str,
+    path: &str,
+    fingerprint: &str,
+    timeout: Duration,
+) -> Result<RawWebSocket, WsError> {
+    ws_handshake_split_host_ext(
+        raw_conn,
+        dial_ip,
+        tls_sni,
+        host_header,
+        path,
+        fingerprint,
+        None,
+        timeout,
+    )
+    .await
+}
+
+pub async fn ws_handshake_split_host(
+    raw_conn: TcpStream,
+    dial_ip: &str,
+    tls_sni: &str,
+    host_header: &str,
+    path: &str,
+    timeout: Duration,
+) -> Result<RawWebSocket, WsError> {
+    ws_handshake_split_host_ext(
+        raw_conn,
+        dial_ip,
+        tls_sni,
+        host_header,
+        path,
+        "chrome",
+        None,
+        timeout,
+    )
+    .await
 }
 
 pub async fn ws_handshake_over_stream(
@@ -695,32 +975,53 @@ pub async fn ws_handshake_over_stream(
     path: &str,
     timeout: Duration,
 ) -> Result<RawWebSocket, WsError> {
-    set_sock_opts(&raw_conn);
+    ws_handshake_split_host_ext(
+        raw_conn, dial_ip, domain, domain, path, "chrome", None, timeout,
+    )
+    .await
+}
 
-    let connector = TlsConnector::from(TLS_CONFIG.clone());
-    let sni = server_name(domain);
+pub async fn ws_handshake_over_stream_fp(
+    raw_conn: TcpStream,
+    dial_ip: &str,
+    domain: &str,
+    path: &str,
+    fingerprint: &str,
+    timeout: Duration,
+) -> Result<RawWebSocket, WsError> {
+    ws_handshake_split_host_ext(
+        raw_conn,
+        dial_ip,
+        domain,
+        domain,
+        path,
+        fingerprint,
+        None,
+        timeout,
+    )
+    .await
+}
 
-    let handshake_timeout = ws_handshake_timeout(timeout);
-    let tls_conn =
-        match tokio::time::timeout(handshake_timeout, connector.connect(sni, raw_conn)).await {
-            Ok(Ok(c)) => c,
-            Ok(Err(e)) => {
-                if e.kind() != std::io::ErrorKind::ConnectionReset {
-                    ldebug!(" ws tls fail {} via {}: {}", domain, dial_ip, e);
-                }
-                return Err(WsError::Io(e));
-            }
-            Err(_) => {
-                ldebug!(" ws tls fail {} via {}: timeout", domain, dial_ip);
-                return Err(WsError::Timeout);
-            }
-        };
-
-    let (read_half, mut write_half) = tokio::io::split(tls_conn);
+pub async fn ws_upgrade_stream(
+    stream: WsStream,
+    host_header: &str,
+    path: &str,
+    early_data: Option<&[u8]>,
+    timeout: Duration,
+) -> Result<RawWebSocket, WsError> {
+    let (read_half, mut write_half) = tokio::io::split(stream);
 
     let mut ws_key_bytes = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut ws_key_bytes);
     let ws_key = base64::engine::general_purpose::STANDARD.encode(ws_key_bytes);
+
+    let (sec_ws_proto_header, early_data_applied) = match early_data {
+        Some(ed) if !ed.is_empty() => {
+            let encoded = encode_ws_early_data(ed);
+            (format!("Sec-WebSocket-Protocol: {}\r\n", encoded), true)
+        }
+        _ => ("Sec-WebSocket-Protocol: binary\r\n".to_string(), false),
+    };
 
     let req = format!(
         "GET {} HTTP/1.1\r\n\
@@ -729,8 +1030,11 @@ pub async fn ws_handshake_over_stream(
          Connection: Upgrade\r\n\
          Sec-WebSocket-Key: {}\r\n\
          Sec-WebSocket-Version: 13\r\n\
-         Sec-WebSocket-Protocol: binary\r\n\r\n",
-        path, domain, ws_key
+         {}\r\n\r\n",
+        path,
+        host_header,
+        ws_key,
+        sec_ws_proto_header.trim()
     );
 
     match tokio::time::timeout(timeout, write_half.write_all(req.as_bytes())).await {
@@ -792,7 +1096,10 @@ pub async fn ws_handshake_over_stream(
 
     if status_code == 101 {
         // RFC 6455: Upgrade header must be "websocket"
-        let upgrade = headers.get("upgrade").map(|s| s.to_lowercase()).unwrap_or_default();
+        let upgrade = headers
+            .get("upgrade")
+            .map(|s| s.to_lowercase())
+            .unwrap_or_default();
         if upgrade != "websocket" {
             return Err(WsError::Handshake(WsHandshakeError {
                 status_code,
@@ -804,10 +1111,17 @@ pub async fn ws_handshake_over_stream(
 
         // RFC 6455 Section 4.2.2: Sec-WebSocket-Accept = Base64(SHA1(Key + GUID))
         let expected_accept = compute_sec_websocket_accept(&ws_key);
-        let actual_accept = headers.get("sec-websocket-accept").cloned().unwrap_or_default();
+        let actual_accept = headers
+            .get("sec-websocket-accept")
+            .cloned()
+            .unwrap_or_default();
 
         if actual_accept != expected_accept {
-            ldebug!(" ws handshake invalid Sec-WebSocket-Accept: expected={}, got={}", expected_accept, actual_accept);
+            ldebug!(
+                " ws handshake invalid Sec-WebSocket-Accept: expected={}, got={}",
+                expected_accept,
+                actual_accept
+            );
             return Err(WsError::Handshake(WsHandshakeError {
                 status_code,
                 status_line: "Invalid Sec-WebSocket-Accept Header".to_string(),
@@ -820,6 +1134,8 @@ pub async fn ws_handshake_over_stream(
             reader: tokio::sync::Mutex::new(bufreader),
             writer: tokio::sync::Mutex::new(write_half),
             closed: AtomicBool::new(false),
+            buffered_payload: tokio::sync::Mutex::new(None),
+            early_data_sent: early_data_applied,
         });
     }
 
@@ -832,16 +1148,89 @@ pub async fn ws_handshake_over_stream(
     }))
 }
 
+pub async fn ws_handshake_split_host_ext(
+    raw_conn: TcpStream,
+    dial_ip: &str,
+    tls_sni: &str,
+    host_header: &str,
+    path: &str,
+    fingerprint: &str,
+    early_data: Option<&[u8]>,
+    timeout: Duration,
+) -> Result<RawWebSocket, WsError> {
+    set_sock_opts(&raw_conn);
+
+    let tls_config = get_tls_config_for_fingerprint(fingerprint);
+    let connector = TlsConnector::from(tls_config);
+    let sni = server_name(tls_sni);
+
+    let handshake_timeout = ws_handshake_timeout(timeout);
+    let tls_conn =
+        match tokio::time::timeout(handshake_timeout, connector.connect(sni, raw_conn)).await {
+            Ok(Ok(c)) => c,
+            Ok(Err(e)) => {
+                if e.kind() != std::io::ErrorKind::ConnectionReset {
+                    ldebug!(" ws tls fail {} via {}: {}", tls_sni, dial_ip, e);
+                }
+                return Err(WsError::Io(e));
+            }
+            Err(_) => {
+                ldebug!(" ws tls fail {} via {}: timeout", tls_sni, dial_ip);
+                return Err(WsError::Timeout);
+            }
+        };
+
+    ws_upgrade_stream(
+        WsStream::Tls(tls_conn),
+        host_header,
+        path,
+        early_data,
+        timeout,
+    )
+    .await
+}
+
+pub async fn ws_handshake_plain_ext(
+    raw_conn: TcpStream,
+    host_header: &str,
+    path: &str,
+    early_data: Option<&[u8]>,
+    timeout: Duration,
+) -> Result<RawWebSocket, WsError> {
+    set_sock_opts(&raw_conn);
+    ws_upgrade_stream(
+        WsStream::Plain(raw_conn),
+        host_header,
+        path,
+        early_data,
+        timeout,
+    )
+    .await
+}
+
+pub async fn ws_connect_happy_eyeballs_ext(
+    domain: &str,
+    path: &str,
+    early_data: Option<&[u8]>,
+    addrs: &[SocketAddr],
+    timeout: Duration,
+) -> Result<(RawWebSocket, SocketAddr), WsError> {
+    let (stream, winner_addr) = happy_eyeballs_tcp_connect(addrs, timeout).await?;
+    let dial_ip = winner_addr.ip().to_string();
+    let ws = ws_handshake_split_host_ext(
+        stream, &dial_ip, domain, domain, path, "chrome", early_data, timeout,
+    )
+    .await?;
+    Ok((ws, winner_addr))
+}
+
 pub async fn ws_connect_happy_eyeballs(
     domain: &str,
     path: &str,
     addrs: &[SocketAddr],
     timeout: Duration,
 ) -> Result<(RawWebSocket, SocketAddr), WsError> {
-    let (stream, winner_addr) = happy_eyeballs_tcp_connect(addrs, timeout).await?;
-    let dial_ip = winner_addr.ip().to_string();
-    let ws = ws_handshake_over_stream(stream, &dial_ip, domain, path, timeout).await?;
-    Ok((ws, winner_addr))
+    ws_connect_happy_eyeballs_ext(domain, path, None, addrs, timeout).await
 }
 
 pub async fn ws_connect_once(
@@ -924,7 +1313,8 @@ pub async fn ws_connect(
         return Err(WsError::Other("no candidate addresses found".to_string()));
     }
 
-    let (ws, _) = ws_connect_happy_eyeballs(domain, path, &candidate_addrs, attempt_timeout).await?;
+    let (ws, _) =
+        ws_connect_happy_eyeballs(domain, path, &candidate_addrs, attempt_timeout).await?;
     Ok(ws)
 }
 
@@ -935,6 +1325,93 @@ pub async fn connect_one_ws(ip: &str, domains: &[String]) -> Option<RawWebSocket
         }
     }
     None
+}
+
+pub async fn connect_via_http_proxy(
+    proxy_endpoint: &str,
+    target_host: &str,
+    target_port: u16,
+    timeout: Duration,
+) -> Result<TcpStream, WsError> {
+    let target_proxy = if proxy_endpoint.contains(':') {
+        proxy_endpoint.to_string()
+    } else {
+        format!("{}:443", proxy_endpoint)
+    };
+
+    let mut stream = match tokio::time::timeout(timeout, TcpStream::connect(&target_proxy)).await {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => return Err(WsError::Io(e)),
+        Err(_) => return Err(WsError::Timeout),
+    };
+    set_sock_opts(&stream);
+
+    let connect_req = format!(
+        "CONNECT {}:{} HTTP/1.1\r\n\
+         Host: {}:{}\r\n\
+         Proxy-Connection: Keep-Alive\r\n\
+         User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n\r\n",
+        target_host, target_port, target_host, target_port
+    );
+
+    match tokio::time::timeout(timeout, stream.write_all(connect_req.as_bytes())).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Err(WsError::Io(e)),
+        Err(_) => return Err(WsError::Timeout),
+    }
+
+    let mut header_buf = Vec::with_capacity(512);
+    let mut byte = [0u8; 1];
+    let read_res = tokio::time::timeout(timeout, async {
+        loop {
+            let n = stream.read(&mut byte).await?;
+            if n == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "proxy closed connection during CONNECT",
+                ));
+            }
+            header_buf.push(byte[0]);
+            if header_buf.ends_with(b"\r\n\r\n") || header_buf.ends_with(b"\n\n") {
+                break;
+            }
+            if header_buf.len() > 8192 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "proxy response headers too large",
+                ));
+            }
+        }
+        Ok::<(), std::io::Error>(())
+    })
+    .await;
+
+    match read_res {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Err(WsError::Io(e)),
+        Err(_) => return Err(WsError::Timeout),
+    }
+
+    let resp_str = String::from_utf8_lossy(&header_buf);
+    let first_line = resp_str.lines().next().unwrap_or_default();
+    if !first_line.contains("200") {
+        return Err(WsError::Other(format!(
+            "proxy rejected CONNECT: {}",
+            first_line
+        )));
+    }
+
+    Ok(stream)
+}
+
+pub async fn ws_connect_via_opera_proxy(
+    proxy_endpoint: &str,
+    domain: &str,
+    path: &str,
+    timeout: Duration,
+) -> Result<RawWebSocket, WsError> {
+    let stream = connect_via_http_proxy(proxy_endpoint, domain, 443, timeout).await?;
+    ws_handshake_over_stream(stream, proxy_endpoint, domain, path, timeout).await
 }
 
 #[cfg(test)]
@@ -992,5 +1469,65 @@ mod tests {
     fn test_max_frame_payload_limit() {
         assert_eq!(MAX_FRAME_PAYLOAD, 16 * 1024 * 1024);
     }
-}
 
+    #[test]
+    fn test_tls_config_alpn_and_profiles() {
+        let chrome_cfg = get_tls_config_for_fingerprint("chrome");
+        assert_eq!(chrome_cfg.alpn_protocols, vec![b"http/1.1".to_vec()]);
+
+        let ff_cfg = get_tls_config_for_fingerprint("firefox");
+        assert_eq!(ff_cfg.alpn_protocols, vec![b"http/1.1".to_vec()]);
+
+        let safari_cfg = get_tls_config_for_fingerprint("safari");
+        assert_eq!(safari_cfg.alpn_protocols, vec![b"http/1.1".to_vec()]);
+
+        let rand_cfg = get_tls_config_for_fingerprint("randomized");
+        assert_eq!(rand_cfg.alpn_protocols, vec![b"http/1.1".to_vec()]);
+    }
+
+    #[test]
+    fn test_early_data_encoding_and_path_parsing() {
+        let sample = b"hello vless early data";
+        let encoded = encode_ws_early_data(sample);
+        assert!(!encoded.contains('='));
+        assert!(!encoded.contains('+'));
+        assert!(!encoded.contains('/'));
+
+        assert_eq!(parse_early_data_header_len("/vless-ws?ed=2048"), Some(2048));
+        assert_eq!(
+            parse_early_data_header_len("/vless-ws?foo=bar&ed=4096&baz=1"),
+            Some(4096)
+        );
+        assert_eq!(parse_early_data_header_len("/vless-ws"), None);
+        assert_eq!(parse_early_data_header_len("/apiws"), None);
+        assert_eq!(parse_early_data_header_len("/vless-ws?ed=0"), None);
+    }
+
+    #[test]
+    fn test_fingerprint_classification_and_capability_matrix() {
+        assert_eq!(classify_fingerprint("chrome"), ("chrome", FingerprintCapability::Supported));
+        assert_eq!(classify_fingerprint("firefox"), ("firefox", FingerprintCapability::Supported));
+        assert_eq!(classify_fingerprint("safari"), ("safari", FingerprintCapability::Supported));
+        assert_eq!(classify_fingerprint("ios"), ("ios", FingerprintCapability::Supported));
+        assert_eq!(classify_fingerprint("randomized"), ("randomized", FingerprintCapability::Supported));
+        assert_eq!(classify_fingerprint(""), ("chrome", FingerprintCapability::Supported));
+
+        assert_eq!(classify_fingerprint("edge"), ("chrome", FingerprintCapability::Mapped));
+        assert_eq!(classify_fingerprint("360"), ("chrome", FingerprintCapability::Mapped));
+        assert_eq!(classify_fingerprint("qq"), ("chrome", FingerprintCapability::Mapped));
+        assert_eq!(classify_fingerprint("android"), ("chrome", FingerprintCapability::Mapped));
+
+        assert_eq!(classify_fingerprint("unknown_parrot"), ("chrome", FingerprintCapability::UnsupportedFallback));
+        assert_eq!(classify_fingerprint("bot-agent"), ("chrome", FingerprintCapability::UnsupportedFallback));
+
+        // Ensure get_tls_config_for_fingerprint works reliably across all categories
+        let cfg_supported = get_tls_config_for_fingerprint("firefox");
+        assert_eq!(cfg_supported.alpn_protocols, vec![b"http/1.1".to_vec()]);
+
+        let cfg_mapped = get_tls_config_for_fingerprint("edge");
+        assert_eq!(cfg_mapped.alpn_protocols, vec![b"http/1.1".to_vec()]);
+
+        let cfg_unsupported = get_tls_config_for_fingerprint("nonexistent_fp");
+        assert_eq!(cfg_unsupported.alpn_protocols, vec![b"http/1.1".to_vec()]);
+    }
+}

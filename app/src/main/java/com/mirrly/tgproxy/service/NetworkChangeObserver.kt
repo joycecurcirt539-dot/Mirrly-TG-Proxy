@@ -6,12 +6,19 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
 
+import android.os.Handler
+import android.os.Looper
+
 class NetworkChangeObserver(
     private val context: Context,
     private val onNetworkChanged: (newType: String, oldType: String) -> Unit
 ) {
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var pendingDisconnectRunnable: Runnable? = null
+    private val stateLock = Any()
 
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
@@ -29,6 +36,34 @@ class NetworkChangeObserver(
 
     @Volatile
     private var currentCapabilities: NetworkCapabilities? = null
+
+    private fun cancelPendingDisconnect() {
+        synchronized(stateLock) {
+            pendingDisconnectRunnable?.let {
+                mainHandler.removeCallbacks(it)
+                pendingDisconnectRunnable = null
+            }
+        }
+    }
+
+    private fun schedulePendingDisconnect(oldType: String) {
+        synchronized(stateLock) {
+            cancelPendingDisconnect()
+            val runnable = Runnable {
+                synchronized(stateLock) {
+                    pendingDisconnectRunnable = null
+                    currentDefaultNetwork = null
+                    currentCapabilities = null
+                    currentNetworkType = "DISCONNECTED"
+                    lastReportedNetwork = null
+                    lastReportedType = "DISCONNECTED"
+                    onNetworkChanged("DISCONNECTED", oldType)
+                }
+            }
+            pendingDisconnectRunnable = runnable
+            mainHandler.postDelayed(runnable, 500L)
+        }
+    }
 
     fun start() {
         val cm = connectivityManager ?: return
@@ -50,57 +85,57 @@ class NetworkChangeObserver(
 
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                // При вызове registerDefaultNetworkCallback колбэк onAvailable
-                // вызывается исключительно для актуальной дефолтной сети системы.
+                // При появлении новой сети отменяем отложенный дисконнект от предыдущей сети
+                cancelPendingDisconnect()
                 currentDefaultNetwork = network
             }
 
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                currentDefaultNetwork = network
-                currentCapabilities = caps
-
                 val hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                val newType = if (hasInternet) {
-                    extractNetworkTypeName(caps)
-                } else {
-                    "DISCONNECTED"
+                if (hasInternet) {
+                    cancelPendingDisconnect()
                 }
 
-                val oldType = lastReportedType
-                val isNetworkChanged = (lastReportedNetwork != network)
+                synchronized(stateLock) {
+                    currentDefaultNetwork = network
+                    currentCapabilities = caps
 
-                if (newType != oldType || isNetworkChanged) {
-                    currentNetworkType = newType
-                    lastReportedType = newType
-                    lastReportedNetwork = network
-                    onNetworkChanged(newType, oldType)
-                } else {
-                    currentNetworkType = newType
+                    val newType = if (hasInternet) {
+                        extractNetworkTypeName(caps)
+                    } else {
+                        "DISCONNECTED"
+                    }
+
+                    if (newType == "DISCONNECTED") {
+                        schedulePendingDisconnect(lastReportedType)
+                        return
+                    }
+
+                    val oldType = lastReportedType
+                    val isNetworkChanged = (lastReportedNetwork != network)
+
+                    if (newType != oldType || isNetworkChanged) {
+                        currentNetworkType = newType
+                        lastReportedType = newType
+                        lastReportedNetwork = network
+                        onNetworkChanged(newType, oldType)
+                    } else {
+                        currentNetworkType = newType
+                    }
                 }
             }
 
             override fun onLost(network: Network) {
-                // Обрабатываем потерю сети только если потеряна именно текущая дефолтная сеть
+                // Предотвращаем Double Reset (Wi-Fi <-> LTE): дебаунсим дисконнект на 500 мс.
+                // Если сотовая сеть поднимется в течение 500 мс, дисконнект отменяется.
                 if (network == currentDefaultNetwork) {
-                    val oldType = lastReportedType
-                    currentDefaultNetwork = null
-                    currentCapabilities = null
-                    currentNetworkType = "DISCONNECTED"
-                    lastReportedNetwork = null
-                    lastReportedType = "DISCONNECTED"
-                    onNetworkChanged("DISCONNECTED", oldType)
+                    schedulePendingDisconnect(lastReportedType)
                 }
             }
 
             override fun onUnavailable() {
                 if (currentNetworkType != "DISCONNECTED") {
-                    val oldType = lastReportedType
-                    currentDefaultNetwork = null
-                    currentCapabilities = null
-                    currentNetworkType = "DISCONNECTED"
-                    lastReportedNetwork = null
-                    lastReportedType = "DISCONNECTED"
-                    onNetworkChanged("DISCONNECTED", oldType)
+                    schedulePendingDisconnect(lastReportedType)
                 }
             }
         }
@@ -114,6 +149,7 @@ class NetworkChangeObserver(
     }
 
     fun stop() {
+        cancelPendingDisconnect()
         networkCallback?.let {
             try {
                 connectivityManager?.unregisterNetworkCallback(it)

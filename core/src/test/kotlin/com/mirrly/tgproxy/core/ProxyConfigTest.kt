@@ -199,6 +199,73 @@ class ProxyConfigTest {
         val mtprotoUrlRestored = server.getTelegramProxyUrl()
         assertEquals(mtprotoUrlInitial, mtprotoUrlRestored)
     }
+
+    @Test
+    fun testUplinkModes() {
+        val config = ProxyConfig()
+        assertEquals(UplinkMode.WORKER, config.uplinkMode)
+
+        config.uplinkModeName = UplinkMode.MASQUE.name
+        assertTrue(config.isMasqueUplink)
+
+        config.uplinkModeName = UplinkMode.HYBRID.name
+        assertTrue(config.isHybridUplink)
+
+        config.uplinkModeName = UplinkMode.VLESS.name
+        assertTrue(config.isVlessUplink)
+        assertEquals(UplinkMode.VLESS, config.uplinkMode)
+    }
+
+    @Test
+    fun testVlessShareUrlGeneration() {
+        val config = ProxyConfig(
+            customCfDomain = "my-custom-worker.workers.dev",
+            vlessUuid = "d342d11e-d424-4583-b36e-524ab1f0afa4",
+            vlessPath = "/"
+        )
+        val url = config.getVlessShareUrl()
+        assertTrue(url.startsWith("vless://d342d11e-d424-4583-b36e-524ab1f0afa4@my-custom-worker.workers.dev:443"))
+        assertTrue(url.contains("type=ws"))
+        assertTrue(url.contains("security=tls"))
+        assertTrue(url.contains("sni=my-custom-worker.workers.dev"))
+        assertTrue(url.contains("host=my-custom-worker.workers.dev"))
+        assertTrue(url.contains("#Mirrly-TG-Proxy"))
+
+        val newUuid = ProxyConfig.generateVlessUuid()
+        assertTrue(newUuid.isNotBlank())
+        assertEquals(36, newUuid.length)
+    }
+
+    @Test
+    fun testAmneziaWgConfigGeneration() {
+        val config = ProxyConfig(
+            warpPrivateKey = "mYPrivateKeY123=",
+            warpClientIpv4 = "172.16.0.2",
+            warpPeerEndpoint = "162.159.198.1:443"
+        )
+        val awg = config.getAmneziaWgConfig()
+        assertTrue(awg.contains("PrivateKey = mYPrivateKeY123="))
+        assertTrue(awg.contains("Address = 172.16.0.2/32"))
+        assertTrue(awg.contains("Jc = 4"))
+        assertTrue(awg.contains("S1 = 0"))
+        assertTrue(awg.contains("S2 = 0"))
+        assertTrue(awg.contains("H1 = 1"))
+        assertTrue(awg.contains("H2 = 2"))
+        assertTrue(awg.contains("H3 = 3"))
+        assertTrue(awg.contains("H4 = 4"))
+        assertTrue(awg.contains("I1 = <b 0x"))
+        assertTrue(awg.contains("Endpoint = 188.114.96.1:500"))
+    }
+
+    @Test
+    fun testCloudflareWorkerIncludesWarpApiReverseProxy() {
+        val workerCode = TgConstants.CLOUDFLARE_WORKER_JS_CODE
+        assertTrue(workerCode.contains("/warp-api"), "Worker code must contain /warp-api route handler")
+        assertTrue(workerCode.contains("/warp-reg"), "Worker code must contain /warp-reg route handler")
+        assertTrue(workerCode.contains("api.cloudflareclient.com/v0a4471"), "Worker code must forward to Cloudflare client API v0a4471")
+        assertTrue(workerCode.contains("Authorization"), "Worker code must forward Authorization header")
+        assertTrue(workerCode.contains("OPTIONS"), "Worker code must handle OPTIONS CORS preflight")
+    }
 }
 
 

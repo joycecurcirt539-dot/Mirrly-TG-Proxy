@@ -409,11 +409,11 @@ fun NetworkDiagnosticScreen(
                 • Режим работы локального прокси-сервера на устройстве.
 
                 ПОЧЕМУ ЭТО ВАЖНО:
-                • SOCKS5 (порт 10808) передает весь трафик Telegram (чаты, медиафайлы, голосовые и видеозвонки).
-                • MTProto (порт 1443) использует криптографический протокол Telegram FakeTLS.
+                • SOCKS5 (порт 10808) передает весь трафик Telegram (чаты, медиафайлы, голосовые и видеозвонки) с поддержкой гибких аплинков (Cloudflare Worker, WARP MASQUE, VLESS over WSS, Гибрид).
+                • MTProto (порт 1080) использует криптографический протокол Telegram FakeTLS и маршрутизируется через нативный Anycast CDN Flowseal.
 
                 ОРИЕНТИРЫ И НОРМЫ:
-                • Оба протокола инкапсулируются в защищенный WebSocket-канал с шифрованием TLS 1.3.
+                • Все протоколы инкапсулируются в защищенный WebSocket/QUIC канал с шифрованием TLS 1.3 на порту 443.
                 """.trimIndent()
             ),
             "mos" to Pair(
@@ -969,7 +969,7 @@ fun NetworkDiagnosticScreen(
                             iconRes = R.drawable.ic_diag_protocol,
                             iconColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
                             title = "Протокол и локальный порт",
-                            value = if (isSocks5) "SOCKS5 TCP Relay (:10808)" else "MTProto TLS Relay (:1443)",
+                            value = if (isSocks5) "SOCKS5 TCP Relay (:10808)" else "MTProto TLS Relay (:1080)",
                             badgeText = "WSS TLS 1.3",
                             badgeColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
                             onInfoClick = { infoKey = "protocol_mode" }

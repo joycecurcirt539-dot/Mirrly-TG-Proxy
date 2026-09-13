@@ -212,7 +212,10 @@ impl Stats {
     }
 
     pub fn summary_ru(&self) -> String {
-        let mut parts = vec![format!("акт:{}", self.connections_active.load(Ordering::Relaxed))];
+        let mut parts = vec![format!(
+            "акт:{}",
+            self.connections_active.load(Ordering::Relaxed)
+        )];
         let ws = self.connections_ws.load(Ordering::Relaxed);
         if ws > 0 {
             parts.push(format!("ws:{}", ws));
@@ -273,9 +276,11 @@ fn android_log_line(line: &str) {
         fn __android_log_print(prio: i32, tag: *const i8, fmt: *const i8, ...) -> i32;
     }
     const ANDROID_LOG_INFO: i32 = 4;
-    if let (Ok(tag), Ok(fmt), Ok(msg)) =
-        (CString::new("TgWsProxy"), CString::new("%s"), CString::new(line))
-    {
+    if let (Ok(tag), Ok(fmt), Ok(msg)) = (
+        CString::new("TgWsProxy"),
+        CString::new("%s"),
+        CString::new(line),
+    ) {
         unsafe {
             __android_log_print(
                 ANDROID_LOG_INFO,
@@ -338,4 +343,38 @@ pub fn now_unix() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// Opera VPN Upstream Proxy Configuration
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct OperaVpnConfig {
+    pub vless_enabled: bool,
+    pub warp_enabled: bool,
+    pub endpoint: String,
+}
+
+pub static OPERA_VPN: Lazy<RwLock<OperaVpnConfig>> = Lazy::new(|| {
+    RwLock::new(OperaVpnConfig {
+        vless_enabled: false,
+        warp_enabled: false,
+        endpoint: "77.111.247.139:443".to_string(),
+    })
+});
+
+pub fn set_opera_vpn_config(vless_enabled: bool, warp_enabled: bool, endpoint: &str) {
+    let mut cfg = OPERA_VPN.write();
+    cfg.vless_enabled = vless_enabled;
+    cfg.warp_enabled = warp_enabled;
+    if !endpoint.trim().is_empty() {
+        cfg.endpoint = endpoint.trim().to_string();
+    }
+    linfo!(
+        "Opera VPN config updated: vless={}, warp={}, endpoint={}",
+        cfg.vless_enabled,
+        cfg.warp_enabled,
+        cfg.endpoint
+    );
 }

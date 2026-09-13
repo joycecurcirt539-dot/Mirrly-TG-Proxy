@@ -26,6 +26,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,16 +50,24 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.SpeedTestLiveState
 import com.mirrly.tgproxy.core.SpeedTestStage
+import com.mirrly.tgproxy.service.SpeedTestHistoryManager
+import com.mirrly.tgproxy.service.SpeedTestRecord
 import com.mirrly.tgproxy.ui.theme.*
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sin
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -73,12 +83,26 @@ fun TunnelSpeedTestScreen(
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
     val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
     val testState by engine.liveState.collectAsState()
+    val historyRecords by SpeedTestHistoryManager.historyFlow.collectAsState()
+
+    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Тест скорости, 1 = История
+    var showClearHistoryDialog by remember { mutableStateOf(false) }
 
     val targetDomain = if (isSocks5) {
         val custom = app.config.customCfDomain.trim()
         if (custom.isNotEmpty()) custom else activeWorker.domain
     } else {
         "kws2.pclead.co.uk"
+    }
+
+    val socks5Port = if (isSocks5 && server.isRunning) server.config.socks5Port else null
+
+    val handleBack: () -> Unit = {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (engine.isRunning) {
+            engine.cancelTest()
+        }
+        onBack()
     }
 
     DisposableEffect(Unit) {
@@ -98,77 +122,384 @@ fun TunnelSpeedTestScreen(
                 .adaptiveContainerWidth(600.dp)
                 .fillMaxHeight()
                 .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
-                .verticalScroll(rememberScrollState())
                 .padding(
-                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp,
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
                 )
                 .adaptiveContentPadding(),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ── TOP TARGET BADGE & INFO ──
-            SpeedTestHeaderCard(
-                targetDomain = if (activeWorker.isDeveloperWorker && isSocks5) activeWorker.name else targetDomain,
-                edgeColo = testState.edgeColo,
-                isSocks5 = isSocks5
-            )
-
-            // ── HERO SPEEDOMETER GAUGE ──
-            SpeedometerGauge(
-                currentSpeedMbps = testState.currentSpeedMbps,
-                stage = testState.stage,
-                progress = testState.progress,
-                isSocks5 = isSocks5
-            )
-
-            // ── 4-TILE LIVE METRICS GRID ──
-            SpeedMetricsGrid(
-                state = testState,
-                isSocks5 = isSocks5
-            )
-
-            // ── REAL-TIME TRANSFER WAVEFORM ──
-            if (testState.sparklinePoints.isNotEmpty() || testState.stage == SpeedTestStage.COMPLETED) {
-                SpeedWaveformCard(
-                    points = testState.sparklinePoints,
-                    peakSpeed = testState.peakSpeedMbps,
-                    isSocks5 = isSocks5
-                )
-            }
-
-            // ── TELEGRAM SERVICE SUITABILITY MATRIX ──
-            if (testState.stage == SpeedTestStage.COMPLETED) {
-                TelegramSuitabilityCard(
-                    report = testState.suitability,
-                    grade = testState.qualityGrade,
-                    isSocks5 = isSocks5
-                )
-            }
-
-            // ── START / STOP / RETEST ACTION BUTTON ──
-            SpeedTestActionButton(
-                stage = testState.stage,
+            // ── SEGMENTED TAB SWITCHER ──
+            SpeedTestSegmentedTabs(
+                selectedTab = selectedTab,
+                historyCount = historyRecords.size,
                 isSocks5 = isSocks5,
-                onStart = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    engine.startTest(targetDomain)
-                },
-                onStop = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    engine.cancelTest()
+                onTabSelected = { newTab ->
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    selectedTab = newTab
                 }
             )
+
+            // ── TAB CONTENT ──
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    if (targetState > initialState) {
+                        slideInHorizontally { width -> width / 4 } + fadeIn() togetherWith
+                                slideOutHorizontally { width -> -width / 4 } + fadeOut()
+                    } else {
+                        slideInHorizontally { width -> -width / 4 } + fadeIn() togetherWith
+                                slideOutHorizontally { width -> width / 4 } + fadeOut()
+                    }
+                },
+                label = "speedTabAnimation"
+            ) { currentTab ->
+                if (currentTab == 0) {
+                    // TAB 0: LIVE TEST VIEW
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // 1. Target Node Info Bar
+                        SpeedTestHeaderCard(
+                            targetDomain = if (activeWorker.isDeveloperWorker && isSocks5) activeWorker.name else targetDomain,
+                            edgeColo = testState.edgeColo,
+                            isSocks5 = isSocks5
+                        )
+
+                        // 2. Sequential Phase Stepper (Ping -> DL -> UL -> Score)
+                        SpeedTestPhaseStepper(
+                            stage = testState.stage,
+                            isSocks5 = isSocks5
+                        )
+
+                        // 3. Hero Speedometer Gauge
+                        SpeedometerGauge(
+                            currentSpeedMbps = testState.currentSpeedMbps,
+                            stage = testState.stage,
+                            progress = testState.progress,
+                            isSocks5 = isSocks5
+                        )
+
+                        // 4. 4-Tile Live Metrics Grid
+                        SpeedMetricsGrid(
+                            state = testState,
+                            isSocks5 = isSocks5
+                        )
+
+                        // 5. Live Waveform / Sparkline Chart
+                        val safePoints = testState.sparklinePoints.filter { it.isFinite() && it >= 0f }
+                        if (safePoints.size >= 2 || testState.stage == SpeedTestStage.COMPLETED) {
+                            SpeedWaveformCard(
+                                points = safePoints,
+                                peakSpeed = testState.peakSpeedMbps,
+                                isSocks5 = isSocks5
+                            )
+                        }
+
+                        // 6. Telegram Service Suitability Report (on completion)
+                        if (testState.stage == SpeedTestStage.COMPLETED) {
+                            TelegramSuitabilityCard(
+                                report = testState.suitability,
+                                grade = testState.qualityGrade,
+                                isSocks5 = isSocks5
+                            )
+                        }
+
+                        // 7. Error Notice if test encountered failure
+                        if (testState.stage == SpeedTestStage.ERROR && testState.errorDetail != null) {
+                            SpeedTestErrorCard(
+                                errorMessage = testState.errorDetail ?: "Ошибка соединения"
+                            )
+                        }
+
+                        // 8. Start / Stop / Retest Action Button
+                        SpeedTestActionButton(
+                            stage = testState.stage,
+                            isSocks5 = isSocks5,
+                            onStart = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                engine.startTest(targetDomain, socks5Port)
+                            },
+                            onStop = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                engine.cancelTest()
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                } else {
+                    // TAB 1: HISTORY VIEW
+                    SpeedTestHistoryView(
+                        historyRecords = historyRecords,
+                        isSocks5 = isSocks5,
+                        onClearAll = { showClearHistoryDialog = true },
+                        onDeleteItem = { id ->
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            SpeedTestHistoryManager.deleteRecord(id)
+                        },
+                        onStartTestClick = {
+                            selectedTab = 0
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            engine.startTest(targetDomain, socks5Port)
+                        }
+                    )
+                }
+            }
         }
 
         // Top Navigation Bar
         SpeedTestTopBar(
-            onBack = onBack,
+            onBack = handleBack,
             isSocks5 = isSocks5
         )
 
         // Floating Cyber Particles
         CyberParticlesOverlay(modifier = Modifier.fillMaxSize())
+
+        // Clear History Confirmation Dialog
+        if (showClearHistoryDialog) {
+            ClearSpeedHistoryDialog(
+                onDismiss = { showClearHistoryDialog = false },
+                onConfirm = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    SpeedTestHistoryManager.clearHistory()
+                    showClearHistoryDialog = false
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpeedTestSegmentedTabs(
+    selectedTab: Int,
+    historyCount: Int,
+    isSocks5: Boolean,
+    onTabSelected: (Int) -> Unit
+) {
+    val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(46.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White.copy(alpha = 0.03f),
+        border = BorderStroke(1.dp, Color(0xFF1E2333))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            // Tab 0: Замер
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(if (selectedTab == 0) accentColor.copy(alpha = 0.16f) else Color.Transparent)
+                    .border(
+                        1.dp,
+                        if (selectedTab == 0) accentColor.copy(alpha = 0.45f) else Color.Transparent,
+                        RoundedCornerShape(11.dp)
+                    )
+                    .clickable { onTabSelected(0) },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_speed_turbo),
+                        contentDescription = null,
+                        tint = if (selectedTab == 0) accentColor else TextMuted,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "ЗАМЕР СКОРОСТИ",
+                        fontSize = 11.5.sp,
+                        fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
+                        letterSpacing = 0.8.sp,
+                        color = if (selectedTab == 0) TextWhite else TextMuted
+                    )
+                }
+            }
+
+            // Tab 1: История
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(if (selectedTab == 1) accentColor.copy(alpha = 0.16f) else Color.Transparent)
+                    .border(
+                        1.dp,
+                        if (selectedTab == 1) accentColor.copy(alpha = 0.45f) else Color.Transparent,
+                        RoundedCornerShape(11.dp)
+                    )
+                    .clickable { onTabSelected(1) },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_history),
+                        contentDescription = null,
+                        tint = if (selectedTab == 1) accentColor else TextMuted,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "ИСТОРИЯ",
+                        fontSize = 11.5.sp,
+                        fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
+                        letterSpacing = 0.8.sp,
+                        color = if (selectedTab == 1) TextWhite else TextMuted
+                    )
+                    if (historyCount > 0) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (selectedTab == 1) accentColor else Color(0xFF1E293B),
+                            modifier = Modifier.padding(start = 2.dp)
+                        ) {
+                            Text(
+                                text = "$historyCount",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (selectedTab == 1) Color.Black else TextWhite,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedTestPhaseStepper(
+    stage: SpeedTestStage,
+    isSocks5: Boolean
+) {
+    val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
+
+    val phases = listOf(
+        Pair(1, "Пинг"),
+        Pair(2, "Входящая"),
+        Pair(3, "Исходящая"),
+        Pair(4, "Итог")
+    )
+
+    val activeStep = when (stage) {
+        SpeedTestStage.IDLE -> 0
+        SpeedTestStage.PING -> 1
+        SpeedTestStage.DOWNLOAD -> 2
+        SpeedTestStage.UPLOAD -> 3
+        SpeedTestStage.ANALYSIS, SpeedTestStage.COMPLETED -> 4
+        SpeedTestStage.CANCELLED, SpeedTestStage.ERROR -> 0
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White.copy(alpha = 0.025f),
+        border = BorderStroke(1.dp, Color(0xFF1E2333))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            phases.forEachIndexed { index, (stepNum, stepTitle) ->
+                val isCompleted = activeStep > stepNum || stage == SpeedTestStage.COMPLETED
+                val isActive = activeStep == stepNum && stage != SpeedTestStage.COMPLETED
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    when {
+                                        isCompleted -> accentColor
+                                        isActive -> accentColor.copy(alpha = 0.20f)
+                                        else -> Color(0xFF161B26)
+                                    }
+                                )
+                                .border(
+                                    1.dp,
+                                    when {
+                                        isCompleted -> accentColor
+                                        isActive -> accentColor
+                                        else -> Color(0xFF263045)
+                                    },
+                                    CircleShape
+                                )
+                        ) {
+                            if (isCompleted) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_check),
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "$stepNum",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isActive) accentColor else TextMuted
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = stepTitle,
+                            fontSize = 10.sp,
+                            fontWeight = if (isActive || isCompleted) FontWeight.Bold else FontWeight.Medium,
+                            color = when {
+                                isActive -> accentColor
+                                isCompleted -> TextWhite
+                                else -> TextMuted
+                            }
+                        )
+                    }
+
+                    if (index < phases.size - 1) {
+                        val isLineDone = activeStep > stepNum
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(2.dp)
+                                .padding(horizontal = 8.dp)
+                                .background(
+                                    if (isLineDone) accentColor.copy(alpha = 0.8f) else Color(0xFF1E2333)
+                                )
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -291,7 +622,8 @@ private fun SpeedTestHeaderCard(
                         fontSize = 13.5.sp,
                         color = TextWhite,
                         fontWeight = FontWeight.Bold,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -335,28 +667,29 @@ private fun SpeedometerGauge(
     val primaryAccent = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
     val secondaryAccent = if (isSocks5) Color(0xFF7C4DFF) else Color(0xFF00E5FF)
 
-    // Speedometer range 0 .. 120 Mbps (normalized)
-    val maxGaugeSpeed = 100.0
-    val targetFraction = (currentSpeedMbps / maxGaugeSpeed).coerceIn(0.0, 1.0).toFloat()
+    // Safe clamped speed (Guards against NaN or Infinity)
+    val safeSpeed = if (currentSpeedMbps.isFinite() && currentSpeedMbps >= 0.0) currentSpeedMbps else 0.0
+    val maxGaugeSpeed = 120.0
+    val targetFraction = (safeSpeed / maxGaugeSpeed).coerceIn(0.0, 1.0).toFloat()
 
     val animatedFraction by animateFloatAsState(
-        targetValue = targetFraction,
+        targetValue = if (targetFraction.isFinite()) targetFraction else 0f,
         animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow),
         label = "gaugeFraction"
     )
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.size(240.dp)
+            modifier = Modifier.size(230.dp)
         ) {
-            Canvas(modifier = Modifier.size(220.dp)) {
+            Canvas(modifier = Modifier.size(210.dp)) {
                 val center = Offset(size.width / 2f, size.height / 2f)
-                val radius = size.width / 2f - 18.dp.toPx()
+                val radius = size.width / 2f - 16.dp.toPx()
 
                 // Background track arc (135 deg to 405 deg = 270 deg sweep)
                 drawArc(
@@ -369,8 +702,10 @@ private fun SpeedometerGauge(
                     style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round)
                 )
 
-                // Active speed glow arc
-                val activeSweep = 270f * animatedFraction
+                // Active speed glow arc (Clamped)
+                val safeAnimFrac = if (animatedFraction.isFinite()) animatedFraction.coerceIn(0f, 1f) else 0f
+                val activeSweep = (270f * safeAnimFrac).coerceIn(0f, 270f)
+
                 if (activeSweep > 0.5f) {
                     drawArc(
                         brush = Brush.sweepGradient(
@@ -393,28 +728,28 @@ private fun SpeedometerGauge(
                 for (i in 0 until tickCount) {
                     val angleDeg = 135f + (270f * i / (tickCount - 1))
                     val angleRad = Math.toRadians(angleDeg.toDouble())
-                    val innerR = radius - 14.dp.toPx()
-                    val outerR = radius - 7.dp.toPx()
+                    val innerR = radius - 13.dp.toPx()
+                    val outerR = radius - 6.dp.toPx()
 
                     val startX = center.x + (innerR * cos(angleRad)).toFloat()
                     val startY = center.y + (innerR * sin(angleRad)).toFloat()
                     val endX = center.x + (outerR * cos(angleRad)).toFloat()
                     val endY = center.y + (outerR * sin(angleRad)).toFloat()
 
-                    val isHighlighted = (i.toFloat() / (tickCount - 1)) <= animatedFraction
+                    val isHighlighted = (i.toFloat() / (tickCount - 1)) <= safeAnimFrac
                     drawLine(
-                        color = if (isHighlighted) primaryAccent else Color(0xFF333D55),
+                        color = if (isHighlighted) primaryAccent else Color(0xFF2B3548),
                         start = Offset(startX, startY),
                         end = Offset(endX, endY),
-                        strokeWidth = if (i % 2 == 0) 2.5.dp.toPx() else 1.5.dp.toPx(),
+                        strokeWidth = if (i % 2 == 0) 2.2.dp.toPx() else 1.2.dp.toPx(),
                         cap = StrokeCap.Round
                     )
                 }
 
-                // Needle indicator
-                val needleAngle = 135f + (270f * animatedFraction)
+                // Needle indicator (Clamped)
+                val needleAngle = 135f + activeSweep
                 val needleRad = Math.toRadians(needleAngle.toDouble())
-                val needleLen = radius - 20.dp.toPx()
+                val needleLen = radius - 18.dp.toPx()
                 val needleX = center.x + (needleLen * cos(needleRad)).toFloat()
                 val needleY = center.y + (needleLen * sin(needleRad)).toFloat()
 
@@ -422,7 +757,7 @@ private fun SpeedometerGauge(
                     color = Color.White,
                     start = center,
                     end = Offset(needleX, needleY),
-                    strokeWidth = 3.dp.toPx(),
+                    strokeWidth = 2.8.dp.toPx(),
                     cap = StrokeCap.Round
                 )
 
@@ -439,15 +774,15 @@ private fun SpeedometerGauge(
                 )
             }
 
-            // Digital Central Speed Readout
+            // Central Digital Speed Readout
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.padding(top = 40.dp)
             ) {
                 Text(
-                    text = String.format(java.util.Locale.US, "%.1f", currentSpeedMbps),
-                    fontSize = 38.sp,
+                    text = String.format(Locale.US, "%.1f", safeSpeed),
+                    fontSize = 40.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = (-0.5).sp,
                     color = TextWhite
@@ -473,7 +808,7 @@ private fun SpeedometerGauge(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
-                if (stage == SpeedTestStage.PING || stage == SpeedTestStage.DOWNLOAD || stage == SpeedTestStage.UPLOAD) {
+                if (stage == SpeedTestStage.PING || stage == SpeedTestStage.DOWNLOAD || stage == SpeedTestStage.UPLOAD || stage == SpeedTestStage.ANALYSIS) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(12.dp),
                         strokeWidth = 2.dp,
@@ -509,7 +844,7 @@ private fun SpeedMetricsGrid(
             iconRes = R.drawable.ic_diag_rtt,
             title = "ПИНГ",
             value = if (state.pingMs > 0) "${state.pingMs} мс" else "—",
-            subValue = if (state.minPingMs > 0) "Мин: ${state.minPingMs} мс" else "Задержка",
+            subValue = if (state.minPingMs > 0) "Мин: ${state.minPingMs} мс" else "Задержка RTT",
             accentColor = Color(0xFF38BDF8)
         )
 
@@ -519,7 +854,7 @@ private fun SpeedMetricsGrid(
             iconRes = R.drawable.ic_diag_jitter,
             title = "ДЖИТТЕР",
             value = if (state.pingMs > 0) "±${state.jitterMs} мс" else "—",
-            subValue = if (state.jitterMs <= 15) "Стабильно" else "Вариация",
+            subValue = if (state.jitterMs <= 15) "Высокая стабильность" else "Вариация RTT",
             accentColor = Color(0xFFB388FF)
         )
     }
@@ -533,8 +868,8 @@ private fun SpeedMetricsGrid(
             modifier = Modifier.weight(1f),
             iconRes = R.drawable.ic_arrow_down,
             title = "ВХОДЯЩАЯ",
-            value = if (state.downloadSpeedMbps > 0) "${String.format(java.util.Locale.US, "%.1f", state.downloadSpeedMbps)} Мбит/с" else "—",
-            subValue = if (state.downloadedBytes > 0) "${state.downloadedBytes / (1024 * 1024)} МБ получено" else "Download",
+            value = if (state.downloadSpeedMbps > 0) "${String.format(Locale.US, "%.1f", state.downloadSpeedMbps)} Мбит/с" else "—",
+            subValue = if (state.downloadedBytes > 0) "${state.downloadedBytes / (1024 * 1024)} МБ получено" else "Канал загрузки",
             accentColor = accentColor
         )
 
@@ -543,8 +878,8 @@ private fun SpeedMetricsGrid(
             modifier = Modifier.weight(1f),
             iconRes = R.drawable.ic_arrow_up,
             title = "ИСХОДЯЩАЯ",
-            value = if (state.uploadSpeedMbps > 0) "${String.format(java.util.Locale.US, "%.1f", state.uploadSpeedMbps)} Мбит/с" else "—",
-            subValue = if (state.uploadedBytes > 0) "${state.uploadedBytes / (1024 * 1024)} МБ отправлено" else "Upload",
+            value = if (state.uploadSpeedMbps > 0) "${String.format(Locale.US, "%.1f", state.uploadSpeedMbps)} Мбит/с" else "—",
+            subValue = if (state.uploadedBytes > 0) "${state.uploadedBytes / (1024 * 1024)} МБ отправлено" else "Канал отдачи",
             accentColor = Color(0xFFFFB703)
         )
     }
@@ -566,7 +901,7 @@ private fun MetricTile(
             .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(16.dp))
             .padding(12.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -588,15 +923,17 @@ private fun MetricTile(
 
             Text(
                 text = value,
-                fontSize = 15.5.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Black,
                 color = TextWhite
             )
 
             Text(
                 text = subValue,
-                fontSize = 10.5.sp,
-                color = TextMuted
+                fontSize = 10.sp,
+                color = TextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -609,6 +946,7 @@ private fun SpeedWaveformCard(
     isSocks5: Boolean
 ) {
     val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
+    val safePoints = points.filter { it.isFinite() && it >= 0f }
 
     Box(
         modifier = Modifier
@@ -626,14 +964,15 @@ private fun SpeedWaveformCard(
             ) {
                 Text(
                     text = "ДИНАМИКА СКОРОСТИ В РЕАЛЬНОМ ВРЕМЕНИ",
-                    fontSize = 11.sp,
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.Black,
-                    letterSpacing = 1.sp,
+                    letterSpacing = 0.8.sp,
                     color = TextMuted
                 )
 
+                val safePeak = if (peakSpeed.isFinite() && peakSpeed >= 0) peakSpeed else 0.0
                 Text(
-                    text = "Пик: ${String.format(java.util.Locale.US, "%.1f", peakSpeed)} Мбит/с",
+                    text = "Пик: ${String.format(Locale.US, "%.1f", safePeak)} Мбит/с",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = accentColor
@@ -643,19 +982,19 @@ private fun SpeedWaveformCard(
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp)
+                    .height(64.dp)
             ) {
-                if (points.size < 2) return@Canvas
+                if (safePoints.size < 2) return@Canvas
 
-                val maxVal = max(10f, (points.maxOrNull() ?: 10f) * 1.15f)
-                val widthPerPoint = size.width / (points.size - 1).toFloat()
+                val maxVal = max(5f, (safePoints.maxOrNull() ?: 5f) * 1.15f)
+                val widthPerPoint = (size.width / (safePoints.size - 1).toFloat()).coerceAtLeast(0.1f)
 
                 val linePath = Path()
                 val fillPath = Path()
 
-                points.forEachIndexed { i, p ->
-                    val x = i.toFloat() * widthPerPoint
-                    val y = size.height - (p / maxVal) * size.height
+                safePoints.forEachIndexed { i, p ->
+                    val x = (i.toFloat() * widthPerPoint).coerceIn(0f, size.width)
+                    val y = (size.height - (p / maxVal) * size.height).coerceIn(0f, size.height)
 
                     if (i == 0) {
                         linePath.moveTo(x, y)
@@ -667,7 +1006,7 @@ private fun SpeedWaveformCard(
                     }
                 }
 
-                fillPath.lineTo((points.size - 1).toFloat() * widthPerPoint, size.height)
+                fillPath.lineTo(size.width, size.height)
                 fillPath.close()
 
                 drawPath(
@@ -748,8 +1087,8 @@ private fun TelegramSuitabilityCard(
             Text(
                 text = report.summary,
                 color = TextMuted,
-                fontSize = 12.5.sp,
-                lineHeight = 17.sp
+                fontSize = 12.sp,
+                lineHeight = 16.sp
             )
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF1E293B)))
@@ -757,7 +1096,7 @@ private fun TelegramSuitabilityCard(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SuitabilityRow(label = "Текстовые чаты и стикеры", verdict = report.chatsVerdict, accent = ActiveGreenLed)
                 SuitabilityRow(label = "Голосовые и видеозвонки", verdict = report.voiceVerdict, accent = Color(0xFF38BDF8))
-                SuitabilityRow(label = "Фотографии и аудио", verdict = report.mediaVerdict, accent = ActiveGreenLed)
+                SuitabilityRow(label = "Фотографии и медиа", verdict = report.mediaVerdict, accent = ActiveGreenLed)
                 SuitabilityRow(label = "Тяжелые файлы и видео", verdict = report.videoVerdict, accent = Color(0xFFFFB703))
             }
         }
@@ -777,13 +1116,51 @@ private fun SuitabilityRow(label: String, verdict: String, accent: Color) {
 }
 
 @Composable
+private fun SpeedTestErrorCard(
+    errorMessage: String
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFFEF4444).copy(alpha = 0.10f),
+        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f))
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_stat_proxy_error),
+                contentDescription = null,
+                tint = Color(0xFFEF4444),
+                modifier = Modifier.size(18.dp)
+            )
+            Column {
+                Text(
+                    text = "Сбой замера скорости",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFEF4444)
+                )
+                Text(
+                    text = errorMessage,
+                    fontSize = 11.sp,
+                    color = TextWhite.copy(alpha = 0.8f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SpeedTestActionButton(
     stage: SpeedTestStage,
     isSocks5: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit
 ) {
-    val isTesting = stage == SpeedTestStage.PING || stage == SpeedTestStage.DOWNLOAD || stage == SpeedTestStage.UPLOAD
+    val isTesting = stage == SpeedTestStage.PING || stage == SpeedTestStage.DOWNLOAD || stage == SpeedTestStage.UPLOAD || stage == SpeedTestStage.ANALYSIS
     val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
     val btnText = when (stage) {
         SpeedTestStage.IDLE -> "ЗАПУСТИТЬ ТЕСТ СКОРОСТИ"
@@ -823,3 +1200,433 @@ private fun SpeedTestActionButton(
         }
     }
 }
+
+@Composable
+private fun SpeedTestHistoryView(
+    historyRecords: List<SpeedTestRecord>,
+    isSocks5: Boolean,
+    onClearAll: () -> Unit,
+    onDeleteItem: (String) -> Unit,
+    onStartTestClick: () -> Unit
+) {
+    val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Header Row: Count and Clear Button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "ВСЕГО ЗАМЕРОВ: ${historyRecords.size}",
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = TextMuted
+            )
+
+            if (historyRecords.isNotEmpty()) {
+                Surface(
+                    onClick = onClearAll,
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFEF4444).copy(alpha = 0.12f),
+                    border = BorderStroke(0.8.dp, Color(0xFFEF4444).copy(alpha = 0.4f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_trash),
+                            contentDescription = null,
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = "Очистить",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFEF4444)
+                        )
+                    }
+                }
+            }
+        }
+
+        if (historyRecords.isEmpty()) {
+            // Empty State
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.padding(horizontal = 24.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.04f))
+                            .border(1.dp, Color(0xFF1E2333), CircleShape)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_history),
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    Text(
+                        text = "История замеров пуста",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
+                    )
+
+                    Text(
+                        text = "Запустите тестирование скорости туннеля, чтобы результаты и телеметрия сохранились здесь.",
+                        fontSize = 12.sp,
+                        color = TextMuted,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Surface(
+                        onClick = onStartTestClick,
+                        shape = RoundedCornerShape(12.dp),
+                        color = accentColor.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, accentColor)
+                    ) {
+                        Text(
+                            text = "Запустить первый тест",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                        )
+                    }
+                }
+            }
+        } else {
+            // History List
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                items(historyRecords, key = { it.id }) { record ->
+                    SpeedHistoryRecordCard(
+                        record = record,
+                        isSocks5 = isSocks5,
+                        onDelete = { onDeleteItem(record.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedHistoryRecordCard(
+    record: SpeedTestRecord,
+    isSocks5: Boolean,
+    onDelete: () -> Unit
+) {
+    val dateStr = remember(record.timestampMs) {
+        val sdf = SimpleDateFormat("dd.MM.yyyy, HH:mm", Locale.getDefault())
+        sdf.format(Date(record.timestampMs))
+    }
+
+    val isRecordSocks = record.protocol.equals("SOCKS5", ignoreCase = true)
+    val recordAccent = if (isRecordSocks) Color(0xFFB388FF) else ActiveGreenLed
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.03f))
+            .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(16.dp))
+            .padding(14.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Header: Date, Protocol Chip, POP Chip, Delete Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = dateStr,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(5.dp),
+                        color = if (isRecordSocks) Color(0xFF7C4DFF).copy(alpha = 0.20f) else ActiveGreenLed.copy(alpha = 0.15f),
+                        border = BorderStroke(0.6.dp, if (isRecordSocks) Color(0xFFB388FF).copy(alpha = 0.5f) else ActiveGreenLed.copy(alpha = 0.5f))
+                    ) {
+                        Text(
+                            text = record.protocol,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isRecordSocks) Color(0xFFC084FC) else ActiveGreenLed,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+
+                    if (record.edgeColo.isNotBlank() && record.edgeColo != "—") {
+                        Surface(
+                            shape = RoundedCornerShape(5.dp),
+                            color = Color(0xFF0F172A),
+                            border = BorderStroke(0.6.dp, Color(0xFF1E293B))
+                        ) {
+                            Text(
+                                text = record.edgeColo,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextMuted,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
+
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_trash),
+                        contentDescription = "Удалить",
+                        tint = TextMuted.copy(alpha = 0.6f),
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
+
+            // Metrics row: DL | UL | PING | JITTER
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Download
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_arrow_down),
+                            contentDescription = null,
+                            tint = recordAccent,
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Text(
+                            text = "ВХОД.",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted
+                        )
+                    }
+                    Text(
+                        text = "${String.format(Locale.US, "%.1f", record.downloadSpeedMbps)} Мбит/с",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = TextWhite
+                    )
+                }
+
+                // Upload
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_arrow_up),
+                            contentDescription = null,
+                            tint = Color(0xFFFFB703),
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Text(
+                            text = "ИСХОД.",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted
+                        )
+                    }
+                    Text(
+                        text = "${String.format(Locale.US, "%.1f", record.uploadSpeedMbps)} Мбит/с",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = TextWhite
+                    )
+                }
+
+                // Ping / Jitter
+                Column {
+                    Text(
+                        text = "RTT / ДЖИТТЕР",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextMuted
+                    )
+                    Text(
+                        text = "${record.pingMs} мс (±${record.jitterMs})",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF38BDF8)
+                    )
+                }
+
+                // Grade Pill
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = recordAccent.copy(alpha = 0.12f),
+                    border = BorderStroke(0.8.dp, recordAccent.copy(alpha = 0.4f))
+                ) {
+                    Text(
+                        text = record.qualityGrade,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = recordAccent,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClearSpeedHistoryDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.70f))
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier
+                    .adaptiveContainerWidth(420.dp)
+                    .padding(24.dp)
+                    .clickable(enabled = false) {},
+                shape = RoundedCornerShape(22.dp),
+                color = Color(0xFF0F172A),
+                border = BorderStroke(1.dp, Color(0xFF1E293B))
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFEF4444).copy(alpha = 0.15f))
+                                .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_trash),
+                                contentDescription = null,
+                                tint = Color(0xFFEF4444),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Text(
+                            text = "Очистить историю замеров?",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                    }
+
+                    Text(
+                        text = "Все сохраненные результаты тестов скорости сетевого туннеля будут безвозвратно удалены.",
+                        fontSize = 12.5.sp,
+                        color = TextMuted,
+                        lineHeight = 17.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.White.copy(alpha = 0.05f),
+                            border = BorderStroke(1.dp, Color(0xFF1E293B))
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "Отмена",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = TextWhite
+                                )
+                            }
+                        }
+
+                        Surface(
+                            onClick = onConfirm,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFEF4444).copy(alpha = 0.20f),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444))
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "Удалить всё",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFEF4444)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

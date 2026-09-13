@@ -53,8 +53,7 @@ impl Balancer {
         }
         // Sort by lowest latency ms
         ranked.sort_by_key(|(_, latency)| *latency);
-        let ranked_map: HashMap<&str, u64> =
-            ranked.iter().map(|(d, l)| (d.as_str(), *l)).collect();
+        let ranked_map: HashMap<&str, u64> = ranked.iter().map(|(d, l)| (d.as_str(), *l)).collect();
         let (best_domain, best_latency) = &ranked[0];
 
         // Stability-First Selection for THIS specific DC:
@@ -99,7 +98,10 @@ impl Balancer {
     }
 
     pub fn get_active_domain_for_dc(&self, dc_id: i32) -> Option<String> {
-        self.dc_to_domain.get(&dc_id).filter(|s| !s.is_empty()).cloned()
+        self.dc_to_domain
+            .get(&dc_id)
+            .filter(|s| !s.is_empty())
+            .cloned()
     }
 
     pub fn get_fastest_domain_for_dc(&self, dc_id: i32) -> Option<String> {
@@ -124,11 +126,13 @@ impl Balancer {
         let mut result = Vec::new();
         let mut seen = std::collections::HashSet::new();
 
-        // 1. Current active/confirmed domain for this DC (if any)
-        if let Some(d) = self.dc_to_domain.get(&dc_id) {
-            if !d.is_empty() {
-                result.push(d.clone());
-                seen.insert(d.clone());
+        // 1. Current active/confirmed domain for this DC (if probed)
+        if self.dc_rankings.contains_key(&dc_id) {
+            if let Some(d) = self.dc_to_domain.get(&dc_id) {
+                if !d.is_empty() {
+                    result.push(d.clone());
+                    seen.insert(d.clone());
+                }
             }
         }
 
@@ -142,11 +146,23 @@ impl Balancer {
             }
         } else if let Some(dc2_ranked) = self.dc_rankings.get(&2) {
             // 2b. Fallback to DC2 general ranking if this DC has not been probed yet
+            if let Some(d2) = self.dc_to_domain.get(&2) {
+                if !d2.is_empty() && !seen.contains(d2) {
+                    result.push(d2.clone());
+                    seen.insert(d2.clone());
+                }
+            }
             for (d, _) in dc2_ranked {
                 if !seen.contains(d) {
                     result.push(d.clone());
                     seen.insert(d.clone());
                 }
+            }
+        } else if let Some(d) = self.dc_to_domain.get(&dc_id) {
+            // No rankings at all yet, use initial random assignment
+            if !d.is_empty() && !seen.contains(d) {
+                result.push(d.clone());
+                seen.insert(d.clone());
             }
         }
 
@@ -210,26 +226,38 @@ mod tests {
         b.update_domains_list(&domains);
 
         // Rank DC2: worker1 is fastest (50ms vs 120ms, > 60ms hysteresis)
-        b.update_ranked_domains_for_dc(2, vec![
-            ("worker2.dev".to_string(), 120),
-            ("worker1.dev".to_string(), 50),
-            ("worker3.dev".to_string(), 250),
-        ]);
+        b.update_ranked_domains_for_dc(
+            2,
+            vec![
+                ("worker2.dev".to_string(), 120),
+                ("worker1.dev".to_string(), 50),
+                ("worker3.dev".to_string(), 250),
+            ],
+        );
 
-        // Rank DC4 (Media): worker3 is fastest (45ms)
-        b.update_ranked_domains_for_dc(4, vec![
-            ("worker3.dev".to_string(), 45),
-            ("worker2.dev".to_string(), 95),
-            ("worker1.dev".to_string(), 180),
-        ]);
+        // Rank DC4 (Media): worker3 is fastest (25ms, beats hysteresis threshold)
+        b.update_ranked_domains_for_dc(
+            4,
+            vec![
+                ("worker3.dev".to_string(), 25),
+                ("worker2.dev".to_string(), 95),
+                ("worker1.dev".to_string(), 180),
+            ],
+        );
 
         // Fastest for DC2 should be worker1
-        assert_eq!(b.get_fastest_domain_for_dc(2).as_deref(), Some("worker1.dev"));
+        assert_eq!(
+            b.get_fastest_domain_for_dc(2).as_deref(),
+            Some("worker1.dev")
+        );
         let dc2_domains = b.get_domains_for_dc(2);
         assert_eq!(dc2_domains.first().map(|s| s.as_str()), Some("worker1.dev"));
 
         // Fastest for DC4 should be worker3
-        assert_eq!(b.get_fastest_domain_for_dc(4).as_deref(), Some("worker3.dev"));
+        assert_eq!(
+            b.get_fastest_domain_for_dc(4).as_deref(),
+            Some("worker3.dev")
+        );
         let dc4_domains = b.get_domains_for_dc(4);
         assert_eq!(dc4_domains.first().map(|s| s.as_str()), Some("worker3.dev"));
 
@@ -258,32 +286,50 @@ mod tests {
         b.update_domain_for_dc(2, "workerA.dev");
 
         // Race where workerB is slightly faster (100ms vs 130ms, diff 30ms <= 60ms hysteresis)
-        b.update_ranked_domains_for_dc(2, vec![
-            ("workerB.dev".to_string(), 100),
-            ("workerA.dev".to_string(), 130),
-            ("workerC.dev".to_string(), 300),
-        ]);
+        b.update_ranked_domains_for_dc(
+            2,
+            vec![
+                ("workerB.dev".to_string(), 100),
+                ("workerA.dev".to_string(), 130),
+                ("workerC.dev".to_string(), 300),
+            ],
+        );
 
         // DC 2 should PRESERVE workerA.dev for connection stability
-        assert_eq!(b.get_active_domain_for_dc(2).as_deref(), Some("workerA.dev"));
+        assert_eq!(
+            b.get_active_domain_for_dc(2).as_deref(),
+            Some("workerA.dev")
+        );
         assert_eq!(b.get_domains_for_dc(2)[0], "workerA.dev");
         assert_eq!(b.get_domains_for_dc(2)[1], "workerB.dev");
 
         // Now workerB is dramatically faster on DC 2 (80ms vs 200ms, diff 120ms > 60ms hysteresis)
-        b.update_ranked_domains_for_dc(2, vec![
-            ("workerB.dev".to_string(), 80),
-            ("workerA.dev".to_string(), 200),
-            ("workerC.dev".to_string(), 300),
-        ]);
+        b.update_ranked_domains_for_dc(
+            2,
+            vec![
+                ("workerB.dev".to_string(), 80),
+                ("workerA.dev".to_string(), 200),
+                ("workerC.dev".to_string(), 300),
+            ],
+        );
 
         // DC 2 should switch to workerB.dev
-        assert_eq!(b.get_active_domain_for_dc(2).as_deref(), Some("workerB.dev"));
+        assert_eq!(
+            b.get_active_domain_for_dc(2).as_deref(),
+            Some("workerB.dev")
+        );
 
         // If workerB fails on DC 2 (absent in ranked results), should switch immediately to next best
-        b.update_ranked_domains_for_dc(2, vec![
-            ("workerA.dev".to_string(), 120),
-            ("workerC.dev".to_string(), 250),
-        ]);
-        assert_eq!(b.get_active_domain_for_dc(2).as_deref(), Some("workerA.dev"));
+        b.update_ranked_domains_for_dc(
+            2,
+            vec![
+                ("workerA.dev".to_string(), 120),
+                ("workerC.dev".to_string(), 250),
+            ],
+        );
+        assert_eq!(
+            b.get_active_domain_for_dc(2).as_deref(),
+            Some("workerA.dev")
+        );
     }
 }

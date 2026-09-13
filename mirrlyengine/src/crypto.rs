@@ -32,7 +32,8 @@ impl TrackedStream {
     }
 
     pub fn clone_state(&self) -> TrackedStream {
-        let mut clone_stream = Aes256Ctr::new(self.key.as_slice().into(), self.iv.as_slice().into());
+        let mut clone_stream =
+            Aes256Ctr::new(self.key.as_slice().into(), self.iv.as_slice().into());
         let mut dummy = [0u8; 16384];
         let mut rem = self.processed;
         while rem > 0 {

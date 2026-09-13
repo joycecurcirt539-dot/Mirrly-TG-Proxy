@@ -112,6 +112,18 @@ class ProxyStats {
     @Volatile
     var dcAffinitySummary: String = "Доминантный DC: DC 2 | Активных DC: 2 | Пул: 4"
 
+    @Volatile
+    var activeCascadeStage: String = "Scanned WARP (Frag)"
+
+    @Volatile
+    var activeCascadeStageCode: Int = 0
+
+    @Volatile
+    var lastActiveProbeRttMs: Long = -1L
+
+    @Volatile
+    var isProbeAlive: Boolean = true
+
     fun resetBaseline() {
         val ext = externalByteProvider?.invoke()
         if (ext != null && ext.first > 0) {
