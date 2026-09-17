@@ -1105,10 +1105,6 @@ impl AwgParams {
             true
         };
 
-        if self.i1.is_some() {
-            warnings.push("I1 parameter provided: custom initial packet camouflage is parsed and supported in subset".to_string());
-        }
-
         Ok(AwgValidationReport {
             protocol_version: Self::SUPPORTED_VERSION,
             classification,
@@ -1121,21 +1117,23 @@ impl AwgParams {
 pub const CLOUDFLARE_WARP_PEER_PUBKEY_B64: &str = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=";
 
 pub const CLOUDFLARE_WARP_ANYCAST_POOL: &[&str] = &[
-    "162.159.193.10:1701",
-    "162.159.192.1:1701",
-    "162.159.195.5:1701",
-    "188.114.97.1:1701",
-    "188.114.98.2:1701",
-    "188.114.99.3:1701",
-    "162.159.193.10:4500",
-    "162.159.192.1:4500",
-    "188.114.96.1:4500",
-    "188.114.97.1:4500",
-    "162.159.193.10:854",
-    "162.159.192.1:854",
     "188.114.96.1:8095",
     "188.114.97.1:8095",
+    "188.114.98.2:1701",
+    "188.114.99.3:1701",
+    "188.114.96.1:854",
+    "188.114.97.1:854",
+    "188.114.96.1:4500",
+    "188.114.97.1:4500",
+    "188.114.97.1:1701",
     "188.114.96.1:500",
+    "162.159.195.5:1701",
+    "162.159.193.10:1701",
+    "162.159.192.1:1701",
+    "162.159.193.10:4500",
+    "162.159.192.1:4500",
+    "162.159.193.10:854",
+    "162.159.192.1:854",
 ];
 
 pub fn is_cloudflare_warp_peer(peer_pub: &[u8; 32]) -> bool {
@@ -1532,17 +1530,6 @@ impl AwgConfig {
                             return Err(format!("line {}: invalid H4 value 0: message type header cannot be zero", line_num));
                         }
                         awg_params.h4 = h;
-                    }
-                    "i1" => {
-                        let clean_hex = val
-                            .trim_start_matches("0x")
-                            .trim_start_matches("<b 0x")
-                            .trim_end_matches('>')
-                            .trim();
-                        let bytes = hex::decode(clean_hex).map_err(|e| {
-                            format!("line {}: invalid I1 hex format '{}': {}", line_num, val, e)
-                        })?;
-                        awg_params.i1 = Some(bytes);
                     }
                     _ => {
                         return Err(format!(
@@ -3635,21 +3622,18 @@ impl AwgPeerSession {
             ));
         }
 
-        let endpoint_addr: SocketAddr = match tokio::net::lookup_host(&config.endpoint).await {
-            Ok(mut iter) => match iter.next() {
-                Some(a) => a,
-                None => {
-                    return Err(format!(
-                        "[profile='{}', stage='dns_lookup', endpoint='{}'] failed to resolve AWG endpoint to socket address",
-                        profile, endpoint
-                    ))
-                }
-            },
+        let endpoint_addr: SocketAddr = match crate::dns::resolve_target_endpoint(
+            &config.endpoint,
+            crate::dns::DnsScope::Bootstrap,
+        )
+        .await
+        {
+            Ok((ip, port)) => SocketAddr::new(ip, port),
             Err(e) => {
                 return Err(format!(
                     "[profile='{}', stage='dns_lookup', endpoint='{}'] DNS lookup failed: {}",
                     profile, endpoint, e
-                ))
+                ));
             }
         };
 
@@ -3684,20 +3668,7 @@ impl AwgPeerSession {
             endpoint_addr
         );
 
-        // 1. Obfuscation Preamble:
-        //    a) Custom I1 packet (QUIC Initial camouflage if present)
-        if let Some(ref i1_bytes) = config.awg_params.i1 {
-            ldebug!(
-                "[profile='{}', stage='send_camouflage', endpoint='{}'] sending I1 camouflage packet ({} bytes)",
-                profile,
-                endpoint,
-                i1_bytes.len()
-            );
-            let _ = socket.send(i1_bytes).await;
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-
-        //    b) Jc junk packets with random lengths in [Jmin, Jmax]
+        // 1. Obfuscation Preamble: Jc junk packets with random lengths in [Jmin, Jmax]
         if config.awg_params.jc > 0 {
             ldebug!(
                 "[profile='{}', stage='send_junk', endpoint='{}'] sending {} junk packets (length {}..={}) to disrupt TSPU DPI signatures",
@@ -3718,7 +3689,7 @@ impl AwgPeerSession {
                 let mut junk = vec![0u8; len];
                 rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut junk);
                 let _ = socket.send(&junk).await;
-                tokio::time::sleep(Duration::from_millis(2)).await;
+                tokio::time::sleep(Duration::from_millis(1)).await;
             }
         }
 
@@ -3753,7 +3724,7 @@ impl AwgPeerSession {
         let handshake_start = tokio::time::Instant::now();
         let total_budget = Duration::from_millis(timeout_ms);
         let deadline = handshake_start + total_budget;
-        let mut retransmit_delay = Duration::from_millis(500);
+        let mut retransmit_delay = Duration::from_millis(250);
         let mut next_retransmit = handshake_start + retransmit_delay;
         let mut attempts = 1u32;
         let max_attempts = 4u32;
@@ -4161,7 +4132,7 @@ async fn flush_smoltcp_tx(
 impl AwgTunnel {
     pub async fn run_smoltcp_bridge(
         &self,
-        client: tokio::net::TcpStream,
+        mut client: tokio::net::TcpStream,
         cancel_token: CancellationToken,
     ) -> Result<(), std::io::Error> {
         let (target_ip, target_port) =
@@ -4173,6 +4144,8 @@ impl AwgTunnel {
                         self.target_addr,
                         e
                     );
+                    let _ = client.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Target endpoint unresolvable"));
                     return Err(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, e));
                 }
             };
@@ -4189,6 +4162,8 @@ impl AwgTunnel {
                     target_v6,
                     target_port
                 );
+                let _ = client.write_all(&[0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("No client IPv6 configured"));
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::AddrNotAvailable,
                     format!("IPv6 target '{}' is unsupported: no client IPv6 configured", self.target_addr),
@@ -4262,6 +4237,8 @@ impl AwgTunnel {
 
         if let Err(e) = socket.connect(iface.context(), remote_ep, local_ep) {
             lerror!("AWG: smoltcp socket connect error: {:?}", e);
+            let _ = client.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+            crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("smoltcp socket connect error"));
             return Err(std::io::Error::new(
                 std::io::ErrorKind::ConnectionRefused,
                 format!("{:?}", e),
@@ -4276,6 +4253,9 @@ impl AwgTunnel {
         flush_smoltcp_tx(&mut dev, &self.peer).await;
 
         let (mut c_read, mut c_write) = client.into_split();
+        let mut client_eof = false;
+        let mut upload_fin_sent = false;
+        let mut client_fin_sent = false;
         let mut pending_client_data: Vec<u8> = Vec::with_capacity(32 * 1024);
         let mut read_temp_buf = [0u8; 16 * 1024];
         let mut recv_temp_buf = [0u8; 16 * 1024];
@@ -4286,6 +4266,10 @@ impl AwgTunnel {
 
         loop {
             if cancel_token.is_cancelled() || self.peer.cancel_token.is_cancelled() {
+                if !handshake_logged {
+                    let _ = c_write.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Cancelled during connect"));
+                }
                 let socket = sockets.get_mut::<TcpSocket>(sock_handle);
                 socket.abort();
                 iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
@@ -4310,6 +4294,11 @@ impl AwgTunnel {
                 }
             }
 
+            if client_eof && pending_client_data.is_empty() && !upload_fin_sent {
+                sockets.get_mut::<TcpSocket>(sock_handle).close();
+                upload_fin_sent = true;
+                needs_poll = true;
+            }
             // 2. Drain smoltcp socket to Telegram client c_write
             loop {
                 let socket = sockets.get_mut::<TcpSocket>(sock_handle);
@@ -4319,10 +4308,18 @@ impl AwgTunnel {
                 match socket.recv_slice(&mut recv_temp_buf) {
                     Ok(n) if n > 0 => {
                         STATS.bytes_down.fetch_add(n as i64, Ordering::Relaxed);
-                        if let Err(e) = c_write.write_all(&recv_temp_buf[..n]).await {
+                        if let Err(e) = crate::socks5::bounded_write(
+                            &mut c_write,
+                            &recv_temp_buf[..n],
+                            &cancel_token,
+                            crate::config::BRIDGE_WRITE_TIMEOUT,
+                        )
+                        .await
+                        {
                             ldebug!("AWG: client write error: {}", e);
                             let socket = sockets.get_mut::<TcpSocket>(sock_handle);
                             socket.abort();
+                            crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Client stream write error"));
                             return Err(e);
                         }
                         needs_poll = true;
@@ -4331,22 +4328,59 @@ impl AwgTunnel {
                 }
             }
 
+            // Remote FIN is directional: deliver queued bytes before local FIN,
+            // and retain the smoltcp send side for any remaining client upload.
+            if handshake_logged && !client_fin_sent && !sockets.get_mut::<TcpSocket>(sock_handle).may_recv() {
+                crate::socks5::bounded_shutdown(&mut c_write, &cancel_token,
+                    crate::config::BRIDGE_WRITE_TIMEOUT).await?;
+                client_fin_sent = true;
+            }
             // 3. Check socket connection state
             {
                 let socket = sockets.get_mut::<TcpSocket>(sock_handle);
                 let state = socket.state();
 
                 if state == TcpState::Established && !handshake_logged {
-                    handshake_logged = true;
                     ldebug!(
                         "AWG smoltcp: TCP connection established to {} (local port {})",
                         self.target_addr,
                         local_port
                     );
+                    if let Err(e) = crate::socks5::bounded_write(
+                        &mut c_write,
+                        &[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0],
+                        &cancel_token,
+                        crate::config::BRIDGE_WRITE_TIMEOUT,
+                    )
+                    .await
+                    {
+                        ldebug!("AWG: failed to send SOCKS5 success: {}", e);
+                        let socket = sockets.get_mut::<TcpSocket>(sock_handle);
+                        socket.abort();
+                        crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Client disconnected before SOCKS REP"));
+                        return Err(e);
+                    }
+                    handshake_logged = true;
+                    STATS.connections_awg.fetch_add(1, Ordering::Relaxed);
+                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(true, None);
                 }
 
-                if state == TcpState::Closed || state == TcpState::TimeWait {
+                if state == TcpState::Closed {
+                    if !handshake_logged {
+                        lwarn!("AWG smoltcp: target connection refused (TCP RST) for {}", self.target_addr);
+                        let _ = c_write.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                        crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Connection refused (TCP RST)"));
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::ConnectionRefused,
+                            "smoltcp target connection refused (RST)",
+                        ));
+                    }
                     ldebug!("AWG smoltcp: TCP socket closed gracefully (port {})", local_port);
+                    break;
+                }
+
+                if state == TcpState::TimeWait {
+                    ldebug!("AWG smoltcp: TCP socket TimeWait (port {})", local_port);
                     break;
                 }
 
@@ -4359,6 +4393,8 @@ impl AwgTunnel {
                         self.target_addr,
                         local_port
                     );
+                    let _ = c_write.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("TCP connect timeout to destination"));
                     socket.abort();
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
@@ -4378,7 +4414,7 @@ impl AwgTunnel {
                 s.can_send()
             };
 
-            let can_read_client = socket_can_send && pending_client_data.len() < 32 * 1024;
+            let can_read_client = !client_eof && handshake_logged && socket_can_send && pending_client_data.len() < 32 * 1024;
             let poll_delay = iface.poll_delay(SmolInstant::now(), &sockets);
             let sleep_dur = match poll_delay {
                 Some(d) => Duration::from_micros(d.total_micros())
@@ -4388,11 +4424,19 @@ impl AwgTunnel {
 
             tokio::select! {
                 _ = cancel_token.cancelled() => {
+                    if !handshake_logged {
+                        let _ = c_write.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                        crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Cancelled during connect"));
+                    }
                     let socket = sockets.get_mut::<TcpSocket>(sock_handle);
                     socket.abort();
                     break;
                 }
                 _ = self.peer.cancel_token.cancelled() => {
+                    if !handshake_logged {
+                        let _ = c_write.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                        crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Cancelled during connect"));
+                    }
                     let socket = sockets.get_mut::<TcpSocket>(sock_handle);
                     socket.abort();
                     break;
@@ -4401,12 +4445,7 @@ impl AwgTunnel {
                 // Read from local Telegram SOCKS5 client
                 read_res = c_read.read(&mut read_temp_buf), if can_read_client => {
                     match read_res {
-                        Ok(0) => {
-                            let s = sockets.get_mut::<TcpSocket>(sock_handle);
-                            s.close();
-                            iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
-                            flush_smoltcp_tx(&mut dev, &self.peer).await;
-                        }
+                        Ok(0) => { client_eof = true; }
                         Ok(n) => {
                             pending_client_data.extend_from_slice(&read_temp_buf[..n]);
                             let s = sockets.get_mut::<TcpSocket>(sock_handle);
@@ -4453,6 +4492,7 @@ impl AwgTunnel {
         }
 
         self.peer.unregister_flow(local_port);
+        let _ = crate::socks5::bounded_shutdown(&mut c_write, &cancel_token, Duration::from_secs(2)).await;
         Ok(())
     }
 }
@@ -4682,8 +4722,14 @@ pub async fn awg_acquire_tunnel(
         }
     }
 
-    // 3. Single-flight dial coordination
-    let _dial_guard = AWG_DIAL_MUTEX.lock().await;
+    // 3. Single-flight dial coordination (with timeout to prevent dial storms/deadlocks)
+    let _dial_guard = match tokio::time::timeout(Duration::from_millis(2500), AWG_DIAL_MUTEX.lock()).await {
+        Ok(guard) => guard,
+        Err(_) => {
+            ldebug!("awg_acquire_tunnel: timed out waiting for AWG_DIAL_MUTEX");
+            return None;
+        }
+    };
 
     // Double-check active peer under the lock: a concurrent dialer may have established it
     {
@@ -4712,7 +4758,7 @@ pub async fn awg_acquire_tunnel(
         }
     }
 
-    let overall_deadline = tokio::time::Instant::now() + Duration::from_millis(6000);
+    let overall_deadline = tokio::time::Instant::now() + Duration::from_millis(10000);
     let (profile_name, configured_ep, fallback_endpoints, is_warp) = {
         let cfg = AWG_CONFIG.read();
         (
@@ -4723,9 +4769,9 @@ pub async fn awg_acquire_tunnel(
         )
     };
 
-    // 4. Try primary endpoint first with jitter
-    let primary_jitter_ms = rand::random::<u64>() % 250;
-    let primary_timeout = 2200 + primary_jitter_ms;
+    // 4. Try primary endpoint first with small jitter
+    let primary_jitter_ms = rand::random::<u64>() % 100;
+    let primary_timeout = 2500 + primary_jitter_ms;
     ldebug!(
         "[profile='{}', stage='primary_dial', endpoint='{}'] single-flight dial to primary endpoint (timeout {}ms)",
         profile_name, configured_ep, primary_timeout
@@ -4765,7 +4811,7 @@ pub async fn awg_acquire_tunnel(
     }
 
     lwarn!(
-        "[profile='{}', stage='probing_fallbacks', endpoint='{}'] primary endpoint failed; probing {} fallback candidates (overall deadline 6s)...",
+        "[profile='{}', stage='probing_fallbacks', endpoint='{}'] primary endpoint failed; probing {} fallback candidates (overall deadline 7s)...",
         profile_name, configured_ep, fallback_endpoints.len()
     );
 
@@ -4792,8 +4838,8 @@ pub async fn awg_acquire_tunnel(
         }
 
         let time_left = overall_deadline.saturating_duration_since(tokio::time::Instant::now());
-        let candidate_jitter_ms = rand::random::<u64>() % 200;
-        let candidate_timeout = (1500 + candidate_jitter_ms).min(time_left.as_millis() as u64).max(500);
+        let candidate_jitter_ms = rand::random::<u64>() % 150;
+        let candidate_timeout = (2000 + candidate_jitter_ms).min(time_left.as_millis() as u64).max(500);
 
         ldebug!(
             "[profile='{}', stage='probe_candidate', endpoint='{}'] probing failover candidate (timeout {}ms)",
