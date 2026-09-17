@@ -120,60 +120,40 @@
 
 ## 2. Технический принцип работы
 
-Приложение запускает на устройстве локальный шлюз маршрутизации на базе нативного движка **mirrlyengine** (Rust/Tokio):
+Приложение запускает на устройстве два независимых локальных шлюза на базе нативного движка **mirrlyengine** (Rust/Tokio):
 
-1. Клиент Telegram подключается к локальному сокету `127.0.0.1` на порт `1443` (MTProto) или `10808` (SOCKS5).
-2. Ядро `mirrlyengine` перехватывает TCP-поток, выполняет проверку авторизации (при включенном SOCKS5 RFC 1929) или разбор протокола MTProto FakeTLS.
-3. Диспетчер маршрутизации (`RouteSupervisor`) направляет поток в выбранный восходящий канал (Uplink).
-4. Трафик передается в зашифрованном виде через серверы Cloudflare Edge (WSS TLS 1.3 / HTTP/3 QUIC / WireGuard UDP) без прямых незашифрованных обращений к серверам Telegram.
-5. Сервер Cloudflare Edge (или персональный Worker через API `cloudflare:sockets`) открывает TCP-соединение с целевым дата-центром Telegram (DC1–DC5) или узлом голосовой связи VoIP.
+### Пайплайн 1: MTProto Gateway (`127.0.0.1:1443`) — Прямое Anycast CDN туннелирование
+1. Клиент Telegram подключается к локальному адресу `127.0.0.1:1443` по протоколу MTProto FakeTLS (с секретным ключом `ee` / `dd`).
+2. Нативное ядро `mirrlyengine` выполняет разбор FakeTLS, извлекает целевой дата-центр Telegram (DC1–DC5) и тип трафика (сообщения или медиа).
+3. Модуль пула соединений `WsPool` берёт готовое или открывает новое постоянное WebSocket-соединение с официальными шлюзами Telegram Web (`kws1..kws5.web.telegram.org:443/apiws`) через Anycast CDN.
+4. Выбор пограничного сервера Cloudflare CDN осуществляется через DoH-резолвер (`dns.rs`), алгоритм Happy Eyeballs (RFC 8305) и балансировщик задержек (`balancer.rs`).
+5. **Расход квоты воркеров равен нулю**: MTProto взаимодействует напрямую с Anycast CDN Telegram Web и не расходует суточные лимиты Cloudflare Workers.
 
-```
-+-----------------------------------------------------------------------------------------+
-| Android-устройство (Локальный контур)                                                   |
-|                                                                                         |
-|  [Клиенты Telegram] ----(127.0.0.1:1443 MTProto / 127.0.0.1:10808 SOCKS5)---+          |
-|                                                                             |           |
-|  [mirrlyengine (Rust Core)] <-----------------------------------------------+           |
-|    |-- Tokio Runtime / epoll (Zero-Copy)                                                |
-|    |-- Discrete FSM (NORMAL, DEGRADED, RECOVERING) & Network Generation Guard           |
-|    |-- DoH Race Resolver (Cloudflare / Google / Quad9)                                  |
-|    |-- Bounded Flow Control (4 MB Buffer, Backpressure)                                 |
-|    +-- RouteSupervisor (Диспетчер аплинков)                                            |
-+------------------------------------------|----------------------------------------------+
-                                           |
-    +--------------------------------------+--------------------------------------+
-    | WSS (TLS 1.3:443)   | WSS / Reality        | HTTP/3 (QUIC:443)   | WireGuard (UDP)  |
-    v                     v                      v                     v                  |
-+--------------------+ +--------------------+ +--------------------+ +--------------------+
-| Cloudflare Worker  | | VLESS over WS      | | WARP MASQUE        | | WARP AmneziaWG     |
-| (Личный узел /     | | (CDN Fallback Pool | | (Anycast           | | (Обфускация I1,    |
-| пул разработчика)  | | & Reality)         | | CONNECT-UDP)       | | Jc, H1..H4)        |
-+--------------------+ +--------------------+ +--------------------+ +--------------------+
-    |                     |                      |                     |                  |
-    +---------------------+----------------------+---------------------+------------------+
-                                           |
-                                           v
-+-----------------------------------------------------------------------------------------+
-| Инфраструктура дата-центров Telegram                                                    |
-|                                                                                         |
-|  [Telegram DCs: DC1 - DC5 (Текстовые чаты, каналы, медиа)]   [Telegram VoIP (Звонки)]  |
-+-----------------------------------------------------------------------------------------+
-```
+### Пайплайн 2: SOCKS5 Gateway (`127.0.0.1:10808`) — Мульти-аплинк супервизор (RouteSupervisor)
+1. Клиент Telegram подключается к локальному адресу `127.0.0.1:10808` по протоколу SOCKS5 с обязательной аутентификацией RFC 1929 (логин и пароль).
+2. Обрабатываются команды:
+   * `CONNECT (0x01)`: проксирование TCP-потоков чатов, каналов, ботов и загрузки медиафайлов;
+   * `UDP ASSOCIATE (0x03)`: туннелирование UDP-дейтаграмм для голосовых и видеозвонков Telegram VoIP.
+3. Диспетчер маршрутизации `RouteSupervisor` направляет поток в выбранный восходящий транспорт (Uplink):
+   * **`WORKER`**: туннелирование через WebSocket TLS 1.3 на персональный Cloudflare Worker (или пул разработчика), который открывает прямое TCP-соединение с целевым DC через API `cloudflare:sockets`;
+   * **`VLESS`**: передача данных по протоколу VLESS over WebSocket (TLS 1.3 :443) или Reality напрямую на личный VPS или CDN;
+   * **`MASQUE`** *(в тестировании)*: Anycast туннелирование через HTTP/3 QUIC (`CONNECT-UDP`) с встроенным стеком TCP/IP `smoltcp` в сеть Cloudflare WARP;
+   * **`AWG`** *(в тестировании)*: обфусцированный WireGuard Anycast с защитой от сигнатурного анализа DPI (`I1`, `Jc`, `H1..H4`) и стеком `smoltcp`;
+   * **`WARP_CASCADE` / `HYBRID`**: интеллектуальное переключение между протоколами при деградации радиоканала или блокировках.
 
 ---
 
-## 3. Режимы восходящего канала (Uplink Modes)
+## 3. Режимы восходящего канала (Uplink Modes для SOCKS5)
 
-Маршрутизатор `RouteSupervisor` ядра `mirrlyengine` поддерживает следующие транспорты:
+В режиме SOCKS5 маршрутизатор `RouteSupervisor` ядра `mirrlyengine` поддерживает следующие транспорты (в режиме MTProto используется специализированный Anycast CDN пул `WsPool`):
 
 | Режим (`UplinkMode`) | Статус | Протокол и порт | Описание и назначение |
 | :--- | :--- | :--- | :--- |
-| **`WORKER`** | **Стабильно** | WebSocket TLS 1.3 (`:443`) | Основной режим. Трафик идет через персональный Cloudflare Worker или встроенный пул воркеров по протоколу WebSocket. Защищен правилами Anti-Open-Relay. |
-| **`VLESS`** | **Стабильно** | VLESS WSS TLS 1.3 (`:443`) | Протокол VLESS с маскировкой под стандартный HTTPS-трафик на порт 443. Поддерживает пулы доменов CDN и технологию Reality. |
+| **`WORKER`** | **Стабильно** | WebSocket TLS 1.3 (`:443`) | Трафик инкапсулируется в WebSocket к Cloudflare Worker, где через `cloudflare:sockets` открывается TCP-сокет к дата-центрам или VoIP-узлам Telegram. Защищен правилами Anti-Open-Relay. |
+| **`VLESS`** | **Стабильно** | VLESS WSS TLS 1.3 (`:443`) | Протокол VLESS с маскировкой под стандартный HTTPS-трафик на порт 443. Поддерживает пулы доменов CDN, кастомные VPS и технологию Reality. |
 | **`HYBRID`** | **Стабильно** | WSS + Резерв | Основным каналом выступает Cloudflare Worker WSS. При возникновении ошибок или исчерпании суточного лимита (HTTP 429) соединение прозрачно переключается на резервный канал. |
-| **`MASQUE`** | **Тестирование** | HTTP/3 QUIC (`:443`) | Прямое Anycast туннелирование через архитектуру Cloudflare WARP MASQUE (`CONNECT-UDP`). Зависит от доступности UDP у провайдера. |
-| **`AWG`** | **Тестирование** | WireGuard UDP | Обфусцированный WireGuard Anycast с защитой от сигнатурного анализа DPI (`H1..H4`, `Jc`, `I1`). Доступна загрузка кастомных конфигураций INI для собственных серверов. |
+| **`MASQUE`** | **Тестирование** | HTTP/3 QUIC (`:443`) | Прямое Anycast туннелирование через архитектуру Cloudflare WARP MASQUE (`CONNECT-UDP`) с юзерспейс-стеком `smoltcp`. Зависит от доступности UDP у оператора связи. |
+| **`AWG`** | **Тестирование** | WireGuard UDP | Обфусцированный WireGuard Anycast с защитой от сигнатурного анализа DPI (`H1..H4`, `Jc`, `I1`) и стеком `smoltcp`. Доступна загрузка кастомных конфигураций INI для собственных серверов. |
 | **`WARP_CASCADE`** | **Тестирование** | MASQUE + AWG + WSS | Интеллектуальный каскадный режим: приоритетный запуск MASQUE с автоматическим переходом на AWG при блокировке UDP и аварийным возвратом на Worker WSS. |
 
 ---
@@ -237,64 +217,75 @@
 
 ```mermaid
 flowchart TD
-    subgraph ClientLayer ["1. Клиенты Telegram на устройстве"]
-        TGApp["Клиенты Telegram<br/>(Official / Telegram X / AyuGram / NekoGram / Plus)"]
+    subgraph ClientLayer ["1. Клиенты Telegram на устройстве (Android)"]
+        TG_MTProto["Клиент Telegram (MTProto)<br/>Порт 1443 (FakeTLS ee/dd)"]
+        TG_SOCKS5["Клиент Telegram (SOCKS5)<br/>Порт 10808 (TCP / UDP VoIP)"]
+    end
 
-        subgraph LocalGateways ["Локальные сетевые шлюзы (127.0.0.1)"]
-            MtprotoGate["MTProto Gateway (Порт 1443)<br/>FakeTLS ee/dd маскировка"]
-            SocksGate["SOCKS5 Gateway (Порт 10808)<br/>TCP Relay & RFC 1929 Auth"]
+    subgraph NativeCore ["2. Нативное ядро mirrlyengine (Rust / Tokio Runtime)"]
+        subgraph GatewayMTProto ["Шлюз MTProto (Порт 1443)"]
+            FakeTLS["FakeTLS Demux<br/>Определение DC1-DC5"]
+            WsPool["WsPool (Пул постоянных WebSocket)<br/>Zero-Copy стриминг"]
+            FakeTLS --> WsPool
         end
 
-        TGApp -->|Локальный сокет MTProto| MtprotoGate
-        TGApp -->|Локальный сокет SOCKS5| SocksGate
+        subgraph GatewaySocks ["Шлюз SOCKS5 (Порт 10808)"]
+            SocksAuth["SOCKS5 Server (RFC 1928 / RFC 1929 Auth)<br/>TCP CONNECT / UDP ASSOCIATE"]
+            Supervisor["RouteSupervisor (Диспетчер аплинков)<br/>Trust Policy & Node Independence"]
+            SocksAuth --> Supervisor
+        end
+
+        subgraph SharedSubsystems ["Общие сетевые подсистемы ядра"]
+            FSM["Дискретный FSM сети (NORMAL / DEGRADED / RECOVERING)"]
+            GenGuard["Network Generation Guard (Изоляция эпох сети)"]
+            DoH["DoH Race Resolver (1.1.1.1 / 8.8.8.8 / 9.9.9.9)"]
+            FlowCtrl["Bounded Flow Control (Буфер записи 4 MB)"]
+        end
+
+        WsPool -.-> SharedSubsystems
+        Supervisor -.-> SharedSubsystems
     end
 
-    subgraph NativeCore ["2. Нативное ядро mirrlyengine (Rust/Tokio)"]
-        FSM["Дискретный FSM стабилизации сети<br/>(NORMAL / DEGRADED / RECOVERING)"]
-        GenGuard["Network Generation Guard<br/>(Защита от гонок поколений сети)"]
-        FlowCtrl["Bounded Flow Control (4 MB)<br/>(FIFO очередь и обратное давление)"]
-        DoH["DoH Race Resolver (1.1.1.1 / 8.8.8.8 / 9.9.9.9)<br/>Happy Eyeballs RFC 8305"]
+    subgraph Uplinks ["3. Восходящие каналы (Uplinks)"]
+        Uplink_Anycast_Direct["Anycast CDN Flowseal<br/>(kws1..kws5.web.telegram.org:443)<br/>Без расхода квоты Cloudflare Workers"]
+        Uplink_Worker["Cloudflare Worker WSS<br/>(Личный воркер / пул разработчика)<br/>API cloudflare:sockets"]
+        Uplink_Vless["VLESS over WSS & Reality<br/>(Кастомный VPS / CDN пул)"]
+        Uplink_Masque["WARP MASQUE (HTTP/3 Anycast :443)<br/>smoltcp TCP/IP стек"]
+        Uplink_Awg["WARP AmneziaWG (UDP Anycast / VPS)<br/>Обфускация I1 / Jc / H1..H4"]
+        Uplink_Cascade["WARP Cascade / Hybrid<br/>Автоматический failover"]
 
-        MtprotoGate --> FlowCtrl
-        SocksGate --> FlowCtrl
-        FlowCtrl --> FSM
-        FSM --> GenGuard
-        GenGuard --> DoH
+        WsPool ===>|Прямое MTProto WSS| Uplink_Anycast_Direct
+        Supervisor -->|Режим WORKER| Uplink_Worker
+        Supervisor -->|Режим VLESS| Uplink_Vless
+        Supervisor -->|Режим MASQUE| Uplink_Masque
+        Supervisor -->|Режим AWG| Uplink_Awg
+        Supervisor -->|Режим WARP_CASCADE| Uplink_Cascade
     end
 
-    subgraph SupervisorLayer ["3. Мульти-аплинк супервизор (RouteSupervisor)"]
-        Router{"Диспетчер выбора аплинк-маршрута"}
-        DoH --> Router
+    subgraph Infrastructure ["4. Внешняя сетевая инфраструктура"]
+        CF_CDN["Cloudflare Anycast CDN Edge<br/>(300+ локаций по миру)"]
+        CF_Worker_Runtime["Cloudflare Worker Edge Runtime<br/>(TCP Sockets via cloudflare:sockets)"]
+        Private_VPS["Персональный VPS / VLESS Server"]
+        WARP_Anycast["Cloudflare WARP Anycast Network"]
 
-        UplinkWorker["1. Cloudflare Worker WSS (Стабильно)<br/>(Личный воркер или пул разработчика)"]
-        UplinkVless["2. VLESS over WSS & Reality (Стабильно)<br/>(Маскировка под HTTPS :443)"]
-        UplinkMasque["3. WARP MASQUE (Тестирование)<br/>(HTTP/3 Anycast QUIC Datagrams :443)"]
-        UplinkAwg["4. WARP AmneziaWG (Тестирование)<br/>(Обфусцированный WireGuard / кастомный VPS)"]
-        UplinkCascade["5. WARP Cascade (Тестирование)<br/>(Каскадный failover MASQUE -> AWG -> WSS)"]
-
-        Router -->|Режим WORKER / HYBRID| UplinkWorker
-        Router -->|Режим VLESS| UplinkVless
-        Router -->|Режим MASQUE| UplinkMasque
-        Router -->|Режим AWG| UplinkAwg
-        Router -->|Режим WARP_CASCADE| UplinkCascade
+        Uplink_Anycast_Direct --> CF_CDN
+        Uplink_Worker --> CF_Worker_Runtime
+        Uplink_Vless --> Private_VPS
+        Uplink_Masque --> WARP_Anycast
+        Uplink_Awg --> WARP_Anycast
+        Uplink_Cascade --> CF_Worker_Runtime
     end
 
-    subgraph CloudflareNetwork ["4. Инфраструктура Cloudflare Anycast Network"]
-        CFEdge["Cloudflare Edge (300+ точек присутствия по миру)<br/>cloudflare:sockets / Anycast WireGuard / HTTP/3 MASQUE"]
+    subgraph TelegramCloud ["5. Инфраструктура серверов Telegram"]
+        TG_DC["Telegram Data Centers (DC1 - DC5)<br/>Текстовые чаты, каналы, медиа"]
+        TG_VoIP["Telegram VoIP Reflectors<br/>Голосовые и видеозвонки"]
 
-        UplinkWorker --> CFEdge
-        UplinkVless --> CFEdge
-        UplinkMasque --> CFEdge
-        UplinkAwg --> CFEdge
-        UplinkCascade --> CFEdge
-    end
-
-    subgraph TelegramServers ["5. Серверная инфраструктура Telegram"]
-        TGDC["Telegram DCs (DC1 - DC5)<br/>Текстовые сообщения, каналы, медиафайлы"]
-        TGVoIP["Telegram VoIP Reflectors<br/>Голосовые и видеовызовы"]
-
-        CFEdge -->|Защищенный TCP сокет| TGDC
-        CFEdge -->|Защищенный сокет| TGVoIP
+        CF_CDN -->|Прямой Web TCP Socket| TG_DC
+        CF_Worker_Runtime -->|Защищенный TCP Socket| TG_DC
+        CF_Worker_Runtime -->|VoIP TCP/UDP Relay| TG_VoIP
+        Private_VPS -->|Прямой сокет| TG_DC
+        WARP_Anycast -->|Anycast IP Routing| TG_DC
+        WARP_Anycast -->|Anycast IP Routing| TG_VoIP
     end
 ```
 
