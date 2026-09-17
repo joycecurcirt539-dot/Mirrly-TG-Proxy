@@ -93,11 +93,11 @@ class Socks5ProtocolTest {
     @Test
     fun testUnstartedNativeProxyStopSafety() {
         assertFalse(NativeProxy.isStarted)
-        // Calling stopProxy, getStats, setPoolSize, resetNetworkSockets on unstarted NativeProxy must be safe no-ops
+        // Static native tuning is safe before start; lifecycle calls remain safe no-ops.
         assertDoesNotThrow { NativeProxy.stopProxy() }
         assertNull(NativeProxy.getStats())
         assertNull(NativeProxy.getSecretWithPrefix())
-        assertDoesNotThrow { NativeProxy.setPoolSize(4) }
+        assertDoesNotThrow { NativeProxy.setMtprotoStandbyPerActiveSlot(4) }
         assertDoesNotThrow { NativeProxy.setSecret("testsecret") }
         assertDoesNotThrow { NativeProxy.resetNetworkSockets() }
         assertFalse(NativeProxy.isStarted)
@@ -123,20 +123,20 @@ class Socks5ProtocolTest {
     fun testLocalProxyServerApplyPoolSize() {
         val config = ProxyConfig()
         val server = LocalProxyServer(config)
-        assertEquals(4, config.poolSize)
+        assertEquals(2, config.mtprotoStandbyPerActiveSlot)
 
-        server.applyPoolSize(16)
-        assertEquals(16, config.poolSize)
+        server.applyMtprotoStandbyPerActiveSlot(16)
+        assertEquals(4, config.mtprotoStandbyPerActiveSlot)
 
-        server.applyPoolSize(2)
-        assertEquals(2, config.poolSize)
+        server.applyMtprotoStandbyPerActiveSlot(2)
+        assertEquals(2, config.mtprotoStandbyPerActiveSlot)
 
         // Out of range should clamp
-        server.applyPoolSize(1)
-        assertEquals(2, config.poolSize)
+        server.applyMtprotoStandbyPerActiveSlot(1)
+        assertEquals(1, config.mtprotoStandbyPerActiveSlot)
 
-        server.applyPoolSize(32)
-        assertEquals(16, config.poolSize)
+        server.applyMtprotoStandbyPerActiveSlot(32)
+        assertEquals(4, config.mtprotoStandbyPerActiveSlot)
     }
 
     @Test

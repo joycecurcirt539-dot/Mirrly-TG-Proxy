@@ -32,20 +32,26 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import androidx.annotation.StringRes
+import com.mirrly.tgproxy.R
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Временные периоды для фильтрации аналитики запросов.
+ * Time periods for request analytics filtering.
  */
-enum class AnalyticsPeriod(val label: String, val hoursSpan: Int) {
-    SESSION("Сессия", -1),
-    HOUR_1("1 час", 1),
-    HOUR_5("5 часов", 5),
-    HOUR_12("12 часов", 12),
-    HOUR_24("24 часа", 24),
-    DAYS_7("7 дней", 24 * 7),
-    DAYS_30("30 дней", 24 * 30),
-    ALL_TIME("Всего", -2)
+enum class AnalyticsPeriod(
+    val label: String,
+    val hoursSpan: Int,
+    @StringRes val labelRes: Int
+) {
+    SESSION("Session", -1, R.string.analytics_period_session),
+    HOUR_1("1 hour", 1, R.string.analytics_period_hour_1),
+    HOUR_5("5 hours", 5, R.string.analytics_period_hour_5),
+    HOUR_12("12 hours", 12, R.string.analytics_period_hour_12),
+    HOUR_24("24 hours", 24, R.string.analytics_period_hour_24),
+    DAYS_7("7 days", 24 * 7, R.string.analytics_period_days_7),
+    DAYS_30("30 days", 24 * 30, R.string.analytics_period_days_30),
+    ALL_TIME("All time", -2, R.string.analytics_period_all_time)
 }
 
 /**
@@ -120,7 +126,7 @@ object WorkerRequestTracker {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadFromPrefs()
         sessionStartTimestamp.set(System.currentTimeMillis())
-        AppLogger.i(TAG, "Трекер запросов к воркерам инициализирован. Загружено ${hourlyBuckets.size} почасовых срезов.")
+        AppLogger.i(TAG, "Worker request tracker initialized. Loaded ${hourlyBuckets.size} hourly buckets.")
     }
 
     fun onSessionStarted() {
@@ -503,7 +509,7 @@ object WorkerRequestTracker {
                 .putLong(KEY_ALL_TIME_PROBES, allTimeProbeCount)
                 .apply()
         } catch (t: Throwable) {
-            AppLogger.w(TAG, "Ошибка сохранения аналитики запросов: ${t.message}")
+            AppLogger.w(TAG, "Failed to save request analytics: ${t.message}")
         }
     }
 
@@ -527,7 +533,7 @@ object WorkerRequestTracker {
                 }
             }
         } catch (t: Throwable) {
-            AppLogger.w(TAG, "Ошибка загрузки аналитики запросов: ${t.message}")
+            AppLogger.w(TAG, "Failed to load request analytics: ${t.message}")
         }
     }
 }

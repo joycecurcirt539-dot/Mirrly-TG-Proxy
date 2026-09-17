@@ -45,7 +45,9 @@ enum class NodeProbeStatus(val label: String, val isSuccess: Boolean) {
     DPI_BLOCKED("Блок ТСПУ", false),
     TIMEOUT("Таймаут", false),
     DNS_FAILED("Сбой DNS", false),
+    FALLBACK_IP_FAILED("Сбой Fallback IP", false),
     RATE_LIMITED("Лимит 429", false),
+    UNSUPPORTED_STAGE("Не поддерживается сетью", false),
     ERROR("Сбой", false),
     IDLE("Не проверен", false),
     CHECKING("Проверка...", false)
@@ -199,7 +201,7 @@ object NodeHealthProber {
 
         // 1. Резолвинг DNS
         val addresses = try {
-            val resolved = DohResolver.resolveSync(host)
+            val resolved = DohResolver.resolveSync(host, DnsScope.BOOTSTRAP)
             if (resolved.isNotEmpty()) {
                 resolved
             } else {
@@ -211,8 +213,12 @@ object NodeHealthProber {
         }
 
         if (addresses.isEmpty()) {
-            return ProbeMetric(NodeProbeStatus.DNS_FAILED, null, "Не найден IP адрес")
+            return ProbeMetric(NodeProbeStatus.DNS_FAILED, null, "Не найден IP адрес (dns_failed)")
         }
+
+        val cachedEntry = DohResolver.getFromCache(host)
+        val isFallbackIp = cachedEntry?.resolverSource == "Cloudflare-Anycast-Fallback" ||
+                (DohResolver.isCloudflareTargetDomain(host) && addresses.all { DohResolver.CF_ANYCAST_FALLBACK_IPS.contains(it) })
 
         val targetIp = addresses.first()
         var rawSocket: Socket? = null
@@ -229,17 +235,24 @@ object NodeHealthProber {
             isTcpConnected = true
             val tcpElapsed = System.currentTimeMillis() - tcpStart
 
-            // 2. Проверка TLS рукопожатия с SNI
+            // 2. Проверка TLS рукопожатия с SNI и валидацией сертификата (MOB-023)
             val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
             sslSocket = sslFactory.createSocket(rawSocket, host, port, true) as SSLSocket
             sslSocket.soTimeout = READ_TIMEOUT_MS
 
             val sslParams = sslSocket.sslParameters ?: SSLParameters()
             sslParams.serverNames = listOf(SNIHostName(host))
+            try {
+                sslParams.endpointIdentificationAlgorithm = "HTTPS"
+            } catch (_: Throwable) {}
             sslSocket.sslParameters = sslParams
 
             val tlsStart = System.currentTimeMillis()
             sslSocket.startHandshake()
+            val session = sslSocket.session
+            if (!javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier().verify(host, session)) {
+                throw javax.net.ssl.SSLPeerUnverifiedException("Certificate hostname mismatch: $host")
+            }
             val tlsElapsed = System.currentTimeMillis() - tlsStart
 
             // 3. Быстрая HTTP/WebSocket проба
@@ -286,7 +299,12 @@ object NodeHealthProber {
             }
         } catch (e: Exception) {
             val msg = e.message?.lowercase() ?: ""
-            if (isTcpConnected && (msg.contains("reset") || msg.contains("broken pipe") || msg.contains("handshake_failure") || e is java.net.SocketException)) {
+            if (isFallbackIp) {
+                DohResolver.recordFallbackIpFailure()
+                ProbeMetric(NodeProbeStatus.FALLBACK_IP_FAILED, null, "Сбой Anycast Fallback IP: ${e.message ?: "Сбой соединения"}")
+            } else if (msg.contains("network is unreachable") || msg.contains("enetunreach") || msg.contains("eafnosupport") || msg.contains("address family not supported")) {
+                ProbeMetric(NodeProbeStatus.UNSUPPORTED_STAGE, null, "Семейство адресов не поддерживается сетью: ${e.message}")
+            } else if (isTcpConnected && (msg.contains("reset") || msg.contains("broken pipe") || msg.contains("handshake_failure") || e is java.net.SocketException)) {
                 ProbeMetric(NodeProbeStatus.DPI_BLOCKED, null, "ТСПУ: сброс TLS SNI")
             } else if (e is SocketTimeoutException) {
                 if (isTcpConnected) {
@@ -531,6 +549,21 @@ object NodeHealthProber {
                 // ATYP 0x01: IPv4 Address (4 bytes)
                 val octets = cleanHost.split('.').map { it.toInt().toByte() }.toByteArray()
                 byteArrayOf(0x05, 0x01, 0x00, 0x01) + octets + portBytes
+            } else if (cleanHost.contains(':')) {
+                // ATYP 0x04: IPv6 Address (16 bytes)
+                try {
+                    val inet6 = InetAddress.getByName(cleanHost)
+                    val ipBytes = inet6.address
+                    if (ipBytes.size == 16) {
+                        byteArrayOf(0x05, 0x01, 0x00, 0x04) + ipBytes + portBytes
+                    } else {
+                        val hostBytes = cleanHost.toByteArray(StandardCharsets.UTF_8)
+                        byteArrayOf(0x05, 0x01, 0x00, 0x03, hostBytes.size.toByte()) + hostBytes + portBytes
+                    }
+                } catch (_: Exception) {
+                    val hostBytes = cleanHost.toByteArray(StandardCharsets.UTF_8)
+                    byteArrayOf(0x05, 0x01, 0x00, 0x03, hostBytes.size.toByte()) + hostBytes + portBytes
+                }
             } else {
                 // ATYP 0x03: Domain Name (1 byte length + ASCII bytes)
                 val hostBytes = cleanHost.toByteArray(StandardCharsets.UTF_8)
@@ -542,6 +575,9 @@ object NodeHealthProber {
             // 3. Точный разбор ответа SOCKS5 (RFC 1928 §6)
             val (rep, _) = readSocks5Reply(inp)
             if (rep != 0x00) {
+                if (rep == 0x03 || rep == 0x08) {
+                    return ProbeMetric(NodeProbeStatus.UNSUPPORTED_STAGE, null, "Не поддерживается сетью (SOCKS5 rep=$rep)")
+                }
                 return ProbeMetric(NodeProbeStatus.ERROR, null, "Отказ туннеля (код $rep)")
             }
 
@@ -579,7 +615,16 @@ object NodeHealthProber {
         } catch (e: java.net.ConnectException) {
             ProbeMetric(NodeProbeStatus.TIMEOUT, null, "Прокси недоступен (порт закрыт)")
         } catch (e: Exception) {
-            ProbeMetric(NodeProbeStatus.ERROR, null, e.message ?: "Сбой SOCKS5")
+            val msg = e.message ?: "Сбой SOCKS5"
+            if (msg.contains("Network is unreachable", ignoreCase = true) ||
+                msg.contains("ENETUNREACH", ignoreCase = true) ||
+                msg.contains("EAFNOSUPPORT", ignoreCase = true) ||
+                msg.contains("Address family not supported", ignoreCase = true)
+            ) {
+                ProbeMetric(NodeProbeStatus.UNSUPPORTED_STAGE, null, msg)
+            } else {
+                ProbeMetric(NodeProbeStatus.ERROR, null, msg)
+            }
         } finally {
             try { socket?.close() } catch (_: Exception) {}
         }

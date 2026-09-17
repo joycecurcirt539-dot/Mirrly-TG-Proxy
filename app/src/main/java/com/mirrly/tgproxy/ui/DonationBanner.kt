@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import androidx.compose.ui.res.stringResource
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -61,7 +62,7 @@ fun DonationBanner(
     var showConfirmDialog by remember { mutableStateOf(false) }
     var isPermanentDismissVisible by remember { mutableStateOf(false) }
 
-    // Delayed activation of "Больше не показывать" option (5-second delay)
+    // Delayed activation of "Do not not show" option (5-second delay)
     LaunchedEffect(Unit) {
         delay(5000L)
         isPermanentDismissVisible = true
@@ -70,8 +71,8 @@ fun DonationBanner(
     if (showConfirmDialog) {
         ExternalLinkConfirmDialog(
             url = donationUrl,
-            title = "Поддержать разработку Mirrly",
-            description = "Ссылка ведет на сервис DaLink (DonationAlerts) автора R1Xern. Добровольное пожертвование помогает покрывать расходы на хостинг и разработку обновлений.",
+            title = stringResource(R.string.donation_banner_dialog_title),
+            description = stringResource(R.string.donation_banner_dialog_desc),
             onDismiss = { showConfirmDialog = false },
             onConfirmed = {
                 showConfirmDialog = false
@@ -84,18 +85,18 @@ fun DonationBanner(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(Color.Transparent)
-            .border(
-                width = 1.dp,
-                brush = Brush.horizontalGradient(
+            .frostedVignetteCard(
+                shape = RoundedCornerShape(22.dp),
+                accentColor = ActiveGreenLed,
+                secondaryAccentColor = Color(0xFFF57D07),
+                vignetteStrength = 0.65f,
+                borderBrush = Brush.horizontalGradient(
                     colors = listOf(
                         ActiveGreenLed.copy(alpha = 0.5f),
                         Color(0xFFF57D07).copy(alpha = 0.35f),
                         ActiveGreenLed.copy(alpha = 0.4f)
                     )
-                ),
-                shape = RoundedCornerShape(22.dp)
+                )
             )
             .lightSweep(
                 isEnabled = true,
@@ -136,7 +137,7 @@ fun DonationBanner(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = "Поддержка разработчика",
+                            text = stringResource(R.string.donation_banner_title),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
@@ -150,7 +151,7 @@ fun DonationBanner(
                     }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Если Mirrly обеспечивает стабильный доступ к Telegram, вы можете поддержать автора R1Xern добровольным донатом.",
+                        text = stringResource(R.string.donation_banner_desc),
                         fontSize = 12.sp,
                         color = TextMuted,
                         lineHeight = 16.sp
@@ -190,7 +191,7 @@ fun DonationBanner(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "Поддержать",
+                            text = stringResource(R.string.action_support),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             color = ActiveGreenLed
@@ -198,7 +199,7 @@ fun DonationBanner(
                     }
                 }
 
-                // Postpone button (Outlined, transparent background, strictly text "Позже")
+                // Postpone button (Outlined, transparent background, strictly text "Later")
                 OutlinedButton(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -215,7 +216,7 @@ fun DonationBanner(
                         .height(42.dp)
                 ) {
                     Text(
-                        text = "Позже",
+                        text = stringResource(R.string.action_later),
                         color = TextMuted,
                         fontWeight = FontWeight.Medium,
                         fontSize = 13.sp
@@ -247,7 +248,7 @@ fun DonationBanner(
                         .height(36.dp)
                 ) {
                     Text(
-                        text = "Больше не показывать",
+                        text = stringResource(R.string.action_do_not_show_again),
                         color = Color(0xFF7A8699),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Normal

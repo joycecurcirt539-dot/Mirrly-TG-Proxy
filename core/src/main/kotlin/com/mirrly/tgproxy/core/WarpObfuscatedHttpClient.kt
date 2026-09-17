@@ -17,11 +17,13 @@ import java.nio.ByteBuffer
 import java.util.Locale
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import okhttp3.internal.tls.OkHostnameVerifier
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult
 import javax.net.ssl.SSLException
+import javax.net.ssl.SSLPeerUnverifiedException
 
 /**
  * Direct registration transport, independent of the WARP tunnel and HTTP proxies.
@@ -30,13 +32,20 @@ import javax.net.ssl.SSLException
  */
 object WarpObfuscatedHttpClient {
     private const val TAG = "WarpObfHttp"
-    private const val HOST = "api.cloudflareclient.com"
-    const val DEFAULT_TIMEOUT_MS = 700
+    internal const val HOST = "api.cloudflareclient.com"
+    const val DEFAULT_TIMEOUT_MS = 5000
     const val DEFAULT_MAX_CANDIDATES = 3
     internal const val MAX_RESPONSE_BYTES = 256 * 1024
     private const val MAX_HEADER_BYTES = 64 * 1024
     private const val MAX_TLS_BUFFER_BYTES = 256 * 1024
-    private val candidates = listOf("104.16.24.84", "104.16.192.82", "104.16.132.229")
+    private val candidates = listOf(
+        "104.16.24.84",
+        "104.16.192.82",
+        "104.16.132.229",
+        "162.159.192.1",
+        "188.114.96.1",
+        "188.114.97.1"
+    )
     private val tlsContext by lazy { SSLContext.getInstance("TLS").apply { init(null, null, null) } }
     private val deadlineExecutor = ScheduledThreadPoolExecutor(1) { runnable ->
         Thread(runnable, "warp-registration-deadline").apply { isDaemon = true }
@@ -51,22 +60,39 @@ object WarpObfuscatedHttpClient {
         authToken: String? = null,
         timeoutMs: Int = DEFAULT_TIMEOUT_MS,
         maxCandidates: Int = DEFAULT_MAX_CANDIDATES
+    ): HttpResponse = executeInternal(
+        method = method,
+        path = path,
+        bodyJson = bodyJson,
+        authToken = authToken,
+        timeoutMs = timeoutMs,
+        candidatesList = candidates.take(maxCandidates.coerceIn(1, candidates.size))
+    )
+
+    internal fun executeInternal(
+        method: String,
+        path: String,
+        bodyJson: String? = null,
+        authToken: String? = null,
+        timeoutMs: Int = DEFAULT_TIMEOUT_MS,
+        candidatesList: List<String> = candidates,
+        customContext: SSLContext = tlsContext,
+        host: String = HOST,
+        port: Int = 443,
+        enableFragmentation: Boolean = true
     ): HttpResponse {
         require(timeoutMs > 0) { "Registration timeout must be positive" }
-        val request = encodeRequest(method, path, bodyJson, authToken)
-        // Provider initialization is shared. Every candidate's connect, handshake,
-        // writes, and complete response have one deadline, never a per-read budget.
-        val context = tlsContext
-        val budget = timeoutMs.coerceAtMost(DEFAULT_TIMEOUT_MS)
-        return tryCandidates(maxCandidates) { ip ->
+        val request = encodeRequest(method, path, bodyJson, authToken, host)
+        val budget = timeoutMs.coerceIn(1000, 15000)
+        return tryCandidatesWith(candidatesList) { ip ->
             AppLogger.d(TAG, "Прямой зонд Cloudflare API: $ip (бюджет ${budget}мс)")
             Socket().use { socket ->
                 withinDeadline(budget, { socket.close() }) { deadline ->
                     socket.tcpNoDelay = true
                     socket.soTimeout = budget
-                    socket.connect(InetSocketAddress(ip, 443), budget)
-                    val engine = createEngine(context)
-                    val connection = EngineConnection(socket, engine, deadline)
+                    socket.connect(InetSocketAddress(ip, port), budget)
+                    val engine = createEngine(customContext, host, port)
+                    val connection = EngineConnection(socket, engine, deadline, host, enableFragmentation)
                     connection.handshake()
                     connection.write(request)
                     readHttpResponse(connection, ip, method)
@@ -81,17 +107,24 @@ object WarpObfuscatedHttpClient {
         false
     }
 
-    internal fun createEngine(context: SSLContext = tlsContext): SSLEngine = context.createSSLEngine(HOST, 443).apply {
+    internal fun createEngine(
+        context: SSLContext = tlsContext,
+        host: String = HOST,
+        port: Int = 443
+    ): SSLEngine = context.createSSLEngine(host, port).apply {
         useClientMode = true
         sslParameters = sslParameters.apply {
-            serverNames = listOf(SNIHostName(HOST))
+            serverNames = listOf(SNIHostName(host))
             endpointIdentificationAlgorithm = "HTTPS"
         }
     }
 
-    internal fun <T> tryCandidates(maxCandidates: Int, attempt: (String) -> T): T {
+    internal fun <T> tryCandidates(maxCandidates: Int, attempt: (String) -> T): T =
+        tryCandidatesWith(candidates.take(maxCandidates.coerceIn(1, DEFAULT_MAX_CANDIDATES)), attempt)
+
+    internal fun <T> tryCandidatesWith(candidateList: List<String>, attempt: (String) -> T): T {
         var failure: IOException? = null
-        for (ip in candidates.take(maxCandidates.coerceIn(1, DEFAULT_MAX_CANDIDATES))) {
+        for (ip in candidateList) {
             if (Thread.currentThread().isInterrupted) throw InterruptedIOException("Registration interrupted")
             try {
                 return attempt(ip)
@@ -125,14 +158,20 @@ object WarpObfuscatedHttpClient {
         }
     }
 
-    private fun encodeRequest(method: String, path: String, body: String?, token: String?): ByteArray {
+    private fun encodeRequest(
+        method: String,
+        path: String,
+        body: String?,
+        token: String?,
+        host: String = HOST
+    ): ByteArray {
         require(method in setOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD")) { "Unsupported registration method" }
         require(path.startsWith('/') && path.all { it.code in 0x21..0x7e } && '#' !in path) { "Invalid registration path" }
         require(token == null || token.all { it.code in 0x21..0x7e }) { "Invalid registration token" }
         val bytes = body?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
         require(bytes.size <= MAX_RESPONSE_BYTES) { "Registration request is too large" }
         val headers = buildString {
-            append("$method $path HTTP/1.1\r\nHost: $HOST\r\n")
+            append("$method $path HTTP/1.1\r\nHost: $host\r\n")
             append("User-Agent: WARP for Android\r\nCF-Client-Version: a-6.35-4471\r\n")
             append("Content-Type: application/json; charset=UTF-8\r\nAccept: application/json\r\n")
             append("Accept-Encoding: identity\r\nConnection: close\r\n")
@@ -143,9 +182,15 @@ object WarpObfuscatedHttpClient {
         return headers.toByteArray(Charsets.US_ASCII) + bytes
     }
 
-    private class EngineConnection(socket: Socket, private val engine: SSLEngine, private val deadline: Deadline) : InputStream() {
+    internal class EngineConnection(
+        socket: Socket,
+        private val engine: SSLEngine,
+        private val deadline: Deadline,
+        private val expectedHost: String = HOST,
+        enableFragmentation: Boolean = true
+    ) : InputStream() {
         private val input = socket.getInputStream()
-        private val output = TlsFragmentingOutputStream(socket.getOutputStream())
+        private val output = if (enableFragmentation) TlsFragmentingOutputStream(socket.getOutputStream()) else socket.getOutputStream()
         private var encrypted = ByteBuffer.allocate(engine.session.packetBufferSize).apply { flip() }
         private var plaintext = ByteBuffer.allocate(engine.session.applicationBufferSize).apply { flip() }
         private var outbound = ByteBuffer.allocate(engine.session.packetBufferSize)
@@ -156,6 +201,15 @@ object WarpObfuscatedHttpClient {
             engine.beginHandshake()
             finishHandshake()
             if (closed) throw EOFException("TLS peer closed during handshake")
+            verifyPeerHostname()
+        }
+
+        private fun verifyPeerHostname() {
+            val session = engine.session
+            if (!session.isValid) throw SSLException("TLS session is not valid")
+            if (!okhttp3.internal.tls.OkHostnameVerifier.verify(expectedHost, session)) {
+                throw SSLPeerUnverifiedException("Certificate hostname mismatch: expected '$expectedHost'")
+            }
         }
 
         private fun finishHandshake() {

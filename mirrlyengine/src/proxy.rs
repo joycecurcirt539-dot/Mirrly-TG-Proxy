@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
@@ -90,8 +90,16 @@ pub struct SlotState {
     pub refilling: AtomicI32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SlotDemand {
+    pub last_requested: Instant,
+    pub request_count: u64,
+    pub useful_rx_count: u64,
+}
+
 pub struct WsPool {
     slots: Mutex<HashMap<DcSlot, Arc<SlotState>>>,
+    demand: Arc<parking_lot::RwLock<HashMap<DcSlot, SlotDemand>>>,
     cancel_token: CancellationToken,
     cancel_refill: Arc<parking_lot::RwLock<CancellationToken>>,
     generation: AtomicU64,
@@ -102,9 +110,82 @@ impl WsPool {
         let cancel_refill = Arc::new(parking_lot::RwLock::new(cancel_token.child_token()));
         WsPool {
             slots: Mutex::new(HashMap::new()),
+            demand: Arc::new(parking_lot::RwLock::new(HashMap::new())),
             cancel_token,
             cancel_refill,
             generation: AtomicU64::new(0),
+        }
+    }
+
+    pub fn record_demand(&self, dc: i32, is_media: bool) {
+        let slot = DcSlot {
+            dc,
+            is_media: is_media_int(is_media),
+        };
+        let mut map = self.demand.write();
+        let entry = map.entry(slot).or_insert(SlotDemand {
+            last_requested: Instant::now(),
+            request_count: 0,
+            useful_rx_count: 0,
+        });
+        entry.last_requested = Instant::now();
+        entry.request_count += 1;
+        ldebug!(
+            "WsPool: demand recorded for DC{}{} (count={})",
+            dc,
+            media_tag(is_media),
+            entry.request_count
+        );
+    }
+
+    pub fn record_useful_rx(&self, dc: i32, is_media: bool) {
+        let slot = DcSlot {
+            dc,
+            is_media: is_media_int(is_media),
+        };
+        let mut map = self.demand.write();
+        if let Some(entry) = map.get_mut(&slot) {
+            entry.useful_rx_count += 1;
+        }
+    }
+
+    pub fn is_slot_demanded(&self, slot: DcSlot) -> bool {
+        let map = self.demand.read();
+        if let Some(entry) = map.get(&slot) {
+            entry.last_requested.elapsed() < Duration::from_secs(600)
+        } else {
+            false
+        }
+    }
+
+    pub fn target_size(&self, slot: DcSlot) -> usize {
+        let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
+        if is_mobile {
+            // Cellular profile: strictly demand-driven.
+            // If slot has not been demanded by actual client traffic, target is 0.
+            // If demanded, exactly 1 standby socket to keep resource footprint minimal.
+            if self.is_slot_demanded(slot) {
+                1
+            } else {
+                0
+            }
+        } else {
+            // Wi-Fi profile:
+            let requested = MTPROTO_STANDBY_PER_ACTIVE_SLOT_REQUESTED.load(Ordering::Relaxed);
+            let configured = effective_mtproto_standby(requested, false);
+            if self.is_slot_demanded(slot) {
+                let map = self.demand.read();
+                let useful = map.get(&slot).map(|d| d.useful_rx_count).unwrap_or(0);
+                if useful >= 2 {
+                    configured
+                } else {
+                    1
+                }
+            } else if slot.dc == 2 && slot.is_media == 0 {
+                1
+            } else {
+                0
+            }
         }
     }
 
@@ -177,7 +258,7 @@ impl WsPool {
         cancel: CancellationToken,
     ) {
         let cur_len = state.queue.lock().await.len();
-        let target_size = POOL_SIZE.load(Ordering::Relaxed).clamp(1, 4) as usize;
+        let target_size = self.target_size(slot);
         let needed = target_size.saturating_sub(cur_len);
         if needed == 0 || self.generation.load(Ordering::SeqCst) != gen || cancel.is_cancelled() {
             state.refilling.store(0, Ordering::SeqCst);
@@ -196,7 +277,9 @@ impl WsPool {
             return;
         }
 
-        let ordered = crate::balancer::BALANCER.read().get_domains_for_dc(effective_dc);
+        let ordered = crate::balancer::BALANCER
+            .read()
+            .get_domains_for_dc(effective_dc, slot.is_media != 0);
         let mut candidates = Vec::new();
         for d in ordered {
             if cfproxy_429_cooldown_remaining(&d) == Duration::ZERO {
@@ -218,7 +301,14 @@ impl WsPool {
             handles.push(tokio::spawn(async move {
                 tokio::select! {
                     _ = cancel_h.cancelled() => None,
-                    res = cf_connect_domain(&target_domain, &path, 3.5) => {
+                    res = cf_connect_domain_with_category(
+                        &target_domain,
+                        &path,
+                        None,
+                        3.5,
+                        crate::budget::FlowCategory::Background,
+                        Some(&cancel_h),
+                    ) => {
                         let (ws_opt, _ip, err_opt) = res;
                         if let Some(ws) = ws_opt {
                             Some((ws, target_domain))
@@ -269,14 +359,14 @@ impl WsPool {
         let pool = Arc::downgrade(self);
         let cancel = self.cancel_token.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(WS_POOL_PING_INTERVAL);
+            let mut interval = tokio::time::interval(WS_POOL_HOUSEKEEP_INTERVAL);
             interval.tick().await;
             loop {
                 tokio::select! {
                     _ = cancel.cancelled() => return,
                     _ = interval.tick() => {
                         if let Some(pool_strong) = pool.upgrade() {
-                            pool_strong.ping_and_clean_idle_sockets().await;
+                            pool_strong.clean_idle_sockets().await;
                         } else {
                             return;
                         }
@@ -286,7 +376,7 @@ impl WsPool {
         });
     }
 
-    async fn ping_and_clean_idle_sockets(&self) {
+    async fn clean_idle_sockets(&self) {
         let now = now_unix();
         let max_age = WS_POOL_REUSE_MAX_AGE as i64;
 
@@ -296,7 +386,6 @@ impl WsPool {
         };
 
         for state in slot_states {
-            let mut sockets_to_ping = Vec::new();
             {
                 let mut q = state.queue.lock().await;
                 let mut active = std::collections::VecDeque::with_capacity(q.len());
@@ -307,48 +396,99 @@ impl WsPool {
                             let _ = ws.close().await;
                         });
                     } else {
-                        sockets_to_ping.push(entry.ws.clone());
                         active.push_back(entry);
                     }
                 }
                 *q = active;
             }
-
-            for ws in sockets_to_ping {
-                let ws_clone = ws.clone();
-                tokio::spawn(async move {
-                    if ws_clone.send_ping().await.is_err() {
-                        let _ = ws_clone.close().await;
-                    }
-                });
-            }
         }
     }
 
     pub async fn warmup(self: &Arc<Self>, _dc_opt_map: &HashMap<i32, String>) {
+        if MOBILE_NETWORK.load(Ordering::Relaxed) {
+            crate::linfo!("WsPool: Cellular profile: cold start warmup skipped (demand-driven standby active)");
+            return;
+        }
+
         let gen = self.generation.load(Ordering::SeqCst);
         let cancel = self.cancel_refill.read().clone();
 
-        let primary_dcs = [2, 4, 1];
-        for &dc in &primary_dcs {
-            for &is_media in &[false, true] {
-                let slot = DcSlot {
-                    dc,
-                    is_media: is_media_int(is_media),
-                };
-                let state = self.get_slot(slot).await;
-                if state
-                    .refilling
-                    .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok()
-                {
-                    let pool = self.clone();
-                    let st = state.clone();
-                    let c = cancel.clone();
-                    tokio::spawn(async move {
-                        pool.refill(slot, st, gen, c).await;
-                    });
+        // On Wi-Fi: warm up at most 1 standby for DC2
+        let slot = DcSlot { dc: 2, is_media: 0 };
+        let state = self.get_slot(slot).await;
+        if state
+            .refilling
+            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            let pool = self.clone();
+            tokio::spawn(async move {
+                pool.refill(slot, state, gen, cancel).await;
+            });
+        }
+    }
+
+    /// Predictive non-destructive prewarm on screen/power event.
+    /// Never alters generation of existing flows, never drops active bridges,
+    /// and only adds standby if there is free background dial budget.
+    pub async fn prewarm(self: &Arc<Self>, _dc_opt_map: &HashMap<i32, String>) {
+        if !crate::budget::DIAL_BUDGET
+            .has_free_budget_for(crate::budget::FlowCategory::Background)
+            .await
+        {
+            crate::linfo!("WsPool::prewarm: skipped (dial budget busy or queued user flow)");
+            return;
+        }
+
+        let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
+
+        let candidate_slots: Vec<DcSlot> = if is_mobile {
+            let map = self.demand.read();
+            map.iter()
+                .filter(|(_, d)| {
+                    d.last_requested.elapsed() < Duration::from_secs(600) && d.useful_rx_count > 0
+                })
+                .map(|(slot, _)| *slot)
+                .collect()
+        } else {
+            let mut slots = Vec::new();
+            {
+                let map = self.demand.read();
+                for (slot, d) in map.iter() {
+                    if d.last_requested.elapsed() < Duration::from_secs(600) {
+                        slots.push(*slot);
+                    }
                 }
+            }
+            if slots.is_empty() {
+                slots.push(DcSlot { dc: 2, is_media: 0 });
+            }
+            slots
+        };
+
+        for slot in candidate_slots {
+            let target = self.target_size(slot);
+            if target == 0 {
+                continue;
+            }
+            let state = self.get_slot(slot).await;
+            let current_count = state.queue.lock().await.len();
+            if current_count >= target {
+                continue;
+            }
+
+            let gen = self.generation.load(Ordering::SeqCst);
+            let cancel = self.cancel_refill.read().clone();
+
+            if state
+                .refilling
+                .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                let pool = self.clone();
+                tokio::spawn(async move {
+                    pool.refill(slot, state, gen, cancel).await;
+                });
             }
         }
     }
@@ -422,10 +562,10 @@ pub async fn bridge_ws(
     conn: TcpStream,
     ws: Arc<RawWebSocket>,
     _label: String,
-    _dc: i32,
-    _dst: String,
+    dc: i32,
+    dst: String,
     _port: u16,
-    _is_media: bool,
+    is_media: bool,
     mut splitter: MsgSplitter,
     mut clt_dec: TrackedStream,
     mut clt_enc: TrackedStream,
@@ -434,53 +574,38 @@ pub async fn bridge_ws(
     is_faketls: bool,
     initial_clt_data: Vec<u8>,
     cancel_token: CancellationToken,
+    pool: Arc<WsPool>,
 ) {
-    let last_activity = Arc::new(Mutex::new(std::time::Instant::now()));
-    let cancel = Arc::new(tokio::sync::Notify::new());
+    let cancel = cancel_token.child_token();
+    let _bridge_guard = cancel.clone().drop_guard();
+    let activity = crate::bridge::BridgeActivity::with_ws(ws.clone());
 
     let (mut conn_read, mut conn_write) = conn.into_split();
 
-    // ping keepalive
+    // One native heartbeat for this exact WebSocket connection.
     let ws_ping = ws.clone();
-    let la_ping = last_activity.clone();
     let cancel_ping = cancel.clone();
-    let cancel_token_ping = cancel_token.clone();
-    let ping_task = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(BRIDGE_PING_INTERVAL);
-        interval.tick().await;
-        loop {
-            tokio::select! {
-                _ = cancel_token_ping.cancelled() => return,
-                _ = cancel_ping.notified() => return,
-                _ = interval.tick() => {
-                    let idle = la_ping.lock().await.elapsed();
-                    if idle >= Duration::from_secs(10) {
-                        if ws_ping.send_ping().await.is_err() {
-                            cancel_ping.notify_waiters();
-                            return;
-                        }
-                    }
-                }
-            }
+    let heartbeat = async move {
+        if ws_ping.run_heartbeat(cancel_ping.clone()).await.is_err() {
+            cancel_ping.cancel();
         }
-    });
+    };
 
     // up: client -> ws
     let ws_up = ws.clone();
-    let la_up = last_activity.clone();
     let cancel_up = cancel.clone();
-    let cancel_token_up = cancel_token.clone();
-    let up_task = tokio::spawn(async move {
+    let activity_up = activity.clone();
+    let up = async move {
+        let mut clean_eof = false;
         // 1. If there were extra bytes in the initial TLS application record, process them first
         if !initial_clt_data.is_empty() {
             let n = initial_clt_data.len();
             STATS.bytes_up.fetch_add(n as i64, Ordering::Relaxed);
-            *la_up.lock().await = std::time::Instant::now();
 
             let frames = splitter.process(&initial_clt_data, &mut clt_dec, &mut tg_enc);
             if !frames.is_empty() {
-                if ws_up.send_batch(&frames).await.is_err() {
-                    cancel_up.notify_waiters();
+                if !matches!(crate::bridge::bounded_io(ws_up.send_batch(&frames), &cancel_up, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(()))) {
+                    cancel_up.cancel();
                     return;
                 }
             }
@@ -489,91 +614,120 @@ pub async fn bridge_ws(
         let mut buf = vec![0u8; WS_BRIDGE_CHUNK_SIZE];
         loop {
             let chunk_data: Vec<u8> = if is_faketls {
-                let read_res = tokio::select! {
-                    _ = cancel_token_up.cancelled() => break,
-                    _ = cancel_up.notified() => break,
-                    r = tokio::time::timeout(BRIDGE_READ_TIMEOUT, crate::faketls::read_tls_app_data(&mut conn_read)) => r,
-                };
+                let read_res = activity_up.wait(crate::faketls::read_tls_app_data(&mut conn_read), &cancel_up).await;
                 match read_res {
                     Ok(Ok(d)) if !d.is_empty() => d,
+                    Ok(Ok(_)) => { clean_eof = true; break; },
                     _ => break,
                 }
             } else {
-                let read_res = tokio::select! {
-                    _ = cancel_token_up.cancelled() => break,
-                    _ = cancel_up.notified() => break,
-                    r = tokio::time::timeout(BRIDGE_READ_TIMEOUT, conn_read.read(&mut buf)) => r,
-                };
+                let read_res = activity_up.wait(conn_read.read(&mut buf), &cancel_up).await;
                 let n = match read_res {
-                    Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
+                    Ok(Ok(0)) => { clean_eof = true; break; },
+                    Ok(Err(_)) | Err(_) => break,
                     Ok(Ok(n)) => n,
                 };
                 buf[..n].to_vec()
             };
 
+            activity_up.touch();
             let n = chunk_data.len();
             STATS.bytes_up.fetch_add(n as i64, Ordering::Relaxed);
-            *la_up.lock().await = std::time::Instant::now();
 
             let frames = splitter.process(&chunk_data, &mut clt_dec, &mut tg_enc);
             if !frames.is_empty() {
-                if ws_up.send_batch(&frames).await.is_err() {
+                if !matches!(crate::bridge::bounded_io(ws_up.send_batch(&frames), &cancel_up, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(()))) {
                     break;
                 }
             }
         }
 
+        if !clean_eof { cancel_up.cancel(); return; }
         let tail = splitter.flush(&mut tg_enc);
         if !tail.is_empty() {
-            let _ = ws_up.send_batch(&tail).await;
+            if !matches!(crate::bridge::bounded_io(ws_up.send_batch(&tail), &cancel_up, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(()))) {
+                cancel_up.cancel(); return;
+            }
         }
 
-        cancel_up.notify_waiters();
-    });
+        activity_up.upload_eof();
+    };
 
     // down: ws -> client
     let ws_down = ws.clone();
-    let la_down = last_activity.clone();
     let cancel_down = cancel.clone();
-    let cancel_token_down = cancel_token.clone();
-    let down_task = tokio::spawn(async move {
+
+    let pool_down = pool.clone();
+    let down_dst = dst.clone();
+    let down = async move {
+        let mut first_rx = true;
+        let mut bytes_before_stall: u64 = 0;
+        let base_domain = crate::balancer::normalize_domain(&down_dst);
+        let cur_gen = crate::network_profile::current_generation();
         loop {
-            let recv_res = tokio::select! {
-                _ = cancel_token_down.cancelled() => break,
-                _ = cancel_down.notified() => break,
-                r = ws_down.recv_with_timeout(BRIDGE_READ_TIMEOUT) => r,
-            };
+            let recv_res = activity.wait(ws_down.recv(), &cancel_down).await;
             let mut data = match recv_res {
-                Ok(d) => d,
-                Err(_) => break,
+                Ok(Ok(d)) => d,
+                _ => break,
             };
+            activity.touch();
             let n = data.len();
+            bytes_before_stall = bytes_before_stall.saturating_add(n as u64);
             STATS.bytes_down.fetch_add(n as i64, Ordering::Relaxed);
-            *la_down.lock().await = std::time::Instant::now();
+            if first_rx && n > 0 {
+                first_rx = false;
+                pool_down.record_useful_rx(dc, is_media);
+                crate::balancer::BALANCER.write().record_useful_success(
+                    cur_gen,
+                    dc,
+                    is_media,
+                    &base_domain,
+                );
+            }
 
             tg_dec.xor(&mut data);
             clt_enc.xor(&mut data);
 
             if is_faketls {
-                if crate::faketls::write_tls_app_data(&mut conn_write, &data)
-                    .await
-                    .is_err()
+                if !matches!(crate::bridge::bounded_io(
+                    crate::faketls::write_tls_app_data(&mut conn_write, &data),
+                    &cancel_down, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(())))
                 {
                     break;
                 }
             } else {
-                if conn_write.write_all(&data).await.is_err() {
+                if crate::socks5::bounded_write(&mut conn_write, &data, &cancel_down, BRIDGE_WRITE_TIMEOUT).await.is_err() {
                     break;
                 }
             }
         }
-        cancel_down.notify_waiters();
-    });
+        if first_rx {
+            crate::balancer::BALANCER.write().record_failure(
+                cur_gen,
+                dc,
+                is_media,
+                &base_domain,
+            );
+            crate::node_independence::NODE_INDEPENDENCE_TRACKER
+                .write()
+                .record_node_stall(&base_domain, 0);
+        } else if !cancel_down.is_cancelled() && bytes_before_stall < 65536 {
+            crate::node_independence::NODE_INDEPENDENCE_TRACKER
+                .write()
+                .record_node_stall(&base_domain, bytes_before_stall);
+        } else {
+            crate::node_independence::NODE_INDEPENDENCE_TRACKER
+                .write()
+                .record_node_bytes_transferred(&base_domain, bytes_before_stall);
+        }
+        cancel_down.cancel();
+    };
 
-    let _ = up_task.await;
-    let _ = down_task.await;
-    cancel.notify_waiters();
-    ping_task.abort();
+    let transfer = async {
+        tokio::join!(up, down);
+        cancel.cancel();
+    };
+    tokio::join!(transfer, heartbeat);
 
     ws.close().await;
 }
@@ -606,16 +760,50 @@ pub fn get_dc_target_ip(dc: i32, is_media: bool) -> &'static str {
     }
 }
 
+pub fn get_dc_target_ipv6(dc: i32, is_media: bool) -> &'static str {
+    if is_media {
+        match dc {
+            1 => "2001:b28:f23d:f001::b",
+            2 => "2001:67c:4e8:f002::b",
+            3 => "2001:b28:f23d:f003::b",
+            4 => "2001:67c:4e8:f004::b",
+            5 => "2001:b28:f23f:f005::b",
+            203 => "2001:67c:4e8:f002::b",
+            _ => "2001:67c:4e8:f002::b",
+        }
+    } else {
+        match dc {
+            1 => "2001:b28:f23d:f001::a",
+            2 => "2001:67c:4e8:f002::a",
+            3 => "2001:b28:f23d:f003::a",
+            4 => "2001:67c:4e8:f004::a",
+            5 => "2001:b28:f23f:f005::a",
+            203 => "2001:67c:4e8:f002::a",
+            _ => "2001:67c:4e8:f002::a",
+        }
+    }
+}
+
+pub fn get_dc_target_ip_for_current_network(dc: i32, is_media: bool) -> &'static str {
+    if crate::recovery::is_ipv6_only_network() {
+        get_dc_target_ipv6(dc, is_media)
+    } else {
+        get_dc_target_ip(dc, is_media)
+    }
+}
+
 async fn cfproxy_acquire_ws(
     pool: &Arc<WsPool>,
     dc: i32,
     is_media: bool,
     cancel_token: &CancellationToken,
 ) -> Option<(Arc<RawWebSocket>, String)> {
+    pool.record_demand(dc, is_media);
+
     // 1. Попытка мгновенного захвата сокета из предварительно прогретого пула (0 ms)
     if let Some((ws, domain)) = pool.get(dc, is_media).await {
         linfo!(
-            " DC{}{} взят из пула сокетов WsPool (0 ms): {}",
+            " DC{}{} acquired from WsPool socket pool (0 ms): {}",
             dc,
             media_tag(is_media),
             domain
@@ -653,6 +841,7 @@ async fn cfproxy_acquire_ws_race(
     is_media: bool,
     cancel_token: &CancellationToken,
 ) -> Option<(Arc<RawWebSocket>, String)> {
+    let expected = crate::generation_guard::snapshot();
     let (enabled, domains) = {
         let cfg = CFPROXY.read();
         (CFPROXY_ENABLED.load(Ordering::Relaxed), cfg.domains.clone())
@@ -673,8 +862,11 @@ async fn cfproxy_acquire_ws_race(
     if !domains.is_empty() {
         let ordered = crate::balancer::BALANCER
             .read()
-            .get_domains_for_dc(effective_dc);
-        for d in ordered {
+            .get_domains_for_dc(effective_dc, is_media);
+        let diverse_ordered = crate::node_independence::NODE_INDEPENDENCE_TRACKER
+            .read()
+            .select_diverse_race_candidates(&ordered, 4);
+        for d in diverse_ordered {
             let remaining = cfproxy_429_cooldown_remaining(&d);
             if remaining == Duration::ZERO {
                 let domain = format!("kws{}.{}", effective_dc, d);
@@ -685,7 +877,7 @@ async fn cfproxy_acquire_ws_race(
 
     if candidate_targets.is_empty() {
         lwarn!(
-            " CF fallback DC{}{}: все домены Anycast CDN недоступны",
+            " CF fallback DC{}{}: all Anycast CDN domains unreachable",
             dc,
             media_tag(is_media)
         );
@@ -694,7 +886,7 @@ async fn cfproxy_acquire_ws_race(
 
     let m_tag = media_tag(is_media);
     ldebug!(
-        "MTProto Happy Eyeballs Race: {} целей для DC{}{}",
+        "MTProto Happy Eyeballs Race: {} targets for DC{}{}",
         candidate_targets.len(),
         dc,
         m_tag
@@ -702,50 +894,96 @@ async fn cfproxy_acquire_ws_race(
 
     let (tx, mut rx) =
         tokio::sync::mpsc::channel::<(RawWebSocket, String)>(candidate_targets.len());
-    let stagger_step = Duration::from_millis(25);
-    let sem = Arc::new(tokio::sync::Semaphore::new(CFPROXY_FALLBACK_PARALLEL));
+    let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
+    let stagger_step = if is_mobile {
+        Duration::from_millis(400)
+    } else {
+        Duration::from_millis(25)
+    };
+
+    let child_cancel = cancel_token.child_token();
+    let mut handles = Vec::with_capacity(candidate_targets.len());
 
     for (i, (dom, path)) in candidate_targets.into_iter().enumerate() {
         let tx = tx.clone();
-        let sem = sem.clone();
-        let cancel = cancel_token.clone();
+        let cancel = child_cancel.clone();
         let delay = stagger_step * (i as u32);
 
-        tokio::spawn(async move {
+        handles.push(tokio::spawn(async move {
             tokio::select! {
+                biased;
                 _ = cancel.cancelled() => {}
-                _ = tokio::time::sleep(delay) => {
-                    let _permit = match sem.acquire().await {
-                        Ok(p) => p,
-                        Err(_) => return,
-                    };
-                    let (ws, resolved_ip, err) = cf_connect_domain(&dom, &path, 3.5).await;
+                res = async {
+                    if delay > Duration::ZERO {
+                        tokio::time::sleep(delay).await;
+                    }
+                    if cancel.is_cancelled() {
+                        return None;
+                    }
+                    let (ws, resolved_ip, err) = cf_connect_domain_with_category(
+                        &dom,
+                        &path,
+                        None,
+                        3.5,
+                        crate::budget::FlowCategory::UserFlow,
+                        Some(&cancel),
+                    ).await;
+
                     if let Some(w) = ws {
+                        if cancel.is_cancelled() {
+                            ldebug!("MTProto race runner-up late 101 gracefully closing for {}", dom);
+                            let _ = w.close().await;
+                            return None;
+                        }
                         if !resolved_ip.is_empty() {
                             ldebug!("MTProto race ok {} via {}", dom, resolved_ip);
                         } else {
                             ldebug!("MTProto race ok {}", dom);
                         }
-                        let _ = tx.send((w, dom)).await;
-                    } else if let Some(e) = err {
-                        if crate::ws::is_cooldown_error(&e) {
-                            mark_cfproxy_429_cooldown(&dom, &e);
+                        Some((w, dom))
+                    } else {
+                        if let Some(ref e) = err {
+                            let base = crate::balancer::normalize_domain(&dom);
+                            let resolved_ip_opt = resolved_ip.parse::<std::net::IpAddr>().ok();
+                            crate::node_independence::NODE_INDEPENDENCE_TRACKER
+                                .write()
+                                .record_node_failure(&base, resolved_ip_opt, None);
+                            crate::balancer::BALANCER.write().record_failure(
+                                crate::network_profile::current_generation(),
+                                effective_dc,
+                                is_media,
+                                &base,
+                            );
+                            if crate::ws::is_cooldown_error(e) {
+                                let _ = crate::generation_guard::apply_if_current(expected, || {
+                                    mark_cfproxy_429_cooldown(&dom, e);
+                                });
+                            }
+                            if !resolved_ip.is_empty() {
+                                log_cf_conn_error(
+                                    &format!("MTProto race fail {} via {}: {}", dom, resolved_ip, e.compact()),
+                                    e,
+                                );
+                            } else {
+                                log_cf_conn_error(
+                                    &format!("MTProto race fail {}: {}", dom, e.compact()),
+                                    e,
+                                );
+                            }
                         }
-                        if !resolved_ip.is_empty() {
-                            log_cf_conn_error(
-                                &format!("MTProto race fail {} via {}: {}", dom, resolved_ip, e.compact()),
-                                &e,
-                            );
+                        None
+                    }
+                } => {
+                    if let Some((w, dom)) = res {
+                        if cancel.is_cancelled() {
+                            let _ = w.close().await;
                         } else {
-                            log_cf_conn_error(
-                                &format!("MTProto race fail {}: {}", dom, e.compact()),
-                                &e,
-                            );
+                            let _ = tx.send((w, dom)).await;
                         }
                     }
                 }
             }
-        });
+        }));
     }
 
     drop(tx);
@@ -754,31 +992,63 @@ async fn cfproxy_acquire_ws_race(
 
     tokio::select! {
         _ = cancel_token.cancelled() => {
-            ldebug!("MTProto connection race cancelled");
+            ldebug!("MTProto connection race cancelled by parent");
+            child_cancel.cancel();
         }
         msg = rx.recv() => {
+            child_cancel.cancel();
             if let Some((ws, winner_domain)) = msg {
-                linfo!("MTProto endpoint выбран: {}", winner_domain);
-                clear_cfproxy_429_cooldown(&winner_domain);
-
-                let base_domain = if let Some(stripped) = winner_domain.strip_prefix(&format!("kws{}.", effective_dc)) {
-                    stripped.to_string()
+                if !crate::generation_guard::is_current(expected) {
+                    let _ = ws.close().await;
                 } else {
-                    winner_domain.clone()
-                };
-                crate::balancer::BALANCER.write().update_domain_for_dc(effective_dc, &base_domain);
-
-                winning_res = Some((Arc::new(ws), winner_domain));
+                    let accepted = crate::generation_guard::apply_if_current(expected, || {
+                        clear_cfproxy_429_cooldown(&winner_domain);
+                        let base_domain = crate::balancer::normalize_domain(&winner_domain);
+                        if let Some(ip) = ws.peer_ip() {
+                            let colo = ws.colo().to_string();
+                            crate::node_independence::NODE_INDEPENDENCE_TRACKER
+                                .write()
+                                .record_node_handshake_success(&base_domain, ip, &colo);
+                        }
+                        crate::balancer::BALANCER.write().update_domain_for_dc(
+                            effective_dc,
+                            is_media,
+                            &base_domain,
+                        );
+                    }).is_some();
+                    if accepted {
+                        linfo!("MTProto endpoint selected: {}", winner_domain);
+                        winning_res = Some((Arc::new(ws), winner_domain));
+                    } else {
+                        let _ = ws.close().await;
+                    }
+                }
             }
         }
     }
 
-    while let Ok((extra_ws, _)) = rx.try_recv() {
-        tokio::spawn(async move {
-            let _ = extra_ws.close().await;
-        });
+    // A winner (or caller cancellation) makes all remaining attempts obsolete.
+    // Abort and await each handle within a bounded timeout so the number of active racer tasks
+    // becomes 0 and all TCP/TLS/DNS resources are freed.
+    for handle in &handles {
+        handle.abort();
+    }
+    for handle in handles {
+        let _ = tokio::time::timeout(Duration::from_millis(500), handle).await;
     }
 
+    // Drain and gracefully close any runner-up connections that arrived in rx
+    while let Ok((extra_ws, extra_dom)) = rx.try_recv() {
+        ldebug!("MTProto closing runner-up connection to {}", extra_dom);
+        let _ = extra_ws.close().await;
+    }
+
+    if !crate::generation_guard::is_current(expected) {
+        if let Some((ws, _)) = winning_res {
+            let _ = ws.close().await;
+        }
+        return None;
+    }
     winning_res
 }
 
@@ -810,10 +1080,12 @@ pub async fn do_fallback(
     let use_cf = CFPROXY_ENABLED.load(Ordering::Relaxed);
 
     if use_cf {
-        if let Some((ws, chosen_domain)) = cfproxy_acquire_ws(pool, dc, is_media, &cancel_token).await {
+        if let Some((ws, chosen_domain)) =
+            cfproxy_acquire_ws(pool, dc, is_media, &cancel_token).await
+        {
             STATS.connections_cfproxy.fetch_add(1, Ordering::Relaxed);
             linfo!(
-                " DC{}{} подключен через CDN: {}",
+                " DC{}{} connected via CDN: {}",
                 dc,
                 media_tag(is_media),
                 chosen_domain
@@ -840,6 +1112,7 @@ pub async fn do_fallback(
                 is_faketls,
                 initial_clt_data,
                 cancel_token,
+                pool.clone(),
             )
             .await;
             return true;
@@ -877,17 +1150,7 @@ pub async fn handle_client(
         .unwrap_or_else(|_| "unknown".to_string());
     let label = peer;
 
-    let _ = conn.set_nodelay(TCP_NODELAY.load(Ordering::Relaxed));
-    let sock = socket2::SockRef::from(&conn);
-    #[allow(unused_mut)]
-    let mut ka = socket2::TcpKeepalive::new()
-        .with_time(Duration::from_secs(30))
-        .with_interval(Duration::from_secs(10));
-    #[cfg(any(target_os = "android", unix))]
-    {
-        ka = ka.with_retries(3);
-    }
-    let _ = sock.set_tcp_keepalive(&ka);
+    set_sock_opts(&conn);
 
     let current_secret = PROXY_SECRET.read().clone();
     let secret_bytes = hex::decode(&current_secret).unwrap_or_default();
@@ -988,6 +1251,8 @@ pub async fn handle_client(
     let is_media = dc_raw < 0;
     let _m_tag = media_tag(is_media);
     let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
+
+    pool.record_demand(dc, is_media);
 
     let mut clt_enc_prekey_and_iv = [0u8; 48];
     for i in 0..48 {
@@ -1139,8 +1404,8 @@ pub async fn run_proxy(
     }
 
     linfo!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    linfo!("  TG WS Proxy запущен");
-    linfo!("  Адрес: {}:{}", host, port);
+    linfo!("  TG WS Proxy started");
+    linfo!("  Address: {}:{}", host, port);
 
     let cancel_stats = cancel_root.clone();
     tokio::spawn(async move {
@@ -1156,17 +1421,19 @@ pub async fn run_proxy(
         }
     });
 
+    let mut sessions = tokio::task::JoinSet::new();
     loop {
         tokio::select! {
             _ = cancel_root.cancelled() => {
                 break;
             }
+            _ = sessions.join_next(), if !sessions.is_empty() => {}
             accept = listener.accept() => {
                 match accept {
                     Ok((conn, _)) => {
                         let p = pool.clone();
                         let cancel = cancel_sessions.read().child_token();
-                        tokio::spawn(async move {
+                        sessions.spawn(async move {
                             handle_client(p, conn, cancel).await;
                         });
                     }
@@ -1180,7 +1447,16 @@ pub async fn run_proxy(
 
     drop(listener);
     cancel_root.cancel();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    if tokio::time::timeout(Duration::from_secs(2), async {
+        while sessions.join_next().await.is_some() {}
+    })
+    .await
+    .is_err()
+    {
+        lwarn!("MTProto shutdown: aborting sessions that did not drain in time");
+        sessions.abort_all();
+        while sessions.join_next().await.is_some() {}
+    }
     pool.close_all().await;
     Ok(())
 }
@@ -1231,6 +1507,21 @@ mod tests {
     }
 
     #[test]
+    fn test_dc_target_ipv6_and_current_network() {
+        assert_eq!(get_dc_target_ipv6(1, false), "2001:b28:f23d:f001::a");
+        assert_eq!(get_dc_target_ipv6(2, false), "2001:67c:4e8:f002::a");
+        assert_eq!(get_dc_target_ipv6(1, true), "2001:b28:f23d:f001::b");
+        assert_eq!(get_dc_target_ipv6(2, true), "2001:67c:4e8:f002::b");
+
+        crate::recovery::set_ipv6_only_network(false);
+        assert_eq!(get_dc_target_ip_for_current_network(2, false), "149.154.167.51");
+
+        crate::recovery::set_ipv6_only_network(true);
+        assert_eq!(get_dc_target_ip_for_current_network(2, false), "2001:67c:4e8:f002::a");
+        crate::recovery::set_ipv6_only_network(false);
+    }
+
+    #[test]
     fn test_ws_domains_media_prefix() {
         let dc2_chat = ws_domains(2, false);
         assert_eq!(dc2_chat[0], "kws2.web.telegram.org");
@@ -1251,5 +1542,82 @@ mod tests {
         assert_eq!(map.get(&2), Some(&"149.154.167.51".to_string()));
         assert_eq!(map.get(&4), Some(&"149.154.167.91".to_string()));
         assert_eq!(map.get(&1), None);
+    }
+
+    #[tokio::test]
+    async fn test_ws_pool_demand_driven_sizing() {
+        let cancel = CancellationToken::new();
+        let pool = Arc::new(WsPool::new(cancel));
+
+        let slot_dc2_chat = DcSlot { dc: 2, is_media: 0 };
+        let slot_dc4_chat = DcSlot { dc: 4, is_media: 0 };
+        let slot_dc2_media = DcSlot { dc: 2, is_media: 1 };
+
+        // 1. Mobile profile: no demand -> target size 0
+        MOBILE_NETWORK.store(true, Ordering::Relaxed);
+        assert_eq!(pool.target_size(slot_dc2_chat), 0);
+        assert_eq!(pool.target_size(slot_dc4_chat), 0);
+
+        // 2. Client demands DC2 chat -> target size becomes 1 (standby)
+        pool.record_demand(2, false);
+        assert_eq!(pool.target_size(slot_dc2_chat), 1);
+        // DC4 and DC2 media were not demanded -> still 0
+        assert_eq!(pool.target_size(slot_dc4_chat), 0);
+        assert_eq!(pool.target_size(slot_dc2_media), 0);
+
+        // 3. Client demands DC2 media -> target size becomes 1
+        pool.record_demand(2, true);
+        assert_eq!(pool.target_size(slot_dc2_media), 1);
+
+        // 4. Wi-Fi profile: expands with useful RX
+        MOBILE_NETWORK.store(false, Ordering::Relaxed);
+        MTPROTO_STANDBY_PER_ACTIVE_SLOT_REQUESTED.store(4, Ordering::Relaxed);
+        assert_eq!(pool.target_size(slot_dc2_chat), 1); // Only 1 until sustained useful RX
+
+        pool.record_useful_rx(2, false);
+        pool.record_useful_rx(2, false);
+        assert_eq!(pool.target_size(slot_dc2_chat), 4); // Expands to 4 after sustained useful traffic
+
+        MOBILE_NETWORK.store(false, Ordering::Relaxed);
+    }
+
+    #[tokio::test]
+    async fn test_mtproto_race_child_cancellation_structure() {
+        let parent_cancel = CancellationToken::new();
+        let child_cancel = parent_cancel.child_token();
+
+        let active_tasks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut handles = Vec::new();
+
+        for i in 0..4 {
+            let cancel = child_cancel.clone();
+            let active = active_tasks.clone();
+            handles.push(tokio::spawn(async move {
+                active.fetch_add(1, Ordering::SeqCst);
+                tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => {
+                        active.fetch_sub(1, Ordering::SeqCst);
+                    }
+                    _ = tokio::time::sleep(Duration::from_millis(500 * (i + 1))) => {
+                        active.fetch_sub(1, Ordering::SeqCst);
+                    }
+                }
+            }));
+        }
+
+        // Initially all 4 tasks are active
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(active_tasks.load(Ordering::SeqCst), 4);
+
+        // Cancel child token (as happens when a winner is chosen)
+        child_cancel.cancel();
+
+        for handle in handles {
+            let _ = tokio::time::timeout(Duration::from_millis(200), handle).await;
+        }
+
+        // Active racer tasks must become 0 within bounded time
+        assert_eq!(active_tasks.load(Ordering::SeqCst), 0);
     }
 }

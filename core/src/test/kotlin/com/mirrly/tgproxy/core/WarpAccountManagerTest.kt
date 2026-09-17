@@ -36,9 +36,9 @@ class WarpAccountManagerTest {
     }
 
     @Test
-    fun testToAmneziaWgConfigIncludesQuicI1AndCleanEndpoint() {
+    fun testToAmneziaWgConfigIncludesCleanEndpoint() {
         val p = WarpAccountManager.BOOTSTRAP_PROFILE
-        val conf = p.toAmneziaWgConfig(cleanEndpoint = "188.114.96.1:500", sniCamouflage = "www.gosuslugi.ru")
+        val conf = p.toAmneziaWgConfig(cleanEndpoint = "188.114.96.1:500")
 
         assertTrue(conf.contains("[Interface]"), "Must contain [Interface]")
         assertTrue(conf.contains("[Peer]"), "Must contain [Peer]")
@@ -46,7 +46,7 @@ class WarpAccountManagerTest {
         assertTrue(conf.contains("Jc = 4"), "Must contain Jc")
         assertTrue(conf.contains("H1 = 1"), "Must contain H1")
         assertTrue(conf.contains("H4 = 4"), "Must contain H4")
-        assertTrue(conf.contains("I1 = <b 0x"), "Must contain generated QUIC Initial I1 packet")
+        assertTrue(!conf.contains("I1 ="), "Must NOT contain hallucinated I1 packet")
     }
 
     @Test
@@ -209,8 +209,8 @@ class WarpAccountManagerTest {
 
     @Test
     fun testFastDirectProbeTimeoutConstant() {
-        assertTrue(WarpObfuscatedHttpClient.DEFAULT_TIMEOUT_MS <= 700, "Direct probe timeout must be <= 700 ms per TSK-M07")
-        assertTrue(WarpObfuscatedHttpClient.DEFAULT_TIMEOUT_MS >= 500, "Direct probe timeout must be >= 500 ms")
+        assertTrue(WarpObfuscatedHttpClient.DEFAULT_TIMEOUT_MS >= 3000, "Direct probe timeout must be >= 3000 ms")
+        assertTrue(WarpObfuscatedHttpClient.DEFAULT_TIMEOUT_MS <= 10000, "Direct probe timeout must be <= 10000 ms")
     }
 
     @Test

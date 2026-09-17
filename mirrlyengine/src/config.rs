@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 // ---------------------------------------------------------------------------
@@ -13,14 +13,29 @@ pub const SOCKS5_DEFAULT_PORT: u16 = 10808;
 pub static TCP_NODELAY: AtomicBool = AtomicBool::new(true);
 pub const DEFAULT_RECV_BUF: usize = 256 * 1024;
 pub const DEFAULT_SEND_BUF: usize = 256 * 1024;
-pub const DEFAULT_POOL_SZ: i32 = 4;
+pub const DEFAULT_MTPROTO_STANDBY_PER_ACTIVE_SLOT: i32 = 2;
 
 pub const DC_FAIL_COOLDOWN: f64 = 30.0;
 pub const WS_FAIL_TIMEOUT: f64 = 2.0;
 
-pub const BRIDGE_READ_TIMEOUT: Duration = Duration::from_secs(120);
-pub const BRIDGE_PING_INTERVAL: Duration = Duration::from_secs(15);
-pub const WS_POOL_PING_INTERVAL: Duration = Duration::from_secs(10);
+/// Profile-aware absolute idle timeout for active bridges.
+/// Data idle != dead: a flow with active transport health (PONG frames / TCP keepalive)
+/// remains open across long idle pauses (10+ minutes). This absolute ceiling retires
+/// completely abandoned flows after 15–30 minutes to prevent resource leaks.
+pub fn profile_aware_absolute_idle_timeout() -> Duration {
+    let profile = crate::network_profile::get_profile();
+    match (profile.power_save_mode, profile.screen_on, profile.cellular) {
+        (true, _, _) => Duration::from_secs(30 * 60),        // 30 min in power save
+        (false, false, _) => Duration::from_secs(30 * 60),    // 30 min screen off
+        (false, true, true) => Duration::from_secs(15 * 60),   // 15 min active cellular
+        (false, true, false) => Duration::from_secs(30 * 60),  // 30 min active Wi-Fi
+    }
+}
+
+pub const BRIDGE_READ_TIMEOUT: Duration = Duration::from_secs(1800);
+pub const BRIDGE_WRITE_TIMEOUT: Duration = Duration::from_secs(15);
+pub const WS_HEARTBEAT_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+pub const WS_POOL_HOUSEKEEP_INTERVAL: Duration = Duration::from_secs(10);
 pub const WS_WRITE_TIMEOUT: Duration = Duration::from_secs(15);
 pub const WS_CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
 pub const WS_BRIDGE_CHUNK_SIZE: usize = 64 * 1024;
@@ -32,6 +47,7 @@ pub const WS_POOL_CONNECT_TIMEOUT: f64 = 8.0;
 pub const CFPROXY_CACHE_FILE_NAME: &str = "cfproxy-domains-cache.txt";
 pub const CFPROXY_REFRESH_INTERVAL: Duration = Duration::from_secs(12 * 3600);
 pub const CFPROXY_DIAL_PHASE_TIMEOUT: Duration = Duration::from_millis(2500);
+pub const CFPROXY_MOBILE_DIAL_TIMEOUT: Duration = Duration::from_millis(4000);
 pub const CFPROXY_RACE_TIMEOUT: Duration = Duration::from_millis(2000);
 pub const CFPROXY_RACE_INTERVAL: Duration = Duration::from_secs(3600);
 pub const CFPROXY_FALLBACK_PARALLEL: usize = 4;
@@ -39,10 +55,114 @@ pub const CFPROXY_429_COOLDOWN: Duration = Duration::from_secs(45);
 pub const CFPROXY_429_MAX_COOLDOWN: Duration = Duration::from_secs(300);
 pub const CFPROXY_GLOBAL_PARALLEL: usize = 4;
 
+pub const MIN_SOCKET_BUFFER: i32 = 32 * 1024;
+pub const MAX_SOCKET_BUFFER: i32 = 2 * 1024 * 1024;
+
+pub static REQUESTED_RECV_BUF: AtomicI32 = AtomicI32::new(DEFAULT_RECV_BUF as i32);
+pub static REQUESTED_SEND_BUF: AtomicI32 = AtomicI32::new(DEFAULT_SEND_BUF as i32);
 pub static RECV_BUF: AtomicI32 = AtomicI32::new(DEFAULT_RECV_BUF as i32);
 pub static SEND_BUF: AtomicI32 = AtomicI32::new(DEFAULT_SEND_BUF as i32);
-pub static POOL_SIZE: AtomicI32 = AtomicI32::new(DEFAULT_POOL_SZ);
+pub static LAST_OS_RECV_BUF: AtomicI32 = AtomicI32::new(0);
+pub static LAST_OS_SEND_BUF: AtomicI32 = AtomicI32::new(0);
+pub static SOCKETS_CONFIGURED_TOTAL: AtomicU64 = AtomicU64::new(0);
+pub static LAST_LOGGED_OS_BUFFER_PAIR: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SocketBufferStatus {
+    pub configured_recv_bytes: i32,
+    pub configured_send_bytes: i32,
+    pub clamped_recv_bytes: i32,
+    pub clamped_send_bytes: i32,
+    pub last_os_recv_bytes: i32,
+    pub last_os_send_bytes: i32,
+    pub sockets_configured_total: u64,
+    pub autotune_baseline: bool,
+}
+
+pub fn get_socket_buffer_status() -> SocketBufferStatus {
+    let configured_recv = REQUESTED_RECV_BUF.load(Ordering::Relaxed);
+    let configured_send = REQUESTED_SEND_BUF.load(Ordering::Relaxed);
+    let clamped_recv = RECV_BUF.load(Ordering::Relaxed);
+    let clamped_send = SEND_BUF.load(Ordering::Relaxed);
+    let autotune = clamped_recv == 0 && clamped_send == 0;
+    SocketBufferStatus {
+        configured_recv_bytes: configured_recv,
+        configured_send_bytes: configured_send,
+        clamped_recv_bytes: clamped_recv,
+        clamped_send_bytes: clamped_send,
+        last_os_recv_bytes: LAST_OS_RECV_BUF.load(Ordering::Relaxed),
+        last_os_send_bytes: LAST_OS_SEND_BUF.load(Ordering::Relaxed),
+        sockets_configured_total: SOCKETS_CONFIGURED_TOTAL.load(Ordering::Relaxed),
+        autotune_baseline: autotune,
+    }
+}
+
+pub static MTPROTO_STANDBY_PER_ACTIVE_SLOT_REQUESTED: AtomicI32 =
+    AtomicI32::new(DEFAULT_MTPROTO_STANDBY_PER_ACTIVE_SLOT);
 pub static LOG_VERBOSE: AtomicBool = AtomicBool::new(false);
+/// Set by the Android connectivity observer. Wi-Fi keeps the existing tuning;
+/// cellular uses a smaller shared dial budget and a conservative idle pool.
+pub static MOBILE_NETWORK: AtomicBool = AtomicBool::new(false);
+
+// ---------------------------------------------------------------------------
+// Transport Pool & Concurrency Metrics (MOB-016)
+// ---------------------------------------------------------------------------
+
+pub const MTPROTO_MIN_STANDBY: i32 = 1;
+pub const MTPROTO_MAX_STANDBY: i32 = 4;
+
+/// Computes the effective MTProto standby socket limit per active DC slot.
+/// On mobile: 1 standby socket to keep resource and radio footprint minimal.
+/// On Wi-Fi: requested pool size clamped to 1..4 (native upper bound).
+pub fn effective_mtproto_standby(requested: i32, is_mobile: bool) -> usize {
+    if is_mobile {
+        1
+    } else {
+        requested.clamp(MTPROTO_MIN_STANDBY, MTPROTO_MAX_STANDBY) as usize
+    }
+}
+
+/// Global establishment (dial) budget.
+/// On mobile: 2 active establishments.
+/// On Wi-Fi: 4 active establishments.
+pub fn global_establishment_budget(is_mobile: bool) -> usize {
+    if is_mobile {
+        2
+    } else {
+        4
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TransportPoolStatus {
+    pub transport: String,
+    pub is_mobile: bool,
+    pub mtproto_standby_per_active_slot_requested: i32,
+    pub mtproto_standby_per_active_slot_effective: i32,
+    pub global_establishment_budget: usize,
+    pub socks_concurrent_flows: i64,
+}
+
+pub fn get_transport_pool_status(running_transport: &str) -> TransportPoolStatus {
+    let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
+    let requested = MTPROTO_STANDBY_PER_ACTIVE_SLOT_REQUESTED.load(Ordering::Relaxed);
+    let effective = effective_mtproto_standby(requested, is_mobile) as i32;
+    let budget = global_establishment_budget(is_mobile);
+    let flows = if running_transport == "socks5" {
+        STATS.connections_active.load(Ordering::Relaxed)
+    } else {
+        0
+    };
+
+    TransportPoolStatus {
+        transport: running_transport.to_string(),
+        is_mobile,
+        mtproto_standby_per_active_slot_requested: requested,
+        mtproto_standby_per_active_slot_effective: effective,
+        global_establishment_budget: budget,
+        socks_concurrent_flows: flows,
+    }
+}
 
 #[derive(Clone)]
 pub struct Cfproxy429State {
@@ -180,6 +300,14 @@ pub struct Stats {
     pub connections_ws: AtomicI64,
     pub connections_tcp_fallback: AtomicI64,
     pub connections_cfproxy: AtomicI64,
+    pub connections_masque: AtomicI64,
+    pub connections_awg: AtomicI64,
+    pub connections_vless: AtomicI64,
+    pub connections_opera: AtomicI64,
+    pub socks5_v2_sessions: AtomicI64,
+    pub socks5_v1_downgrades: AtomicI64,
+    pub socks5_fastpath_hits: AtomicI64,
+    pub socks5_fallback_triggers: AtomicI64,
     pub connections_http_reject: AtomicI64,
     pub connections_passthrough: AtomicI64,
     pub connections_bad: AtomicI64,
@@ -197,11 +325,19 @@ impl Stats {
         let ph = self.pool_hits.load(Ordering::Relaxed);
         let pm = self.pool_misses.load(Ordering::Relaxed);
         format!(
-            "total={} active={} ws={} cf={} bad={} err={} pool={}/{} up={} down={}",
+            "total={} active={} ws={} cf={} masque={} awg={} vless={} opera={} v2={} v1_down={} fp={} fb={} bad={} err={} pool={}/{} up={} down={}",
             self.connections_total.load(Ordering::Relaxed),
             self.connections_active.load(Ordering::Relaxed),
             self.connections_ws.load(Ordering::Relaxed),
             self.connections_cfproxy.load(Ordering::Relaxed),
+            self.connections_masque.load(Ordering::Relaxed),
+            self.connections_awg.load(Ordering::Relaxed),
+            self.connections_vless.load(Ordering::Relaxed),
+            self.connections_opera.load(Ordering::Relaxed),
+            self.socks5_v2_sessions.load(Ordering::Relaxed),
+            self.socks5_v1_downgrades.load(Ordering::Relaxed),
+            self.socks5_fastpath_hits.load(Ordering::Relaxed),
+            self.socks5_fallback_triggers.load(Ordering::Relaxed),
             self.connections_bad.load(Ordering::Relaxed),
             self.ws_errors.load(Ordering::Relaxed),
             ph,
@@ -224,6 +360,38 @@ impl Stats {
         if cf > 0 {
             parts.push(format!("cf:{}", cf));
         }
+        let masque = self.connections_masque.load(Ordering::Relaxed);
+        if masque > 0 {
+            parts.push(format!("masque:{}", masque));
+        }
+        let awg = self.connections_awg.load(Ordering::Relaxed);
+        if awg > 0 {
+            parts.push(format!("awg:{}", awg));
+        }
+        let vless = self.connections_vless.load(Ordering::Relaxed);
+        if vless > 0 {
+            parts.push(format!("vless:{}", vless));
+        }
+        let opera = self.connections_opera.load(Ordering::Relaxed);
+        if opera > 0 {
+            parts.push(format!("opera:{}", opera));
+        }
+        let v2 = self.socks5_v2_sessions.load(Ordering::Relaxed);
+        if v2 > 0 {
+            parts.push(format!("v2:{}", v2));
+        }
+        let v1_down = self.socks5_v1_downgrades.load(Ordering::Relaxed);
+        if v1_down > 0 {
+            parts.push(format!("v1_down:{}", v1_down));
+        }
+        let fp = self.socks5_fastpath_hits.load(Ordering::Relaxed);
+        if fp > 0 {
+            parts.push(format!("fp:{}", fp));
+        }
+        let fb = self.socks5_fallback_triggers.load(Ordering::Relaxed);
+        if fb > 0 {
+            parts.push(format!("fb:{}", fb));
+        }
         let err = self.ws_errors.load(Ordering::Relaxed);
         if err > 0 {
             parts.push(format!("ош:{}", err));
@@ -242,6 +410,14 @@ impl Stats {
         self.connections_ws.store(0, Ordering::Relaxed);
         self.connections_tcp_fallback.store(0, Ordering::Relaxed);
         self.connections_cfproxy.store(0, Ordering::Relaxed);
+        self.connections_masque.store(0, Ordering::Relaxed);
+        self.connections_awg.store(0, Ordering::Relaxed);
+        self.connections_vless.store(0, Ordering::Relaxed);
+        self.connections_opera.store(0, Ordering::Relaxed);
+        self.socks5_v2_sessions.store(0, Ordering::Relaxed);
+        self.socks5_v1_downgrades.store(0, Ordering::Relaxed);
+        self.socks5_fastpath_hits.store(0, Ordering::Relaxed);
+        self.socks5_fallback_triggers.store(0, Ordering::Relaxed);
         self.connections_http_reject.store(0, Ordering::Relaxed);
         self.connections_passthrough.store(0, Ordering::Relaxed);
         self.connections_bad.store(0, Ordering::Relaxed);

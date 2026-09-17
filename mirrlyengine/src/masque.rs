@@ -63,25 +63,34 @@ pub fn reset_masque_cooldown() {
 }
 
 // ---------------------------------------------------------------------------
-// Active Cascade Stage (0=None/Direct, 1=MASQUE HTTP/3, 2=AmneziaWG, 3=Worker WSS)
+// Active Cascade Stage (routed through unified RouteSupervisor)
 // ---------------------------------------------------------------------------
-pub const CASCADE_STAGE_NONE: i32 = 0;
-pub const CASCADE_STAGE_MASQUE: i32 = 1;
-pub const CASCADE_STAGE_AWG: i32 = 2;
-pub const CASCADE_STAGE_WORKER: i32 = 3;
-
-pub static ACTIVE_CASCADE_STAGE: AtomicI32 = AtomicI32::new(CASCADE_STAGE_NONE);
+pub use crate::supervisor::{
+    CASCADE_STAGE_AWG, CASCADE_STAGE_DIRECT, CASCADE_STAGE_MASQUE, CASCADE_STAGE_NONE,
+    CASCADE_STAGE_OPERA, CASCADE_STAGE_VLESS, CASCADE_STAGE_VLESS_OPERA_HOP, CASCADE_STAGE_WORKER,
+};
 
 pub fn set_active_cascade_stage(stage: i32) {
-    ACTIVE_CASCADE_STAGE.store(stage, Ordering::Relaxed);
+    let kind = match stage {
+        CASCADE_STAGE_MASQUE => crate::supervisor::RouteKind::Masque,
+        CASCADE_STAGE_AWG => crate::supervisor::RouteKind::Awg,
+        CASCADE_STAGE_WORKER => crate::supervisor::RouteKind::Worker,
+        CASCADE_STAGE_VLESS => crate::supervisor::RouteKind::VlessDirect,
+        CASCADE_STAGE_VLESS_OPERA_HOP => crate::supervisor::RouteKind::VlessOperaHop,
+        CASCADE_STAGE_OPERA => crate::supervisor::RouteKind::OperaDirect,
+        CASCADE_STAGE_DIRECT => crate::supervisor::RouteKind::Direct,
+        _ => crate::supervisor::RouteKind::None,
+    };
+    crate::supervisor::ROUTE_SUPERVISOR.transition_to(kind, "masque_set_active_stage");
 }
 
 pub fn get_active_cascade_stage() -> i32 {
-    ACTIVE_CASCADE_STAGE.load(Ordering::Relaxed)
+    crate::supervisor::ROUTE_SUPERVISOR.get_active_stage()
 }
 
 pub fn reset_active_cascade_stage() {
-    ACTIVE_CASCADE_STAGE.store(CASCADE_STAGE_NONE, Ordering::Relaxed);
+    crate::supervisor::ROUTE_SUPERVISOR
+        .transition_to(crate::supervisor::RouteKind::None, "masque_reset_stage");
 }
 
 // Cloudflare WARP MASQUE Configuration
@@ -3322,108 +3331,14 @@ pub fn calculate_effective_mtu(
 }
 
 /// Resolves a target address string into an IP address (IPv4 or IPv6) and port.
+/// Under UserInTunnel scope, ensures zero plaintext DNS fallback to the host OS.
 pub async fn parse_target_endpoint(target_addr: &str) -> Result<(std::net::IpAddr, u16), String> {
-    let clean = target_addr.trim();
-    if clean.is_empty() {
-        return Err("empty target address".to_string());
-    }
-
-    let (host_clean, port) = if clean.starts_with('[') {
-        // Bracketed notation, e.g. [2001:db8::1]:443 or [2001:db8::1] or [127.0.0.1]:80
-        if let Some(close_pos) = clean.find(']') {
-            let host = &clean[1..close_pos];
-            let rest = &clean[close_pos + 1..];
-            let port = if rest.starts_with(':') {
-                rest[1..].parse::<u16>().unwrap_or(443)
-            } else {
-                443
-            };
-            (host, port)
-        } else {
-            return Err(format!("unmatched bracket in target address: {}", clean));
-        }
-    } else if let Some(last_colon) = clean.rfind(':') {
-        // Could be host:port OR IPv6 literal without brackets like 2001:db8::1
-        let first_colon = clean.find(':').unwrap();
-        if first_colon != last_colon {
-            // Multiple colons without brackets -> IPv6 address
-            if clean.parse::<std::net::Ipv6Addr>().is_ok() {
-                (clean, 443)
-            } else {
-                // Try splitting if last token is numeric port
-                let host_part = &clean[..last_colon];
-                let port_part = &clean[last_colon + 1..];
-                if let Ok(p) = port_part.parse::<u16>() {
-                    if host_part.parse::<std::net::Ipv6Addr>().is_ok() {
-                        (host_part, p)
-                    } else {
-                        return Err(format!("ambiguous IPv6 address (brackets required): {}", clean));
-                    }
-                } else {
-                    return Err(format!("invalid IPv6 address: {}", clean));
-                }
-            }
-        } else {
-            // Single colon: host:port
-            let host = &clean[..last_colon];
-            let port = clean[last_colon + 1..].parse::<u16>().unwrap_or(443);
-            (host, port)
-        }
-    } else {
-        (clean, 443)
-    };
-
-    let host_trimmed = host_clean.trim_matches('[').trim_matches(']');
-
-    // 1. Literal IPv4
-    if let Ok(v4) = host_trimmed.parse::<std::net::Ipv4Addr>() {
-        return Ok((std::net::IpAddr::V4(v4), port));
-    }
-
-    // 2. Literal IPv6
-    if let Ok(v6) = host_trimmed.parse::<std::net::Ipv6Addr>() {
-        return Ok((std::net::IpAddr::V6(v6), port));
-    }
-
-    // 3. Hostname DNS resolution
-    match tokio::net::lookup_host(format!("{}:{}", host_trimmed, port)).await {
-        Ok(iter) => {
-            let mut first_v4 = None;
-            let mut first_v6 = None;
-            for addr in iter {
-                match addr {
-                    SocketAddr::V4(v4) => {
-                        if first_v4.is_none() {
-                            first_v4 = Some((std::net::IpAddr::V4(*v4.ip()), v4.port()));
-                        }
-                    }
-                    SocketAddr::V6(v6) => {
-                        if first_v6.is_none() {
-                            first_v6 = Some((std::net::IpAddr::V6(*v6.ip()), v6.port()));
-                        }
-                    }
-                }
-            }
-            if let Some(v4) = first_v4 {
-                return Ok(v4);
-            }
-            if let Some(v6) = first_v6 {
-                return Ok(v6);
-            }
-            Err(format!("no IP address resolved for host {}", host_trimmed))
-        }
-        Err(e) => Err(format!("DNS resolution failed for {}: {}", host_trimmed, e)),
-    }
+    crate::dns::parse_target_endpoint(target_addr).await
 }
 
 /// Resolves a target address string into an IPv4 address and port.
 pub async fn parse_target_ipv4(target_addr: &str) -> Result<(std::net::Ipv4Addr, u16), String> {
-    match parse_target_endpoint(target_addr).await? {
-        (std::net::IpAddr::V4(v4), port) => Ok((v4, port)),
-        (std::net::IpAddr::V6(v6), _) => {
-            Err(format!("no IPv4 address resolved for host {}", v6))
-        }
-    }
+    crate::dns::parse_target_ipv4(target_addr).await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -3860,10 +3775,15 @@ impl MasqueTunnel {
 
     pub async fn run_smoltcp_bridge(
         &self,
-        client: tokio::net::TcpStream,
+        mut client: tokio::net::TcpStream,
         cancel_token: CancellationToken,
     ) -> Result<(), std::io::Error> {
         if self.is_raw_l4 {
+            if let Err(e) = client.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await {
+                return Err(e);
+            }
+            STATS.connections_masque.fetch_add(1, Ordering::Relaxed);
+            crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(true, None);
             return self.run_raw_l4_bridge(client, cancel_token).await;
         }
 
@@ -3875,6 +3795,8 @@ impl MasqueTunnel {
                     self.target_addr,
                     e
                 );
+                let _ = client.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Target endpoint unresolvable"));
                 return Err(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, e));
             }
         };
@@ -3986,6 +3908,8 @@ impl MasqueTunnel {
                         target_v4,
                         target_port
                     );
+                    let _ = client.write_all(&[0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("No client IPv4 for IPv4 target"));
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::AddrNotAvailable,
                         format!("IPv4 target '{}' is unsupported: no client IPv4 configured or address withdrawn by proxy", self.target_addr),
@@ -4000,6 +3924,8 @@ impl MasqueTunnel {
                         target_v6,
                         target_port
                     );
+                    let _ = client.write_all(&[0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("No client IPv6 for IPv6 target"));
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::AddrNotAvailable,
                         format!("IPv6 target '{}' is unsupported: no client IPv6 configured or assigned", self.target_addr),
@@ -4068,6 +3994,8 @@ impl MasqueTunnel {
 
         if let Err(e) = socket.connect(iface.context(), remote_ep, local_ep) {
             lerror!("MASQUE: smoltcp socket connect error: {:?}", e);
+            let _ = client.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+            crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("smoltcp socket connect error"));
             return Err(std::io::Error::new(
                 std::io::ErrorKind::ConnectionRefused,
                 format!("{:?}", e),
@@ -4092,6 +4020,9 @@ impl MasqueTunnel {
         let (mut c_read, mut c_write) = client.into_split();
         let mut dgram_rx = self.dgram_rx.lock().await;
 
+        let mut client_eof = false;
+        let mut upload_fin_sent = false;
+        let mut client_fin_sent = false;
         let mut pending_client_data: Vec<u8> = Vec::with_capacity(32 * 1024);
         let mut read_temp_buf = [0u8; 16 * 1024];
         let mut recv_temp_buf = [0u8; 16 * 1024];
@@ -4101,6 +4032,10 @@ impl MasqueTunnel {
 
         loop {
             if cancel_token.is_cancelled() {
+                if !handshake_logged {
+                    let _ = c_write.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Cancelled during connect"));
+                }
                 let socket = sockets.get_mut::<TcpSocket>(sock_handle);
                 socket.abort();
                 iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
@@ -4134,6 +4069,11 @@ impl MasqueTunnel {
                 }
             }
 
+            if client_eof && pending_client_data.is_empty() && !upload_fin_sent {
+                sockets.get_mut::<TcpSocket>(sock_handle).close();
+                upload_fin_sent = true;
+                needs_poll = true;
+            }
             // 2. Drain smoltcp socket to Telegram client c_write
             loop {
                 let socket = sockets.get_mut::<TcpSocket>(sock_handle);
@@ -4143,10 +4083,18 @@ impl MasqueTunnel {
                 match socket.recv_slice(&mut recv_temp_buf) {
                     Ok(n) if n > 0 => {
                         STATS.bytes_down.fetch_add(n as i64, Ordering::Relaxed);
-                        if let Err(e) = c_write.write_all(&recv_temp_buf[..n]).await {
+                        if let Err(e) = crate::socks5::bounded_write(
+                            &mut c_write,
+                            &recv_temp_buf[..n],
+                            &cancel_token,
+                            crate::config::BRIDGE_WRITE_TIMEOUT,
+                        )
+                        .await
+                        {
                             ldebug!("MASQUE: client write error: {}", e);
                             let socket = sockets.get_mut::<TcpSocket>(sock_handle);
                             socket.abort();
+                            crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Client stream write error"));
                             return Err(e);
                         }
                         needs_poll = true;
@@ -4155,6 +4103,13 @@ impl MasqueTunnel {
                 }
             }
 
+            // Remote FIN is directional: deliver queued bytes before local FIN,
+            // and retain the smoltcp send side for any remaining client upload.
+            if handshake_logged && !client_fin_sent && !sockets.get_mut::<TcpSocket>(sock_handle).may_recv() {
+                crate::socks5::bounded_shutdown(&mut c_write, &cancel_token,
+                    crate::config::BRIDGE_WRITE_TIMEOUT).await?;
+                client_fin_sent = true;
+            }
             // 3. Poll if state changed
             if needs_poll {
                 iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
@@ -4180,27 +4135,37 @@ impl MasqueTunnel {
                     "MASQUE smoltcp: TCP connection established to {}",
                     self.target_addr
                 );
+                if let Err(e) = crate::socks5::bounded_write(
+                    &mut c_write,
+                    &[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0],
+                    &cancel_token,
+                    crate::config::BRIDGE_WRITE_TIMEOUT,
+                )
+                .await
+                {
+                    ldebug!("MASQUE: failed to send SOCKS5 success: {}", e);
+                    let socket = sockets.get_mut::<TcpSocket>(sock_handle);
+                    socket.abort();
+                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Client disconnected before SOCKS REP"));
+                    return Err(e);
+                }
                 handshake_logged = true;
+                STATS.connections_masque.fetch_add(1, Ordering::Relaxed);
+                crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(true, None);
             }
 
             if state == TcpState::Closed {
+                if !handshake_logged {
+                    lwarn!("MASQUE smoltcp: target connection refused (TCP RST) for {}", self.target_addr);
+                    let _ = c_write.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                    crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Connection refused (TCP RST)"));
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionRefused,
+                        "smoltcp target connection refused (RST)",
+                    ));
+                }
                 ldebug!("MASQUE smoltcp: TCP socket closed gracefully");
                 break;
-            }
-
-            if state == TcpState::CloseWait && pending_client_data.is_empty() {
-                let socket = sockets.get_mut::<TcpSocket>(sock_handle);
-                socket.close();
-                iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
-                self.flush_smoltcp_tx(
-                    &mut dev,
-                    &mut iface,
-                    &mut sockets,
-                    target_ip,
-                    current_effective_v4,
-                    current_effective_v6,
-                )
-                .await?;
             }
 
             if !handshake_logged && tokio::time::Instant::now() > handshake_deadline {
@@ -4208,6 +4173,8 @@ impl MasqueTunnel {
                     "MASQUE smoltcp: handshake timeout (10s) to {}",
                     self.target_addr
                 );
+                let _ = c_write.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("TCP connect timeout to destination"));
                 let socket = sockets.get_mut::<TcpSocket>(sock_handle);
                 socket.abort();
                 return Err(std::io::Error::new(
@@ -4217,7 +4184,7 @@ impl MasqueTunnel {
             }
 
             // 5. Select on events
-            let can_read_client = pending_client_data.len() < 64 * 1024 && may_send;
+            let can_read_client = !client_eof && handshake_logged && pending_client_data.len() < 64 * 1024 && may_send;
             let poll_delay = iface.poll_delay(SmolInstant::now(), &sockets);
             let sleep_dur = match poll_delay {
                 Some(d) => Duration::from_micros(d.total_micros())
@@ -4227,25 +4194,17 @@ impl MasqueTunnel {
 
             tokio::select! {
                 _ = cancel_token.cancelled() => {
+                    if !handshake_logged {
+                        let _ = c_write.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                        crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(false, Some("Cancelled during connect"));
+                    }
                     let socket = sockets.get_mut::<TcpSocket>(sock_handle);
                     socket.abort();
                     break;
                 }
                 res = c_read.read(&mut read_temp_buf), if can_read_client => {
                     match res {
-                        Ok(0) => {
-                            let socket = sockets.get_mut::<TcpSocket>(sock_handle);
-                            socket.close();
-                            iface.poll(SmolInstant::now(), &mut dev, &mut sockets);
-                            self.flush_smoltcp_tx(
-                                &mut dev,
-                                &mut iface,
-                                &mut sockets,
-                                target_ip,
-                                current_effective_v4,
-                                current_effective_v6,
-                            ).await?;
-                        }
+                        Ok(0) => { client_eof = true; }
                         Ok(n) => {
                             pending_client_data.extend_from_slice(&read_temp_buf[..n]);
                             let socket = sockets.get_mut::<TcpSocket>(sock_handle);
@@ -4403,6 +4362,7 @@ impl MasqueTunnel {
             }
         }
 
+        let _ = crate::socks5::bounded_shutdown(&mut c_write, &cancel_token, Duration::from_secs(2)).await;
         Ok(())
     }
 
@@ -4412,69 +4372,134 @@ impl MasqueTunnel {
         cancel_token: CancellationToken,
     ) -> Result<(), std::io::Error> {
         let (mut c_read, mut c_write) = client.into_split();
-        let cancel = Arc::new(tokio::sync::Notify::new());
+        let bridge_cancel = cancel_token.child_token();
+        let _bridge_guard = bridge_cancel.clone().drop_guard();
+        let activity = crate::bridge::BridgeActivity::new();
+        let last_activity = Arc::new(parking_lot::RwLock::new(std::time::Instant::now()));
 
-        let cancel_up = cancel.clone();
-        let cancel_token_up = cancel_token.clone();
-        let mut send_lock = self.send_stream.lock().await;
+        let bridge_cancel_up = bridge_cancel.clone();
+        let mut send_lock = tokio::select! {
+            biased;
+            _ = bridge_cancel.cancelled() => return Err(std::io::ErrorKind::Interrupted.into()),
+            lock = self.send_stream.lock() => lock,
+        };
+        let la_up = last_activity.clone();
 
         let up = async {
             let mut buf = vec![0u8; crate::config::WS_BRIDGE_CHUNK_SIZE];
             loop {
                 let res = tokio::select! {
-                    _ = cancel_token_up.cancelled() => break,
-                    _ = cancel_up.notified() => break,
-                    r = tokio::time::timeout(crate::config::BRIDGE_READ_TIMEOUT, c_read.read(&mut buf)) => r,
+                    _ = bridge_cancel_up.cancelled() => break,
+                    r = tokio::time::timeout(Duration::from_secs(30), c_read.read(&mut buf)) => r,
                 };
                 match res {
-                    Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
+                    Ok(Ok(0)) => {
+                        // QUIC FIN follows all queued DATA; downstream remains independent.
+                        if send_lock.finish().is_err() { bridge_cancel_up.cancel(); }
+                        break;
+                    }
+                    Ok(Err(e)) => {
+                        ldebug!("MASQUE L4: client read error: {}", e);
+                        bridge_cancel_up.cancel();
+                        break;
+                    }
+                    Err(_) => {
+                        // 30-second chunk timeout: check if connection was idle overall
+                        let idle = la_up.read().elapsed();
+                        if idle >= crate::config::profile_aware_absolute_idle_timeout() {
+                            ldebug!("MASQUE L4: upload idle timeout exceeded ({}s)", idle.as_secs());
+                            bridge_cancel_up.cancel();
+                            break;
+                        }
+                        // Downstream is actively transferring; continue upload read
+                        continue;
+                    }
                     Ok(Ok(n)) => {
+                        activity.touch();
+                        *la_up.write() = std::time::Instant::now();
                         STATS.bytes_up.fetch_add(n as i64, Ordering::Relaxed);
                         let mut frame = Vec::with_capacity(n + 10);
                         encode_varint(&mut frame, H3_FRAME_DATA);
                         encode_varint(&mut frame, n as u64);
                         frame.extend_from_slice(&buf[..n]);
-                        if send_lock.write_all(&frame).await.is_err() {
+
+                        let write_res = tokio::select! {
+                            _ = bridge_cancel_up.cancelled() => Err(std::io::Error::new(
+                                std::io::ErrorKind::Interrupted,
+                                "operation cancelled"
+                            )),
+                            w = tokio::time::timeout(crate::config::BRIDGE_WRITE_TIMEOUT, send_lock.write_all(&frame)) => match w {
+                                Ok(Ok(())) => Ok(()),
+                                Ok(Err(e)) => Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+                                Err(_) => Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "write timeout")),
+                            }
+                        };
+                        if let Err(e) = write_res {
+                            ldebug!("MASQUE L4: send_stream write error: {}", e);
+                            bridge_cancel_up.cancel();
                             break;
                         }
                     }
                 }
             }
-            cancel_up.notify_waiters();
         };
 
-        let cancel_down = cancel.clone();
-        let cancel_token_down = cancel_token.clone();
-        let mut recv_lock = self.recv_reader.lock().await;
+        let bridge_cancel_down = bridge_cancel.clone();
+        let mut recv_lock = tokio::select! {
+            biased;
+            _ = bridge_cancel.cancelled() => return Err(std::io::ErrorKind::Interrupted.into()),
+            lock = self.recv_reader.lock() => lock,
+        };
+        let la_down = last_activity.clone();
 
         let down = async {
             let mut buf = vec![0u8; 64 * 1024];
             if let Some(reader) = recv_lock.as_mut() {
                 loop {
-                    let res = tokio::select! {
-                        _ = cancel_token_down.cancelled() => break,
-                        _ = cancel_down.notified() => break,
-                        r = tokio::time::timeout(crate::config::BRIDGE_READ_TIMEOUT, reader.read_data(&mut buf)) => r,
-                    };
+                    let res = activity.wait(reader.read_data(&mut buf), &bridge_cancel_down).await;
                     match res {
                         Ok(Ok(n)) if n > 0 => {
+                            activity.touch();
+                            *la_down.write() = std::time::Instant::now();
                             STATS.bytes_down.fetch_add(n as i64, Ordering::Relaxed);
-                            if c_write.write_all(&buf[..n]).await.is_err() {
+                            if let Err(e) = crate::socks5::bounded_write(
+                                &mut c_write,
+                                &buf[..n],
+                                &bridge_cancel_down,
+                                crate::config::BRIDGE_WRITE_TIMEOUT,
+                            )
+                            .await
+                            {
+                                ldebug!("MASQUE L4: client write error: {}", e);
+                                bridge_cancel_down.cancel();
                                 break;
                             }
                         }
-                        _ => break,
+                        Ok(Ok(_)) => {
+                            // Upstream EOF or error: cleanly half-close client write side
+                            if crate::socks5::bounded_shutdown(
+                                &mut c_write,
+                                &bridge_cancel_down,
+                                crate::config::BRIDGE_WRITE_TIMEOUT,
+                            )
+                            .await.is_err() { bridge_cancel_down.cancel(); }
+                            break;
+                        }
+                        Ok(Err(_)) => { bridge_cancel_down.cancel(); break; }
+                        Err(_) => {
+                            // A deadline/cancellation terminates this framed read;
+                            // never restart it after consuming a partial HTTP/3 frame.
+                            bridge_cancel_down.cancel();
+                            break;
+                        }
                     }
                 }
             }
-            cancel_down.notify_waiters();
         };
 
-        tokio::select! {
-            _ = up => {},
-            _ = down => {},
-        }
-        cancel.notify_waiters();
+        let _ = tokio::join!(up, down);
+        bridge_cancel.cancel();
+        let _ = crate::socks5::bounded_shutdown(&mut c_write, &cancel_token, Duration::from_secs(2)).await;
         Ok(())
     }
 }
@@ -4491,13 +4516,15 @@ pub async fn masque_acquire_tunnel(
         return None;
     }
     if is_masque_on_cooldown() {
-        ldebug!("MASQUE: Anycast на кулдауне (блокировка ТСПУ), переход на альтернативный Anycast-канал");
+        ldebug!("MASQUE: Anycast on cooldown (DPI block), switching to alternative Anycast channel");
         return None;
     }
 
     let overall_start = tokio::time::Instant::now();
     let overall_budget = if get_uplink_mode() == UPLINK_MASQUE {
         Duration::from_millis(5000)
+    } else if get_uplink_mode() == UPLINK_WARP_CASCADE {
+        Duration::from_millis(1000)
     } else {
         Duration::from_millis(3500)
     };
@@ -4521,6 +4548,8 @@ pub async fn masque_acquire_tunnel(
     let sticky_ep_opt = get_sticky_endpoint();
     let max_candidates = if get_uplink_mode() == UPLINK_MASQUE {
         4
+    } else if get_uplink_mode() == UPLINK_WARP_CASCADE {
+        1
     } else {
         2
     };
@@ -4879,13 +4908,12 @@ pub async fn masque_acquire_tunnel(
                 let lookup_res = tokio::select! {
                     _ = cancel_token.cancelled() => return None,
                     _ = tokio::time::sleep(lookup_budget) => None,
-                    res = tokio::net::lookup_host(&ep_str) => res.ok(),
+                    res = crate::dns::resolve_target_endpoint(&ep_str, crate::dns::DnsScope::Bootstrap) => {
+                        res.ok().map(|(ip, port)| SocketAddr::new(ip, port))
+                    }
                 };
                 match lookup_res {
-                    Some(mut addrs) => match addrs.next() {
-                        Some(a) => a,
-                        None => continue,
-                    },
+                    Some(a) => a,
                     None => continue,
                 }
             }
@@ -5342,7 +5370,7 @@ pub async fn masque_acquire_tunnel(
     };
     set_masque_cooldown(cooldown_secs);
     lwarn!(
-        "MASQUE: Anycast эндпоинты недоступны для {} (общий бюджет {:?}), кулдаун {}с",
+        "MASQUE: Anycast endpoints unreachable for {} (total budget {:?}), cooldown {}s",
         target_addr,
         overall_budget,
         cooldown_secs

@@ -22,6 +22,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -56,6 +57,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -66,25 +68,25 @@ import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.TgConstants
 import com.mirrly.tgproxy.ui.theme.*
 
-private enum class GuideTab(val title: String) {
-    PC("Компьютер"),
-    PHONE("Андроид"),
-    SCRIPT("Скрипт воркера"),
-    FAQ("Преимущества и FAQ")
+private enum class GuideTab(@StringRes val titleRes: Int) {
+    PC(R.string.cf_guide_tab_pc),
+    PHONE(R.string.cf_guide_tab_phone),
+    SCRIPT(R.string.cf_guide_tab_script),
+    FAQ(R.string.cf_guide_tab_faq)
 }
 
 private data class GuideStepItem(
     val stepNumber: String,
-    val title: String,
-    val description: String,
-    val actionText: String? = null,
+    @StringRes val titleRes: Int,
+    @StringRes val descRes: Int,
+    @StringRes val actionTextRes: Int? = null,
     val isCopyAction: Boolean = false,
     val isDashAction: Boolean = false
 )
 
 private data class FaqItem(
-    val title: String,
-    val description: String
+    @StringRes val titleRes: Int,
+    @StringRes val descRes: Int
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,8 +129,8 @@ fun CloudflareWorkerGuideScreen(
     if (showDashboardConfirmDialog) {
         ExternalLinkConfirmDialog(
             url = "https://dash.cloudflare.com/",
-            title = "Панель Cloudflare Dashboard",
-            description = "Ссылка ведет на официальную веб-панель управления Cloudflare (dash.cloudflare.com) для создания и редактирования скрипта Worker.",
+            title = stringResource(R.string.cf_guide_link_dash_title),
+            description = stringResource(R.string.cf_guide_link_dash_desc),
             onDismiss = { showDashboardConfirmDialog = false }
         )
     }
@@ -136,8 +138,8 @@ fun CloudflareWorkerGuideScreen(
     if (showDeployScriptConfirmDialog) {
         ExternalLinkConfirmDialog(
             url = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/tree/main/tools/deploy-worker",
-            title = "Скрипт автодеплоя на GitHub",
-            description = "Ссылка ведет на репозиторий со скриптом автоматического создания воркера для PowerShell и Bash.",
+            title = stringResource(R.string.cf_guide_link_autodeploy_title),
+            description = stringResource(R.string.cf_guide_link_autodeploy_desc),
             onDismiss = { showDeployScriptConfirmDialog = false }
         )
     }
@@ -148,7 +150,7 @@ fun CloudflareWorkerGuideScreen(
         val cmd = "irm https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/main/tools/deploy-worker/deploy.ps1 | iex"
         val clip = ClipData.newPlainText("Mirrly Deploy Command", cmd)
         clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, "Команда автодеплоя скопирована в буфер обмена", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.cf_guide_toast_deploy_copied), Toast.LENGTH_SHORT).show()
     }
 
     fun copyScriptToClipboard() {
@@ -156,7 +158,7 @@ fun CloudflareWorkerGuideScreen(
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Cloudflare Worker Script", TgConstants.CLOUDFLARE_WORKER_JS_CODE)
         clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, "Скрипт воркера скопирован в буфер обмена", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.cf_guide_toast_script_copied), Toast.LENGTH_SHORT).show()
     }
 
     val topGuideTabs = remember { listOf(GuideTab.PC, GuideTab.PHONE, GuideTab.SCRIPT) }
@@ -187,37 +189,37 @@ fun CloudflareWorkerGuideScreen(
         listOf(
             GuideStepItem(
                 stepNumber = "1",
-                title = "Вход в Cloudflare Dashboard",
-                description = "Откройте браузер на компьютере и перейдите на dash.cloudflare.com. Авторизуйтесь или создайте бесплатный аккаунт (банковская карта не требуется).",
-                actionText = "Открыть Cloudflare Dashboard",
+                titleRes = R.string.cf_guide_step_pc_1_title,
+                descRes = R.string.cf_guide_step_pc_1_desc,
+                actionTextRes = R.string.cf_guide_step_pc_1_action,
                 isDashAction = true
             ),
             GuideStepItem(
                 stepNumber = "2",
-                title = "Создание нового Worker",
-                description = "В левом боковом меню выберите раздел «Workers & Pages» (или «Compute (Workers)»). Нажмите синюю кнопку «Create Application», затем вкладку «Create Worker»."
+                titleRes = R.string.cf_guide_step_pc_2_title,
+                descRes = R.string.cf_guide_step_pc_2_desc
             ),
             GuideStepItem(
                 stepNumber = "3",
-                title = "Базовое развертывание",
-                description = "В поле имени укажите любое название (например: my-tg-proxy) и нажмите кнопку «Deploy» внизу страницы."
+                titleRes = R.string.cf_guide_step_pc_3_title,
+                descRes = R.string.cf_guide_step_pc_3_desc
             ),
             GuideStepItem(
                 stepNumber = "4",
-                title = "Вставка готового скрипта",
-                description = "На открывшейся странице созданного воркера нажмите кнопку «Edit Code» (Редактировать код). Полностью удалите стандартный шаблонный код из окна редактора.",
-                actionText = "Скопировать скрипт воркера",
+                titleRes = R.string.cf_guide_step_pc_4_title,
+                descRes = R.string.cf_guide_step_pc_4_desc,
+                actionTextRes = R.string.cf_guide_step_pc_4_action,
                 isCopyAction = true
             ),
             GuideStepItem(
                 stepNumber = "5",
-                title = "Сохранение и публикация",
-                description = "Вставьте скопированный код в редактор Cloudflare и в правом верхнем углу нажмите «Deploy» (или «Save and Deploy»)."
+                titleRes = R.string.cf_guide_step_pc_5_title,
+                descRes = R.string.cf_guide_step_pc_5_desc
             ),
             GuideStepItem(
                 stepNumber = "6",
-                title = "Копирование адреса и вставка в Mirrly",
-                description = "Скопируйте полученный публичный адрес (например: my-tg-proxy.yourname.workers.dev) и добавьте его в Менеджере воркеров приложения Mirrly TG Proxy."
+                titleRes = R.string.cf_guide_step_pc_6_title,
+                descRes = R.string.cf_guide_step_pc_6_desc
             )
         )
     }
@@ -226,32 +228,32 @@ fun CloudflareWorkerGuideScreen(
         listOf(
             GuideStepItem(
                 stepNumber = "1",
-                title = "Откройте сайт Cloudflare на смартфоне",
-                description = "Перейдите на dash.cloudflare.com в браузере телефона и войдите в свой аккаунт.",
-                actionText = "Перейти на Cloudflare",
+                titleRes = R.string.cf_guide_step_ph_1_title,
+                descRes = R.string.cf_guide_step_ph_1_desc,
+                actionTextRes = R.string.cf_guide_step_ph_1_action,
                 isDashAction = true
             ),
             GuideStepItem(
                 stepNumber = "2",
-                title = "Перейдите в Workers & Pages",
-                description = "В боковом меню выберите «Workers & Pages» -> нажмите «Create Application» -> «Create Worker»."
+                titleRes = R.string.cf_guide_step_ph_2_title,
+                descRes = R.string.cf_guide_step_ph_2_desc
             ),
             GuideStepItem(
                 stepNumber = "3",
-                title = "Нажмите Deploy и Edit Code",
-                description = "Нажмите кнопку «Deploy», затем «Edit Code» для открытия онлайн-редактора кода."
+                titleRes = R.string.cf_guide_step_ph_3_title,
+                descRes = R.string.cf_guide_step_ph_3_desc
             ),
             GuideStepItem(
                 stepNumber = "4",
-                title = "Скопируйте и вставьте скрипт",
-                description = "Нажмите кнопку ниже, чтобы скопировать скрипт, выделите весь текст в мобильном редакторе и вставьте скопированный код.",
-                actionText = "Скопировать скрипт",
+                titleRes = R.string.cf_guide_step_ph_4_title,
+                descRes = R.string.cf_guide_step_ph_4_desc,
+                actionTextRes = R.string.cf_guide_step_ph_4_action,
                 isCopyAction = true
             ),
             GuideStepItem(
                 stepNumber = "5",
-                title = "Сохраните и вставьте домен в Mirrly",
-                description = "Нажмите «Deploy». Скопируйте домен *.workers.dev и добавьте его в Менеджере воркеров приложения Mirrly."
+                titleRes = R.string.cf_guide_step_ph_5_title,
+                descRes = R.string.cf_guide_step_ph_5_desc
             )
         )
     }
@@ -259,28 +261,28 @@ fun CloudflareWorkerGuideScreen(
     val faqItems = remember {
         listOf(
             FaqItem(
-                title = "100 000 бесплатных запросов каждый день",
-                description = "Бесплатный тариф Cloudflare выделяет 100 000 обращений в сутки лично на ваш аккаунт, чего с избытком хватает для непрерывной переписки, видеозвонков и загрузки медиа."
+                titleRes = R.string.cf_guide_faq_1_title,
+                descRes = R.string.cf_guide_faq_1_desc
             ),
             FaqItem(
-                title = "Создание нескольких личных воркеров (до 100 узлов)",
-                description = "Вы можете бесплатно создать до 100 отдельных воркеров на одном аккаунте (например: для смартфона, ноутбука, планшета или близких), добавить их все в Менеджер воркеров Mirrly и переключаться между ними в 1 клик."
+                titleRes = R.string.cf_guide_faq_2_title,
+                descRes = R.string.cf_guide_faq_2_desc
             ),
             FaqItem(
-                title = "100% Приватность и собственный шлюз",
-                description = "Трафик не проходит через чужие прокси-серверы. Ваш личный воркер открывает сокеты напрямую к Telegram DC через глобальную сеть Cloudflare Anycast (300+ дата-центров)."
+                titleRes = R.string.cf_guide_faq_3_title,
+                descRes = R.string.cf_guide_faq_3_desc
             ),
             FaqItem(
-                title = "Работа звонков и аудио/видео (SOCKS5)",
-                description = "Благодаря API cloudflare:sockets личный воркер поддерживает универсальный TCP-туннель к Telegram VoIP узлам, обеспечивая стабильную работу звонков без системного VPN."
+                titleRes = R.string.cf_guide_faq_4_title,
+                descRes = R.string.cf_guide_faq_4_desc
             ),
             FaqItem(
-                title = "Что делать, если Telegram долго подключается через воркер?",
-                description = "В Cloudflare Dashboard откройте ваш воркер -> Settings -> Runtime. Убедитесь, что Compatibility Date установлена не ранее 2023-05-18 и включена опция Node.js compatibility (флаг nodejs_compat)."
+                titleRes = R.string.cf_guide_faq_5_title,
+                descRes = R.string.cf_guide_faq_5_desc
             ),
             FaqItem(
-                title = "Автоматический приоритет в приложении",
-                description = "При добавлении и выборе своего воркера приложение автоматически направляет весь трафик SOCKS5 и MTProto через ваш узел с наивысшим приоритетом."
+                titleRes = R.string.cf_guide_faq_6_title,
+                descRes = R.string.cf_guide_faq_6_desc
             )
         )
     }
@@ -341,7 +343,7 @@ fun CloudflareWorkerGuideScreen(
                                         border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.40f))
                                     ) {
                                         Text(
-                                            text = "1 Клик",
+                                            text = stringResource(R.string.cf_guide_badge_one_click),
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = activeProtoColor,
@@ -349,14 +351,14 @@ fun CloudflareWorkerGuideScreen(
                                         )
                                     }
                                     Text(
-                                        text = "Автодеплой (BAT / PowerShell / Bash)",
+                                        text = stringResource(R.string.cf_guide_autodeploy_title),
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp,
                                         color = activeProtoColor
                                     )
                                 }
                                 Text(
-                                    text = "Запустите deploy.bat двойным кликом на Windows или выполните 1 команду в PowerShell/Bash: скрипт откроет вход в Cloudflare, задеплоит воркер и скопирует готовый домен в буфер обмена.",
+                                    text = stringResource(R.string.cf_guide_autodeploy_desc),
                                     fontSize = 11.5.sp,
                                     color = TextWhite.copy(alpha = 0.9f),
                                     lineHeight = 16.sp
@@ -381,13 +383,13 @@ fun CloudflareWorkerGuideScreen(
                                         ) {
                                             Icon(
                                                 painter = painterResource(id = R.drawable.ic_copy),
-                                                contentDescription = "Копировать",
+                                                contentDescription = stringResource(R.string.cf_guide_btn_copy),
                                                 tint = activeProtoColor,
                                                 modifier = Modifier.size(12.dp)
                                             )
                                             Spacer(modifier = Modifier.width(5.dp))
                                             Text(
-                                                text = "Скопировать команду",
+                                                text = stringResource(R.string.cf_guide_btn_copy_cmd),
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = TextWhite
@@ -417,7 +419,7 @@ fun CloudflareWorkerGuideScreen(
                                             )
                                             Spacer(modifier = Modifier.width(5.dp))
                                             Text(
-                                                text = "deploy.bat на GitHub",
+                                                text = stringResource(R.string.cf_guide_btn_deploy_bat),
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Medium,
                                                 color = TextMuted
@@ -435,10 +437,10 @@ fun CloudflareWorkerGuideScreen(
                     ) { _, step ->
                         GlassGuideStepCard(
                             stepNumber = step.stepNumber,
-                            title = step.title,
-                            description = step.description,
+                            title = stringResource(step.titleRes),
+                            description = stringResource(step.descRes),
                             activeAccentColor = activeProtoColor,
-                            actionText = step.actionText,
+                            actionText = step.actionTextRes?.let { stringResource(it) },
                             onAction = when {
                                 step.isCopyAction -> { { copyScriptToClipboard() } }
                                 step.isDashAction -> { { openCloudflareDashboard() } }
@@ -477,7 +479,7 @@ fun CloudflareWorkerGuideScreen(
                                         border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f))
                                     ) {
                                         Text(
-                                            text = "Совет",
+                                            text = stringResource(R.string.cf_guide_tip_badge),
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFF38BDF8),
@@ -485,14 +487,14 @@ fun CloudflareWorkerGuideScreen(
                                         )
                                     }
                                     Text(
-                                        text = "Мобильный браузер",
+                                        text = stringResource(R.string.cf_guide_tip_title),
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp,
                                         color = Color(0xFF38BDF8)
                                     )
                                 }
                                 Text(
-                                    text = "В мобильном браузере (Chrome / Firefox) включите в меню флажок «Версия для ПК», если интерфейс редактора Cloudflare покажется компактным.",
+                                    text = stringResource(R.string.cf_guide_tip_desc),
                                     fontSize = 11.5.sp,
                                     color = TextWhite.copy(alpha = 0.85f),
                                     lineHeight = 16.sp
@@ -507,10 +509,10 @@ fun CloudflareWorkerGuideScreen(
                     ) { _, step ->
                         GlassGuideStepCard(
                             stepNumber = step.stepNumber,
-                            title = step.title,
-                            description = step.description,
+                            title = stringResource(step.titleRes),
+                            description = stringResource(step.descRes),
                             activeAccentColor = activeProtoColor,
-                            actionText = step.actionText,
+                            actionText = step.actionTextRes?.let { stringResource(it) },
                             onAction = when {
                                 step.isCopyAction -> { { copyScriptToClipboard() } }
                                 step.isDashAction -> { { openCloudflareDashboard() } }
@@ -570,12 +572,12 @@ fun CloudflareWorkerGuideScreen(
                                         ) {
                                             Icon(
                                                 painter = painterResource(id = R.drawable.ic_copy),
-                                                contentDescription = "Копировать",
+                                                contentDescription = stringResource(R.string.cf_guide_btn_copy),
                                                 tint = activeProtoColor,
                                                 modifier = Modifier.size(12.dp)
                                             )
                                             Text(
-                                                text = "Копировать",
+                                                text = stringResource(R.string.cf_guide_btn_copy),
                                                 color = activeProtoColor,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
@@ -621,14 +623,14 @@ fun CloudflareWorkerGuideScreen(
                                             .background(activeProtoColor)
                                     )
                                     Text(
-                                        text = faq.title,
+                                        text = stringResource(faq.titleRes),
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextWhite
                                     )
                                 }
                                 Text(
-                                    text = faq.description,
+                                    text = stringResource(faq.descRes),
                                     fontSize = 11.5.sp,
                                     color = TextMuted,
                                     lineHeight = 16.sp,
@@ -692,7 +694,7 @@ fun CloudflareWorkerGuideScreen(
                     title = {
                         Column {
                             Text(
-                                text = "Инструкция Cloudflare",
+                                text = stringResource(R.string.cf_guide_screen_title),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 color = TextWhite,
@@ -701,7 +703,7 @@ fun CloudflareWorkerGuideScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "Пошаговая настройка за 2 минуты",
+                                text = stringResource(R.string.cf_guide_screen_subtitle),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = activeProtoColor
@@ -714,7 +716,7 @@ fun CloudflareWorkerGuideScreen(
                         }) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_arrow_left),
-                                contentDescription = "Назад",
+                                contentDescription = stringResource(R.string.action_back),
                                 tint = TextWhite,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -727,7 +729,7 @@ fun CloudflareWorkerGuideScreen(
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_copy),
-                                contentDescription = "Скопировать код",
+                                contentDescription = stringResource(R.string.cf_guide_btn_copy),
                                 tint = activeProtoColor,
                                 modifier = Modifier.size(17.dp)
                             )
@@ -768,7 +770,7 @@ fun CloudflareWorkerGuideScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = tab.title,
+                                    text = stringResource(tab.titleRes),
                                     color = if (isSelected) activeProtoColor else TextMuted,
                                     fontSize = 11.5.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
@@ -781,7 +783,7 @@ fun CloudflareWorkerGuideScreen(
                     }
                 }
 
-                // 2. Full-Width 4th Pill Under Top 3 Pills (Преимущества и FAQ)
+                // 2. Full-Width 4th Pill Under Top 3 Pills (Benefits and FAQ)
                 val isFaqSelected = selectedTab == GuideTab.FAQ
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -804,7 +806,7 @@ fun CloudflareWorkerGuideScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = GuideTab.FAQ.title,
+                            text = stringResource(GuideTab.FAQ.titleRes),
                             color = if (isFaqSelected) activeProtoColor else TextMuted,
                             fontSize = 11.5.sp,
                             fontWeight = if (isFaqSelected) FontWeight.Bold else FontWeight.Medium,
@@ -849,7 +851,7 @@ private fun GlassGuideStepCard(
                     border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.45f))
                 ) {
                     Text(
-                        text = "Шаг $stepNumber",
+                        text = stringResource(R.string.cf_guide_step_label, stepNumber),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         color = activeAccentColor,

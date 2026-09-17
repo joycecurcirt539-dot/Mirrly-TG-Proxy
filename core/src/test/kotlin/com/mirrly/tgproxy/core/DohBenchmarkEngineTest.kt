@@ -87,7 +87,7 @@ class DohBenchmarkEngineTest {
         assertTrue(res.isDnsSuccess)
         assertFalse(res.isPoisoned)
         assertEquals(listOf("149.154.167.220"), res.ips)
-        assertEquals("AS44907 валидирован", res.detail)
+        assertEquals("AS44907 validated", res.detail)
     }
 
     @Test
@@ -131,7 +131,7 @@ class DohBenchmarkEngineTest {
         val res = DohBenchmarkEngine.parseAndVerifyDnsResponse(ispRedirectJson)
         assertTrue(res.isDnsSuccess)
         assertTrue(res.isPoisoned)
-        assertTrue(res.detail.contains("не принадлежит Telegram"))
+        assertTrue(res.detail.contains("does not belong to Telegram"))
     }
 
     @Test
@@ -181,7 +181,7 @@ class DohBenchmarkEngineTest {
                 latencyMs = 2500L,
                 status = DohHealthStatus.BLOCKED,
                 resolvedIps = emptyList(),
-                statusDetail = "Блокировка ТСПУ"
+                statusDetail = "DPI block / connection reset"
             ),
             DohBenchmarkResult(
                 providerId = "fake_isp",
@@ -207,7 +207,7 @@ class DohBenchmarkEngineTest {
         val cloudflareResult = report.results.find { it.providerId == "cloudflare" }
         assertFalse(cloudflareResult?.isRecommended == true)
 
-        assertTrue(report.summaryText.contains("3 лучших сервера"))
+        assertTrue(report.summaryText.contains("3 best servers"))
     }
 
     @Test
@@ -233,6 +233,6 @@ class DohBenchmarkEngineTest {
 
         val report = DohBenchmarkEngine.analyzeAndRecommend(mockResults)
         assertTrue(report.recommendedProviderIds.isEmpty())
-        assertTrue(report.summaryText.contains("недоступны или заблокированы"))
+        assertTrue(report.summaryText.contains("unreachable or blocked"))
     }
 }

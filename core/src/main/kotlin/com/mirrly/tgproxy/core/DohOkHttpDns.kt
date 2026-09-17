@@ -28,7 +28,7 @@ import java.net.UnknownHostException
 class DohOkHttpDns : Dns {
 
     override fun lookup(hostname: String): List<InetAddress> {
-        val result = DohResolver.resolveSync(hostname)
+        val result = DohResolver.resolveSync(hostname, DnsScope.BOOTSTRAP)
         if (result.isEmpty()) {
             throw UnknownHostException("Не удалось разрешить имя хоста '$hostname' через DoH и системный DNS")
         }

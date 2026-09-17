@@ -21,6 +21,8 @@ package com.mirrly.tgproxy.core
 import com.sun.jna.Library
 import com.sun.jna.Native
 import com.sun.jna.Pointer
+import com.sun.jna.ptr.IntByReference
+import org.json.JSONArray
 import org.json.JSONObject
 
 interface ProxyLibrary : Library {
@@ -34,6 +36,7 @@ interface ProxyLibrary : Library {
     fun StartSocks5Proxy(host: String, port: Int, verbose: Int): Int
     fun StopProxy(): Int
     fun ResetNetworkSockets()
+    fun EmergencyKillAllSockets()
     fun SetPoolSize(size: Int)
     fun SetTcpNoDelay(enabled: Int)
     fun SetCfProxyCacheDir(cacheDir: String)
@@ -105,6 +108,24 @@ interface ProxyLibrary : Library {
     fun SetBatteryQoSLevel(level: Int)
     fun GetActiveCascadeStage(): Int
     fun FreeString(p: Pointer)
+    fun SetIpv6OnlyNetwork(isIpv6Only: Int)
+    fun SetMtprotoStandbyPerActiveSlot(size: Int): Int
+    fun GetTransportPoolStatusJson(): Pointer?
+    fun SetSocketBufferSizes(recvSize: Int, sendSize: Int): Int
+    fun GetSocketBufferStatusJson(): Pointer?
+    fun GetLastOsSocketBufferSizes(recvOut: IntByReference, sendOut: IntByReference): Int
+    fun SetNetworkGeneration(gen: Long)
+    fun SetNetworkProfileJson(json: String): Int
+    fun GetNetworkProfileJson(): Pointer?
+    fun SuspendNetworkSockets()
+    fun WarmupWsPool()
+    fun SetTrustPolicy(isPrivateNode: Int, allowPublicRelayFallback: Int, allowOperaDirectExit: Int, allowOperaTransportHop: Int)
+    fun GetStageTimelineJson(): Pointer?
+    fun GetUsefulRxSliJson(): Pointer?
+    fun GetDialBudgetStatsJson(): Pointer?
+    fun GetDomainBalancerStatusJson(): Pointer?
+    fun GetNodeIndependenceStatusJson(): Pointer?
+    fun GetTlsObservabilityStatusJson(): Pointer?
 }
 
 object NativeProxy {
@@ -157,6 +178,16 @@ object NativeProxy {
             ProxyLibrary.INSTANCE.ResetNetworkSockets()
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [resetNetworkSockets]: ${t.message}", t)
+        }
+    }
+
+    fun emergencyKillAllSockets(reason: String = "manual_emergency_kill") {
+        if (!isStarted) return
+        try {
+            AppLogger.w("NativeProxy", "Экстренный сброс всех сокетов через FFI [EmergencyKillAllSockets] (reason=$reason)")
+            ProxyLibrary.INSTANCE.EmergencyKillAllSockets()
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [emergencyKillAllSockets]: ${t.message}", t)
         }
     }
 
@@ -670,4 +701,554 @@ object NativeProxy {
             null
         }
     }
+
+    fun setIpv6OnlyNetwork(isIpv6Only: Boolean) {
+        try {
+            ProxyLibrary.INSTANCE.SetIpv6OnlyNetwork(if (isIpv6Only) 1 else 0)
+        } catch (_: UnsatisfiedLinkError) {
+        } catch (_: NoClassDefFoundError) {
+        } catch (_: Throwable) {}
+    }
+
+    fun setMtprotoStandbyPerActiveSlot(requested: Int): Int? {
+        return try {
+            ProxyLibrary.INSTANCE.SetMtprotoStandbyPerActiveSlot(requested)
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [SetMtprotoStandbyPerActiveSlot]: ${t.message}")
+            null
+        }
+    }
+
+    fun getTransportPoolStatusJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetTransportPoolStatusJson() ?: return null
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [GetTransportPoolStatusJson] недоступен: ${t.message}")
+            null
+        }
+    }
+
+    fun getTransportPoolStatus(): TransportPoolStatus? {
+        val json = getTransportPoolStatusJson() ?: return null
+        return TransportPoolStatus.fromJson(json)
+    }
+
+    fun setSocketBufferSizes(recvSize: Int, sendSize: Int): Boolean {
+        return try {
+            val code = ProxyLibrary.INSTANCE.SetSocketBufferSizes(recvSize, sendSize)
+            code == 0
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [SetSocketBufferSizes]: ${t.message}")
+            false
+        }
+    }
+
+    fun getSocketBufferStatusJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetSocketBufferStatusJson() ?: return null
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [GetSocketBufferStatusJson] недоступен: ${t.message}")
+            null
+        }
+    }
+
+    fun getSocketBufferStatus(): SocketBufferStatus? {
+        val json = getSocketBufferStatusJson() ?: return null
+        return SocketBufferStatus.fromJson(json)
+    }
+
+    fun getLastOsSocketBufferSizes(): Pair<Int, Int>? {
+        return try {
+            val recvRef = IntByReference(0)
+            val sendRef = IntByReference(0)
+            val code = ProxyLibrary.INSTANCE.GetLastOsSocketBufferSizes(recvRef, sendRef)
+            if (code == 0) {
+                Pair(recvRef.value, sendRef.value)
+            } else {
+                null
+            }
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [GetLastOsSocketBufferSizes] недоступен: ${t.message}")
+            null
+        }
+    }
+
+    fun setNetworkGeneration(gen: Long) {
+        try {
+            ProxyLibrary.INSTANCE.SetNetworkGeneration(gen)
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [SetNetworkGeneration]: ${t.message}")
+        }
+    }
+
+    fun setNetworkProfileJson(json: String): Boolean {
+        return try {
+            val code = ProxyLibrary.INSTANCE.SetNetworkProfileJson(json)
+            code == 0
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [SetNetworkProfileJson]: ${t.message}")
+            false
+        }
+    }
+
+    fun getNetworkProfileJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetNetworkProfileJson() ?: return null
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [GetNetworkProfileJson] недоступен: ${t.message}")
+            null
+        }
+    }
+
+    fun suspendNetworkSockets() {
+        if (!isStarted) return
+        try {
+            ProxyLibrary.INSTANCE.SuspendNetworkSockets()
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [SuspendNetworkSockets]: ${t.message}", t)
+        }
+    }
+
+    fun warmupWsPool() {
+        if (!isStarted) return
+        try {
+            ProxyLibrary.INSTANCE.WarmupWsPool()
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [WarmupWsPool]: ${t.message}", t)
+        }
+    }
+
+    fun setTrustPolicy(
+        isPrivateNode: Boolean,
+        allowPublicRelayFallback: Boolean,
+        allowOperaDirectExit: Boolean,
+        allowOperaTransportHop: Boolean
+    ) {
+        try {
+            ProxyLibrary.INSTANCE.SetTrustPolicy(
+                if (isPrivateNode) 1 else 0,
+                if (allowPublicRelayFallback) 1 else 0,
+                if (allowOperaDirectExit) 1 else 0,
+                if (allowOperaTransportHop) 1 else 0
+            )
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [SetTrustPolicy]: ${t.message}")
+        }
+    }
+
+    fun getStageTimelineJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetStageTimelineJson() ?: return null
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    fun getUsefulRxSliJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetUsefulRxSliJson() ?: return null
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    fun getDialBudgetStatsJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetDialBudgetStatsJson() ?: return null
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    fun getDomainBalancerStatusJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetDomainBalancerStatusJson() ?: return null
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [GetDomainBalancerStatusJson] недоступен: ${t.message}")
+            null
+        }
+    }
+
+    fun getDomainBalancerStatus(): DomainBalancerStatus? {
+        val json = getDomainBalancerStatusJson() ?: return null
+        return DomainBalancerStatus.fromJson(json)
+    }
+
+    fun getNodeIndependenceStatusJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetNodeIndependenceStatusJson() ?: return null
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [GetNodeIndependenceStatusJson] недоступен: ${t.message}")
+            null
+        }
+    }
+
+    fun getNodeIndependenceStatus(): NodeIndependenceStatus? {
+        val json = getNodeIndependenceStatusJson() ?: return null
+        return NodeIndependenceStatus.fromJson(json)
+    }
+
+    fun getTlsObservabilityStatusJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetTlsObservabilityStatusJson() ?: return null
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [GetTlsObservabilityStatusJson] недоступен: ${t.message}")
+            null
+        }
+    }
+
+    fun getTlsObservabilityStatus(): TlsObservabilityStatus? {
+        val json = getTlsObservabilityStatusJson() ?: return null
+        return TlsObservabilityStatus.fromJson(json)
+    }
 }
+
+data class SocketBufferStatus(
+    val configuredRecvBytes: Int,
+    val configuredSendBytes: Int,
+    val clampedRecvBytes: Int,
+    val clampedSendBytes: Int,
+    val lastOsRecvBytes: Int,
+    val lastOsSendBytes: Int,
+    val socketsConfiguredTotal: Long,
+    val autotuneBaseline: Boolean
+) {
+    companion object {
+        fun fromJson(json: String?): SocketBufferStatus? {
+            if (json.isNullOrBlank()) return null
+            return try {
+                val obj = JSONObject(json)
+                SocketBufferStatus(
+                    configuredRecvBytes = obj.optInt("configured_recv_bytes", 0),
+                    configuredSendBytes = obj.optInt("configured_send_bytes", 0),
+                    clampedRecvBytes = obj.optInt("clamped_recv_bytes", 0),
+                    clampedSendBytes = obj.optInt("clamped_send_bytes", 0),
+                    lastOsRecvBytes = obj.optInt("last_os_recv_bytes", 0),
+                    lastOsSendBytes = obj.optInt("last_os_send_bytes", 0),
+                    socketsConfiguredTotal = obj.optLong("sockets_configured_total", 0L),
+                    autotuneBaseline = obj.optBoolean("autotune_baseline", false)
+                )
+            } catch (t: Throwable) {
+                AppLogger.d("NativeProxy", "Failed to parse SocketBufferStatus JSON: ${t.message}")
+                null
+            }
+        }
+    }
+}
+
+data class TransportPoolStatus(
+    val transport: String,
+    val isMobile: Boolean,
+    val mtprotoStandbyPerActiveSlotRequested: Int,
+    val mtprotoStandbyPerActiveSlotEffective: Int,
+    val globalEstablishmentBudget: Int,
+    val socksConcurrentFlows: Long
+) {
+    companion object {
+        fun fromJson(json: String?): TransportPoolStatus? {
+            if (json.isNullOrBlank()) return null
+            return try {
+                val obj = JSONObject(json)
+                TransportPoolStatus(
+                    transport = obj.optString("transport", "unknown"),
+                    isMobile = obj.optBoolean("is_mobile", false),
+                    mtprotoStandbyPerActiveSlotRequested = obj.optInt("mtproto_standby_per_active_slot_requested", 1),
+                    mtprotoStandbyPerActiveSlotEffective = obj.optInt("mtproto_standby_per_active_slot_effective", 1),
+                    globalEstablishmentBudget = obj.optInt("global_establishment_budget", 2),
+                    socksConcurrentFlows = obj.optLong("socks_concurrent_flows", 0L)
+                )
+            } catch (t: Throwable) {
+                AppLogger.d("NativeProxy", "Failed to parse TransportPoolStatus JSON: ${t.message}")
+                null
+            }
+        }
+    }
+}
+
+data class RankedDomainSummary(
+    val domain: String,
+    val probeRttMs: Long?,
+    val usefulSuccessCount: Long,
+    val failureCount: Long,
+    val consecutiveFailures: Int,
+    val score: Long
+)
+
+data class TargetRouteStatus(
+    val dcId: Int,
+    val isMedia: Boolean,
+    val activeDomain: String?,
+    val rankings: List<RankedDomainSummary>
+)
+
+data class DomainBalancerStatus(
+    val currentNetworkGeneration: Long,
+    val routes: List<TargetRouteStatus>
+) {
+    companion object {
+        fun fromJson(json: String?): DomainBalancerStatus? {
+            if (json.isNullOrBlank()) return null
+            return try {
+                val obj = JSONObject(json)
+                val gen = obj.optLong("current_network_generation", 1L)
+                val routesArr = obj.optJSONArray("routes") ?: JSONArray()
+                val routesList = ArrayList<TargetRouteStatus>()
+                for (i in 0 until routesArr.length()) {
+                    val rObj = routesArr.getJSONObject(i)
+                    val dcId = rObj.getInt("dc_id")
+                    val isMedia = rObj.getBoolean("is_media")
+                    val activeDomain = if (rObj.isNull("active_domain")) null else rObj.optString("active_domain", null)
+                    val rankingsArr = rObj.optJSONArray("rankings") ?: JSONArray()
+                    val rankingsList = ArrayList<RankedDomainSummary>()
+                    for (j in 0 until rankingsArr.length()) {
+                        val rankObj = rankingsArr.getJSONObject(j)
+                        val domain = rankObj.getString("domain")
+                        val probeRtt = if (rankObj.isNull("probe_rtt_ms")) null else rankObj.optLong("probe_rtt_ms")
+                        val useful = rankObj.optLong("useful_success_count", 0L)
+                        val fail = rankObj.optLong("failure_count", 0L)
+                        val consec = rankObj.optInt("consecutive_failures", 0)
+                        val score = rankObj.optLong("score", 0L)
+                        rankingsList.add(RankedDomainSummary(domain, probeRtt, useful, fail, consec, score))
+                    }
+                    routesList.add(TargetRouteStatus(dcId, isMedia, activeDomain, rankingsList))
+                }
+                DomainBalancerStatus(gen, routesList)
+            } catch (t: Throwable) {
+                AppLogger.d("NativeProxy", "Failed to parse DomainBalancerStatus JSON: ${t.message}")
+                null
+            }
+        }
+    }
+}
+
+data class PathFingerprintData(
+    val family: String,
+    val ipPrefix: String,
+    val colo: String,
+    val asn: String
+)
+
+data class NodeTelemetryData(
+    val domain: String,
+    val resolvedIp: String?,
+    val family: String?,
+    val colo: String,
+    val asn: String,
+    val bytesBeforeStall: Long,
+    val totalBytesTransferred: Long,
+    val successCount: Long,
+    val failureCount: Long,
+    val consecutiveFailures: Int,
+    val pathFingerprint: PathFingerprintData?,
+    val failureCorrelationScore: Double
+)
+
+data class PathGroupStatsData(
+    val fingerprintKey: String,
+    val family: String,
+    val ipPrefix: String,
+    val colo: String,
+    val asn: String,
+    val nodeCount: Int,
+    val totalSuccesses: Long,
+    val totalFailures: Long,
+    val failureRate: Double,
+    val isBlocked: Boolean
+)
+
+data class NodeIndependenceStatus(
+    val totalNodes: Int,
+    val nodes: List<NodeTelemetryData>,
+    val pathGroups: List<PathGroupStatsData>,
+    val diversityRatio: Double
+) {
+    companion object {
+        fun fromJson(json: String?): NodeIndependenceStatus? {
+            if (json.isNullOrBlank()) return null
+            return try {
+                val obj = JSONObject(json)
+                val totalNodes = obj.optInt("total_nodes", 0)
+                val diversityRatio = obj.optDouble("diversity_ratio", 1.0)
+
+                val nodesArr = obj.optJSONArray("nodes") ?: JSONArray()
+                val nodesList = ArrayList<NodeTelemetryData>()
+                for (i in 0 until nodesArr.length()) {
+                    val nObj = nodesArr.getJSONObject(i)
+                    val domain = nObj.getString("domain")
+                    val resolvedIp = if (nObj.isNull("resolved_ip")) null else nObj.optString("resolved_ip", null)
+                    val family = if (nObj.isNull("family")) null else nObj.optString("family", null)
+                    val colo = nObj.optString("colo", "UNKNOWN")
+                    val asn = nObj.optString("asn", "UNKNOWN")
+                    val bytesBeforeStall = nObj.optLong("bytes_before_stall", 0L)
+                    val totalBytes = nObj.optLong("total_bytes_transferred", 0L)
+                    val succ = nObj.optLong("success_count", 0L)
+                    val fail = nObj.optLong("failure_count", 0L)
+                    val consec = nObj.optInt("consecutive_failures", 0)
+                    val corr = nObj.optDouble("failure_correlation_score", 0.0)
+
+                    val fp = if (nObj.has("path_fingerprint") && !nObj.isNull("path_fingerprint")) {
+                        val fpObj = nObj.getJSONObject("path_fingerprint")
+                        PathFingerprintData(
+                            family = fpObj.optString("family", ""),
+                            ipPrefix = fpObj.optString("ip_prefix", ""),
+                            colo = fpObj.optString("colo", ""),
+                            asn = fpObj.optString("asn", "")
+                        )
+                    } else null
+
+                    nodesList.add(
+                        NodeTelemetryData(
+                            domain, resolvedIp, family, colo, asn,
+                            bytesBeforeStall, totalBytes, succ, fail, consec, fp, corr
+                        )
+                    )
+                }
+
+                val groupsArr = obj.optJSONArray("path_groups") ?: JSONArray()
+                val groupsList = ArrayList<PathGroupStatsData>()
+                for (i in 0 until groupsArr.length()) {
+                    val gObj = groupsArr.getJSONObject(i)
+                    groupsList.add(
+                        PathGroupStatsData(
+                            fingerprintKey = gObj.getString("fingerprint_key"),
+                            family = gObj.optString("family", ""),
+                            ipPrefix = gObj.optString("ip_prefix", ""),
+                            colo = gObj.optString("colo", ""),
+                            asn = gObj.optString("asn", ""),
+                            nodeCount = gObj.optInt("node_count", 0),
+                            totalSuccesses = gObj.optLong("total_successes", 0L),
+                            totalFailures = gObj.optLong("total_failures", 0L),
+                            failureRate = gObj.optDouble("failure_rate", 0.0),
+                            isBlocked = gObj.optBoolean("is_blocked", false)
+                        )
+                    )
+                }
+
+                NodeIndependenceStatus(totalNodes, nodesList, groupsList, diversityRatio)
+            } catch (t: Throwable) {
+                AppLogger.d("NativeProxy", "Failed to parse NodeIndependenceStatus JSON: ${t.message}")
+                null
+            }
+        }
+    }
+}
+
+data class TlsHostStatsData(
+    val hostname: String,
+    val networkGeneration: Long,
+    val fullHandshakes: Long,
+    val resumedHandshakes: Long,
+    val handshakeFailures: Long,
+    val totalDurationMs: Long,
+    val minDurationMs: Long,
+    val maxDurationMs: Long,
+    val avgDurationMs: Double,
+    val resumptionRatio: Double,
+    val lastHandshakeKind: String?,
+    val lastDurationMs: Long,
+    val lastError: String?
+)
+
+data class TlsObservabilityStatus(
+    val currentNetworkGeneration: Long,
+    val totalFullHandshakes: Long,
+    val totalResumedHandshakes: Long,
+    val totalHandshakeFailures: Long,
+    val globalResumptionRatio: Double,
+    val hosts: List<TlsHostStatsData>
+) {
+    companion object {
+        fun fromJson(json: String?): TlsObservabilityStatus? {
+            if (json.isNullOrBlank()) return null
+            return try {
+                val obj = JSONObject(json)
+                val currentGen = obj.optLong("current_network_generation", 1L)
+                val totalFull = obj.optLong("total_full_handshakes", 0L)
+                val totalResumed = obj.optLong("total_resumed_handshakes", 0L)
+                val totalFailures = obj.optLong("total_handshake_failures", 0L)
+                val globalResumptionRatio = obj.optDouble("global_resumption_ratio", 0.0)
+
+                val hostsArr = obj.optJSONArray("hosts") ?: JSONArray()
+                val hostsList = ArrayList<TlsHostStatsData>()
+                for (i in 0 until hostsArr.length()) {
+                    val hObj = hostsArr.getJSONObject(i)
+                    hostsList.add(
+                        TlsHostStatsData(
+                            hostname = hObj.getString("hostname"),
+                            networkGeneration = hObj.optLong("network_generation", 1L),
+                            fullHandshakes = hObj.optLong("full_handshakes", 0L),
+                            resumedHandshakes = hObj.optLong("resumed_handshakes", 0L),
+                            handshakeFailures = hObj.optLong("handshake_failures", 0L),
+                            totalDurationMs = hObj.optLong("total_duration_ms", 0L),
+                            minDurationMs = hObj.optLong("min_duration_ms", 0L),
+                            maxDurationMs = hObj.optLong("max_duration_ms", 0L),
+                            avgDurationMs = hObj.optDouble("avg_duration_ms", 0.0),
+                            resumptionRatio = hObj.optDouble("resumption_ratio", 0.0),
+                            lastHandshakeKind = if (hObj.isNull("last_handshake_kind")) null else hObj.optString("last_handshake_kind", null),
+                            lastDurationMs = hObj.optLong("last_duration_ms", 0L),
+                            lastError = if (hObj.isNull("last_error")) null else hObj.optString("last_error", null)
+                        )
+                    )
+                }
+
+                TlsObservabilityStatus(
+                    currentNetworkGeneration = currentGen,
+                    totalFullHandshakes = totalFull,
+                    totalResumedHandshakes = totalResumed,
+                    totalHandshakeFailures = totalFailures,
+                    globalResumptionRatio = globalResumptionRatio,
+                    hosts = hostsList
+                )
+            } catch (t: Throwable) {
+                AppLogger.d("NativeProxy", "Failed to parse TlsObservabilityStatus JSON: ${t.message}")
+                null
+            }
+        }
+    }
+}
+

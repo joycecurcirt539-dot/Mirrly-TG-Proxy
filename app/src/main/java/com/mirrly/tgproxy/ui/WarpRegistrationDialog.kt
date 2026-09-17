@@ -22,6 +22,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
@@ -69,13 +70,13 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Диалог живого отображения процесса регистрации профиля Cloudflare WARP MASQUE
- * и детального просмотра итогового результата регистрации.
+ * Dialog live rendering process registration profile Cloudflare WARP MASQUE
+ * and detailed view final result registration.
  */
 @Composable
 fun WarpRegistrationDialog(
     initialProfile: WarpProfile?,
-    workerDomain: String?,
+    workerDomain: String? = WarpAccountManager.REGISTRATION_WORKER_DOMAIN,
     initialLicenseKey: String = "",
     startRegistrationImmediately: Boolean = false,
     onProfileSaved: (WarpProfile) -> Unit,
@@ -103,7 +104,7 @@ fun WarpRegistrationDialog(
         if (isScanningPorts || isRegistering) return
         isScanningPorts = true
         coroutineScope.launch {
-            Toast.makeText(context, "Подбор живых Anycast портов WARP...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.warp_toast_scanning_ports), Toast.LENGTH_SHORT).show()
             try {
                 val best = WarpEndpointScanner.findBestEndpoint(useFragmentation = true)
                 if (best != null) {
@@ -111,12 +112,12 @@ fun WarpRegistrationDialog(
                     val updated = base.copy(peerEndpoint = best.endpoint)
                     currentProfile = updated
                     onProfileSaved(updated)
-                    Toast.makeText(context, "Подобран живой порт: ${best.endpoint} (${best.rttMs}мс)", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, context.getString(R.string.warp_toast_port_found, best.endpoint, best.rttMs), Toast.LENGTH_LONG).show()
                 } else {
-                    Toast.makeText(context, "Открытых портов не найдено (ТСПУ блокирует UDP)", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, context.getString(R.string.warp_toast_no_ports), Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Сбой подбора: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.warp_toast_scan_failed, e.message ?: ""), Toast.LENGTH_SHORT).show()
             } finally {
                 isScanningPorts = false
             }
@@ -127,11 +128,11 @@ fun WarpRegistrationDialog(
         val prof = currentProfile ?: return
         val cleanKey = licenseKeyInput.trim()
         if (cleanKey.isBlank()) {
-            Toast.makeText(context, "Введите лицензионный ключ WARP+", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.warp_toast_enter_key), Toast.LENGTH_SHORT).show()
             return
         }
         if (!WarpAccountManager.isValidLicenseKey(cleanKey)) {
-            Toast.makeText(context, "Неверный формат ключа (ожидается 26 символов)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.warp_toast_invalid_key_format), Toast.LENGTH_SHORT).show()
             return
         }
         if (isAttachingLicense || isRegistering) return
@@ -139,7 +140,7 @@ fun WarpRegistrationDialog(
         licenseAttachError = null
 
         coroutineScope.launch {
-            Toast.makeText(context, "Привязка лицензии WARP+...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.warp_toast_attaching_key), Toast.LENGTH_SHORT).show()
             val result = WarpAccountManager.attachLicenseKey(
                 accountId = prof.accountId,
                 token = prof.token,
@@ -157,14 +158,14 @@ fun WarpRegistrationDialog(
                 onProfileSaved(updated)
                 Toast.makeText(
                     context,
-                    "Лицензия WARP+ успешно активирована (${info.accountType})",
+                    context.getString(R.string.warp_license_activated, info.accountType),
                     Toast.LENGTH_SHORT
                 ).show()
             }.onFailure { err ->
                 licenseAttachError = err.message
                 Toast.makeText(
                     context,
-                    "Ошибка привязки лицензии: ${err.message}",
+                    context.getString(R.string.warp_license_attach_error, err.message ?: ""),
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -203,9 +204,9 @@ fun WarpRegistrationDialog(
                 currentStepIndex = 4
                 onProfileSaved(newProf)
                 val toastMsg = if (newProf.isOfflineCached) {
-                    "Применен офлайн-профиль (требуется онлайн-проверка): ${newProf.clientIpv4}"
+                    context.getString(R.string.warp_offline_profile_applied, newProf.clientIpv4)
                 } else {
-                    "WARP зарегистрирован: ${newProf.clientIpv4}"
+                    context.getString(R.string.warp_registered, newProf.clientIpv4)
                 }
                 Toast.makeText(
                     context,
@@ -215,10 +216,10 @@ fun WarpRegistrationDialog(
             }.onFailure { err ->
                 isRegistering = false
                 registrationJob = null
-                errorMessage = err.message ?: "Сбой сетевого стека Cloudflare"
+                errorMessage = err.message ?: context.getString(R.string.warp_err_cf_stack)
                 Toast.makeText(
                     context,
-                    "Ошибка: ${err.message}",
+                    context.getString(R.string.warp_err_prefix, err.message ?: ""),
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -282,7 +283,7 @@ fun WarpRegistrationDialog(
                         indication = null
                     ) {}
             ) {
-                // Верхняя строка с центрированным бейджем и кнопкой закрытия
+                // Top row with centered badge and button close
                 Box(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center
@@ -329,7 +330,7 @@ fun WarpRegistrationDialog(
                 }
 
                 Text(
-                    text = if (isRegistering) "Регистрация профиля WARP" else "Профиль Cloudflare WARP",
+                    text = if (isRegistering) stringResource(R.string.warp_dialog_title_registering) else stringResource(R.string.warp_dialog_title_profile),
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,
@@ -337,21 +338,21 @@ fun WarpRegistrationDialog(
                 )
 
                 Text(
-                    text = "Автономная регистрация устройства, привязка mTLS P-256 и Anycast-маршрутизация",
+                    text = stringResource(R.string.warp_dialog_subtitle),
                     fontSize = 11.sp,
                     color = TextMuted,
                     textAlign = TextAlign.Center,
                     lineHeight = 15.sp
                 )
 
-                // Степпер 4 этапов регистрации
+                // Stepper 4 stages registration
                 WarpStepperCard(
                     currentStep = currentStepIndex,
                     isRegistering = isRegistering,
                     hasError = errorMessage != null
                 )
 
-                // Терминальный лог событий в реальном времени
+                // Terminal log events in real time
                 if (isRegistering || logSteps.isNotEmpty()) {
                     WarpLiveTerminalLog(
                         steps = logSteps,
@@ -361,7 +362,7 @@ fun WarpRegistrationDialog(
                     )
                 }
 
-                // Карточка результата регистрации (если профиль создан)
+                // note result registration (note note note)
                 val profile = currentProfile
                 if (profile != null && !isRegistering) {
                     WarpResultCard(
@@ -369,12 +370,12 @@ fun WarpRegistrationDialog(
                         onCopy = { label, value ->
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
-                            Toast.makeText(context, "$label скопирован", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.warp_toast_copied, label), Toast.LENGTH_SHORT).show()
                         }
                     )
                 }
 
-                // Карточка лицензии WARP+ / Zero Trust
+                // note note WARP+ / Zero Trust
                 if (!isRegistering) {
                     WarpLicenseCard(
                         licenseKey = licenseKeyInput,
@@ -393,7 +394,7 @@ fun WarpRegistrationDialog(
                     )
                 }
 
-                // Блок действий
+                // note note
                 Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -422,13 +423,13 @@ fun WarpRegistrationDialog(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "Сканирование портов...",
+                                        text = stringResource(R.string.warp_btn_scanning_ports),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 } else {
                                     Text(
-                                        text = "Подобрать живой Anycast порт (Auto-Scan)",
+                                        text = stringResource(R.string.warp_btn_auto_scan),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -441,7 +442,7 @@ fun WarpRegistrationDialog(
                                     val conf = currentProfile!!.toAmneziaWgConfig()
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("AmneziaWG Config", conf))
-                                    Toast.makeText(context, "Конфиг AmneziaWG (QUIC I1 Госуслуги) скопирован", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.warp_toast_awg_copied), Toast.LENGTH_SHORT).show()
                                 },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = ActiveGreenLed.copy(alpha = 0.12f),
@@ -452,7 +453,7 @@ fun WarpRegistrationDialog(
                                 modifier = Modifier.fillMaxWidth().height(40.dp)
                             ) {
                                 Text(
-                                    text = "Скопировать конфиг AmneziaWG (QUIC I1)",
+                                    text = stringResource(R.string.warp_btn_copy_awg),
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -482,14 +483,14 @@ fun WarpRegistrationDialog(
                                     modifier = Modifier.size(15.dp)
                                 )
                                 Text(
-                                    text = if (currentProfile != null) "Зарегистрировать заново" else "Запустить регистрацию",
+                                    text = if (currentProfile != null) stringResource(R.string.warp_btn_reregister) else stringResource(R.string.warp_btn_start_reg),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
                     } else {
-                        // Регистрация в процессе: индикатор ожидания и кнопка прерывания
+                        // note in note: note note and button note
                         Column(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -511,21 +512,21 @@ fun WarpRegistrationDialog(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "Выполняется регистрация в Cloudflare...",
+                                        text = stringResource(R.string.warp_status_registering),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = ActiveGreenLed
                                     )
                                 }
                             }
-                            // Кнопка принудительного прерывания регистрации
+                            // note note note registration
                             OutlinedButton(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     registrationJob?.cancel()
                                     registrationJob = null
                                     isRegistering = false
-                                    errorMessage = "Регистрация прервана пользователем"
+                                    errorMessage = context.getString(R.string.warp_err_cancelled_by_user)
                                 },
                                 colors = ButtonDefaults.outlinedButtonColors(
                                     contentColor = Color(0xFFFF5252)
@@ -535,13 +536,15 @@ fun WarpRegistrationDialog(
                                 modifier = Modifier.fillMaxWidth().height(36.dp)
                             ) {
                                 Text(
-                                    text = "Прервать регистрацию",
+                                    text = stringResource(R.string.warp_btn_cancel_reg),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(36.dp))
                 }
             }
         }
@@ -549,7 +552,7 @@ fun WarpRegistrationDialog(
 }
 
 /**
- * Индикатор 4 этапов регистрации WARP.
+ * note 4 stages registration WARP.
  */
 @Composable
 private fun WarpStepperCard(
@@ -558,10 +561,10 @@ private fun WarpStepperCard(
     hasError: Boolean
 ) {
     val steps = listOf(
-        "WireGuard" to "Ключи Curve25519",
+        stringResource(R.string.warp_step_wg) to stringResource(R.string.warp_step_curve),
         "MASQUE" to "mTLS P-256 (secp256r1)",
-        "Активация" to "warp_enabled: true",
-        "Anycast" to "Маршрутизация (8095)"
+        stringResource(R.string.warp_step_act) to "warp_enabled: true",
+        stringResource(R.string.warp_step_anycast) to stringResource(R.string.warp_step_routing)
     )
 
     Surface(
@@ -580,7 +583,7 @@ private fun WarpStepperCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "ЭТАПЫ РЕГИСТРАЦИИ",
+                    text = stringResource(R.string.warp_header_stages),
                     fontSize = 9.5.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp,
@@ -668,7 +671,7 @@ private fun WarpStepperCard(
 }
 
 /**
- * Окно технического консольного лога процесса регистрации в реальном времени.
+ * note note note note process registration in real time.
  */
 @Composable
 private fun WarpLiveTerminalLog(
@@ -700,7 +703,7 @@ private fun WarpLiveTerminalLog(
                             .background(if (isRegistering) ActiveGreenLed else if (errorMessage != null) Color(0xFFEF4444) else ActiveGreenLed)
                     )
                     Text(
-                        text = "ЖУРНАЛ СЕТЕВЫХ ВЫЗОВОВ",
+                        text = stringResource(R.string.warp_header_logs),
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp,
@@ -709,7 +712,7 @@ private fun WarpLiveTerminalLog(
                 }
 
                 Text(
-                    text = "${steps.size} записей",
+                    text = stringResource(R.string.warp_records_count, steps.size),
                     fontSize = 9.5.sp,
                     color = TextMuted
                 )
@@ -773,7 +776,7 @@ private fun WarpLiveTerminalLog(
                                 modifier = Modifier.size(9.dp)
                             )
                             Text(
-                                text = "Обращение к API Cloudflare...",
+                                text = stringResource(R.string.warp_calling_api),
                                 fontSize = 9.5.sp,
                                 fontFamily = FontFamily.Monospace,
                                 color = ActiveGreenLed
@@ -783,7 +786,7 @@ private fun WarpLiveTerminalLog(
 
                     if (errorMessage != null && !isRegistering) {
                         Text(
-                            text = "ОШИБКА: $errorMessage",
+                            text = stringResource(R.string.warp_err_format, errorMessage ?: ""),
                             fontSize = 9.5.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
@@ -797,13 +800,14 @@ private fun WarpLiveTerminalLog(
 }
 
 /**
- * Карточка полного результата регистрации WARP со всеми техническими параметрами.
+ * note note result registration WARP note note note note.
  */
 @Composable
 private fun WarpResultCard(
     profile: WarpProfile,
     onCopy: (label: String, value: String) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = Color.Transparent,
@@ -820,7 +824,7 @@ private fun WarpResultCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "РЕЗУЛЬТАТ РЕГИСТРАЦИИ",
+                    text = stringResource(R.string.warp_header_results),
                     fontSize = 9.5.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp,
@@ -828,11 +832,11 @@ private fun WarpResultCard(
                 )
 
                 val (badgeText, badgeColor) = when {
-                    profile.isOfflineCached -> "OFFLINE-КЭШ" to Color(0xFFF59E0B)
-                    profile.needsVerification -> "ТРЕБУЕТСЯ ПРОВЕРКА" to Color(0xFFF59E0B)
-                    profile.dataPlaneReady -> "ГОТОВ К РАБОТЕ" to ActiveGreenLed
-                    profile.isWarpEnabled -> "АКТИВЕН" to ActiveGreenLed
-                    else -> "НЕ АКТИВИРОВАН" to TextMuted
+                    profile.isOfflineCached -> stringResource(R.string.warp_badge_offline) to Color(0xFFF59E0B)
+                    profile.needsVerification -> stringResource(R.string.warp_badge_needs_check) to Color(0xFFF59E0B)
+                    profile.dataPlaneReady -> stringResource(R.string.warp_badge_ready) to ActiveGreenLed
+                    profile.isWarpEnabled -> stringResource(R.string.warp_badge_active) to ActiveGreenLed
+                    else -> stringResource(R.string.warp_badge_not_active) to TextMuted
                 }
 
                 Surface(
@@ -851,95 +855,95 @@ private fun WarpResultCard(
             }
 
             val entitlementTitle = when (profile.entitlement) {
-                com.mirrly.tgproxy.core.WarpEntitlement.PLUS -> "WARP+ (Премиум)"
+                com.mirrly.tgproxy.core.WarpEntitlement.PLUS -> stringResource(R.string.warp_plan_plus)
                 com.mirrly.tgproxy.core.WarpEntitlement.TEAM -> "WARP Zero Trust / Teams"
-                com.mirrly.tgproxy.core.WarpEntitlement.UNVERIFIED -> "Не подтвержден сервером (Free)"
-                com.mirrly.tgproxy.core.WarpEntitlement.FREE -> "Бесплатный профиль (Free)"
+                com.mirrly.tgproxy.core.WarpEntitlement.UNVERIFIED -> stringResource(R.string.warp_plan_unverified)
+                com.mirrly.tgproxy.core.WarpEntitlement.FREE -> stringResource(R.string.warp_plan_free)
             }
             WarpResultParamRow(
-                label = "Тип подписки",
+                label = stringResource(R.string.warp_label_plan),
                 value = entitlementTitle,
                 valueColor = if (profile.isWarpPlus) ActiveGreenLed else TextWhite
             )
 
-            val regState = if (profile.isRegistered) "Зарегистрирован" else "Не подтвержден"
-            val actState = if (profile.isActivated) "Активирован" else "Не активирован"
+            val regState = if (profile.isRegistered) stringResource(R.string.warp_status_registered) else stringResource(R.string.warp_status_unconfirmed)
+            val actState = if (profile.isActivated) stringResource(R.string.warp_status_activated) else stringResource(R.string.warp_status_unactivated)
             WarpResultParamRow(
-                label = "Статус Cloudflare API",
+                label = stringResource(R.string.warp_label_cf_api_status),
                 value = "$regState / $actState",
                 valueColor = if (profile.isRegistered && profile.isActivated) ActiveGreenLed else TextMuted
             )
 
             val dpStatus = when {
-                profile.dataPlaneReady -> "Готов к передаче трафика"
-                profile.isOfflineCached -> "Офлайн (требуется онлайн-проверка)"
-                else -> "Не готов (нет активного туннеля)"
+                profile.dataPlaneReady -> stringResource(R.string.warp_dp_ready)
+                profile.isOfflineCached -> stringResource(R.string.warp_dp_offline)
+                else -> stringResource(R.string.warp_dp_not_ready)
             }
             WarpResultParamRow(
-                label = "Готовность Data Plane",
+                label = stringResource(R.string.warp_label_dp_status),
                 value = dpStatus,
                 valueColor = if (profile.dataPlaneReady) ActiveGreenLed else Color(0xFFF59E0B)
             )
 
             WarpResultParamRow(
-                label = "ID устройства",
-                value = profile.accountId.ifBlank { "Н/Д" },
+                label = stringResource(R.string.warp_label_device_id),
+                value = profile.accountId.ifBlank { stringResource(R.string.warp_not_avail) },
                 isCopyable = profile.accountId.isNotBlank(),
-                onCopy = { onCopy("ID устройства", profile.accountId) }
+                onCopy = { onCopy(context.getString(R.string.warp_label_device_id), profile.accountId) }
             )
 
             WarpResultParamRow(
-                label = "Выделенный IPv4",
+                label = stringResource(R.string.warp_label_client_ipv4),
                 value = profile.clientIpv4,
                 isCopyable = true,
-                onCopy = { onCopy("Клиентский IPv4", profile.clientIpv4) }
+                onCopy = { onCopy(context.getString(R.string.warp_label_client_ipv4), profile.clientIpv4) }
             )
 
             if (profile.clientIpv6.isNotBlank()) {
                 WarpResultParamRow(
-                    label = "Выделенный IPv6",
+                    label = stringResource(R.string.warp_label_client_ipv6),
                     value = profile.clientIpv6,
                     isCopyable = true,
-                    onCopy = { onCopy("Клиентский IPv6", profile.clientIpv6) }
+                    onCopy = { onCopy(context.getString(R.string.warp_label_client_ipv6), profile.clientIpv6) }
                 )
             }
 
             WarpResultParamRow(
-                label = "Anycast эндпоинт",
-                value = "${profile.peerEndpoint} (ТСПУ Bypass)",
+                label = stringResource(R.string.warp_label_anycast_endpoint),
+                value = stringResource(R.string.warp_anycast_val_bypass, profile.peerEndpoint),
                 valueColor = ActiveGreenLed,
                 isCopyable = true,
-                onCopy = { onCopy("Anycast эндпоинт", profile.peerEndpoint) }
+                onCopy = { onCopy(context.getString(R.string.warp_label_anycast_endpoint), profile.peerEndpoint) }
             )
 
-            val certStatus = if (profile.clientCertBase64.isNotBlank()) "Серверный X.509 DER подтвержден" else "Bearer-токен (RFC 9298)"
+            val certStatus = if (profile.clientCertBase64.isNotBlank()) stringResource(R.string.warp_cert_verified) else stringResource(R.string.warp_bearer_token)
             WarpResultParamRow(
-                label = "Аутентификация mTLS",
+                label = stringResource(R.string.warp_label_mtls),
                 value = certStatus,
                 valueColor = if (profile.clientCertBase64.isNotBlank()) ActiveGreenLed else TextWhite
             )
 
             WarpResultParamRow(
-                label = "Публичный ключ Cloudflare",
-                value = profile.peerPublicKey.ifBlank { "Стандартный Anycast" },
+                label = stringResource(R.string.warp_label_peer_pubkey),
+                value = profile.peerPublicKey.ifBlank { stringResource(R.string.warp_standard_anycast) },
                 isCopyable = profile.peerPublicKey.isNotBlank(),
-                onCopy = { onCopy("Публичный ключ узла", profile.peerPublicKey) }
+                onCopy = { onCopy(context.getString(R.string.warp_label_peer_pubkey), profile.peerPublicKey) }
             )
 
             WarpResultParamRow(
-                label = "WireGuard Public Key",
+                label = stringResource(R.string.warp_label_client_pubkey),
                 value = profile.publicKeyBase64,
                 isCopyable = true,
-                onCopy = { onCopy("WireGuard Public Key", profile.publicKeyBase64) }
+                onCopy = { onCopy(context.getString(R.string.warp_label_client_pubkey), profile.publicKeyBase64) }
             )
 
             if (profile.licenseKey.isNotBlank()) {
                 WarpResultParamRow(
-                    label = "Лицензия WARP+",
+                    label = stringResource(R.string.warp_label_license),
                     value = WarpAccountManager.maskLicenseKey(profile.licenseKey),
                     valueColor = ActiveGreenLed,
                     isCopyable = true,
-                    onCopy = { onCopy("Лицензия WARP+", profile.licenseKey) }
+                    onCopy = { onCopy(context.getString(R.string.warp_label_license), profile.licenseKey) }
                 )
             }
         }
@@ -947,7 +951,7 @@ private fun WarpResultCard(
 }
 
 /**
- * Карточка ввода и привязки лицензионного ключа WARP+ / Zero Trust.
+ * note note and note note note WARP+ / Zero Trust.
  */
 @Composable
 private fun WarpLicenseCard(
@@ -985,7 +989,7 @@ private fun WarpLicenseCard(
                             .background(if (isWarpPlus) ActiveGreenLed else TextMuted)
                     )
                     Text(
-                        text = "ЛИЦЕНЗИЯ WARP+ / ZERO TRUST",
+                        text = stringResource(R.string.warp_header_license),
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp,
@@ -999,7 +1003,7 @@ private fun WarpLicenseCard(
                     border = BorderStroke(1.dp, if (isWarpPlus) ActiveGreenLed.copy(alpha = 0.4f) else AmoledBorder)
                 ) {
                     Text(
-                        text = if (isWarpPlus) "WARP+ АКТИВЕН" else "FREE ТАРИФ",
+                        text = if (isWarpPlus) stringResource(R.string.warp_status_plus_active) else stringResource(R.string.warp_status_free_tier),
                         fontSize = 8.5.sp,
                         fontWeight = FontWeight.Black,
                         color = if (isWarpPlus) ActiveGreenLed else TextMuted,
@@ -1009,7 +1013,7 @@ private fun WarpLicenseCard(
             }
 
             Text(
-                text = "Лицензионный ключ WARP+ (26 символов) для повышенного Anycast-приоритета и неограниченного трафика.",
+                text = stringResource(R.string.warp_license_desc),
                 fontSize = 10.sp,
                 color = TextMuted,
                 lineHeight = 13.5.sp
@@ -1070,7 +1074,7 @@ private fun WarpLicenseCard(
                             )
                         } else {
                             Text(
-                                text = "Привязать",
+                                text = stringResource(R.string.warp_btn_attach_license),
                                 fontSize = 10.5.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -1081,7 +1085,7 @@ private fun WarpLicenseCard(
 
             if (attachError != null) {
                 Text(
-                    text = "Ошибка: $attachError",
+                    text = stringResource(R.string.warp_err_attach_format, attachError ?: ""),
                     fontSize = 9.5.sp,
                     color = Color(0xFFEF4444),
                     lineHeight = 12.sp
@@ -1092,7 +1096,7 @@ private fun WarpLicenseCard(
 }
 
 /**
- * Строка параметра в карточке результата с возможностью быстрого копирования.
+ * note note in note result with note note note.
  */
 @Composable
 private fun WarpResultParamRow(
@@ -1143,7 +1147,7 @@ private fun WarpResultParamRow(
             if (isCopyable) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_copy),
-                    contentDescription = "Копировать",
+                    contentDescription = stringResource(R.string.action_copy),
                     tint = TextMuted,
                     modifier = Modifier.size(11.dp)
                 )

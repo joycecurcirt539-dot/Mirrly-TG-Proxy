@@ -24,17 +24,23 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.net.ConnectException
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.math.roundToLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 
 /**
  * Оценка качества соединения на основе задержки, джиттера и процента успешных проб.
@@ -50,17 +56,43 @@ enum class ConnectionQuality(val label: String, val level: Int) {
 /**
  * Классификация сетевых сбоев для точной диагностики и самовосстановления.
  */
-enum class FailureType(val description: String) {
-    NONE("Норма"),
-    DNS_FAILURE("Ошибка DNS / DoH резолвинга"),
-    CONNECT_TIMEOUT("Таймаут подключения (> 2500 мс)"),
-    HOST_UNREACHABLE("Сервер или воркер недоступен"),
-    RATE_LIMITED_429("Превышен лимит запросов Cloudflare (429)"),
-    DPI_BLOCKED("Блокировка DPI (сброс TCP/TLS)"),
-    TLS_HANDSHAKE_FAILED("Сбой TLS рукопожатия / подмена сертификата"),
-    NETWORK_LOST("Сетевой интерфейс отключен"),
-    PREDICTIVE_DEGRADATION("Предиктивная деградация (рост RTT и Bufferbloat)"),
-    UNKNOWN_ERROR("Сетевой сбой")
+enum class FailureType(val description: String, val technicalCode: String = "") {
+    NONE("Норма", "OK"),
+    DNS_FAILURE("Ошибка DNS / DoH резолвинга", "DNS_RESOLUTION_UNAVAILABLE"),
+    DNS_RESOLUTION_UNAVAILABLE("Невозможно разрешить имя хоста / недоступность DoH", "DNS_RESOLUTION_UNAVAILABLE"),
+    FALLBACK_IP_FAILED("Сбой подключения к Anycast Fallback IP", "FALLBACK_IP_FAILED"),
+    CONNECT_TIMEOUT("Таймаут подключения (> 2500 мс)", "CONNECT_TIMEOUT"),
+    HOST_UNREACHABLE("Сервер или воркер недоступен", "HOST_UNREACHABLE"),
+    RATE_LIMITED_429("Превышен лимит запросов Cloudflare (429)", "WORKER_QUOTA_EXCEEDED"),
+    WORKER_QUOTA_EXCEEDED("Превышен суточный лимит запросов воркера (429/1015/1027)", "WORKER_QUOTA_EXCEEDED"),
+    DPI_BLOCKED("Блокировка DPI (сброс TCP/TLS)", "CLOUDFLARE_EDGE_BLOCKED"),
+    CLOUDFLARE_EDGE_BLOCKED("Сброс TLS/TCP на уровне ТСПУ", "CLOUDFLARE_EDGE_BLOCKED"),
+    TLS_HANDSHAKE_FAILED("Сбой TLS рукопожатия / подмена сертификата", "TLS_HANDSHAKE_FAILED"),
+    RELAY_ACK_FAILED("Сбой подтверждения релея", "RELAY_ACK_FAILED"),
+    SOCKS5_AUTH_REJECTED("Отклонение логина или пароля SOCKS5", "SOCKS5_AUTH_REJECTED"),
+    WARP_HANDSHAKE_TIMEOUT("Таймаут рукопожатия WARP / блокировка UDP", "WARP_HANDSHAKE_TIMEOUT"),
+    UNSUPPORTED_NETWORK_FAMILY("Неподдерживаемое семейство адресов", "UNSUPPORTED_NETWORK_FAMILY"),
+    NETWORK_LOST("Сетевой интерфейс отключен", "NETWORK_INTERFACE_DOWN"),
+    NETWORK_INTERFACE_DOWN("Сетевой интерфейс отключен", "NETWORK_INTERFACE_DOWN"),
+    PREDICTIVE_DEGRADATION("Предиктивная деградация (рост RTT и Bufferbloat)", "PREDICTIVE_DEGRADATION"),
+    UNKNOWN_ERROR("Сетевой сбой", "UNKNOWN_ERROR");
+
+    val stage: EstablishmentStage
+        get() = when (this) {
+            DNS_FAILURE, DNS_RESOLUTION_UNAVAILABLE -> EstablishmentStage.DNS
+            CONNECT_TIMEOUT, HOST_UNREACHABLE, UNSUPPORTED_NETWORK_FAMILY, FALLBACK_IP_FAILED, WARP_HANDSHAKE_TIMEOUT -> EstablishmentStage.TCP
+            TLS_HANDSHAKE_FAILED, DPI_BLOCKED, CLOUDFLARE_EDGE_BLOCKED -> EstablishmentStage.TLS
+            RATE_LIMITED_429, WORKER_QUOTA_EXCEEDED -> EstablishmentStage.WSS
+            RELAY_ACK_FAILED, SOCKS5_AUTH_REJECTED, PREDICTIVE_DEGRADATION -> EstablishmentStage.READY
+            else -> EstablishmentStage.READY
+        }
+
+    val isPathSpecific: Boolean
+        get() = when (this) {
+            RATE_LIMITED_429, WORKER_QUOTA_EXCEEDED, DNS_FAILURE, DNS_RESOLUTION_UNAVAILABLE,
+            NETWORK_LOST, NETWORK_INTERFACE_DOWN, UNKNOWN_ERROR, NONE -> false
+            else -> true
+        }
 }
 
 /**
@@ -71,6 +103,14 @@ data class PingProbeResult(
     val success: Boolean,
     val failureType: FailureType = FailureType.NONE,
     val errorDetail: String? = null
+)
+
+data class PingProbeStamp(
+    val probeGeneration: Long,
+    val networkGeneration: Long,
+    val profileRevision: Long,
+    val configGeneration: Long,
+    val target: String
 )
 
 /**
@@ -130,8 +170,13 @@ data class PingSnapshot(
 class PingEngine(
     private val targetProvider: () -> String,
     private val trafficThroughputProvider: () -> Long = { 0L },
-    private val onSelfHealingRequired: (() -> Unit)? = null
+    private val networkGenerationProvider: () -> Long = { 1L },
+    private val profileRevisionProvider: () -> Long = { 1L },
+    private val configGenerationProvider: () -> Long = { 1L },
+    private val probeExecutor: (suspend (String) -> PingProbeResult)? = null,
+    private val onSelfHealingRequired: ((FailureType) -> Unit)? = null
 ) {
+    val probeGeneration = AtomicLong(1L)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var workerJob: Job? = null
     private val mutex = Mutex()
@@ -196,8 +241,9 @@ class PingEngine(
                     delay(30000L)
                     continue
                 }
-                val probe = executeProbe()
-                recordProbe(probe)
+                val stamp = captureProbeStamp()
+                val probe = runProbe(stamp.target)
+                applyProbeIfCurrent(stamp, probe)
 
                 val delayMs = calculateNextProbeDelay(probe.success)
                 delay(delayMs)
@@ -213,6 +259,36 @@ class PingEngine(
 
     fun reset() {
         resetInternal()
+    }
+
+    fun invalidateInFlight() {
+        probeGeneration.incrementAndGet()
+    }
+
+    fun captureProbeStamp(): PingProbeStamp {
+        return PingProbeStamp(
+            probeGeneration = probeGeneration.get(),
+            networkGeneration = networkGenerationProvider(),
+            profileRevision = profileRevisionProvider(),
+            configGeneration = configGenerationProvider(),
+            target = targetProvider().trim()
+        )
+    }
+
+    fun isProbeStampCurrent(stamp: PingProbeStamp): Boolean {
+        return stamp.probeGeneration == probeGeneration.get() &&
+                stamp.networkGeneration == networkGenerationProvider() &&
+                stamp.profileRevision == profileRevisionProvider() &&
+                stamp.configGeneration == configGenerationProvider() &&
+                stamp.target == targetProvider().trim()
+    }
+
+    fun applyProbeIfCurrent(stamp: PingProbeStamp, probe: PingProbeResult): Boolean {
+        if (!isProbeStampCurrent(stamp)) {
+            return false
+        }
+        recordProbe(probe)
+        return true
     }
 
     /**
@@ -242,6 +318,7 @@ class PingEngine(
     }
 
     private fun resetInternal() {
+        probeGeneration.incrementAndGet()
         srtt = -1.0
         rttvar = 0.0
         currentAlpha = 0.25
@@ -260,66 +337,18 @@ class PingEngine(
     }
 
     suspend fun triggerSingleProbe(): PingSnapshot = mutex.withLock {
-        val probe = executeProbe()
-        recordProbe(probe)
+        val stamp = captureProbeStamp()
+        val probe = runProbe(stamp.target)
+        applyProbeIfCurrent(stamp, probe)
         currentSnapshot
     }
 
-    private suspend fun executeProbe(): PingProbeResult {
-        val target = targetProvider().trim()
-        if (target.isBlank()) {
-            return PingProbeResult(
-                rawRttMs = -1L,
-                success = false,
-                failureType = FailureType.DNS_FAILURE,
-                errorDetail = "Пустой адрес целевого сервера"
-            )
-        }
-
-        return try {
-            val hostClean = target
-                .removePrefix("https://")
-                .removePrefix("http://")
-                .removePrefix("wss://")
-                .substringBefore(":")
-                .substringBefore("/")
-
-            val addrs = DohResolver.resolve(hostClean)
-            if (addrs.isEmpty()) {
-                return PingProbeResult(
-                    rawRttMs = -1L,
-                    success = false,
-                    failureType = FailureType.DNS_FAILURE,
-                    errorDetail = "Не удалось разрешить IP-адрес для $hostClean (DoH / DNS Failure)"
-                )
-            }
-
-            val raceResult = HappyEyeballsEngine.raceConnect(
-                addresses = addrs,
-                port = 443,
-                attemptDelayMs = 200L,
-                timeoutMs = 2500L
-            )
-
-            if (raceResult != null) {
-                PingProbeResult(
-                    rawRttMs = raceResult.handshakeRttMs.coerceAtLeast(1L),
-                    success = true,
-                    failureType = FailureType.NONE
-                )
-            } else {
-                PingProbeResult(
-                    rawRttMs = -1L,
-                    success = false,
-                    failureType = FailureType.CONNECT_TIMEOUT,
-                    errorDetail = "Таймаут подключения (Happy Eyeballs опрос ${addrs.size} IP не удался)"
-                )
-            }
-        } catch (e: Exception) {
-            val fType = DpiAnomalyDetector.classifyException(e)
-            PingProbeResult(-1L, false, fType, e.message)
-        }
+    private suspend fun runProbe(target: String): PingProbeResult {
+        return probeExecutor?.invoke(target) ?: executeDirectProbe(target, timeoutMs = 2500L)
     }
+
+    private suspend fun executeProbe(target: String = targetProvider().trim()): PingProbeResult =
+        runProbe(target)
 
     @Synchronized
     fun recordProbe(probe: PingProbeResult) {
@@ -393,7 +422,7 @@ class PingEngine(
                     "PingEngine",
                     "Зафиксировано 3 сбоя подряд (${probe.failureType.description}: ${probe.errorDetail ?: "Таймаут"}). Запуск самовосстановления..."
                 )
-                onSelfHealingRequired?.invoke()
+                onSelfHealingRequired?.invoke(probe.failureType)
             }
         }
 
@@ -525,7 +554,7 @@ class PingEngine(
         failures: Int,
         successRate: Int
     ): ConnectionQuality {
-        return NetworkConditionEvaluator.evaluateConnectionQuality(
+        return NetworkQualityClassifier.evaluate(
             smoothedPingMs = smoothedPing,
             jitterMs = jitter,
             consecutiveFailures = failures,
@@ -573,5 +602,86 @@ class PingEngine(
 
     companion object {
         const val MIN_RTT_WINDOW_MS = 60_000L // 60-секундное скользящее окно Min-RTT
+
+        suspend fun parallelProbeCandidates(
+            targets: List<String>,
+            timeoutMs: Long = 1500L,
+            maxConcurrency: Int = 5
+        ): List<Pair<String, PingProbeResult>> = coroutineScope {
+            val semaphore = Semaphore(maxConcurrency)
+            targets.map { target ->
+                async(Dispatchers.IO) {
+                    semaphore.withPermit {
+                        val result = executeDirectProbe(target, timeoutMs)
+                        target to result
+                    }
+                }
+            }.awaitAll()
+        }
+
+        suspend fun executeDirectProbe(target: String, timeoutMs: Long = 1500L): PingProbeResult {
+            val trimmed = target.trim()
+            if (trimmed.isBlank()) {
+                return PingProbeResult(
+                    rawRttMs = -1L,
+                    success = false,
+                    failureType = FailureType.DNS_FAILURE,
+                    errorDetail = "Пустой адрес целевого сервера"
+                )
+            }
+
+            return try {
+                val hostClean = trimmed
+                    .removePrefix("https://")
+                    .removePrefix("http://")
+                    .removePrefix("wss://")
+                    .substringBefore(":")
+                    .substringBefore("/")
+
+                val port = if (trimmed.contains(":")) {
+                    trimmed.substringAfterLast(":").substringBefore("/").toIntOrNull() ?: 443
+                } else {
+                    443
+                }
+
+                val addrs = DohResolver.resolve(hostClean)
+                if (addrs.isEmpty()) {
+                    return PingProbeResult(
+                        rawRttMs = -1L,
+                        success = false,
+                        failureType = FailureType.DNS_FAILURE,
+                        errorDetail = "Не удалось разрешить IP-адрес для $hostClean (DoH / DNS Failure)"
+                    )
+                }
+
+                val raceResult = HappyEyeballsEngine.raceConnect(
+                    addresses = addrs,
+                    port = port,
+                    attemptDelayMs = 100L,
+                    timeoutMs = timeoutMs
+                )
+
+                if (raceResult != null) {
+                    PingProbeResult(
+                        rawRttMs = raceResult.handshakeRttMs.coerceAtLeast(1L),
+                        success = true,
+                        failureType = FailureType.NONE
+                    )
+                } else {
+                    PingProbeResult(
+                        rawRttMs = -1L,
+                        success = false,
+                        failureType = FailureType.CONNECT_TIMEOUT,
+                        errorDetail = "Таймаут подключения Happy Eyeballs"
+                    )
+                }
+            } catch (e: Exception) {
+                val fType = DpiAnomalyDetector.classifyException(e)
+                PingProbeResult(-1L, false, fType, e.message)
+            }
+        }
+
+        suspend fun probeSingleTarget(target: String, timeoutMs: Long = 1500L): PingProbeResult =
+            executeDirectProbe(target, timeoutMs)
     }
 }

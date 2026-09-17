@@ -28,11 +28,17 @@ import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.core.AppLogger
 import java.util.Calendar
 
-enum class ScheduleDaysMode(val title: String) {
-    EVERY_DAY("Каждый день"),
-    WEEKDAYS("Будни (Пн-Пт)"),
-    WEEKENDS("Выходные (Сб-Вс)"),
-    CUSTOM("Выбранные дни");
+import androidx.annotation.StringRes
+import com.mirrly.tgproxy.R
+
+enum class ScheduleDaysMode(
+    @StringRes val titleRes: Int,
+    val title: String
+) {
+    EVERY_DAY(R.string.schedule_mode_every_day, "Every day"),
+    WEEKDAYS(R.string.schedule_mode_weekdays, "Weekdays (Mon-Fri)"),
+    WEEKENDS(R.string.schedule_mode_weekends, "Weekends (Sat-Sun)"),
+    CUSTOM(R.string.schedule_mode_custom, "Selected days");
 
     companion object {
         fun fromName(name: String?): ScheduleDaysMode {
@@ -70,10 +76,13 @@ data class ScheduleConfig(
         }
     }
 
-    fun getSummaryText(): String {
-        if (!isEnabled) return "Расписание выключено"
+    fun getSummaryText(context: Context? = null): String {
+        if (!isEnabled) {
+            return context?.getString(R.string.schedule_disabled) ?: "Schedule disabled"
+        }
         val timeRange = "${formatStartTime()} – ${formatStopTime()}"
-        return "${daysMode.title}: $timeRange"
+        val modeTitle = context?.getString(daysMode.titleRes) ?: daysMode.title
+        return "$modeTitle: $timeRange"
     }
 }
 
@@ -113,7 +122,7 @@ object ScheduleManager {
         if (!config.isEnabled) {
             alarmManager.cancel(startPending)
             alarmManager.cancel(stopPending)
-            AppLogger.d(TAG, "Расписание выключено, будильники отменены")
+            AppLogger.d(TAG, "Schedule disabled, alarms cancelled")
             return
         }
 
@@ -123,7 +132,7 @@ object ScheduleManager {
         scheduleAlarm(alarmManager, nextStartTime, startPending)
         scheduleAlarm(alarmManager, nextStopTime, stopPending)
 
-        AppLogger.i(TAG, "Расписание активно: следующий старт в ${config.formatStartTime()}, стоп в ${config.formatStopTime()}")
+        AppLogger.i(TAG, "Schedule active: next start at ${config.formatStartTime()}, stop at ${config.formatStopTime()}")
     }
 
     private fun scheduleAlarm(alarmManager: AlarmManager, triggerMs: Long, pendingIntent: PendingIntent) {
@@ -180,7 +189,7 @@ class ScheduleReceiver : BroadcastReceiver() {
                 val calendar = Calendar.getInstance()
                 if (scheduleConfig.isEnabled && scheduleConfig.isDayActive(calendar.get(Calendar.DAY_OF_WEEK))) {
                     if (!app.proxyServer.isRunning) {
-                        AppLogger.i("ScheduleReceiver", "Запуск прокси по расписанию (${scheduleConfig.formatStartTime()})")
+                        AppLogger.i("ScheduleReceiver", "Starting proxy by schedule (${scheduleConfig.formatStartTime()})")
                         val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
                             this.action = ProxyForegroundService.ACTION_START
                         }
@@ -191,7 +200,7 @@ class ScheduleReceiver : BroadcastReceiver() {
                                 context.startService(serviceIntent)
                             }
                         } catch (e: Exception) {
-                            AppLogger.e("ScheduleReceiver", "Не удалось запустить службу по расписанию: ${e.message}")
+                            AppLogger.e("ScheduleReceiver", "Failed to start service by schedule: ${e.message}")
                         }
                     }
                 }
@@ -199,14 +208,14 @@ class ScheduleReceiver : BroadcastReceiver() {
             }
             ScheduleManager.ACTION_SCHEDULE_STOP -> {
                 if (app.proxyServer.isRunning) {
-                    AppLogger.i("ScheduleReceiver", "Остановка прокси по расписанию (${scheduleConfig.formatStopTime()})")
+                    AppLogger.i("ScheduleReceiver", "Stopping proxy by schedule (${scheduleConfig.formatStopTime()})")
                     val stopIntent = Intent(context, ProxyForegroundService::class.java).apply {
                         this.action = ProxyForegroundService.ACTION_STOP
                     }
                     try {
                         context.startService(stopIntent)
                     } catch (e: Exception) {
-                        AppLogger.e("ScheduleReceiver", "Не удалось остановить службу по расписанию: ${e.message}")
+                        AppLogger.e("ScheduleReceiver", "Failed to stop service by schedule: ${e.message}")
                     }
                 }
                 ScheduleManager.syncSchedule(context)

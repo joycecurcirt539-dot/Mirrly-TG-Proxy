@@ -140,7 +140,7 @@ object SpeedTestHistoryManager {
             }
             _historyFlow.value = historyList.toList()
         } catch (e: Exception) {
-            AppLogger.e("SpeedTestHistory", "Ошибка чтения истории: ${e.message}")
+            AppLogger.e("SpeedTestHistory", "Failed to read history: ${e.message}")
         }
     }
 
@@ -153,7 +153,7 @@ object SpeedTestHistoryManager {
             }
             p.edit().putString(KEY_HISTORY, jsonArray.toString()).apply()
         } catch (e: Exception) {
-            AppLogger.e("SpeedTestHistory", "Ошибка сохранения истории: ${e.message}")
+            AppLogger.e("SpeedTestHistory", "Failed to save history: ${e.message}")
         }
     }
 }

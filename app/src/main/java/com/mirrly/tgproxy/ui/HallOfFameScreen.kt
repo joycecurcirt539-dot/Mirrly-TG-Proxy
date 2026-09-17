@@ -23,6 +23,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.annotation.StringRes
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -49,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -65,36 +67,36 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 enum class ContributorTier(
-    val title: String,
-    val badgeLabel: String,
+    @StringRes val titleRes: Int,
+    @StringRes val badgeLabelRes: Int,
     val primaryColor: Color,
     val secondaryColor: Color,
     val iconRes: Int
 ) {
     LEGENDARY_PIONEER(
-        title = "Архитектурный Первопроходец",
-        badgeLabel = "ПЕРВОПРОХОДЕЦ",
+        titleRes = R.string.fame_tier_pioneer_title,
+        badgeLabelRes = R.string.fame_tier_pioneer_badge,
         primaryColor = Color(0xFFFFB703),
         secondaryColor = Color(0xFFFF5400),
         iconRes = R.drawable.ic_crown
     ),
     BUG_HUNTER(
-        title = "Охотник за багами",
-        badgeLabel = "БАГ-ХАНТЕР",
+        titleRes = R.string.fame_tier_bughunter_title,
+        badgeLabelRes = R.string.fame_tier_bughunter_badge,
         primaryColor = Color(0xFF00F5D4),
         secondaryColor = Color(0xFF00B4D8),
         iconRes = R.drawable.ic_fingerprint_badge
     ),
     BETA_TESTER(
-        title = "Бета-Тестировщик",
-        badgeLabel = "БЕТА-ТЕСТЕР",
+        titleRes = R.string.fame_tier_tester_title,
+        badgeLabelRes = R.string.fame_tier_tester_badge,
         primaryColor = Color(0xFFC084FC),
         secondaryColor = Color(0xFF818CF8),
         iconRes = R.drawable.ic_volunteer_badge
     ),
     TG_SUBSCRIBER(
-        title = "Участник Telegram-сообщества",
-        badgeLabel = "ПОДПИСЧИК TG",
+        titleRes = R.string.fame_tier_tg_title,
+        badgeLabelRes = R.string.fame_tier_tg_badge,
         primaryColor = Color(0xFF26A5E4),
         secondaryColor = Color(0xFF0088CC),
         iconRes = R.drawable.ic_telegram
@@ -114,13 +116,13 @@ data class Contributor(
     val id: String,
     val name: String,
     val handle: String,
-    val role: String,
-    val contribution: String,
+    @StringRes val roleRes: Int,
+    @StringRes val contributionRes: Int,
     val tier: ContributorTier,
     val githubUrl: String? = null
 ) {
     val fingerprint: DigitalFingerprint by lazy {
-        computeFingerprint(name, id, role)
+        computeFingerprint(name, id, id)
     }
 }
 
@@ -159,8 +161,8 @@ private val ContributorsList = listOf(
         id = "amurcanov",
         name = "amurcanov",
         handle = "@amurcanov",
-        role = "Автор проекта tg-ws-proxy-android",
-        contribution = "Создатель базового открытого Android-клиента tg-ws-proxy-android и C++ NDK реализации WSS-клиента, послуживших фундаментом для сетевого стека приложения.",
+        roleRes = R.string.fame_c_amurcanov_role,
+        contributionRes = R.string.fame_c_amurcanov_contrib,
         tier = ContributorTier.LEGENDARY_PIONEER,
         githubUrl = "https://github.com/amurcanov"
     ),
@@ -168,8 +170,8 @@ private val ContributorsList = listOf(
         id = "flowseal",
         name = "Flowseal",
         handle = "@Flowseal",
-        role = "Автор концепции туннелирования Telegram",
-        contribution = "Создатель проекта tg-ws-proxy. Разработал архитектурную концепцию проксирования трафика Telegram через Cloudflare WebSocket без необходимости в VPN.",
+        roleRes = R.string.fame_c_flowseal_role,
+        contributionRes = R.string.fame_c_flowseal_contrib,
         tier = ContributorTier.LEGENDARY_PIONEER,
         githubUrl = "https://github.com/Flowseal"
     ),
@@ -177,8 +179,8 @@ private val ContributorsList = listOf(
         id = "grovymon",
         name = "Grovymon",
         handle = "@Grovymon",
-        role = "Охотник за багами & Аудит безопасности",
-        contribution = "Автор Issues #3, #4, #5, #7, #8, #15, #16, #18, #19, #20. Обнаружил баги Window Insets под системную панель навигации (Redmi Note 13 Pro+ 5G, Android 16), залипание плашки обновления, уязвимость валидации TLS-сертификатов NoServerCertVerifier, исследовал обход блокировок на LTE (Т-Мобайл), выявил пропуск Rust-ядра в релизе и инициировал внедрение обязательной авторизации SOCKS5 RFC 1929.",
+        roleRes = R.string.fame_c_grovymon_role,
+        contributionRes = R.string.fame_c_grovymon_contrib,
         tier = ContributorTier.BUG_HUNTER,
         githubUrl = "https://github.com/Grovymon"
     ),
@@ -186,8 +188,8 @@ private val ContributorsList = listOf(
         id = "zzzxxx888207_design",
         name = "zzzxxx888207-design",
         handle = "@zzzxxx888207-design",
-        role = "Охотник за багами & Исследователь воркеров",
-        contribution = "Автор Issues #1, #9, #10, #13. Локализовал сброс секретного ключа в памяти на Xiaomi 12T (Android 15) и POCO X8 Pro Max (Android 16), выявил потерю приоритета пользовательских воркеров после перезагрузки и исследовал конфигурации Cloudflare Workers.",
+        roleRes = R.string.fame_c_zzzxxx_role,
+        contributionRes = R.string.fame_c_zzzxxx_contrib,
         tier = ContributorTier.BUG_HUNTER,
         githubUrl = "https://github.com/zzzxxx888207-design"
     ),
@@ -195,8 +197,8 @@ private val ContributorsList = listOf(
         id = "bbibux",
         name = "BbIBux",
         handle = "@BbIBux",
-        role = "Охотник за багами & Диагностика MTProto",
-        contribution = "Автор Issues #11, #12, #17. Обнаружил сбой загрузки медиафайлов (фото и видео) в MTProto на сетях T2 и Ростелеком после удаления MsgSplitter, сообщил о дефекте прозрачности подложки диалоговых окон и исследовал добавление пользовательских воркеров.",
+        roleRes = R.string.fame_c_bbibux_role,
+        contributionRes = R.string.fame_c_bbibux_contrib,
         tier = ContributorTier.BUG_HUNTER,
         githubUrl = "https://github.com/BbIBux"
     ),
@@ -204,8 +206,8 @@ private val ContributorsList = listOf(
         id = "ustiprog",
         name = "ustiprog",
         handle = "@ustiprog",
-        role = "Охотник за багами & Архитектор энергоэффективности",
-        contribution = "Автор Issue #21. Инициировал разработку постоянного таймера сна (Auto-Stop on Start) и предоставил детальную аналитику разряда аккумулятора в режиме ожидания при выключенном интернете, что послужило основой для реализации спящего режима Deep Dormancy и системы расписания работы.",
+        roleRes = R.string.fame_c_ustiprog_role,
+        contributionRes = R.string.fame_c_ustiprog_contrib,
         tier = ContributorTier.BUG_HUNTER,
         githubUrl = "https://github.com/ustiprog"
     ),
@@ -213,8 +215,8 @@ private val ContributorsList = listOf(
         id = "vikkalm",
         name = "VikKalm",
         handle = "@VikKalm",
-        role = "Охотник за багами релизных сборок",
-        contribution = "Автор Issue #6. Зафиксировал и предоставил логи полного отказа подключения в релизе v1.1.2 на Android 13 (arm64-v8a) через Wi-Fi/LTE из-за блокировки дефолтных воркеров Cloudflare, что привело к выпуску срочного хотфикса.",
+        roleRes = R.string.fame_c_vikkalm_role,
+        contributionRes = R.string.fame_c_vikkalm_contrib,
         tier = ContributorTier.BUG_HUNTER,
         githubUrl = "https://github.com/VikKalm"
     ),
@@ -222,34 +224,69 @@ private val ContributorsList = listOf(
         id = "liveonloan",
         name = "liveonloan",
         handle = "@liveonloan",
-        role = "Охотник за багами интерфейса",
-        contribution = "Автор Issue #14. Обнаружил визуальный дефект перекрытия кнопок управления таймером сна системной панелью навигации на Realme GT7 (Android 16), послуживший основой для редизайна экрана таймера в v1.1.8.1.",
+        roleRes = R.string.fame_c_liveonloan_role,
+        contributionRes = R.string.fame_c_liveonloan_contrib,
         tier = ContributorTier.BUG_HUNTER,
         githubUrl = "https://github.com/liveonloan"
+    ),
+    Contributor(
+        id = "40oil",
+        name = "40OIL",
+        handle = "@40OIL",
+        roleRes = R.string.fame_c_40oil_role,
+        contributionRes = R.string.fame_c_40oil_contrib,
+        tier = ContributorTier.BUG_HUNTER,
+        githubUrl = "https://github.com/40OIL"
+    ),
+    Contributor(
+        id = "mslight",
+        name = "MSLight",
+        handle = "@MSLight",
+        roleRes = R.string.fame_c_mslight_role,
+        contributionRes = R.string.fame_c_mslight_contrib,
+        tier = ContributorTier.BETA_TESTER,
+        githubUrl = "https://github.com/MSLight"
+    ),
+    Contributor(
+        id = "aseptronn",
+        name = "Aseptronn",
+        handle = "@Aseptronn",
+        roleRes = R.string.fame_c_aseptronn_role,
+        contributionRes = R.string.fame_c_aseptronn_contrib,
+        tier = ContributorTier.BETA_TESTER,
+        githubUrl = "https://github.com/Aseptronn"
     ),
     Contributor(
         id = "shon4k",
         name = "Shon4k",
         handle = "@Shon4k",
-        role = "Бета-тестировщик",
-        contribution = "Тестирование предварительных сборок приложения, проверка стабильности прокси-соединения и валидация сценариев использования.",
+        roleRes = R.string.fame_c_shon4k_role,
+        contributionRes = R.string.fame_c_shon4k_contrib,
         tier = ContributorTier.BETA_TESTER
     ),
     Contributor(
         id = "linar_s",
         name = "Linar S",
         handle = "Linar S",
-        role = "Бета-тестировщик",
-        contribution = "Тестирование стабильности сетевых сценариев, проверка совместимости на различных Android-устройствах и сбор обратной связи.",
+        roleRes = R.string.fame_c_linar_role,
+        contributionRes = R.string.fame_c_linar_contrib,
         tier = ContributorTier.BETA_TESTER
     ),
     Contributor(
         id = "astimir_meikulov",
         name = "Astimir Meikulov",
         handle = "Astimir Meikulov",
-        role = "Подписчик Telegram-канала",
-        contribution = "Активный подписчик Telegram-канала проекта (@WhyOkyHb), поддержка разработки и участие в жизни сообщества.",
+        roleRes = R.string.fame_c_astimir_role,
+        contributionRes = R.string.fame_c_astimir_contrib,
         tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "dimaakaj",
+        name = "Dimaakaj",
+        handle = "@Dimaakaj",
+        roleRes = R.string.fame_c_dimaakaj_role,
+        contributionRes = R.string.fame_c_dimaakaj_contrib,
+        tier = ContributorTier.BUG_HUNTER
     )
 )
 
@@ -400,8 +437,7 @@ fun DigitalFingerprintCanvas(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HallOfFameScreen(
-    onBack: () -> Unit,
-    onOpenVolunteers: () -> Unit = {}
+    onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -488,14 +524,14 @@ fun HallOfFameScreen(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = "Зал Славы и Благодарности",
+                            text = stringResource(R.string.fame_title),
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Black,
                             color = TextWhite,
                             textAlign = TextAlign.Center
                         )
                         Text(
-                            text = "Выражаю глубокую признательность первопроходцам, контрибьюторам и тестировщикам, чьи наработки и тестирование сделали Mirrly TG Proxy надежным инструментом.",
+                            text = stringResource(R.string.fame_desc),
                             fontSize = 12.5.sp,
                             lineHeight = 18.sp,
                             color = TextMuted,
@@ -523,7 +559,7 @@ fun HallOfFameScreen(
                                 modifier = Modifier.size(14.dp)
                             )
                             Text(
-                                text = "УНИКАЛЬНЫЙ ЦИФРОВОЙ СЛЕПОК ДЛЯ КАЖДОГО УЧАСТНИКА",
+                                text = stringResource(R.string.fame_fingerprint_badge_header),
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFC084FC)
@@ -551,7 +587,7 @@ fun HallOfFameScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "АРХИТЕКТУРНЫЕ ПЕРВОПРОХОДЦЫ",
+                            text = stringResource(R.string.fame_section_pioneers),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.2.sp,
@@ -590,7 +626,7 @@ fun HallOfFameScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "ОХОТНИКИ ЗА БАГАМИ (BUG HUNTERS)",
+                            text = stringResource(R.string.fame_section_bughunters),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.2.sp,
@@ -629,7 +665,7 @@ fun HallOfFameScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "ВОЛОНТЕРЫ БЕТА-ТЕСТИРОВАНИЯ",
+                            text = stringResource(R.string.fame_section_testers),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.2.sp,
@@ -668,7 +704,7 @@ fun HallOfFameScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "СООБЩЕСТВО TELEGRAM",
+                            text = stringResource(R.string.fame_section_community),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.2.sp,
@@ -684,76 +720,6 @@ fun HallOfFameScreen(
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 selectedContributor = contributor
                             }
-                        )
-                    }
-                }
-            }
-
-            // ── 4. CALL TO ACTION: JOIN THE VOLUNTEER TEAM ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .staggeredEntrance(index = 10)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Color.Transparent)
-                    .border(1.dp, Color(0xFFFF9E00).copy(alpha = 0.5f), RoundedCornerShape(22.dp))
-                    .lightSweep(
-                        isEnabled = true,
-                        shape = RoundedCornerShape(22.dp),
-                        sweepColor = Color(0xFFFF9E00)
-                    )
-                    .padding(20.dp)
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = "Хотите увидеть свое имя здесь?",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite,
-                            textAlign = TextAlign.Center
-                        )
-                        Text(
-                            text = "Присоединяйтесь к программе волонтеров тестирования: тестируйте новые сборки APK, находите баги и получите постоянное место в Зале Славы с персональным цифровым слепком!",
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
-                            color = TextMuted,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onOpenVolunteers()
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.Transparent,
-                            contentColor = Color(0xFFFF9E00)
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFF9E00)),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_volunteer_badge),
-                            contentDescription = null,
-                            tint = Color(0xFFFF9E00),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Стать волонтером тестирования",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
                         )
                     }
                 }
@@ -780,7 +746,7 @@ fun HallOfFameScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Благодарности",
+                        text = stringResource(R.string.fame_topbar_title),
                         color = TextWhite,
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp
@@ -793,7 +759,7 @@ fun HallOfFameScreen(
                     }) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_arrow_left),
-                            contentDescription = "Назад",
+                            contentDescription = stringResource(R.string.action_back),
                             tint = TextWhite,
                             modifier = Modifier.size(22.dp)
                         )
@@ -875,7 +841,7 @@ private fun ContributorCard(
                         )
                     ) {
                         Text(
-                            text = tier.badgeLabel,
+                            text = stringResource(tier.badgeLabelRes),
                             fontSize = 8.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = tier.primaryColor,
@@ -885,14 +851,14 @@ private fun ContributorCard(
                 }
 
                 Text(
-                    text = contributor.role,
+                    text = stringResource(contributor.roleRes),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = tier.primaryColor.copy(alpha = 0.9f)
                 )
 
                 Text(
-                    text = contributor.contribution,
+                    text = stringResource(contributor.contributionRes),
                     fontSize = 11.5.sp,
                     lineHeight = 16.sp,
                     color = TextMuted,
@@ -981,7 +947,7 @@ private fun ContributorPassportDialog(
                     )
                 ) {
                     Text(
-                        text = tier.title.uppercase(),
+                        text = stringResource(tier.titleRes).uppercase(),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.1.sp,
@@ -1020,7 +986,7 @@ private fun ContributorPassportDialog(
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = contributor.role,
+                        text = stringResource(contributor.roleRes),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = tier.primaryColor,
@@ -1039,14 +1005,14 @@ private fun ContributorPassportDialog(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "ВКЛАД В ПРОЕКТ",
+                            text = stringResource(R.string.fame_dialog_contrib_header),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.1.sp,
                             color = TextMuted
                         )
                         Text(
-                            text = contributor.contribution,
+                            text = stringResource(contributor.contributionRes),
                             fontSize = 13.sp,
                             lineHeight = 19.sp,
                             color = TextWhite.copy(alpha = 0.90f)
@@ -1080,7 +1046,7 @@ private fun ContributorPassportDialog(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = "ВЕРИФИЦИРОВАННЫЙ СЛЕПОК",
+                                    text = stringResource(R.string.fame_dialog_fingerprint_header),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Black,
                                     letterSpacing = 1.1.sp,
@@ -1109,7 +1075,7 @@ private fun ContributorPassportDialog(
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 cb.setPrimaryClip(ClipData.newPlainText("Digital Fingerprint", fp.fullHash))
-                                Toast.makeText(context, "Цифровой слепок скопирован", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.fame_dialog_copied_toast), Toast.LENGTH_SHORT).show()
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color.Transparent,
@@ -1129,7 +1095,7 @@ private fun ContributorPassportDialog(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Скопировать отпечаток",
+                                text = stringResource(R.string.fame_dialog_btn_copy),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -1159,7 +1125,7 @@ private fun ContributorPassportDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Открыть профиль GitHub",
+                            text = stringResource(R.string.fame_dialog_btn_github),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
@@ -1179,7 +1145,7 @@ private fun ContributorPassportDialog(
                         .height(46.dp)
                 ) {
                     Text(
-                        text = "Закрыть",
+                        text = stringResource(R.string.fame_dialog_btn_close),
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         color = TextMuted

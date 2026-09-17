@@ -19,9 +19,9 @@
 package com.mirrly.tgproxy.core
 
 enum class QoSThrottleLevel(val maxPoolSize: Int, val maxBufferSizeBytes: Int, val description: String) {
-    NONE(16, 2097152, "Полная производительность"),
-    MODERATE(4, 262144, "Ограничение Balanced (умеренный нагрев / низкий заряд)"),
-    SEVERE(2, 131072, "Энергосбережение Eco (сильный нагрев / режим энергосбережения)")
+    NONE(4, 2097152, "Полная производительность"),
+    MODERATE(2, 262144, "Ограничение Balanced (умеренный нагрев / низкий заряд)"),
+    SEVERE(1, 131072, "Энергосбережение Eco (сильный нагрев / режим энергосбережения)")
 }
 
 data class DeviceThermalState(

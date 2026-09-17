@@ -9,6 +9,9 @@ description = "Mirrly TG Proxy - High Performance Native MTProto & WebSocket Eng
 name = "mirrlyengine"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+heartbeat-test-utils = []
+
 [dependencies]
 tokio = { version = "1.40", features = ["full"] }
 tokio-util = "0.7"
@@ -44,3 +47,6 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["test-util"] }

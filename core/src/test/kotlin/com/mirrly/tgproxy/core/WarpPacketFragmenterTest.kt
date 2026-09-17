@@ -118,4 +118,22 @@ class WarpPacketFragmenterTest {
         val nextHeader2 = buf2.get(6)
         assertEquals(44.toByte(), nextHeader2, "IPv6 Next Header must be 44 (Fragment Header)")
     }
+
+    @Test
+    fun testCalculateWireGuardMac1Generates16ByteDigest() {
+        val probe = WarpPacketFragmenter.createWireGuardInitiationProbe()
+        val peerPublicKey = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
+
+        val mac1 = WarpPacketFragmenter.calculateWireGuardMac1(probe, peerPublicKey)
+        assertNotNull(mac1)
+        assertEquals(16, mac1.size, "mac1 must be exactly 16 bytes per RFC 7693 / WireGuard specification")
+
+        // mac1 must be deterministic for identical packet content and peer key
+        val mac1Repeat = WarpPacketFragmenter.calculateWireGuardMac1(probe, peerPublicKey)
+        assertEquals(mac1.toList(), mac1Repeat.toList(), "mac1 calculation must be deterministic")
+
+        // mac1 in probe packet at bytes 116..131 must match calculated mac1
+        val probeMac1 = probe.copyOfRange(116, 132)
+        assertEquals(mac1.toList(), probeMac1.toList(), "Probe packet mac1 bytes must match calculated mac1")
+    }
 }

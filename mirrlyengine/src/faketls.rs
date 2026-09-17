@@ -116,11 +116,11 @@ pub async fn handle_fake_tls_handshake<S: AsyncReadExt + AsyncWriteExt + Unpin>(
 pub async fn read_tls_app_data<R: AsyncReadExt + Unpin>(reader: &mut R) -> io::Result<Vec<u8>> {
     loop {
         let mut hdr = [0u8; TLS_RECORD_HEADER_LEN];
-        match reader.read_exact(&mut hdr).await {
-            Ok(_) => {}
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(Vec::new()),
-            Err(e) => return Err(e),
+        // EOF is graceful only at a record boundary, never halfway through a header.
+        if reader.read(&mut hdr[..1]).await? == 0 {
+            return Ok(Vec::new());
         }
+        reader.read_exact(&mut hdr[1..]).await?;
 
         let content_type = hdr[0];
         let record_len = u16::from_be_bytes([hdr[3], hdr[4]]) as usize;

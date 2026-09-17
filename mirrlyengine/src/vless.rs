@@ -1100,6 +1100,15 @@ pub async fn probe_vless_profile(
 }
 
 pub async fn run_vless_background_probe() {
+    run_vless_background_probe_for(crate::generation_guard::snapshot()).await;
+}
+
+static VLESS_PROBE_OWNER: Lazy<RwLock<Option<crate::generation_guard::GenerationStamp>>> =
+    Lazy::new(|| RwLock::new(None));
+
+async fn run_vless_background_probe_for(
+    expected: crate::generation_guard::GenerationStamp,
+) {
     ldebug!("VLESS: starting periodic background health check with real profiles and E2E verification");
     let candidates: Vec<VlessConfig> = {
         let mut list = Vec::new();
@@ -1119,6 +1128,9 @@ pub async fn run_vless_background_probe() {
     let mut best_e2e_rtt = u64::MAX;
 
     for cfg in candidates {
+        if !crate::generation_guard::is_current(expected) {
+            return;
+        }
         let cooldown_domain = if !cfg.domain.is_empty() {
             &cfg.domain
         } else {
@@ -1132,35 +1144,41 @@ pub async fn run_vless_background_probe() {
         let probe_res =
             probe_vless_profile(&cfg, "149.154.167.51:443", Duration::from_secs(3)).await;
 
-        let mut scorer = VLESS_SCORER.write();
-        if probe_res.e2e_healthy {
-            let e2e_rtt = probe_res.e2e_rtt_ms.unwrap_or(350);
-            scorer.record_e2e_success(&cfg.id, e2e_rtt, probe_res.transport_rtt_ms);
-            ldebug!(
-                "VLESS background probe: profile '{}' healthy (transport={}ms, e2e={}ms)",
-                cfg.id,
-                probe_res.transport_rtt_ms.unwrap_or(0),
-                e2e_rtt
-            );
-            if e2e_rtt < best_e2e_rtt {
-                best_e2e_rtt = e2e_rtt;
-                best_id = Some(cfg.id.clone());
+        if crate::generation_guard::apply_if_current(expected, || {
+            let mut scorer = VLESS_SCORER.write();
+            if probe_res.e2e_healthy {
+                let e2e_rtt = probe_res.e2e_rtt_ms.unwrap_or(350);
+                scorer.record_e2e_success(&cfg.id, e2e_rtt, probe_res.transport_rtt_ms);
+                ldebug!(
+                    "VLESS background probe: profile '{}' healthy (transport={}ms, e2e={}ms)",
+                    cfg.id,
+                    probe_res.transport_rtt_ms.unwrap_or(0),
+                    e2e_rtt
+                );
+                if e2e_rtt < best_e2e_rtt {
+                    best_e2e_rtt = e2e_rtt;
+                    best_id = Some(cfg.id.clone());
+                }
+            } else {
+                scorer.record_e2e_failure(&cfg.id, probe_res.transport_rtt_ms);
+                lwarn!(
+                    "VLESS background probe: profile '{}' E2E FAILED (transport={:?}, err={:?})",
+                    cfg.id,
+                    probe_res.transport_rtt_ms,
+                    probe_res.error
+                );
             }
-        } else {
-            // E2E verification failed! Do NOT treat as healthy fallback!
-            scorer.record_e2e_failure(&cfg.id, probe_res.transport_rtt_ms);
-            lwarn!(
-                "VLESS background probe: profile '{}' E2E FAILED (transport={:?}, err={:?})",
-                cfg.id,
-                probe_res.transport_rtt_ms,
-                probe_res.error
-            );
+        })
+        .is_none()
+        {
+            return;
         }
     }
 
     if let Some(best) = best_id {
-        let mut scorer = VLESS_SCORER.write();
-        if let Some(ref mut sticky) = scorer.active_sticky {
+        let _ = crate::generation_guard::apply_if_current(expected, || {
+            let mut scorer = VLESS_SCORER.write();
+            if let Some(ref mut sticky) = scorer.active_sticky {
             if !sticky.domain.eq_ignore_ascii_case(&best)
                 && best_e2e_rtt + 80 < sticky.smoothed_rtt_ms
             {
@@ -1177,29 +1195,40 @@ pub async fn run_vless_background_probe() {
                 sticky.consecutive_failures = 0;
                 *LAST_SOCKS5_WORKER.write() = best;
             }
-        }
+            }
+        });
     }
 }
 
 pub fn maybe_trigger_vless_background_probe() {
-    let should_trigger = {
+    let expected = crate::generation_guard::snapshot();
+    let should_trigger = crate::generation_guard::apply_if_current(expected, || {
         let mut scorer = VLESS_SCORER.write();
+        let mut owner = VLESS_PROBE_OWNER.write();
+        if owner.as_ref() != Some(&expected) {
+            scorer.background_probe_in_progress = false;
+        }
         if scorer.should_trigger_background_probe() {
             scorer.background_probe_in_progress = true;
             scorer.last_background_probe = Some(Instant::now());
+            *owner = Some(expected);
             true
         } else {
             false
         }
-    };
+    })
+    .unwrap_or(false);
 
     if !should_trigger {
         return;
     }
 
     tokio::spawn(async move {
-        run_vless_background_probe().await;
-        VLESS_SCORER.write().background_probe_in_progress = false;
+        run_vless_background_probe_for(expected).await;
+        let _ = crate::generation_guard::apply_if_current(expected, || {
+            VLESS_SCORER.write().background_probe_in_progress = false;
+            *VLESS_PROBE_OWNER.write() = None;
+        });
     });
 }
 
@@ -2313,6 +2342,8 @@ pub async fn dial_single_vless_config(
             let tls_cfg = crate::ws::get_tls_config_for_fingerprint(&fingerprint);
             let connector = TlsConnector::from(tls_cfg);
             let sni = server_name(sni_domain);
+            let net_gen = crate::network_profile::current_generation();
+            let tls_start = std::time::Instant::now();
             let dial_res = tokio::select! {
                 _ = cancel_token.cancelled() => return None,
                 res = tokio::time::timeout(
@@ -2321,8 +2352,25 @@ pub async fn dial_single_vless_config(
                 ) => res,
             };
             let tls_stream = match dial_res {
-                Ok(Ok(s)) => s,
+                Ok(Ok(s)) => {
+                    let duration_ms = tls_start.elapsed().as_millis() as u64;
+                    let kind = s.get_ref().1.handshake_kind();
+                    crate::tls_observability::TLS_TRACKER.write().record_success(
+                        sni_domain,
+                        net_gen,
+                        kind,
+                        duration_ms,
+                    );
+                    s
+                }
                 Ok(Err(e)) => {
+                    let duration_ms = tls_start.elapsed().as_millis() as u64;
+                    crate::tls_observability::TLS_TRACKER.write().record_failure(
+                        sni_domain,
+                        net_gen,
+                        duration_ms,
+                        &e.to_string(),
+                    );
                     lwarn!(
                         "VLESS [{}] direct VPS: TLS handshake failed for {}: {:?}",
                         cfg.id,
@@ -2332,6 +2380,13 @@ pub async fn dial_single_vless_config(
                     return None;
                 }
                 Err(_) => {
+                    let duration_ms = tls_start.elapsed().as_millis() as u64;
+                    crate::tls_observability::TLS_TRACKER.write().record_failure(
+                        sni_domain,
+                        net_gen,
+                        duration_ms,
+                        "handshake_timeout",
+                    );
                     lwarn!("VLESS [{}] direct VPS: TLS handshake timeout for {}", cfg.id, sni_domain);
                     return None;
                 }
@@ -2622,13 +2677,17 @@ pub async fn vless_acquire_uplink_cmd(
     command: u8,
     cancel_token: &CancellationToken,
 ) -> Option<VlessUplink> {
+    let expected = crate::generation_guard::snapshot();
     let active_cfg = VLESS_CONFIG.read().clone();
     let user_domain = CFPROXY.read().user_domain.clone();
+    let trust_policy = crate::supervisor::ROUTE_SUPERVISOR.get_trust_policy();
+    let is_private_profile = active_cfg.is_direct_vps();
+    let allow_public_fallback = !is_private_profile || trust_policy.allow_public_relay_fallback;
 
-    // Priority -1: Opera VPN Upstream Chaining (if enabled for VLESS)
+    // Priority -1: Opera VPN Upstream Chaining (Transport Hop to VPS, if allowed)
     let (use_opera, opera_ep) = {
         let op = OPERA_VPN.read();
-        (op.vless_enabled, op.endpoint.clone())
+        (op.vless_enabled && trust_policy.allow_opera_transport_hop, op.endpoint.clone())
     };
     if use_opera && !opera_ep.is_empty() {
         let target_vless_domain = if !active_cfg.tls_sni.is_empty() {
@@ -2646,7 +2705,7 @@ pub async fn vless_acquire_uplink_cmd(
             &active_cfg.path
         };
         ldebug!(
-            "VLESS: connecting via Opera VPN proxy {} to {}",
+            "VLESS: connecting via Opera VPN transport hop {} to VPS {}",
             opera_ep,
             target_vless_domain
         );
@@ -2670,14 +2729,14 @@ pub async fn vless_acquire_uplink_cmd(
             match dial_res {
                 Ok(ws) => {
                     if let Err(e) = ws.send(&vless_req).await {
-                        lwarn!("VLESS: Failed to send header via Opera VPN: {:?}", e);
+                        lwarn!("VLESS: Failed to send header via Opera VPN transport hop: {:?}", e);
                     } else {
-                        linfo!("VLESS connected successfully via Opera VPN {}", opera_ep);
-                        return Some(VlessUplink::Ws(ws));
+                        linfo!("VLESS connected successfully via Opera VPN transport hop {}", opera_ep);
+                        return accept_vless_uplink_if_current(expected, VlessUplink::Ws(ws)).await;
                     }
                 }
                 Err(e) => {
-                    lwarn!("VLESS: Opera VPN tunnel failed ({}): {:?}", opera_ep, e);
+                    lwarn!("VLESS: Opera VPN transport hop tunnel failed ({}): {:?}", opera_ep, e);
                 }
             }
         }
@@ -2688,12 +2747,12 @@ pub async fn vless_acquire_uplink_cmd(
         if let Some(uplink) =
             dial_single_vless_config(&active_cfg, target_addr, command, cancel_token).await
         {
-            return Some(uplink);
+            return accept_vless_uplink_if_current(expected, uplink).await;
         }
     }
 
     // Priority 1: User-configured custom Cloudflare Worker / Pages domain
-    if !user_domain.is_empty() && !user_domain.eq_ignore_ascii_case(&active_cfg.domain) {
+    if !user_domain.is_empty() && !user_domain.eq_ignore_ascii_case(&active_cfg.domain) && allow_public_fallback {
         let mut user_cfg = active_cfg.clone();
         user_cfg.id = format!("user_worker_{}", user_domain);
         user_cfg.name = format!("User Worker ({})", user_domain);
@@ -2711,8 +2770,17 @@ pub async fn vless_acquire_uplink_cmd(
         if let Some(uplink) =
             dial_single_vless_config(&user_cfg, target_addr, command, cancel_token).await
         {
-            return Some(uplink);
+            return accept_vless_uplink_if_current(expected, uplink).await;
         }
+    }
+
+    // If active profile is a private VPS and public fallback is prohibited, stop here.
+    if is_private_profile && !allow_public_fallback {
+        lwarn!(
+            "VLESS [{}]: private VPS failed; fallback to public relay is prohibited by trust policy",
+            active_cfg.id
+        );
+        return None;
     }
 
     // Priority 2: Fallback Profiles Pool with isolated credentials (TSK-V01)
@@ -2748,7 +2816,7 @@ pub async fn vless_acquire_uplink_cmd(
     }
 
     // 2. Second priority in fallback: public free Cloudflare Pages & Dev workers (graceful fallback)
-    if candidate_configs.is_empty() {
+    if candidate_configs.is_empty() && allow_public_fallback {
         let default_uuid = parse_uuid("d342d11e-d424-4583-b36e-524ab1f0afa4")
             .unwrap_or(active_cfg.uuid);
         for &fb in PUBLIC_VLESS_FALLBACKS.iter().chain(DEV_SOCKS5_WORKERS.iter()) {
@@ -2813,18 +2881,22 @@ pub async fn vless_acquire_uplink_cmd(
 
             if let Some(uplink) = dial_res {
                 let elapsed_ms = sticky_start.elapsed().as_millis() as u64;
-                VLESS_SCORER
-                    .write()
-                    .record_success(&sticky_cfg.id, elapsed_ms);
-                *LAST_SOCKS5_WORKER.write() = sticky_cfg.id.clone();
-                clear_cfproxy_429_cooldown(&sticky_cfg.domain);
+                let accepted = crate::generation_guard::apply_if_current(expected, || {
+                    VLESS_SCORER.write().record_success(&sticky_cfg.id, elapsed_ms);
+                    *LAST_SOCKS5_WORKER.write() = sticky_cfg.id.clone();
+                    clear_cfproxy_429_cooldown(&sticky_cfg.domain);
+                }).is_some();
+                if !accepted {
+                    discard_vless_uplink(uplink).await;
+                    return None;
+                }
                 ldebug!(
                     "VLESS sticky profile ok: '{}' in {}ms",
                     sticky_cfg.id,
                     elapsed_ms
                 );
                 maybe_trigger_vless_background_probe();
-                return Some(uplink);
+                return accept_vless_uplink_if_current(expected, uplink).await;
             }
 
             // Sticky profile failed. Demote and fall back to sequential race
@@ -2832,7 +2904,9 @@ pub async fn vless_acquire_uplink_cmd(
                 "VLESS sticky profile '{}' failed. Recording failure and proceeding to fallbacks.",
                 sticky_cfg.id
             );
-            VLESS_SCORER.write().record_failure(&sticky_cfg.id);
+            let _ = crate::generation_guard::apply_if_current(expected, || {
+                VLESS_SCORER.write().record_failure(&sticky_cfg.id);
+            });
             // Put it back at the end of candidates
             candidate_configs.push(sticky_cfg);
         }
@@ -2893,11 +2967,15 @@ pub async fn vless_acquire_uplink_cmd(
             dial_single_vless_config(&cfg, target_addr, command, cancel_token).await
         {
             let elapsed_ms = probe_start.elapsed().as_millis() as u64;
-            VLESS_SCORER
-                .write()
-                .set_sticky_winner(&cfg.id, elapsed_ms);
-            *LAST_SOCKS5_WORKER.write() = cfg.id.clone();
-            clear_cfproxy_429_cooldown(&cfg.domain);
+            let accepted = crate::generation_guard::apply_if_current(expected, || {
+                VLESS_SCORER.write().set_sticky_winner(&cfg.id, elapsed_ms);
+                *LAST_SOCKS5_WORKER.write() = cfg.id.clone();
+                clear_cfproxy_429_cooldown(&cfg.domain);
+            }).is_some();
+            if !accepted {
+                discard_vless_uplink(uplink).await;
+                return None;
+            }
             linfo!(
                 "VLESS sequential fallback winner: profile '{}' ({}:{}) in {}ms",
                 cfg.id,
@@ -2905,9 +2983,11 @@ pub async fn vless_acquire_uplink_cmd(
                 cfg.effective_server_port(),
                 elapsed_ms
             );
-            return Some(uplink);
+            return accept_vless_uplink_if_current(expected, uplink).await;
         } else {
-            VLESS_SCORER.write().record_failure(&cfg.id);
+            let _ = crate::generation_guard::apply_if_current(expected, || {
+                VLESS_SCORER.write().record_failure(&cfg.id);
+            });
         }
     }
 
@@ -2916,6 +2996,27 @@ pub async fn vless_acquire_uplink_cmd(
         target_addr
     );
     None
+}
+
+async fn accept_vless_uplink_if_current(
+    expected: crate::generation_guard::GenerationStamp,
+    uplink: VlessUplink,
+) -> Option<VlessUplink> {
+    if crate::generation_guard::is_current(expected) {
+        Some(uplink)
+    } else {
+        discard_vless_uplink(uplink).await;
+        None
+    }
+}
+
+async fn discard_vless_uplink(uplink: VlessUplink) {
+    match uplink {
+        VlessUplink::Ws(ws) => {
+            let _ = ws.close().await;
+        }
+        other => drop(other),
+    }
 }
 
 pub async fn vless_acquire_uplink(

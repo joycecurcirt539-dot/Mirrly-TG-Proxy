@@ -1,4 +1,5 @@
 package com.mirrly.tgproxy.ui
+import androidx.compose.ui.res.stringResource
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -53,6 +54,7 @@ fun ImportWorkerDialog(
     var isCheckingWorker by remember { mutableStateOf(false) }
     var unreachableWarning by remember { mutableStateOf<String?>(null) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val cleanDomain = normalized.normalizedDomain
 
     Dialog(
@@ -79,9 +81,11 @@ fun ImportWorkerDialog(
                     .align(Alignment.Center)
                     .adaptiveContainerWidth(440.dp)
                     .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .imePadding()
                     .padding(
                         top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                        bottom = 96.dp
                     )
                     .padding(horizontal = 24.dp)
                     .clickable(
@@ -96,7 +100,7 @@ fun ImportWorkerDialog(
                     border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.35f))
                 ) {
                     Text(
-                        text = "ИМПОРТ ВОРКЕРА",
+                        text = stringResource(R.string.import_worker_dialog_category),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = activeAccentColor,
@@ -107,7 +111,7 @@ fun ImportWorkerDialog(
 
                 // Title
                 Text(
-                    text = "Импорт Cloudflare Worker",
+                    text = stringResource(R.string.import_worker_dialog_title),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,
@@ -127,7 +131,7 @@ fun ImportWorkerDialog(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
-                            text = "ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ:",
+                            text = stringResource(R.string.import_worker_params_header),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = activeAccentColor,
@@ -135,7 +139,7 @@ fun ImportWorkerDialog(
                         )
 
                         Text(
-                            text = "Вы открыли ссылку для подключения Cloudflare Worker. Проверьте данные и подтвердите добавление узла в конфигурацию прокси.",
+                            text = stringResource(R.string.import_worker_desc),
                             fontSize = 12.5.sp,
                             color = TextWhite.copy(alpha = 0.8f),
                             lineHeight = 17.sp
@@ -150,7 +154,7 @@ fun ImportWorkerDialog(
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 Text(
-                                    text = "ДОМЕН УЗЛА",
+                                    text = stringResource(R.string.import_worker_domain_header),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = activeAccentColor,
@@ -170,10 +174,10 @@ fun ImportWorkerDialog(
                         OutlinedTextField(
                             value = editName,
                             onValueChange = { editName = it },
-                            label = { Text("Название (опционально)") },
+                            label = { Text(stringResource(R.string.import_worker_field_name)) },
                             placeholder = {
                                 Text(
-                                    text = "например: От друга",
+                                    text = stringResource(R.string.import_worker_hint_name),
                                     color = TextMuted.copy(alpha = 0.5f),
                                     fontSize = 12.sp
                                 )
@@ -208,7 +212,7 @@ fun ImportWorkerDialog(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "ПРЕДУПРЕЖДЕНИЕ СВЯЗИ:",
+                                text = stringResource(R.string.import_worker_warning_header),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFFF6B6B),
@@ -228,7 +232,7 @@ fun ImportWorkerDialog(
                                 OutlinedButton(
                                     onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        val finalName = editName.trim().ifBlank { normalized.domainResult.suggestedName.ifBlank { "Импортированный воркер" } }
+                                        val finalName = editName.trim().ifBlank { normalized.domainResult.suggestedName.ifBlank { context.getString(R.string.import_worker_default_name) } }
                                         onImport(finalName, cleanDomain)
                                     },
                                     border = BorderStroke(1.dp, Color(0xFFFF6B6B).copy(alpha = 0.5f)),
@@ -236,7 +240,7 @@ fun ImportWorkerDialog(
                                     modifier = Modifier.weight(1f).height(38.dp)
                                 ) {
                                     Text(
-                                        text = "Импортировать",
+                                        text = stringResource(R.string.import_worker_btn_import),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = Color(0xFFFF6B6B)
@@ -253,7 +257,7 @@ fun ImportWorkerDialog(
                                     modifier = Modifier.weight(1f).height(38.dp)
                                 ) {
                                     Text(
-                                        text = "Отмена",
+                                        text = stringResource(R.string.action_cancel),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF0A0E1A)
@@ -278,7 +282,7 @@ fun ImportWorkerDialog(
                             onClick = {
                                 if (isCheckingWorker) return@springPress
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                val finalName = editName.trim().ifBlank { normalized.domainResult.suggestedName.ifBlank { "Импортированный воркер" } }
+                                val finalName = editName.trim().ifBlank { normalized.domainResult.suggestedName.ifBlank { context.getString(R.string.import_worker_default_name) } }
 
                                 scope.launch {
                                     isCheckingWorker = true
@@ -290,7 +294,7 @@ fun ImportWorkerDialog(
                                     if (status == WorkerStatus.ONLINE || status == WorkerStatus.RATE_LIMITED_429) {
                                         onImport(finalName, cleanDomain)
                                     } else {
-                                        unreachableWarning = "Воркер «$cleanDomain» не отвечает на проверочный запрос (ERR_UNREACHABLE). Убедитесь, что скрипт развернут в Cloudflare."
+                                        unreachableWarning = context.getString(R.string.import_worker_warning_unreachable, cleanDomain)
                                     }
                                 }
                             }
@@ -308,7 +312,7 @@ fun ImportWorkerDialog(
                                     strokeWidth = 2.dp
                                 )
                                 Text(
-                                    text = "Проверка узла...",
+                                    text = stringResource(R.string.import_worker_checking),
                                     color = Color(0xFF0A0E1A),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.5.sp
@@ -316,7 +320,7 @@ fun ImportWorkerDialog(
                             }
                         } else {
                             Text(
-                                text = "Импортировать и активировать",
+                                text = stringResource(R.string.import_worker_btn_import_activate),
                                 color = Color(0xFF0A0E1A),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp
@@ -344,13 +348,15 @@ fun ImportWorkerDialog(
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            text = "Отмена",
+                            text = stringResource(R.string.action_cancel),
                             color = TextWhite.copy(alpha = 0.85f),
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.5.sp
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(56.dp))
             }
 
             // Top Header with Back Button (pinned at top left over blurred background)
@@ -368,7 +374,7 @@ fun ImportWorkerDialog(
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_arrow_left),
-                        contentDescription = "Назад",
+                        contentDescription = stringResource(R.string.action_back),
                         tint = TextWhite,
                         modifier = Modifier.size(22.dp)
                     )

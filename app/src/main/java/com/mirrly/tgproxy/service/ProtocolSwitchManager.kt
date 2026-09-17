@@ -107,13 +107,13 @@ object ProtocolSwitchManager {
                 if (wasRunning) {
                     // PHASE 1: DISCONNECTING / GRACEFUL SPIN DOWN OF OLD PROTOCOL
                     _switchPhase.value = SwitchPhase.DISCONNECTING
-                    AppLogger.i(TAG, "Шаг 1: Плавная остановка активного прокси перед сменой протокола...")
+                    AppLogger.i(TAG, "Step 1: Gracefully stopping active proxy before protocol switch...")
 
                     withContext(Dispatchers.IO) {
                         try {
                             server.stop()
                         } catch (e: Exception) {
-                            AppLogger.e(TAG, "Ошибка остановки сокетов: ${e.message}")
+                            AppLogger.e(TAG, "Failed to stop sockets: ${e.message}")
                         }
                     }
                     // Allow UI wind-down animations to smoothly settle
@@ -134,12 +134,12 @@ object ProtocolSwitchManager {
                     }
 
                     _switchPhase.value = SwitchPhase.PAUSE_DARK
-                    AppLogger.i(TAG, "Шаг 2: Пауза в темноте (1000 мс)...")
+                    AppLogger.i(TAG, "Step 2: Dark pause (1000 ms)...")
                     delay(1000)
 
                     // PHASE 3: RECONNECTING / POWER UP ON NEW PROTOCOL
                     _switchPhase.value = SwitchPhase.RECONNECTING
-                    AppLogger.i(TAG, "Шаг 3: Запуск службы на протоколе ${newTarget.name}...")
+                    AppLogger.i(TAG, "Step 3: Starting proxy service on protocol ${newTarget.name}...")
 
                     val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
                         action = ProxyForegroundService.ACTION_START
@@ -151,7 +151,7 @@ object ProtocolSwitchManager {
                             context.startService(serviceIntent)
                         }
                     } catch (e: Exception) {
-                        AppLogger.e(TAG, "Ошибка запуска службы прокси: ${e.message}")
+                        AppLogger.e(TAG, "Failed to start proxy service: ${e.message}")
                     }
 
                     // Wait until server is verified running
@@ -170,9 +170,9 @@ object ProtocolSwitchManager {
                     delay(200)
                 }
 
-                AppLogger.i(TAG, "Переключение протокола успешно завершено.")
+                AppLogger.i(TAG, "Protocol switch completed successfully.")
             } catch (e: Exception) {
-                AppLogger.e(TAG, "Исключение при переключении протокола: ${e.message}")
+                AppLogger.e(TAG, "Exception during protocol switch: ${e.message}")
             } finally {
                 _switchPhase.value = SwitchPhase.IDLE
                 _targetMode.value = null

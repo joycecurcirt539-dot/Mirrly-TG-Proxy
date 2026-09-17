@@ -33,16 +33,16 @@ import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
 
 /**
- * Статус пригодности и скорости DoH-сервера.
+ * Status of suitability and speed of DoH server.
  */
 enum class DohHealthStatus(val label: String) {
-    EXCELLENT("Отлично"),
-    GOOD("Хорошо"),
-    MODERATE("Приемлемо"),
-    SLOW("Медленно"),
-    POISONED("Подмена IP"),
-    BLOCKED("Блок ТСПУ"),
-    TIMEOUT("Таймаут")
+    EXCELLENT("Excellent"),
+    GOOD("Good"),
+    MODERATE("Moderate"),
+    SLOW("Slow"),
+    POISONED("IP Poisoned"),
+    BLOCKED("Blocked"),
+    TIMEOUT("Timeout")
 }
 
 /**
@@ -131,7 +131,7 @@ object DohBenchmarkEngine {
         val request = Request.Builder()
             .url(queryUrl)
             .header("Accept", provider.acceptHeader)
-            .header("User-Agent", "MirrlyTGProxy-Benchmark/1.1.8.4")
+            .header("User-Agent", "MirrlyTGProxy-Benchmark/2.0.0")
             .build()
 
         val startNs = System.nanoTime()
@@ -178,12 +178,12 @@ object DohBenchmarkEngine {
                 latencyMs = elapsedMs,
                 status = DohHealthStatus.TIMEOUT,
                 resolvedIps = emptyList(),
-                statusDetail = "Превышен таймаут (>2.5с)"
+                statusDetail = "Timeout exceeded (>2.5s)"
             )
         } catch (e: Exception) {
             val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
             val isTspuOrConn = e is SSLException || e is ConnectException || e is IOException
-            val detail = if (isTspuOrConn) "Блокировка ТСПУ / сброс соединения" else (e.message ?: "Ошибка сети")
+            val detail = if (isTspuOrConn) "DPI block / connection reset" else (e.message ?: "Network error")
             DohBenchmarkResult(
                 providerId = provider.id,
                 providerName = provider.name,
@@ -232,11 +232,11 @@ object DohBenchmarkEngine {
             return DohBenchmarkReport(
                 results = rawResults,
                 recommendedProviderIds = emptySet(),
-                summaryText = "Все DoH-серверы недоступны или заблокированы. Проверьте интернет-соединение."
+                summaryText = "All DoH servers are unreachable or blocked. Check internet connection."
             )
         }
 
-        // Выбираем топ-3 (или топ-4, если 4-й практически такой же быстрый)
+        // Select Top-3 (or Top-4 if 4th is similarly fast)
         val targetCount = if (usable.size <= 3) {
             usable.size
         } else {
@@ -252,8 +252,8 @@ object DohBenchmarkEngine {
             if (recommendedIds.contains(r.providerId)) r.copy(isRecommended = true) else r
         }
 
-        val namesWithPing = selected.joinToString(", ") { "${it.providerName} (${it.latencyMs} мс)" }
-        val summary = "Отобрано ${selected.size} лучших сервера: $namesWithPing"
+        val namesWithPing = selected.joinToString(", ") { "${it.providerName} (${it.latencyMs} ms)" }
+        val summary = "Selected ${selected.size} best servers: $namesWithPing"
 
         return DohBenchmarkReport(
             results = markedResults,
@@ -271,7 +271,7 @@ object DohBenchmarkEngine {
 
     fun parseAndVerifyDnsResponse(bytes: ByteArray, contentType: String? = null): ParsedDnsResult {
         if (bytes.isEmpty()) {
-            return ParsedDnsResult(false, false, emptyList(), "Пустой ответ сервера")
+            return ParsedDnsResult(false, false, emptyList(), "Empty server response")
         }
         val isWire = contentType?.contains("application/dns-message") == true ||
                 (bytes.size >= 12 && (bytes[2].toInt() and 0x80) != 0 && bytes[0] != '{'.code.toByte())
@@ -279,7 +279,7 @@ object DohBenchmarkEngine {
         if (isWire) {
             val wireRes = DohResolver.parseDnsWireResponse(bytes)
             if (wireRes == null || wireRes.first.isEmpty()) {
-                return ParsedDnsResult(false, false, emptyList(), "Ошибка парсинга DNS Wireformat")
+                return ParsedDnsResult(false, false, emptyList(), "Error parsing DNS Wireformat")
             }
             val ips = wireRes.first.map { it.hostAddress }
             return verifyTgSubnets(ips)
@@ -291,18 +291,18 @@ object DohBenchmarkEngine {
 
     fun parseAndVerifyDnsResponse(jsonStr: String): ParsedDnsResult {
         if (jsonStr.isBlank()) {
-            return ParsedDnsResult(false, false, emptyList(), "Пустой ответ сервера")
+            return ParsedDnsResult(false, false, emptyList(), "Empty server response")
         }
         return try {
             val json = JSONObject(jsonStr)
             val status = json.optInt("Status", -1)
             if (status != 0) {
-                return ParsedDnsResult(false, false, emptyList(), "DNS ошибка Status=$status")
+                return ParsedDnsResult(false, false, emptyList(), "DNS error Status=$status")
             }
 
             val answerArray = json.optJSONArray("Answer")
             if (answerArray == null || answerArray.length() == 0) {
-                return ParsedDnsResult(false, false, emptyList(), "Секция Answer пуста")
+                return ParsedDnsResult(false, false, emptyList(), "Empty Answer section")
             }
 
             val ips = mutableListOf<String>()
@@ -316,12 +316,12 @@ object DohBenchmarkEngine {
             }
 
             if (ips.isEmpty()) {
-                return ParsedDnsResult(false, false, emptyList(), "Отсутствуют IP-адреса типа A/AAAA")
+                return ParsedDnsResult(false, false, emptyList(), "Missing A/AAAA records")
             }
 
             verifyTgSubnets(ips)
         } catch (e: Exception) {
-            ParsedDnsResult(false, false, emptyList(), "Ошибка парсинга JSON: ${e.message}")
+            ParsedDnsResult(false, false, emptyList(), "JSON parse error: ${e.message}")
         }
     }
 
@@ -335,10 +335,10 @@ object DohBenchmarkEngine {
 
         val hasValidTelegramIp = ips.any { isTelegramIp(it) }
         if (!hasValidTelegramIp) {
-            return ParsedDnsResult(true, true, ips, "IP ${ips.first()} не принадлежит Telegram (AS44907)")
+            return ParsedDnsResult(true, true, ips, "IP ${ips.first()} does not belong to Telegram (AS44907)")
         }
 
-        return ParsedDnsResult(true, false, ips, "AS44907 валидирован")
+        return ParsedDnsResult(true, false, ips, "AS44907 validated")
     }
 
     fun isTelegramIp(ip: String): Boolean {

@@ -42,6 +42,7 @@ class MirrlyApplication : Application() {
         super.onCreate()
         instance = this
         prefsManager = PreferencesManager(this)
+        com.mirrly.tgproxy.util.LocaleHelper.applyLocale(this, prefsManager.getAppLanguage())
         com.mirrly.tgproxy.service.SessionHistoryManager.init(this)
         com.mirrly.tgproxy.service.SpeedTestHistoryManager.init(this)
         com.mirrly.tgproxy.service.WorkerRequestTracker.init(this)
@@ -82,21 +83,14 @@ class MirrlyApplication : Application() {
         com.mirrly.tgproxy.service.ScheduleManager.syncSchedule(this)
 
         proxyServer.pingEngine.onProbeCompleted = { probe, target ->
-            if (proxyServer.config.isSocks5Mode) {
-                if (probe.success) {
-                    com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerSuccess(target, probe.rawRttMs)
-                } else {
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                        com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerFailure(probe.failureType, target)
-                    }
-                }
-            }
-        }
-
-        proxyServer.pingEngine.onPredictiveDegradation = { target, currentRtt, minRtt ->
+            val snapshot = proxyServer.pingEngine.currentSnapshot
+            val generation = proxyServer.currentProfileGeneration.get()
+            val observedAtMs = System.nanoTime() / 1_000_000L
             if (proxyServer.config.isSocks5Mode) {
                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                    com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerDegradation(target, currentRtt, minRtt)
+                    com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerProbe(
+                        probe, target, snapshot, generation, observedAtMs
+                    )
                 }
             }
         }

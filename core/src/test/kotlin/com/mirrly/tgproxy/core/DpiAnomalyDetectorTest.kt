@@ -119,8 +119,8 @@ class DpiAnomalyDetectorTest {
             lastFailureType = FailureType.DPI_BLOCKED
         )
 
-        assertEquals("Блокировка DPI оператором", reportDpi.verdict)
-        assertEquals("DPI Блок", reportDpi.workerStatusGrade)
+        assertEquals("Operator DPI Block", reportDpi.verdict)
+        assertEquals("DPI Block", reportDpi.workerStatusGrade)
         assertTrue(reportDpi.score <= 65, "Score should have heavy penalty for DPI blockage")
     }
 }

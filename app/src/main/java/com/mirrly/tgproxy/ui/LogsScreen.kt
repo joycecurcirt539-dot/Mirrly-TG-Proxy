@@ -11,7 +11,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,6 +34,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -43,11 +43,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import androidx.compose.ui.unit.sp
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.LogEntry
-import com.mirrly.tgproxy.core.LogEvent
 import com.mirrly.tgproxy.core.LogLevel
 import com.mirrly.tgproxy.ui.theme.*
 
@@ -120,111 +118,35 @@ fun LogsScreen(
         isInitialLoad = false
     }
 
-    // Internal bounded ring buffer (up to 250 elements)
-    val rawLogBuffer = remember { ArrayDeque<LogEntry>(250) }
-
-    // Differential counter states (updated in O(1) on incoming events)
-    var totalCount by remember { mutableIntStateOf(0) }
-    var infoCount by remember { mutableIntStateOf(0) }
-    var warnCount by remember { mutableIntStateOf(0) }
-    var errorCount by remember { mutableIntStateOf(0) }
-
-    // Displayed log list for LazyColumn (newest first)
-    val displayedLogs = remember { mutableStateListOf<LogEntry>() }
+    // AppLogger owns the single bounded history. Re-entering this screen now
+    // observes that same snapshot instead of copying and replaying it locally.
+    val rawLogs by AppLogger.logsFlow.collectAsState()
+    val totalCount = rawLogs.size
+    val infoCount = remember(rawLogs) { rawLogs.count { it.level == LogLevel.INFO } }
+    val warnCount = remember(rawLogs) { rawLogs.count { it.level == LogLevel.WARN } }
+    val errorCount = remember(rawLogs) { rawLogs.count { it.level == LogLevel.ERROR } }
+    val displayedLogs = remember(rawLogs, searchQuery, selectedLevel) {
+        rawLogs.asReversed().filter { matchesFilter(it, searchQuery, selectedLevel) }
+    }
 
     var headerHeightDp by remember { mutableStateOf(160.dp) }
 
-    // Synchronize initial logs and handle incremental differential events
-    LaunchedEffect(Unit) {
-        val initialLogs = AppLogger.getLogs()
-        rawLogBuffer.clear()
-        displayedLogs.clear()
-        var iC = 0
-        var wC = 0
-        var eC = 0
-        for (i in initialLogs.indices) {
-            val entry = initialLogs[i]
-            rawLogBuffer.addLast(entry)
-            when (entry.level) {
-                LogLevel.INFO -> iC++
-                LogLevel.WARN -> wC++
-                LogLevel.ERROR -> eC++
-            }
-            if (matchesFilter(entry, searchQuery, selectedLevel)) {
-                displayedLogs.add(0, entry)
-            }
-        }
-        totalCount = rawLogBuffer.size
-        infoCount = iC
-        warnCount = wC
-        errorCount = eC
-        listState.scrollToItem(0)
-
-        AppLogger.logEvents.collect { event ->
-            when (event) {
-                is LogEvent.Added -> {
-                    val entry = event.entry
-
-                    // Differential O(1) counter update
-                    totalCount++
-                    when (entry.level) {
-                        LogLevel.INFO -> infoCount++
-                        LogLevel.WARN -> warnCount++
-                        LogLevel.ERROR -> errorCount++
-                    }
-
-                    // Evict oldest if buffer capacity reached
-                    if (rawLogBuffer.size >= 250) {
-                        val evicted = rawLogBuffer.removeFirst()
-                        totalCount--
-                        when (evicted.level) {
-                            LogLevel.INFO -> infoCount--
-                            LogLevel.WARN -> warnCount--
-                            LogLevel.ERROR -> errorCount--
-                        }
-                        if (displayedLogs.isNotEmpty() && displayedLogs.last().id == evicted.id) {
-                            displayedLogs.removeAt(displayedLogs.lastIndex)
-                        } else {
-                            displayedLogs.removeAll { it.id == evicted.id }
-                        }
-                    }
-
-                    rawLogBuffer.addLast(entry)
-
-                    // Check if user is currently watching the top of the feed
-                    val isAtTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 60
-
-                    // Differential addition directly to displayed list
-                    if (matchesFilter(entry, searchQuery, selectedLevel)) {
-                        displayedLogs.add(0, entry)
-                        if (isAtTop) {
-                            listState.scrollToItem(0)
-                        }
-                    }
-                }
-                is LogEvent.Cleared -> {
-                    rawLogBuffer.clear()
-                    displayedLogs.clear()
-                    totalCount = 0
-                    infoCount = 0
-                    warnCount = 0
-                    errorCount = 0
-                    listState.scrollToItem(0)
-                }
-            }
+    var lastObservedLogId by remember { mutableLongStateOf(rawLogs.lastOrNull()?.id ?: 0L) }
+    LaunchedEffect(rawLogs.lastOrNull()?.id) {
+        val newest = rawLogs.lastOrNull()
+        val isNewEntry = newest != null && newest.id > lastObservedLogId
+        lastObservedLogId = newest?.id ?: 0L
+        val isAtTop = listState.firstVisibleItemIndex == 0 &&
+            listState.firstVisibleItemScrollOffset <= 60
+        if (newest != null && isNewEntry && isAtTop && matchesFilter(newest, searchQuery, selectedLevel)) {
+            listState.scrollToItem(0)
         }
     }
 
-    // Re-filter displayed list only when filter query or level selection changes
     LaunchedEffect(searchQuery, selectedLevel) {
-        displayedLogs.clear()
-        for (i in rawLogBuffer.indices.reversed()) {
-            val entry = rawLogBuffer[i]
-            if (matchesFilter(entry, searchQuery, selectedLevel)) {
-                displayedLogs.add(entry)
-            }
+        if (displayedLogs.isNotEmpty()) {
+            listState.scrollToItem(0)
         }
-        listState.scrollToItem(0)
     }
 
     LaunchedEffect(isSearchVisible) {
@@ -252,20 +174,20 @@ fun LogsScreen(
             val text = "[${entry.formattedTime}] [${entry.tag}] ${entry.humanMessage}"
             clipboard.setPrimaryClip(ClipData.newPlainText("Mirrly Log Entry", text))
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            Toast.makeText(context, "Запись скопирована", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.logs_entry_copied), Toast.LENGTH_SHORT).show()
         }
     }
 
     val onCopyAllLogs: () -> Unit = remember(context, haptic, displayedLogs) {
         {
             if (displayedLogs.isEmpty()) {
-                Toast.makeText(context, "Нет событий для копирования", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.logs_no_events_to_copy), Toast.LENGTH_SHORT).show()
             } else {
                 val text = displayedLogs.joinToString("\n") { "[${it.formattedTime}] [${it.tag}] ${it.humanMessage}" }
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("Mirrly Proxy Logs", text))
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                Toast.makeText(context, "Все записи скопированы", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.logs_all_copied), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -274,7 +196,7 @@ fun LogsScreen(
         {
             AppLogger.clear()
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            Toast.makeText(context, "Логи очищены", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.logs_cleared), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -303,7 +225,7 @@ fun LogsScreen(
                         modifier = Modifier.size(52.dp)
                     )
                     Text(
-                        text = if (searchQuery.isNotEmpty()) "События не найдены" else "Логи пусты",
+                        text = if (searchQuery.isNotEmpty()) stringResource(R.string.logs_events_not_found) else stringResource(R.string.logs_empty),
                         color = TextMuted,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
@@ -364,7 +286,7 @@ fun LogsScreen(
                     modifier = Modifier.staggeredEntrance(index = 0),
                     title = {
                         Text(
-                            text = "Логи",
+                            text = stringResource(R.string.logs_title),
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
                             color = TextWhite,
@@ -380,7 +302,7 @@ fun LogsScreen(
                         }) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_arrow_left),
-                                contentDescription = "Назад",
+                                contentDescription = stringResource(R.string.action_back),
                                 tint = TextWhite,
                                 modifier = Modifier.size(22.dp)
                             )
@@ -400,7 +322,7 @@ fun LogsScreen(
                         }) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_search),
-                                contentDescription = "Поиск",
+                                contentDescription = stringResource(R.string.action_search),
                                 tint = if (isSearchActive) activeProtoColor else TextWhite,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -410,7 +332,7 @@ fun LogsScreen(
                         IconButton(onClick = onCopyAllLogs) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_copy),
-                                contentDescription = "Скопировать все",
+                                contentDescription = stringResource(R.string.logs_action_copy_all),
                                 tint = TextWhite,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -420,7 +342,7 @@ fun LogsScreen(
                         IconButton(onClick = onClearLogs) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_trash),
-                                contentDescription = "Очистить",
+                                contentDescription = stringResource(R.string.logs_action_clear),
                                 tint = TextWhite,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -433,7 +355,7 @@ fun LogsScreen(
                             }) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_settings),
-                                    contentDescription = "Настройки",
+                                    contentDescription = stringResource(R.string.action_settings),
                                     tint = TextWhite,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -459,7 +381,7 @@ fun LogsScreen(
                             .focusRequester(searchFocusRequester),
                         placeholder = {
                             Text(
-                                text = "Поиск по тексту или тегу...",
+                                text = stringResource(R.string.logs_search_placeholder),
                                 color = TextMuted,
                                 fontSize = 13.5.sp
                             )
@@ -505,7 +427,7 @@ fun LogsScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     SegmentedFilterChip(
-                        title = "Все",
+                        title = stringResource(R.string.logs_filter_all),
                         count = totalCount,
                         isSelected = selectedLevel == null,
                         activeColor = TextWhite,
@@ -516,7 +438,7 @@ fun LogsScreen(
                         }
                     )
                     SegmentedFilterChip(
-                        title = "Инфо",
+                        title = stringResource(R.string.logs_filter_info),
                         count = infoCount,
                         isSelected = selectedLevel == LogLevel.INFO,
                         activeColor = activeProtoColor,
@@ -527,7 +449,7 @@ fun LogsScreen(
                         }
                     )
                     SegmentedFilterChip(
-                        title = "Варн",
+                        title = stringResource(R.string.logs_filter_warn),
                         count = warnCount,
                         isSelected = selectedLevel == LogLevel.WARN,
                         activeColor = WarnAccentColor,
@@ -538,7 +460,7 @@ fun LogsScreen(
                         }
                     )
                     SegmentedFilterChip(
-                        title = "Ошибки",
+                        title = stringResource(R.string.logs_filter_error),
                         count = errorCount,
                         isSelected = selectedLevel == LogLevel.ERROR,
                         activeColor = ErrorAccentColor,
@@ -586,7 +508,7 @@ fun LogsScreen(
                             .graphicsLayer { rotationZ = 90f }
                     )
                     Text(
-                        text = "К новым логам",
+                        text = stringResource(R.string.logs_scroll_to_new),
                         color = TextWhite,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold

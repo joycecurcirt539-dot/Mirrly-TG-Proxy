@@ -19,10 +19,16 @@
 package com.mirrly.tgproxy.ui
 
 import android.Manifest
+import com.mirrly.tgproxy.R
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.AssetManager
+import android.content.res.Configuration
+import android.content.res.Resources
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -30,6 +36,7 @@ import android.widget.Toast
 import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -42,6 +49,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +65,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -133,12 +142,36 @@ private class RenderEffectBlurCache(private val density: Float) {
 
 class MainActivity : ComponentActivity() {
 
+    val testBannerState = mutableStateOf<String?>(null)
+    private var onDeepLinkReceived: ((Pair<String, String>) -> Unit)? = null
+
+    override fun attachBaseContext(newBase: Context) {
+        val wrapped = try {
+            val prefs = com.mirrly.tgproxy.service.PreferencesManager(newBase)
+            val lang = prefs.getAppLanguage()
+            com.mirrly.tgproxy.util.LocaleHelper.wrapContext(newBase, lang)
+        } catch (_: Throwable) {
+            newBase
+        }
+        super.attachBaseContext(wrapped)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        testBannerState.value = intent.getStringExtra("test_banner")
+        extractWorkerDeepLink(intent)?.let {
+            onDeepLinkReceived?.invoke(it)
+        }
+    }
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _ -> }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        testBannerState.value = intent?.getStringExtra("test_banner")
 
         // Lock screen orientation to Portrait only
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -161,10 +194,40 @@ class MainActivity : ComponentActivity() {
         optimizeForHighRefreshRate()
 
         setContent {
-            MirrlyTheme {
-                val app = MirrlyApplication.instance
-                val server = app.proxyServer
-                var isProxyRunning by remember { mutableStateOf(server.isRunning) }
+            val app = MirrlyApplication.instance
+            val currentLanguage by app.prefsManager.appLanguageFlow.collectAsState()
+            val context = LocalContext.current
+            val currentConfig = LocalConfiguration.current
+
+            val targetLocale = remember(currentLanguage) {
+                com.mirrly.tgproxy.util.LocaleHelper.getTargetLocale(currentLanguage)
+            }
+
+            val localizedContext = remember(context, targetLocale) {
+                val config = Configuration(context.resources.configuration).apply {
+                    setLocale(targetLocale)
+                }
+                val configContext = context.createConfigurationContext(config)
+                object : ContextWrapper(context) {
+                    override fun getResources(): Resources = configContext.resources
+                    override fun getAssets(): AssetManager = configContext.assets
+                }
+            }
+
+            val localizedConfig = remember(currentConfig, targetLocale) {
+                Configuration(currentConfig).apply {
+                    setLocale(targetLocale)
+                }
+            }
+
+            CompositionLocalProvider(
+                LocalConfiguration provides localizedConfig,
+                LocalContext provides localizedContext,
+                LocalActivityResultRegistryOwner provides this@MainActivity
+            ) {
+                MirrlyTheme {
+                    val server = app.proxyServer
+                    var isProxyRunning by remember { mutableStateOf(server.isRunning) }
 
                 val signatureStatus = remember {
                     com.mirrly.tgproxy.util.SignatureVerifier.verify(applicationContext)
@@ -177,7 +240,10 @@ class MainActivity : ComponentActivity() {
                     com.mirrly.tgproxy.service.LaunchCountManager.onAppLaunched(applicationContext)
                     com.mirrly.tgproxy.service.LaunchCountManager.shouldShowStarDialog(applicationContext)
                 }
-                var showGithubStarDialog by remember { mutableStateOf(shouldShowStarDialog && !showUnofficialDialog) }
+                val currentTestBanner = testBannerState.value
+                var showGithubStarDialog by remember(shouldShowStarDialog, currentTestBanner) {
+                    mutableStateOf((shouldShowStarDialog || currentTestBanner == "star_dialog") && !showUnofficialDialog)
+                }
 
                 LaunchedEffect(Unit) {
                     withContext(Dispatchers.IO) {
@@ -310,7 +376,7 @@ class MainActivity : ComponentActivity() {
                                     finish()
                                 } else {
                                     lastBackTime = now
-                                    Toast.makeText(this@MainActivity, "Нажмите еще раз для выхода", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(this@MainActivity, getString(R.string.exit_press_again), Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -323,6 +389,9 @@ class MainActivity : ComponentActivity() {
 
                 val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
                 var globalTouchPoint by remember { mutableStateOf<Offset?>(null) }
+                var isVpnTabActive by remember { mutableStateOf(false) }
+                var showSpeedTestInDevDialog by remember { mutableStateOf(false) }
+                var showOnboarding by rememberSaveable { mutableStateOf(!app.prefsManager.hasSeenOnboarding()) }
 
                 // Stable callbacks for child screens (Enables Smart Recomposition Skipping)
                 val onOpenSettings = remember { { navigateTo("settings") } }
@@ -335,11 +404,18 @@ class MainActivity : ComponentActivity() {
                 val onOpenLicense = remember { { navigateTo("license") } }
                 val onOpenTerms = remember { { navigateTo("terms") } }
                 val onOpenDiagnostics = remember { { navigateTo("diagnostics") } }
-                val onOpenSpeedTest = remember { { navigateTo("speed_test") } }
+                val onOpenSpeedTest = remember { { showSpeedTestInDevDialog = true } }
                 val onOpenWorkerAnalytics = remember { { navigateTo("worker_analytics") } }
-                val onOpenVolunteers = remember { { navigateTo("volunteers") } }
                 val onOpenHallOfFame = remember { { navigateTo("hall_of_fame") } }
-                val onOpenChronicle = remember { { navigateTo("chronicle") } }
+                val onOpenOnboarding = remember { { showOnboarding = true } }
+                val onOpenTelegramChannel = remember { { navigateTo("telegram_channel") } }
+                val onOpenDiagnosticReport = remember { { navigateTo("diagnostic_report") } }
+                val onOpenVpnMode = remember { {
+                    isVpnTabActive = true
+                    while (screenStack.size > 1) {
+                        screenStack.removeAt(screenStack.size - 1)
+                    }
+                } }
                 val onNavigateBack = remember { { navigateBack() } }
 
                 val density = LocalDensity.current.density
@@ -458,60 +534,44 @@ class MainActivity : ComponentActivity() {
                     val isDiagnostic = currentScreen == "diagnostics"
                     val isSpeedTest = currentScreen == "speed_test"
                     val isAnalytics = currentScreen == "worker_analytics"
-                    val isVolunteers = currentScreen == "volunteers"
                     val isHallOfFame = currentScreen == "hall_of_fame"
-                    val isChronicle = currentScreen == "chronicle"
+                    val isTelegramChannel = currentScreen == "telegram_channel"
+                    val isDiagnosticReport = currentScreen == "diagnostic_report"
 
                     // Animated States for All Screens
-                    val chronicleScale = animateFloatAsState(
-                        targetValue = if (isChronicle) 1.0f else 0.76f,
-                        animationSpec = if (isChronicle) {
-                            spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
-                        } else {
-                            tween(260, easing = FastOutSlowInEasing)
-                        },
-                        label = "chronicleScale"
-                    )
-                    val chronicleOffsetFraction = animateFloatAsState(
-                        targetValue = if (isChronicle) 0f else 0.08f,
-                        animationSpec = tween(if (isChronicle) 420 else 240, easing = FastOutSlowInEasing),
-                        label = "chronicleOffset"
-                    )
-                    val chronicleAlpha = animateFloatAsState(
-                        targetValue = if (isChronicle) 1.0f else 0.0f,
-                        animationSpec = tween(if (isChronicle) 340 else 200, easing = LinearOutSlowInEasing),
-                        label = "chronicleAlpha"
-                    )
-
-                    val volunteersOffsetFraction = animateFloatAsState(
-                        targetValue = when {
-                            isVolunteers -> 0f
-                            isHallOfFame -> -0.15f
-                            else -> 1.0f
-                        },
+                    val diagnosticReportOffsetFraction = animateFloatAsState(
+                        targetValue = if (isDiagnosticReport) 0f else 1.0f,
                         animationSpec = tween(pushMs, easing = navEasing),
-                        label = "volunteersOffset"
+                        label = "diagnosticReportOffset"
                     )
-                    val volunteersScale = animateFloatAsState(
-                        targetValue = if (isVolunteers) 1.0f else 0.94f,
+                    val diagnosticReportScale = animateFloatAsState(
+                        targetValue = if (isDiagnosticReport) 1.0f else 0.94f,
                         animationSpec = tween(pushMs, easing = navEasing),
-                        label = "volunteersScale"
+                        label = "diagnosticReportScale"
                     )
-                    val volunteersAlpha = animateFloatAsState(
-                        targetValue = if (isVolunteers) 1.0f else 0.0f,
+                    val diagnosticReportAlpha = animateFloatAsState(
+                        targetValue = if (isDiagnosticReport) 1.0f else 0.0f,
                         animationSpec = tween(220),
-                        label = "volunteersAlpha"
+                        label = "diagnosticReportAlpha"
+                    )
+                    val telegramChannelOffsetFraction = animateFloatAsState(
+                        targetValue = if (isTelegramChannel) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "telegramChannelOffset"
+                    )
+                    val telegramChannelScale = animateFloatAsState(
+                        targetValue = if (isTelegramChannel) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "telegramChannelScale"
+                    )
+                    val telegramChannelAlpha = animateFloatAsState(
+                        targetValue = if (isTelegramChannel) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "telegramChannelAlpha"
                     )
 
                     val hallOfFameOffsetFraction = animateFloatAsState(
-                        targetValue = when {
-                            isHallOfFame -> 0f
-                            isVolunteers -> -0.15f
-                            else -> 1.0f
-                        },
+                        targetValue = if (isHallOfFame) 0f else 1.0f,
                         animationSpec = tween(pushMs, easing = navEasing),
                         label = "hallOfFameOffset"
                     )
@@ -545,7 +605,7 @@ class MainActivity : ComponentActivity() {
                     val diagnosticOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isDiagnostic -> 0f
-                            isSpeedTest -> -0.15f
+                            isSpeedTest || isDiagnosticReport -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -597,7 +657,7 @@ class MainActivity : ComponentActivity() {
                     val homeOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings || isAbout || isLicense || isTerms || isUpdate || isDiagnostic || isSpeedTest || isAnalytics || isVolunteers || isHallOfFame || isChronicle -> -0.15f
+                            isSettings || isAbout || isLicense || isTerms || isUpdate || isDiagnostic || isSpeedTest || isAnalytics || isHallOfFame || isTelegramChannel || isDiagnosticReport -> -0.15f
                             isLogs || isHistory -> 0.15f
                             else -> 0f
                         },
@@ -618,7 +678,7 @@ class MainActivity : ComponentActivity() {
                     val settingsOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isSettings -> 0f
-                            isAbout || isLicense || isTerms || isWorkerManager || isAnalytics || isVolunteers || isHallOfFame -> -0.15f
+                            isAbout || isLicense || isTerms || isWorkerManager || isAnalytics || isHallOfFame || isDiagnosticReport -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -670,7 +730,7 @@ class MainActivity : ComponentActivity() {
                     val aboutOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isAbout -> 0f
-                            isLicense || isTerms || isVolunteers || isHallOfFame || isChronicle -> -0.15f
+                            isLicense || isTerms || isHallOfFame -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -724,14 +784,14 @@ class MainActivity : ComponentActivity() {
                     )
 
                     // ── BACKGROUND CANVAS (Overdraw-Optimized: rendered only when visible) ──
-                    val isCanvasVisible = activeScreens.contains("home") || isWmVisible
+                    val isCanvasVisible = activeScreens.contains("home") || isWmVisible || showOnboarding
                     if (isCanvasVisible) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
                                     val wmP = workerManagerOpenProgress.value
-                                    val isNonHome = currentScreen != "home" && currentScreen != "worker_manager"
+                                    val isNonHome = (currentScreen != "home" && currentScreen != "worker_manager") || showOnboarding
                                     val effProgress = if (isNonHome) 1f else wmP
                                     val blurEffect = blurCache.getBlurEffect(effProgress)
 
@@ -740,26 +800,31 @@ class MainActivity : ComponentActivity() {
                                 }
                         ) {
                             val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
+                            val systemVpnColors = remember { com.mirrly.tgproxy.ui.theme.VpnThemeManager.getSystemVpnPalette(applicationContext) }
                             CyberEnergyCanvas(
                                 state = globalProxyState,
                                 isSocks5 = isSocks5,
+                                isVpnMode = isVpnTabActive,
+                                vpnColors = systemVpnColors,
                                 externalTouchPoint = globalTouchPoint,
-                                isConstellationPaused = (currentScreen != "home"),
+                                isConstellationPaused = (currentScreen != "home" && !showOnboarding),
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
                     }
 
                     // ── GAUSSIAN FROSTED DARK BACKDROP OVERLAY FOR NON-HOME TABS ──
-                    val isBackdropVisible = currentScreen != "home" || isWmVisible || activeScreens.any { it != "home" }
+                    val isBackdropVisible = (currentScreen != "home" && !showOnboarding) || isWmVisible || activeScreens.any { it != "home" }
                     if (isBackdropVisible) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
                                     val wmP = workerManagerOpenProgress.value
-                                    val isHomeTab = currentScreen == "home"
-                                    val alphaVal = if (isHomeTab) {
+                                    val isHomeTab = currentScreen == "home" && !showOnboarding
+                                    val alphaVal = if (showOnboarding) {
+                                        0f
+                                    } else if (isHomeTab) {
                                         wmP * 0.48f
                                     } else if (currentScreen == "worker_manager") {
                                         wmP.coerceIn(0f, 1f) * 0.48f
@@ -779,7 +844,7 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxSize()
                                 .graphicsLayer {
                                     val wmP = workerManagerOpenProgress.value
-                                    val isInteractiveWm = (currentScreen == "home" || currentScreen == "worker_manager")
+                                    val isInteractiveWm = (currentScreen == "home" || currentScreen == "worker_manager") && !showOnboarding
                                     val baseScale = homeScale.value
                                     val baseAlpha = homeAlpha.value
                                     val effectiveScale = if (isInteractiveWm) (1.0f - 0.04f * wmP) else baseScale
@@ -790,7 +855,7 @@ class MainActivity : ComponentActivity() {
                                     scaleY = effectiveScale
                                     alpha = effectiveAlpha
 
-                                    val blurEffect = blurCache.getBlurEffect(if (isInteractiveWm) wmP else if (currentScreen != "home") 1f else 0f)
+                                    val blurEffect = blurCache.getBlurEffect(if (isInteractiveWm) wmP else if (currentScreen != "home" || showOnboarding) 1f else 0f)
                                     renderEffect = blurEffect
                                 }
                         ) {
@@ -803,9 +868,13 @@ class MainActivity : ComponentActivity() {
                                 onOpenWorkerManager = onOpenWorkerManager,
                                 onOpenDiagnostics = onOpenDiagnostics,
                                 onOpenSpeedTest = onOpenSpeedTest,
+                                onOpenVpnMode = onOpenVpnMode,
                                 onDragWorkerManager = onDragWorkerManager,
                                 onSettleWorkerManager = onSettleWorkerManager,
-                                isInteractive = (currentScreen == "home")
+                                isVpnTabActive = isVpnTabActive,
+                                onVpnTabChange = { isVpnTabActive = it },
+                                onOpenTelegramChannel = onOpenTelegramChannel,
+                                isInteractive = (currentScreen == "home" && !showOnboarding)
                             )
                         }
                     }
@@ -820,6 +889,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = logsScale.value
                                     scaleY = logsScale.value
                                     alpha = logsAlpha.value
+                                    renderEffect = if (showOnboarding) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             LogsScreen(
@@ -840,6 +910,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = historyScale.value
                                     scaleY = historyScale.value
                                     alpha = historyAlpha.value
+                                    renderEffect = if (showOnboarding) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             HistoryScreen(
@@ -858,6 +929,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = settingsScale.value
                                     scaleY = settingsScale.value
                                     alpha = settingsAlpha.value
+                                    renderEffect = if (showOnboarding) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             SettingsScreen(
@@ -866,8 +938,10 @@ class MainActivity : ComponentActivity() {
                                 onOpenUpdate = onOpenUpdate,
                                 onOpenWorkerGuide = onOpenWorkerGuide,
                                 onOpenWorkerManager = onOpenWorkerManager,
-                                onOpenVolunteers = onOpenVolunteers,
-                                onOpenHallOfFame = onOpenHallOfFame
+                                onOpenHallOfFame = onOpenHallOfFame,
+                                onOpenOnboarding = onOpenOnboarding,
+                                onOpenDiagnosticReport = onOpenDiagnosticReport,
+                                initialIsVpn = isVpnTabActive
                             )
                         }
                     }
@@ -884,6 +958,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = wmScale
                                     scaleY = wmScale
                                     alpha = wmP.coerceIn(0f, 1f)
+                                    renderEffect = if (showOnboarding) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             WorkerManagerScreen(
@@ -906,6 +981,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = aboutScale.value
                                     scaleY = aboutScale.value
                                     alpha = aboutAlpha.value
+                                    renderEffect = if (showOnboarding) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             AboutScreen(
@@ -913,9 +989,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenLicense = onOpenLicense,
                                 onOpenTerms = onOpenTerms,
                                 onOpenUpdate = onOpenUpdate,
-                                onOpenHallOfFame = onOpenHallOfFame,
-                                onOpenVolunteers = onOpenVolunteers,
-                                onOpenChronicle = onOpenChronicle
+                                onOpenHallOfFame = onOpenHallOfFame
                             )
                         }
                     }
@@ -990,7 +1064,8 @@ class MainActivity : ComponentActivity() {
                             NetworkDiagnosticScreen(
                                 onBack = onNavigateBack,
                                 onOpenAnalytics = onOpenWorkerAnalytics,
-                                onOpenSpeedTest = onOpenSpeedTest
+                                onOpenSpeedTest = onOpenSpeedTest,
+                                onOpenDiagnosticReport = onOpenDiagnosticReport
                             )
                         }
                     }
@@ -1031,26 +1106,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // ── 12. VOLUNTEER TESTING PROGRAM SCREEN (Full Tab) ──
-                    if (activeScreens.contains("volunteers")) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    translationX = widthPx * volunteersOffsetFraction.value
-                                    scaleX = volunteersScale.value
-                                    scaleY = volunteersScale.value
-                                    alpha = volunteersAlpha.value
-                                }
-                        ) {
-                            VolunteerProgramScreen(
-                                onBack = onNavigateBack,
-                                onOpenHallOfFame = onOpenHallOfFame
-                            )
-                        }
-                    }
-
-                    // ── 13. HALL OF FAME / ACKNOWLEDGMENTS SCREEN (Full Tab) ──
+                    // ── 12. HALL OF FAME / ACKNOWLEDGMENTS SCREEN (Full Tab) ──
                     if (activeScreens.contains("hall_of_fame")) {
                         Box(
                             modifier = Modifier
@@ -1063,26 +1119,42 @@ class MainActivity : ComponentActivity() {
                                 }
                         ) {
                             HallOfFameScreen(
-                                onBack = onNavigateBack,
-                                onOpenVolunteers = onOpenVolunteers
+                                onBack = onNavigateBack
                             )
                         }
                     }
 
-                    // ── 14. PROJECT CHRONICLE SCREEN (Easter Egg Tab) ──
-                    if (activeScreens.contains("chronicle")) {
+                    // ── 13. TELEGRAM CHANNEL SCREEN (Full Tab) ──
+                    if (activeScreens.contains("telegram_channel")) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    translationY = heightPx * chronicleOffsetFraction.value
-                                    scaleX = chronicleScale.value
-                                    scaleY = chronicleScale.value
-                                    alpha = chronicleAlpha.value
-                                    transformOrigin = TransformOrigin(0.5f, 0.30f)
+                                    translationX = widthPx * telegramChannelOffsetFraction.value
+                                    scaleX = telegramChannelScale.value
+                                    scaleY = telegramChannelScale.value
+                                    alpha = telegramChannelAlpha.value
                                 }
                         ) {
-                            ProjectChronicleScreen(
+                            TelegramChannelScreen(
+                                onBack = onNavigateBack
+                            )
+                        }
+                    }
+
+                    // ── 14. DIAGNOSTIC REPORT SCREEN (Full Tab) ──
+                    if (activeScreens.contains("diagnostic_report")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * diagnosticReportOffsetFraction.value
+                                    scaleX = diagnosticReportScale.value
+                                    scaleY = diagnosticReportScale.value
+                                    alpha = diagnosticReportAlpha.value
+                                }
+                        ) {
+                            DiagnosticReportScreen(
                                 onBack = onNavigateBack
                             )
                         }
@@ -1094,18 +1166,42 @@ class MainActivity : ComponentActivity() {
                                 showUnofficialDialog = false
                             }
                         )
-                    } else if (showGithubStarDialog) {
+                    } else if (showGithubStarDialog && !showOnboarding) {
                         GithubStarDialog(
                             onDismiss = {
+                                testBannerState.value = null
                                 showGithubStarDialog = false
                             },
                             onStarClicked = {
                                 com.mirrly.tgproxy.service.LaunchCountManager.setStarDismissed(applicationContext, true)
+                                testBannerState.value = null
                                 showGithubStarDialog = false
                             },
                             onNeverShowAgain = {
                                 com.mirrly.tgproxy.service.LaunchCountManager.setStarDismissed(applicationContext, true)
+                                testBannerState.value = null
                                 showGithubStarDialog = false
+                            }
+                        )
+                    }
+
+                    if (showSpeedTestInDevDialog) {
+                        SpeedTestInDevDialog(
+                            onDismiss = {
+                                showSpeedTestInDevDialog = false
+                            }
+                        )
+                    }
+
+                    if (showOnboarding) {
+                        OnboardingScreen(
+                            initialLanguage = app.prefsManager.getAppLanguage(),
+                            onLanguageSelected = { selectedLang ->
+                                app.prefsManager.setAppLanguage(selectedLang)
+                            },
+                            onComplete = {
+                                app.prefsManager.setHasSeenOnboarding(true)
+                                showOnboarding = false
                             }
                         )
                     }
@@ -1133,7 +1229,7 @@ class MainActivity : ComponentActivity() {
                                     onSuccess = { added ->
                                         app.prefsManager.setActiveWorkerId(added.id)
                                         pendingImportWorker = null
-                                        Toast.makeText(applicationContext, "Воркер «${added.name}» импортирован и активирован", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(applicationContext, getString(R.string.worker_imported_activated, added.name), Toast.LENGTH_LONG).show()
                                     },
                                     onFailure = { err ->
                                         // If already exists, activate it
@@ -1141,9 +1237,9 @@ class MainActivity : ComponentActivity() {
                                         if (existing != null) {
                                             app.prefsManager.setActiveWorkerId(existing.id)
                                             pendingImportWorker = null
-                                            Toast.makeText(applicationContext, "Воркер уже был в списке и теперь активирован", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(applicationContext, getString(R.string.worker_already_exists_activated), Toast.LENGTH_LONG).show()
                                         } else {
-                                            Toast.makeText(applicationContext, err.message ?: "Ошибка импорта", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(applicationContext, err.message ?: getString(R.string.worker_import_error), Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 )
@@ -1154,16 +1250,8 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
 
-    private var onDeepLinkReceived: ((Pair<String, String>) -> Unit)? = null
-
-    override fun onNewIntent(intent: android.content.Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        extractWorkerDeepLink(intent)?.let {
-            onDeepLinkReceived?.invoke(it)
-        }
-    }
 
     private fun extractWorkerDeepLink(intent: android.content.Intent?): Pair<String, String>? {
         val data = intent?.data ?: return null

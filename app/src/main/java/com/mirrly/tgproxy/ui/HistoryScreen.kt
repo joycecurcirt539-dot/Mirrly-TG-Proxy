@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -112,13 +113,13 @@ fun HistoryScreen(
                         modifier = Modifier.size(54.dp)
                     )
                     Text(
-                        text = "История сессий пуста",
+                        text = stringResource(R.string.history_empty_title),
                         color = TextWhite,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "Запустите прокси на Главном экране для фиксации сессий, времени работы и трафика.",
+                        text = stringResource(R.string.history_empty_desc),
                         color = TextMuted,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center,
@@ -176,7 +177,7 @@ fun HistoryScreen(
                     modifier = Modifier.staggeredEntrance(index = 0),
                     title = {
                         Text(
-                            text = "История сессий",
+                            text = stringResource(R.string.history_title),
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
                             color = TextWhite,
@@ -192,7 +193,7 @@ fun HistoryScreen(
                         }) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_arrow_left),
-                                contentDescription = "Назад",
+                                contentDescription = stringResource(R.string.action_back),
                                 tint = TextWhite,
                                 modifier = Modifier.size(22.dp)
                             )
@@ -206,7 +207,7 @@ fun HistoryScreen(
                             }) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_trash),
-                                    contentDescription = "Очистить историю",
+                                    contentDescription = stringResource(R.string.history_action_clear),
                                     tint = Color(0xFFFF5252).copy(alpha = 0.85f),
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -226,7 +227,7 @@ fun HistoryScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     SummaryStatItem(
-                        title = "СЕССИЙ",
+                        title = stringResource(R.string.history_stat_sessions),
                         value = summary.totalSessions.toString()
                     )
                     Box(
@@ -236,7 +237,7 @@ fun HistoryScreen(
                             .background(Color.White.copy(alpha = 0.08f))
                     )
                     SummaryStatItem(
-                        title = "ВРЕМЯ",
+                        title = stringResource(R.string.history_stat_time),
                         value = formatDurationShort(summary.totalActiveTimeSec)
                     )
                     Box(
@@ -246,7 +247,7 @@ fun HistoryScreen(
                             .background(Color.White.copy(alpha = 0.08f))
                     )
                     SummaryStatItem(
-                        title = "ТРАФИК",
+                        title = stringResource(R.string.history_stat_traffic),
                         value = humanBytes(summary.totalBytesTransferred)
                     )
                 }
@@ -312,7 +313,7 @@ fun HistoryScreen(
                                 }
                             }
                             Text(
-                                text = "Очистить историю?",
+                                text = stringResource(R.string.history_dialog_clear_title),
                                 color = TextWhite,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp
@@ -320,7 +321,7 @@ fun HistoryScreen(
                         }
 
                         Text(
-                            text = "Вся сохранённая история подключений и статистика передаваемого трафика будут безвозвратно удалены.",
+                            text = stringResource(R.string.history_dialog_clear_desc),
                             color = TextWhite.copy(alpha = 0.80f),
                             fontSize = 13.5.sp,
                             lineHeight = 19.sp
@@ -338,7 +339,7 @@ fun HistoryScreen(
                                     .weight(1f)
                                     .height(44.dp)
                             ) {
-                                Text("Отмена", color = TextWhite, fontSize = 13.5.sp)
+                                Text(stringResource(R.string.action_cancel), color = TextWhite, fontSize = 13.5.sp)
                             }
 
                             Button(
@@ -357,7 +358,7 @@ fun HistoryScreen(
                                     .weight(1f)
                                     .height(44.dp)
                             ) {
-                                Text("Удалить", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                                Text(stringResource(R.string.history_btn_delete), fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
                             }
                         }
                     }
@@ -415,8 +416,9 @@ private fun SessionCard(
     val startTimeStr = remember(session.startTimeMs) {
         formatSessionDate(session.startTimeMs)
     }
-    val endTimeStr = remember(session.endTimeMs, isActive) {
-        if (isActive) "сейчас" else formatSessionDate(session.endTimeMs)
+    val timeNow = stringResource(R.string.history_time_now)
+    val endTimeStr = remember(session.endTimeMs, isActive, timeNow) {
+        if (isActive) timeNow else formatSessionDate(session.endTimeMs)
     }
 
     // Glowing dot animation for active session
@@ -492,7 +494,7 @@ private fun SessionCard(
                                     .background(protoAccent.copy(alpha = alphaAnim))
                             )
                             Text(
-                                text = "АКТИВНА",
+                                text = stringResource(R.string.history_status_active),
                                 color = protoAccent,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 10.5.sp,
@@ -502,7 +504,7 @@ private fun SessionCard(
                     }
                     SessionStatus.COMPLETED -> {
                         Text(
-                            text = "ЗАВЕРШЕНА",
+                            text = stringResource(R.string.history_status_completed),
                             color = TextMuted,
                             fontWeight = FontWeight.Medium,
                             fontSize = 10.5.sp,
@@ -511,7 +513,7 @@ private fun SessionCard(
                     }
                     SessionStatus.INTERRUPTED -> {
                         Text(
-                            text = "ПРЕРВАНА",
+                            text = stringResource(R.string.history_status_interrupted),
                             color = Color(0xFFE57373),
                             fontWeight = FontWeight.Medium,
                             fontSize = 10.5.sp,
@@ -552,7 +554,7 @@ private fun SessionCard(
                 // Left: Download & Upload traffic details
                 Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Text(
-                        text = "ТРАФИК",
+                        text = stringResource(R.string.history_stat_traffic_header),
                         color = TextMuted,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -582,14 +584,14 @@ private fun SessionCard(
                     verticalArrangement = Arrangement.spacedBy(1.dp)
                 ) {
                     Text(
-                        text = "ПИК / СОКЕТЫ",
+                        text = stringResource(R.string.history_stat_peak_sockets),
                         color = TextMuted,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 0.6.sp
                     )
                     Text(
-                        text = "${humanBytes(session.peakSpeedBps)}/с  •  ${session.maxConnections} сок.",
+                        text = stringResource(R.string.history_speed_sockets_format, humanBytes(session.peakSpeedBps), session.maxConnections),
                         color = TextWhite.copy(alpha = 0.90f),
                         fontWeight = FontWeight.Medium,
                         fontSize = 12.sp
@@ -600,23 +602,25 @@ private fun SessionCard(
     }
 }
 
+@Composable
 private fun formatDurationShort(seconds: Long): String {
-    if (seconds < 60) return "${seconds}с"
+    if (seconds < 60) return stringResource(R.string.duration_sec_short, seconds)
     val minutes = seconds / 60
-    if (minutes < 60) return "${minutes}м"
+    if (minutes < 60) return stringResource(R.string.duration_min_short, minutes)
     val hours = minutes / 60
     val remMin = minutes % 60
-    return if (remMin > 0) "${hours}ч ${remMin}м" else "${hours}ч"
+    return if (remMin > 0) stringResource(R.string.duration_hr_min_short, hours, remMin) else stringResource(R.string.duration_hr_short, hours)
 }
 
+@Composable
 private fun formatDurationFull(seconds: Long): String {
-    if (seconds < 60) return "$seconds сек"
+    if (seconds < 60) return stringResource(R.string.duration_sec_full, seconds)
     val minutes = seconds / 60
     val remainingSec = seconds % 60
     if (minutes < 60) {
-        return if (remainingSec > 0) "${minutes}мин ${remainingSec}сек" else "${minutes}мин"
+        return if (remainingSec > 0) stringResource(R.string.duration_min_sec_full, minutes, remainingSec) else stringResource(R.string.duration_min_full, minutes)
     }
     val hours = minutes / 60
     val remainingMin = minutes % 60
-    return if (remainingMin > 0) "${hours}ч ${remainingMin}мин" else "${hours}ч"
+    return if (remainingMin > 0) stringResource(R.string.duration_hr_min_full, hours, remainingMin) else stringResource(R.string.duration_hr_short, hours)
 }

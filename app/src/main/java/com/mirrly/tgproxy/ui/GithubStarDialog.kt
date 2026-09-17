@@ -1,4 +1,5 @@
 package com.mirrly.tgproxy.ui
+import androidx.compose.ui.res.stringResource
 
 import android.content.Intent
 import android.net.Uri
@@ -55,8 +56,8 @@ fun GithubStarDialog(
     if (showConfirmDialog) {
         ExternalLinkConfirmDialog(
             url = githubUrl,
-            title = "Оценить проект звёздочкой на GitHub",
-            description = "Ссылка ведет на официальную страницу открытого репозитория Mirrly TG Proxy на GitHub. Оценка звёздочкой (Star) — это совершенно бесплатный способ поддержать автора R1Xern и помочь продвижению проекта!",
+            title = stringResource(R.string.github_star_dialog_title),
+            description = stringResource(R.string.github_star_dialog_desc),
             onDismiss = { showConfirmDialog = false },
             onConfirmed = {
                 onStarClicked()
@@ -83,116 +84,128 @@ fun GithubStarDialog(
             onDismiss = onDismiss,
             blurRadiusPx = 70
         ) {
-            // Detailed Content (Centered)
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+            Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .adaptiveContainerWidth(440.dp)
-                    .navigationBarsPadding()
-                    .padding(bottom = 150.dp)
-                    .padding(horizontal = 24.dp)
-                    .verticalScroll(rememberScrollState())
-                    .clickable(enabled = false) {}
-            ) {
-                // Category Pill
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = ActiveGreenLed.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
-                ) {
-                    Text(
-                        text = "ОЦЕНКА НА GITHUB (STAR)",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = ActiveGreenLed,
-                        letterSpacing = 1.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    .adaptiveContainerWidth(420.dp)
+                    .padding(horizontal = 20.dp, vertical = 24.dp)
+                    .frostedVignetteCard(
+                        shape = RoundedCornerShape(26.dp),
+                        accentColor = ActiveGreenLed,
+                        vignetteStrength = 0.65f,
+                        borderBrush = Brush.horizontalGradient(
+                            colors = listOf(
+                                ActiveGreenLed.copy(alpha = 0.50f),
+                                ActiveGreenLed.copy(alpha = 0.25f),
+                                ActiveGreenLed.copy(alpha = 0.40f)
+                            )
+                        )
                     )
-                }
-
-                // Title
-                Text(
-                    text = "Поддержите проект Star на GitHub",
-                    fontSize = 21.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    textAlign = TextAlign.Center,
-                    letterSpacing = 0.3.sp
-                )
-
-                // Description Body
-                Text(
-                    text = "Приложение Mirrly TG Proxy распространяется абсолютно бесплатно. Поставив «Звезду» в репозитории на GitHub, вы помогаете проекту расти и мотивируете автора развивать новые функции.",
-                    fontSize = 13.5.sp,
-                    color = TextWhite.copy(alpha = 0.88f),
-                    textAlign = TextAlign.Center,
-                    lineHeight = 20.sp,
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                )
-            }
-
-            // Bottom Action Buttons
-            Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 28.dp)
-                    .fillMaxWidth(0.92f)
+                    .lightSweep(
+                        isEnabled = true,
+                        shape = RoundedCornerShape(26.dp),
+                        borderWidth = 1.dp,
+                        sweepColor = ActiveGreenLed
+                    )
+                    .padding(22.dp)
                     .clickable(enabled = false) {}
             ) {
-                Button(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        showConfirmDialog = true
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White.copy(alpha = 0.20f),
-                        contentColor = TextWhite
-                    ),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    Text("Поставить Star", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onDismiss()
-                        },
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.20f)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = TextWhite.copy(alpha = 0.85f)
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(42.dp)
+                    // Category Pill
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = ActiveGreenLed.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
                     ) {
-                        Text("Позже", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            text = stringResource(R.string.github_star_dialog_category),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ActiveGreenLed,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                        )
                     }
 
-                    TextButton(
+                    // Title
+                    Text(
+                        text = stringResource(R.string.github_star_dialog_sub),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite,
+                        textAlign = TextAlign.Center,
+                        letterSpacing = 0.3.sp
+                    )
+
+                    // Description Body
+                    Text(
+                        text = stringResource(R.string.github_star_dialog_body),
+                        fontSize = 13.sp,
+                        color = TextWhite.copy(alpha = 0.88f),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Primary Button: "Star Star"
+                    Button(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onNeverShowAgain()
+                            showConfirmDialog = true
                         },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ActiveGreenLed,
+                            contentColor = Color.Black
+                        ),
                         modifier = Modifier
-                            .weight(1f)
-                            .height(42.dp)
+                            .fillMaxWidth()
+                            .height(46.dp)
                     ) {
-                        Text("Не показывать", fontSize = 12.5.sp, color = TextWhite.copy(alpha = 0.60f))
+                        Text(stringResource(R.string.github_star_dialog_btn_star), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // Secondary Action Buttons: "Later" & "Does not show"
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onDismiss()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.20f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = TextWhite.copy(alpha = 0.85f)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp)
+                        ) {
+                            Text(stringResource(R.string.action_later), fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                        }
+
+                        TextButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onNeverShowAgain()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp)
+                        ) {
+                            Text(stringResource(R.string.github_star_dialog_btn_dismiss), fontSize = 12.sp, color = TextWhite.copy(alpha = 0.55f))
+                        }
                     }
                 }
             }

@@ -93,6 +93,11 @@ if [ -z "${CARGO_TARGET_DIR:-}" ]; then
 fi
 echo "Cargo Target Dir: $CARGO_TARGET_DIR"
 
+# 4.1. Configure Rust path remapping to eliminate local developer paths and enable symbol stripping
+REMAP_FLAGS="--remap-path-prefix=${PROJECT_ROOT}/mirrlyengine=/mirrlyengine --remap-path-prefix=${PROJECT_ROOT}=/mirrly --remap-path-prefix=${CARGO_TARGET_DIR}=/cargo-target --remap-path-prefix=${HOME}/.cargo=/cargo --remap-path-prefix=${HOME}/.rustup=/rustup --remap-path-prefix=${HOME}=/user"
+export RUSTFLAGS="${REMAP_FLAGS} -C strip=symbols -C debuginfo=0 ${RUSTFLAGS:-}"
+echo "RUSTFLAGS configured with path remapping & symbol stripping"
+
 # 5. Build each target
 cd "$PROJECT_ROOT/mirrlyengine"
 
@@ -110,6 +115,15 @@ for item in "${TARGETS[@]}"; do
     mkdir -p "$DST_DIR"
     cp -f "$SRC" "$DST_DIR/libmirrlyengine.so"
     echo "Copied $SRC -> $DST_DIR/libmirrlyengine.so"
+
+    STRIP_TOOL="$NDK_BIN/llvm-strip"
+    if [ -f "$STRIP_TOOL" ]; then
+        echo "Running llvm-strip on $DST_DIR/libmirrlyengine.so..."
+        "$STRIP_TOOL" --strip-all "$DST_DIR/libmirrlyengine.so" || true
+        "$STRIP_TOOL" --strip-debug "$DST_DIR/libmirrlyengine.so" || true
+        "$STRIP_TOOL" --remove-section=.comment "$DST_DIR/libmirrlyengine.so" || true
+        "$STRIP_TOOL" --remove-section=.note.GNU-stack "$DST_DIR/libmirrlyengine.so" || true
+    fi
 done
 
 cd "$PROJECT_ROOT"

@@ -33,7 +33,7 @@ class BatteryThermalQoSTest {
         )
         val level = BatteryThermalQoSEngine.evaluateThrottleLevel(state)
         assertEquals(QoSThrottleLevel.NONE, level)
-        assertEquals(16, level.maxPoolSize)
+        assertEquals(4, level.maxPoolSize)
         assertEquals(2097152, level.maxBufferSizeBytes)
     }
 
@@ -47,7 +47,7 @@ class BatteryThermalQoSTest {
         )
         val level = BatteryThermalQoSEngine.evaluateThrottleLevel(state)
         assertEquals(QoSThrottleLevel.SEVERE, level)
-        assertEquals(2, level.maxPoolSize)
+        assertEquals(1, level.maxPoolSize)
         assertEquals(131072, level.maxBufferSizeBytes)
     }
 
@@ -61,7 +61,7 @@ class BatteryThermalQoSTest {
         )
         val level = BatteryThermalQoSEngine.evaluateThrottleLevel(state)
         assertEquals(QoSThrottleLevel.SEVERE, level)
-        assertEquals(2, level.maxPoolSize)
+        assertEquals(1, level.maxPoolSize)
     }
 
     @Test
@@ -74,7 +74,7 @@ class BatteryThermalQoSTest {
         )
         val level = BatteryThermalQoSEngine.evaluateThrottleLevel(state)
         assertEquals(QoSThrottleLevel.MODERATE, level)
-        assertEquals(4, level.maxPoolSize)
+        assertEquals(2, level.maxPoolSize)
         assertEquals(262144, level.maxBufferSizeBytes)
     }
 
@@ -112,7 +112,7 @@ class BatteryThermalQoSTest {
         )
         val level = BatteryThermalQoSEngine.evaluateThrottleLevel(state, isEnabled = false)
         assertEquals(QoSThrottleLevel.NONE, level, "Disabled QoS must allow full performance without power save restrictions")
-        assertEquals(16, level.maxPoolSize)
+        assertEquals(4, level.maxPoolSize)
         assertEquals(2097152, level.maxBufferSizeBytes)
     }
 
@@ -142,19 +142,19 @@ class BatteryThermalQoSTest {
             thermalStatus = BatteryThermalQoSEngine.THERMAL_STATUS_NONE
         )
         assertEquals(QoSThrottleLevel.SEVERE, engine.currentThrottleLevel)
-        assertEquals(2, engine.maxAllowedPoolSize)
+        assertEquals(1, engine.maxAllowedPoolSize)
 
         // User turns off QoS throttling ("пофиг на телефон, пусть работает на максимум")
         engine.setEnabled(false)
         assertEquals(QoSThrottleLevel.NONE, engine.currentThrottleLevel)
-        assertEquals(16, engine.maxAllowedPoolSize)
+        assertEquals(4, engine.maxAllowedPoolSize)
         assertEquals(2097152, engine.maxAllowedBufferSizeBytes)
         assertEquals(QoSThrottleLevel.NONE, notifiedLevel)
 
         // User re-enables QoS throttling
         engine.setEnabled(true)
         assertEquals(QoSThrottleLevel.SEVERE, engine.currentThrottleLevel)
-        assertEquals(2, engine.maxAllowedPoolSize)
+        assertEquals(1, engine.maxAllowedPoolSize)
         assertEquals(QoSThrottleLevel.SEVERE, notifiedLevel)
     }
 }

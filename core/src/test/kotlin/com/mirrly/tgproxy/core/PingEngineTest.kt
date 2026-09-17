@@ -89,7 +89,7 @@ class PingEngineTest {
         val selfHealingTriggered = AtomicBoolean(false)
         val engine = PingEngine(
             targetProvider = { "example.com" },
-            onSelfHealingRequired = { selfHealingTriggered.set(true) }
+            onSelfHealingRequired = { _ -> selfHealingTriggered.set(true) }
         )
 
         // 1st failure
@@ -216,4 +216,26 @@ class PingEngineTest {
         engine.reset()
         assertTrue(engine.currentSnapshot.rttHistory.isEmpty())
     }
+
+    @Test
+    fun testExecuteDirectProbeEmptyTargetReturnsDnsFailure() = kotlinx.coroutines.runBlocking {
+        val result = PingEngine.executeDirectProbe("")
+        assertFalse(result.success)
+        assertEquals(FailureType.DNS_FAILURE, result.failureType)
+    }
+
+    @Test
+    fun testParallelProbeCandidatesEmptyList() = kotlinx.coroutines.runBlocking {
+        val results = PingEngine.parallelProbeCandidates(emptyList())
+        assertTrue(results.isEmpty())
+    }
+
+    @Test
+    fun testParallelProbeCandidatesHandlesEmptyTargets() = kotlinx.coroutines.runBlocking {
+        val results = PingEngine.parallelProbeCandidates(listOf("", "   "))
+        assertEquals(2, results.size)
+        assertFalse(results[0].second.success)
+        assertFalse(results[1].second.success)
+    }
 }
+

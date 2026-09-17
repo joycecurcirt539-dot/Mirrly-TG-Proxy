@@ -4,12 +4,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -46,23 +42,34 @@ enum class LogLevel {
     INFO, WARN, ERROR
 }
 
-sealed interface LogEvent {
-    data class Added(val entry: LogEntry) : LogEvent
-    data object Cleared : LogEvent
+internal class BoundedLogcatReplayFilter(
+    private val capacity: Int
+) {
+    init {
+        require(capacity > 0) { "capacity must be positive" }
+    }
+
+    private val seenLines = LinkedHashSet<String>(capacity)
+
+    @Synchronized
+    fun shouldAccept(line: String): Boolean {
+        if (!seenLines.add(line)) return false
+        while (seenLines.size > capacity) {
+            val oldest = seenLines.iterator()
+            oldest.next()
+            oldest.remove()
+        }
+        return true
+    }
 }
 
 object AppLogger {
     private const val MAX_LOGS = 250
+    private const val MAX_SEEN_LOGCAT_LINES = 4096
     private val logQueue = ArrayDeque<LogEntry>(MAX_LOGS)
-
-    private val _logEvents = MutableSharedFlow<LogEvent>(
-        extraBufferCapacity = 128,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST
-    )
-    val logEvents: SharedFlow<LogEvent> = _logEvents.asSharedFlow()
+    private val logcatReplayFilter = BoundedLogcatReplayFilter(MAX_SEEN_LOGCAT_LINES)
 
     private val _logsFlow = MutableStateFlow<List<LogEntry>>(emptyList())
-    @Deprecated("Use logEvents and getLogs() instead", ReplaceWith("getLogs()"))
     val logsFlow: StateFlow<List<LogEntry>> = _logsFlow.asStateFlow()
 
     @Volatile
@@ -87,7 +94,7 @@ object AppLogger {
             logQueue.removeFirst()
         }
 
-        _logEvents.tryEmit(LogEvent.Added(entry))
+        _logsFlow.value = logQueue.toList()
     }
 
     fun d(tag: String, message: String) = log(LogLevel.INFO, tag, message)
@@ -156,8 +163,14 @@ object AppLogger {
         // Ignore internal AppLogger logcat lines to avoid duplicate entries
         if (tag == "AppLogger") return
 
+        // Reopening the screen starts a new `logcat` process, which replays its
+        // ring buffer. The original line includes the event timestamp, so exact
+        // equality identifies replay without hiding a genuine repeated event.
+        if (!logcatReplayFilter.shouldAccept(line)) return
+
         val msg = try {
-            val colonIdx = line.indexOf(":")
+            val slashIdx = line.indexOf("/")
+            val colonIdx = line.indexOf(":", if (slashIdx >= 0) slashIdx else 0)
             if (colonIdx != -1 && colonIdx < line.length - 1) {
                 line.substring(colonIdx + 1).trim()
             } else line
@@ -170,6 +183,5 @@ object AppLogger {
     fun clear() {
         logQueue.clear()
         _logsFlow.value = emptyList()
-        _logEvents.tryEmit(LogEvent.Cleared)
     }
 }

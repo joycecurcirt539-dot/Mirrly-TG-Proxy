@@ -25,17 +25,39 @@ import android.content.IntentFilter
 import android.os.PowerManager
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.core.WorkerProfile
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+
+/**
+ * Неизменяемый снимок горячего резерва маршрутов (Hot Reserve Route Pool).
+ */
+data class HotReserveRoutes(
+    val validatedAtTimestampMs: Long = 0L,
+    val bestMtprotoDc: String? = null,
+    val fallbackMtprotoDcs: List<String> = emptyList(),
+    val bestWorkerId: String? = null,
+    val fallbackWorkerIds: List<String> = emptyList(),
+    val bestWarpEndpoint: String? = null,
+    val fallbackWarpEndpoints: List<String> = emptyList(),
+    val isDnsHealthy: Boolean = true
+) {
+    fun isFresh(nowMs: Long = System.currentTimeMillis(), ttlMs: Long = 300_000L): Boolean =
+        validatedAtTimestampMs > 0L && (nowMs - validatedAtTimestampMs) < ttlMs
+}
 
 /**
  * Менеджер предиктивного упреждающего прогрева сокетов (Predictive Socket Pre-Warming).
  * Заранее поднимает WSS/TLS сессии при включении/разблокировке экрана, чтобы соединение Telegram
  * открывалось с 0 мс задержки на рукопожатие.
+ * Также поддерживает горячий резерв валидированных маршрутов (Smart Connect).
  */
 object PredictivePreWarmManager {
     private const val TAG = "PredictivePreWarm"
     const val DEBOUNCE_INTERVAL_MS = 30_000L // Минимум 30 секунд между прогревами
+    const val HOT_RESERVE_TTL_MS = 300_000L // 5 минут актуальности горячего резерва
 
+    private val hotReserve = AtomicReference(HotReserveRoutes())
     private val lastPreWarmTimestamp = AtomicLong(0L)
     private var isRegistered = false
 
@@ -56,9 +78,9 @@ object PredictivePreWarmManager {
             }
             context.registerReceiver(receiver, filter)
             isRegistered = true
-            AppLogger.i(TAG, "Служба предиктивного прогрева сокетов успешно зарегистрирована")
+            AppLogger.i(TAG, "Predictive pre-warm receiver successfully registered")
         } catch (t: Throwable) {
-            AppLogger.w(TAG, "Ошибка регистрации ресивера предиктивного прогрева: ${t.message}")
+            AppLogger.w(TAG, "Failed to register predictive pre-warm receiver: ${t.message}")
         }
     }
 
@@ -67,9 +89,9 @@ object PredictivePreWarmManager {
         try {
             context.unregisterReceiver(receiver)
             isRegistered = false
-            AppLogger.i(TAG, "Служба предиктивного прогрева сокетов остановлена")
+            AppLogger.i(TAG, "Predictive pre-warm service stopped")
         } catch (t: Throwable) {
-            AppLogger.w(TAG, "Ошибка дерегистрации ресивера: ${t.message}")
+            AppLogger.w(TAG, "Failed to unregister receiver: ${t.message}")
         }
     }
 
@@ -86,7 +108,7 @@ object PredictivePreWarmManager {
         val powerManager = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val isPowerSave = powerManager?.isPowerSaveMode == true
         if (isPowerSave && action != Intent.ACTION_POWER_CONNECTED) {
-            AppLogger.d(TAG, "Пропуск предиктивного прогрева ($action): активен системный режим энергосбережения")
+            AppLogger.d(TAG, "Skipping predictive pre-warm ($action): power save mode active")
             return
         }
 
@@ -94,12 +116,12 @@ object PredictivePreWarmManager {
         val now = System.currentTimeMillis()
         val last = lastPreWarmTimestamp.get()
         if (now - last < DEBOUNCE_INTERVAL_MS) {
-            AppLogger.d(TAG, "Пропуск предиктивного прогрева ($action): дебаунс (${(now - last) / 1000}с < 30с)")
+            AppLogger.d(TAG, "Skipping predictive pre-warm ($action): debounce (${(now - last) / 1000}s < 30s)")
             return
         }
 
         lastPreWarmTimestamp.set(now)
-        AppLogger.i(TAG, "Инициация предиктивного прогрева WsPool ($action)...")
+        AppLogger.i(TAG, "Initiating predictive pre-warm for WsPool ($action)...")
         app.proxyServer.predictivePreWarm(action)
     }
 
@@ -114,4 +136,54 @@ object PredictivePreWarmManager {
         if (isPowerSaveMode) return false
         return (currentTimeMs - lastWarmTimeMs) >= minCooldownMs
     }
+
+    /**
+     * Сохраняет обновленный снимок валидированных маршрутов в горячий резерв.
+     */
+    fun updateHotReserve(routes: HotReserveRoutes) {
+        hotReserve.set(routes)
+        AppLogger.d(TAG, "Hot reserve updated: bestWorker=${routes.bestWorkerId}, bestDC=${routes.bestMtprotoDc}, bestWarp=${routes.bestWarpEndpoint}")
+    }
+
+    /**
+     * Возвращает текущий снимок горячего резерва маршрутов.
+     */
+    fun getHotReserve(): HotReserveRoutes = hotReserve.get()
+
+    /**
+     * Проверяет наличие актуального (не устаревшего) маршрута в горячем резерве.
+     */
+    fun hasFreshHotReserve(isSocks5: Boolean, ttlMs: Long = HOT_RESERVE_TTL_MS): Boolean {
+        val current = hotReserve.get()
+        if (!current.isFresh(ttlMs = ttlMs)) return false
+        return if (isSocks5) {
+            !current.bestWorkerId.isNullOrBlank() || !current.bestWarpEndpoint.isNullOrBlank()
+        } else {
+            !current.bestMtprotoDc.isNullOrBlank()
+        }
+    }
+
+    /**
+     * Извлекает следующий резервный узел из предварительно проверенного пула для бесшовного failover.
+     */
+    fun getNextFallbackWorker(currentActiveId: String, allWorkers: List<WorkerProfile>): WorkerProfile? {
+        val reserve = hotReserve.get()
+        for (fallbackId in reserve.fallbackWorkerIds) {
+            if (fallbackId != currentActiveId) {
+                val candidate = allWorkers.find { it.id == fallbackId }
+                if (candidate != null) {
+                    return candidate
+                }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Сбрасывает кэш горячего резерва.
+     */
+    fun clearHotReserve() {
+        hotReserve.set(HotReserveRoutes())
+    }
 }
+

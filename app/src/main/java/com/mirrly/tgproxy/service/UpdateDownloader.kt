@@ -1,5 +1,7 @@
 package com.mirrly.tgproxy.service
 
+import com.mirrly.tgproxy.R
+
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -182,7 +184,7 @@ object UpdateDownloader {
                         _status.value = DownloadStatus.Idle
                         return@withContext false
                     }
-                    _status.value = DownloadStatus.Error("Ошибка загрузки HTTP ${response.code}")
+                    _status.value = DownloadStatus.Error(context.getString(R.string.update_err_http, response.code))
                     return@withContext false
                 }
 
@@ -193,13 +195,13 @@ object UpdateDownloader {
                         _status.value = DownloadStatus.Idle
                         return@withContext false
                     }
-                    _status.value = DownloadStatus.Error("Пустой ответ сервера")
+                    _status.value = DownloadStatus.Error(context.getString(R.string.update_err_empty_response))
                     return@withContext false
                 }
 
                 val totalBytes = body.contentLength()
                 if (totalBytes > MAX_APK_SIZE_BYTES) {
-                    _status.value = DownloadStatus.Error("Превышен допустимый размер файла обновления (макс. 100 МБ)")
+                    _status.value = DownloadStatus.Error(context.getString(R.string.update_err_size_limit))
                     return@withContext false
                 }
 
@@ -232,7 +234,7 @@ object UpdateDownloader {
                             outputStream.close()
                             inputStream.close()
                             destFile.delete()
-                            _status.value = DownloadStatus.Error("Превышен лимит размера файла (>100 МБ). Загрузка остановлена.")
+                            _status.value = DownloadStatus.Error(context.getString(R.string.update_err_size_limit_stopped))
                             return@withContext false
                         }
                         outputStream.write(buffer, 0, bytesRead)
@@ -332,7 +334,7 @@ object UpdateDownloader {
                                 "SHA-256 mismatch even after force refresh! Calculated: $normalizedCalculated, Expected list: $expectedSha256List, Fresh list: $freshShaList"
                             )
                             destFile.delete()
-                            _status.value = DownloadStatus.Error("Ошибка целостности файла: SHA-256 не совпадает с официальным релизом!")
+                            _status.value = DownloadStatus.Error(context.getString(R.string.update_err_sha_mismatch))
                             return@withContext false
                         }
                     } else {
@@ -352,7 +354,7 @@ object UpdateDownloader {
                 if (archiveInfo == null) {
                     AppLogger.e(TAG, "Downloaded file is not a valid Android APK archive.")
                     destFile.delete()
-                    _status.value = DownloadStatus.Error("Повреждённый файл: архив не является корректным Android APK")
+                    _status.value = DownloadStatus.Error(context.getString(R.string.update_err_corrupt_apk))
                     return@withContext false
                 }
 
@@ -365,7 +367,7 @@ object UpdateDownloader {
                 if (!isAccepted) {
                     AppLogger.e(TAG, "Downloaded APK signature verification failed! Status: $signatureStatus")
                     destFile.delete()
-                    _status.value = DownloadStatus.Error("Ошибка безопасности: цифровая подпись APK не совпадает с официальным ключом разработчика!")
+                    _status.value = DownloadStatus.Error(context.getString(R.string.update_err_signature_mismatch))
                     return@withContext false
                 }
                 AppLogger.i(TAG, "Downloaded APK digital signature verified successfully: $signatureStatus")
@@ -390,9 +392,9 @@ object UpdateDownloader {
 
                 val errMsg = when {
                     e is java.net.UnknownHostException || e.message?.contains("Unable to resolve host", ignoreCase = true) == true -> {
-                        "Сбой DNS (блокировка провайдера): Сервер CDN GitHub (release-assets.githubusercontent.com) заблокирован или недоступен. Включите прокси/VPN или используйте скачивание через браузер."
+                        context.getString(R.string.update_err_dns_blocked)
                     }
-                    else -> "Ошибка сети: ${e.localizedMessage ?: "Неизвестная ошибка"}"
+                    else -> context.getString(R.string.update_err_network, e.localizedMessage ?: context.getString(R.string.update_err_unknown))
                 }
                 _status.value = DownloadStatus.Error(errMsg)
                 false

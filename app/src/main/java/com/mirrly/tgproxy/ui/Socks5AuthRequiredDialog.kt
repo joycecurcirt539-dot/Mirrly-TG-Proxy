@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import androidx.compose.ui.res.stringResource
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
@@ -92,7 +93,7 @@ fun Socks5AuthRequiredDialog(
                     border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.40f))
                 ) {
                     Text(
-                        text = "SOCKS5 • ТРЕБУЕТСЯ АВТОРИЗАЦИЯ",
+                        text = stringResource(R.string.socks5_auth_dialog_category),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = Socks5Accent,
@@ -102,7 +103,7 @@ fun Socks5AuthRequiredDialog(
                 }
 
                 Text(
-                    text = "Настройка доступа SOCKS5",
+                    text = stringResource(R.string.socks5_auth_dialog_title),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,
@@ -110,7 +111,7 @@ fun Socks5AuthRequiredDialog(
                 )
 
                 Text(
-                    text = "Для запуска SOCKS5 прокси необходимо указать логин и пароль. Они обеспечат защиту вашего локального прокси-сервера (RFC 1929) и будут автоматически переданы в Telegram.",
+                    text = stringResource(R.string.socks5_auth_dialog_desc),
                     fontSize = 12.5.sp,
                     color = TextWhite.copy(alpha = 0.82f),
                     textAlign = TextAlign.Center,
@@ -130,7 +131,7 @@ fun Socks5AuthRequiredDialog(
                         // Username field
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                text = "Логин (Username)",
+                                text = stringResource(R.string.socks5_auth_field_username),
                                 color = TextWhite,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -144,10 +145,10 @@ fun Socks5AuthRequiredDialog(
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 isError = showError && username.trim().isEmpty(),
-                                placeholder = { Text("Введите логин", color = TextMuted, fontSize = 13.sp) },
+                                placeholder = { Text(stringResource(R.string.socks5_auth_hint_username), color = TextMuted, fontSize = 13.sp) },
                                 shape = RoundedCornerShape(12.dp),
                                 supportingText = if (showError && username.trim().isEmpty()) {
-                                    { Text("Логин обязателен для SOCKS5", color = Color(0xFFEF4444), fontSize = 11.5.sp) }
+                                    { Text(stringResource(R.string.socks5_auth_err_username_required), color = Color(0xFFEF4444), fontSize = 11.5.sp) }
                                 } else null,
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedContainerColor = Color.Transparent,
@@ -165,7 +166,7 @@ fun Socks5AuthRequiredDialog(
                         // Password field
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
-                                text = "Пароль (Password)",
+                                text = stringResource(R.string.socks5_auth_field_password),
                                 color = TextWhite,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -179,7 +180,7 @@ fun Socks5AuthRequiredDialog(
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 isError = showError && password.trim().isEmpty(),
-                                placeholder = { Text("Введите пароль", color = TextMuted, fontSize = 13.sp) },
+                                placeholder = { Text(stringResource(R.string.socks5_auth_hint_password), color = TextMuted, fontSize = 13.sp) },
                                 shape = RoundedCornerShape(12.dp),
                                 visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                                 trailingIcon = {
@@ -201,7 +202,7 @@ fun Socks5AuthRequiredDialog(
                                     }
                                 },
                                 supportingText = if (showError && password.trim().isEmpty()) {
-                                    { Text("Пароль обязателен для SOCKS5", color = Color(0xFFEF4444), fontSize = 11.5.sp) }
+                                    { Text(stringResource(R.string.socks5_auth_err_password_required), color = Color(0xFFEF4444), fontSize = 11.5.sp) }
                                 } else null,
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedContainerColor = Color.Transparent,
@@ -233,7 +234,7 @@ fun Socks5AuthRequiredDialog(
                             border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.4f)),
                             modifier = Modifier.fillMaxWidth().height(40.dp)
                         ) {
-                            Text("Сгенерировать случайные", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.socks5_auth_btn_generate_random), fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -252,7 +253,7 @@ fun Socks5AuthRequiredDialog(
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
                         modifier = Modifier.weight(1f).height(46.dp)
                     ) {
-                        Text("Отмена", color = TextWhite, fontSize = 13.sp)
+                        Text(stringResource(R.string.action_cancel), color = TextWhite, fontSize = 13.sp)
                     }
 
                     Button(
@@ -275,7 +276,7 @@ fun Socks5AuthRequiredDialog(
                         border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.7f)),
                         modifier = Modifier.weight(1.5f).height(46.dp)
                     ) {
-                        Text("Сохранить и запустить", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                        Text(stringResource(R.string.socks5_auth_btn_save_and_start), fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
                     }
                 }
             }

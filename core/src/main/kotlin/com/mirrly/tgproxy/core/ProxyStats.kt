@@ -8,6 +8,12 @@ class ProxyStats {
     val totalBytesSent = AtomicLong(0)
     val activeConnections = AtomicInteger(0)
     val totalWsConnections = AtomicLong(0)
+    val totalMasqueConnections = AtomicLong(0)
+    val totalAwgConnections = AtomicLong(0)
+    val totalVlessConnections = AtomicLong(0)
+    val totalOperaConnections = AtomicLong(0)
+    val totalSocks5V2Sessions = AtomicLong(0)
+    val totalSocks5V1Downgrades = AtomicLong(0)
     val lastActivityTimestamp = AtomicLong(System.currentTimeMillis())
 
     @Volatile
@@ -66,10 +72,10 @@ class ProxyStats {
     var healthScore: Int = 100
 
     @Volatile
-    var healthVerdict: String = "Идеальный канал связи"
+    var healthVerdict: String = "Optimal Connection"
 
     @Volatile
-    var healthDetail: String = "Минимальная задержка и стабильный прямой WSS-туннель"
+    var healthDetail: String = "Minimal latency and stable direct WSS tunnel"
 
     @Volatile
     var healthSuccessRate: Int = 100
@@ -78,7 +84,7 @@ class ProxyStats {
     var mosScore: Double = 4.50
 
     @Volatile
-    var mosGrade: String = "HD Voice (Отлично)"
+    var mosGrade: String = "HD Voice (Excellent)"
 
     @Volatile
     var isCallRecommended: Boolean = true
@@ -87,7 +93,7 @@ class ProxyStats {
     var chatScore: Int = 100
 
     @Volatile
-    var chatVerdict: String = "Идеально для медиа"
+    var chatVerdict: String = "Ideal for media"
 
     @Volatile
     var callScore: Int = 100
@@ -99,7 +105,7 @@ class ProxyStats {
     var bufferbloatMs: Long = 0L
 
     @Volatile
-    var bufferbloatGrade: String = "A+ (Идеально)"
+    var bufferbloatGrade: String = "A+ (Excellent)"
 
     @Volatile
     var currentAlpha: Double = 0.25
@@ -110,7 +116,7 @@ class ProxyStats {
     val dcAffinityEngine = TelegramDCAffinityEngine()
 
     @Volatile
-    var dcAffinitySummary: String = "Доминантный DC: DC 2 | Активных DC: 2 | Пул: 4"
+    var dcAffinitySummary: String = "Dominant DC: DC 2 | Active DC: 2 | MTProto standby: 2"
 
     @Volatile
     var activeCascadeStage: String = "Scanned WARP (Frag)"
@@ -119,10 +125,89 @@ class ProxyStats {
     var activeCascadeStageCode: Int = 0
 
     @Volatile
+    var activeRouteGeneration: Long = 0L
+
+    @Volatile
+    var activeRouteId: String = ""
+
+    @Volatile
+    var activeRouteTrace: String = ""
+
+    @Volatile
     var lastActiveProbeRttMs: Long = -1L
 
     @Volatile
     var isProbeAlive: Boolean = true
+
+    @Volatile
+    var activeEffectiveRoute: String = ""
+
+    @Volatile
+    var activeOperator: String = ""
+
+    @Volatile
+    var isTrustBoundaryMaintained: Boolean = true
+
+    @Volatile
+    var isPrivateNode: Boolean = false
+
+    @Volatile
+    var isTransportReady: Boolean = false
+
+    @Volatile
+    var isAppReady: Boolean = false
+
+    @Volatile
+    var isUdpSupported: Boolean = true
+
+    @Volatile
+    var lastAppError: String = ""
+
+    @Volatile
+    var appSuccessCount: Long = 0L
+
+    @Volatile
+    var timeToUsefulRxMs: Long = -1L
+
+    @Volatile
+    var stageTimelineSli: StageTimelineSliSummary? = null
+
+    @Volatile
+    var recentTimelineAttempts: List<ConnectionTimelineItem> = emptyList()
+
+    @Volatile
+    var dialBudgetStats: DialBudgetStats? = null
+
+    @Volatile
+    var appFailureCount: Long = 0L
+
+
+    fun resetHealthSnapshot() {
+        smoothedPingMs = -1L
+        jitterMs = 0L
+        connectionQuality = ConnectionQuality.OFFLINE
+        lastFailureType = FailureType.NONE
+        healthScore = 100
+        healthVerdict = "Optimal Connection"
+        healthDetail = "Waiting for network check..."
+        healthSuccessRate = 100
+        mosScore = 4.50
+        mosGrade = "HD Voice (Excellent)"
+        isCallRecommended = true
+        chatScore = 100
+        chatVerdict = "Ideal for media"
+        callScore = 100
+        minRttMs = -1L
+        bufferbloatMs = 0L
+        bufferbloatGrade = "A+ (Excellent)"
+        currentAlpha = 0.25
+        rttHistory = emptyList()
+        lastActiveProbeRttMs = -1L
+        isProbeAlive = false
+        isTransportReady = false
+        isAppReady = false
+        lastAppError = ""
+    }
 
     fun resetBaseline() {
         val ext = externalByteProvider?.invoke()
@@ -136,6 +221,10 @@ class ProxyStats {
         totalBytesReceived.set(0)
         totalBytesSent.set(0)
         totalWsConnections.set(0L)
+        totalMasqueConnections.set(0L)
+        totalAwgConnections.set(0L)
+        totalVlessConnections.set(0L)
+        totalOperaConnections.set(0L)
         lastBytesRecv = -1L
         lastBytesSent = -1L
         downloadSpeedBps = 0L
@@ -146,7 +235,12 @@ class ProxyStats {
         txSpeedFilter.reset()
         peakDownloadSpeedBps = 0L
         peakUploadSpeedBps = 0L
+        activeEffectiveRoute = ""
+        activeOperator = ""
+        isTrustBoundaryMaintained = true
+        isPrivateNode = false
         lastCheckTime = System.currentTimeMillis()
+        resetHealthSnapshot()
     }
 
     fun addReceived(bytes: Long) {
@@ -203,6 +297,54 @@ class ProxyStats {
                 if (ws != null && ws > totalWsConnections.get()) {
                     totalWsConnections.set(ws)
                     onTotalWsConnectionsChanged?.invoke(ws)
+                }
+            }
+
+            val masqueMatch = REGEX_MASQUE.find(rawStr)
+            if (masqueMatch != null) {
+                val m = masqueMatch.groupValues[1].toLongOrNull()
+                if (m != null && m > totalMasqueConnections.get()) {
+                    totalMasqueConnections.set(m)
+                }
+            }
+
+            val awgMatch = REGEX_AWG.find(rawStr)
+            if (awgMatch != null) {
+                val a = awgMatch.groupValues[1].toLongOrNull()
+                if (a != null && a > totalAwgConnections.get()) {
+                    totalAwgConnections.set(a)
+                }
+            }
+
+            val vlessMatch = REGEX_VLESS.find(rawStr)
+            if (vlessMatch != null) {
+                val v = vlessMatch.groupValues[1].toLongOrNull()
+                if (v != null && v > totalVlessConnections.get()) {
+                    totalVlessConnections.set(v)
+                }
+            }
+
+            val operaMatch = REGEX_OPERA.find(rawStr)
+            if (operaMatch != null) {
+                val o = operaMatch.groupValues[1].toLongOrNull()
+                if (o != null && o > totalOperaConnections.get()) {
+                    totalOperaConnections.set(o)
+                }
+            }
+
+            val v2Match = REGEX_V2.find(rawStr)
+            if (v2Match != null) {
+                val v2 = v2Match.groupValues[1].toLongOrNull()
+                if (v2 != null && v2 > totalSocks5V2Sessions.get()) {
+                    totalSocks5V2Sessions.set(v2)
+                }
+            }
+
+            val v1DownMatch = REGEX_V1_DOWN.find(rawStr)
+            if (v1DownMatch != null) {
+                val v1Down = v1DownMatch.groupValues[1].toLongOrNull()
+                if (v1Down != null && v1Down > totalSocks5V1Downgrades.get()) {
+                    totalSocks5V1Downgrades.set(v1Down)
                 }
             }
         } catch (_: Exception) {}
@@ -334,7 +476,7 @@ class ProxyStats {
 
     companion object {
         private val REGEX_CONNS = Regex(
-            """(?:active_connections|active_conns|active_conn|active|conns|connections|conn)[\s=:]+['"]?(\d+)""",
+            """(?:active_connections|active_conns|active_conn|active|conns|connections|conn|акт)[\s=:]+['"]?(\d+)""",
             RegexOption.IGNORE_CASE
         )
         private val REGEX_RX = Regex(
@@ -351,6 +493,30 @@ class ProxyStats {
         )
         private val REGEX_TOTAL = Regex(
             """(?:connections_total|total)[\s=:]+['"]?(\d+)""",
+            RegexOption.IGNORE_CASE
+        )
+        private val REGEX_MASQUE = Regex(
+            """(?:connections_masque|masque)[\s=:]+['"]?(\d+)""",
+            RegexOption.IGNORE_CASE
+        )
+        private val REGEX_AWG = Regex(
+            """(?:connections_awg|awg)[\s=:]+['"]?(\d+)""",
+            RegexOption.IGNORE_CASE
+        )
+        private val REGEX_VLESS = Regex(
+            """(?:connections_vless|vless)[\s=:]+['"]?(\d+)""",
+            RegexOption.IGNORE_CASE
+        )
+        private val REGEX_OPERA = Regex(
+            """(?:connections_opera|opera)[\s=:]+['"]?(\d+)""",
+            RegexOption.IGNORE_CASE
+        )
+        private val REGEX_V2 = Regex(
+            """(?:v2)[\s=:]+['"]?(\d+)""",
+            RegexOption.IGNORE_CASE
+        )
+        private val REGEX_V1_DOWN = Regex(
+            """(?:v1_down)[\s=:]+['"]?(\d+)""",
             RegexOption.IGNORE_CASE
         )
     }

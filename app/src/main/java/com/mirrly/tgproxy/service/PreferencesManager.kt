@@ -1,5 +1,7 @@
 package com.mirrly.tgproxy.service
 
+import com.mirrly.tgproxy.R
+
 import android.content.Context
 import android.content.SharedPreferences
 import com.mirrly.tgproxy.core.ProxyConfig
@@ -12,7 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-class PreferencesManager(context: Context) {
+class PreferencesManager(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("mirrly_tg_proxy_prefs", Context.MODE_PRIVATE)
     private val secretPrefs: SharedPreferences = context.getSharedPreferences("mirrly_secrets_prefs", Context.MODE_PRIVATE)
 
@@ -27,6 +29,12 @@ class PreferencesManager(context: Context) {
 
     private val _uplinkModeFlow = MutableStateFlow(loadConfig().uplinkMode)
     val uplinkModeFlow: StateFlow<com.mirrly.tgproxy.core.UplinkMode> = _uplinkModeFlow.asStateFlow()
+
+    private val _appLanguageFlow = MutableStateFlow(getAppLanguage())
+    val appLanguageFlow: StateFlow<String> = _appLanguageFlow.asStateFlow()
+
+    private val _advancedSettingsEnabledFlow = MutableStateFlow(isAdvancedSettingsEnabled())
+    val advancedSettingsEnabledFlow: StateFlow<Boolean> = _advancedSettingsEnabledFlow.asStateFlow()
 
     private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
         if (key == "disable_animations_particles") {
@@ -43,6 +51,12 @@ class PreferencesManager(context: Context) {
         if (key == "uplink_mode") {
             val modeName = sharedPreferences.getString(key, com.mirrly.tgproxy.core.UplinkMode.WORKER.name) ?: com.mirrly.tgproxy.core.UplinkMode.WORKER.name
             _uplinkModeFlow.value = try { com.mirrly.tgproxy.core.UplinkMode.valueOf(modeName) } catch (_: Exception) { com.mirrly.tgproxy.core.UplinkMode.WORKER }
+        }
+        if (key == "app_language") {
+            _appLanguageFlow.value = sharedPreferences.getString(key, "system") ?: "system"
+        }
+        if (key == "advanced_settings_enabled") {
+            _advancedSettingsEnabledFlow.value = sharedPreferences.getBoolean(key, false)
         }
     }
 
@@ -80,18 +94,16 @@ class PreferencesManager(context: Context) {
         } else {
             activeWorker.domain
         }
-        val poolSize = prefs.getInt("pool_size", defaults.poolSize)
-        val autostart = prefs.getBoolean("autostart_on_boot", defaults.autostartOnBoot)
-        val speedPresetName = prefs.getString("speed_preset", defaults.speedPresetName) ?: defaults.speedPresetName
-        val tcpNoDelayModeName = if (prefs.contains("tcp_nodelay_mode")) {
-            prefs.getString("tcp_nodelay_mode", defaults.tcpNoDelayModeName) ?: defaults.tcpNoDelayModeName
-        } else if (prefs.contains("tcp_nodelay")) {
-            if (prefs.getBoolean("tcp_nodelay", true)) com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO.name
-            else com.mirrly.tgproxy.core.TcpNoDelayMode.OFF.name
+        val poolSize = if (prefs.contains("mtproto_standby_per_active_slot")) {
+            prefs.getInt("mtproto_standby_per_active_slot", defaults.mtprotoStandbyPerActiveSlot)
         } else {
-            defaults.tcpNoDelayModeName
+            prefs.getInt("pool_size", defaults.poolSize)
         }
-        val tcpNoDelay = prefs.getBoolean("tcp_nodelay", defaults.tcpNoDelay)
+        val autostart = prefs.getBoolean("autostart_on_boot", defaults.autostartOnBoot)
+        // Режимы пула MTProto и TCP_NODELAY скрыты из UI: всегда режим AUTO по умолчанию для всех пользователей
+        val speedPresetName = com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
+        val tcpNoDelayModeName = com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO.name
+        val tcpNoDelay = true
         val bufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
         val socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
         val socks5Username = prefs.getString("socks5_username", defaults.socks5Username) ?: defaults.socks5Username
@@ -153,14 +165,13 @@ class PreferencesManager(context: Context) {
         val vlessServerPort = prefs.getInt("vless_server_port", defaults.vlessServerPort)
         val vlessTlsSni = prefs.getString("vless_tls_sni", defaults.vlessTlsSni) ?: defaults.vlessTlsSni
         val vlessHostHeader = prefs.getString("vless_host_header", defaults.vlessHostHeader) ?: defaults.vlessHostHeader
-        val isLivenessProbeEnabled = prefs.getBoolean("liveness_probe_enabled", defaults.isLivenessProbeEnabled)
-        val livenessProbeTimeoutMs = prefs.getInt("liveness_probe_timeout_ms", defaults.livenessProbeTimeoutMs)
-        val livenessProbeFailoverThreshold = prefs.getInt("liveness_probe_failover_threshold", defaults.livenessProbeFailoverThreshold)
         val useOperaVpnForVless = prefs.getBoolean("use_opera_vpn_for_vless", defaults.useOperaVpnForVless)
         val useOperaVpnForWarp = prefs.getBoolean("use_opera_vpn_for_warp", defaults.useOperaVpnForWarp)
         val operaVpnEndpoint = prefs.getString("opera_vpn_endpoint", defaults.operaVpnEndpoint) ?: defaults.operaVpnEndpoint
         val operaVpnNodeId = prefs.getString("opera_vpn_node_id", defaults.operaVpnNodeId) ?: defaults.operaVpnNodeId
         val warpWorkerDomain = prefs.getString("warp_worker_domain", defaults.warpWorkerDomain) ?: defaults.warpWorkerDomain
+        val awgStrategyName = prefs.getString("awg_strategy_name", defaults.awgStrategyName) ?: defaults.awgStrategyName
+        val awgCustomIni = prefs.getString("awg_custom_ini", defaults.awgCustomIni) ?: defaults.awgCustomIni
 
         return ProxyConfig(
             bindHost = bindHost,
@@ -168,7 +179,7 @@ class PreferencesManager(context: Context) {
             secretHex = secretHex,
             cfProxyEnabled = cfEnabled,
             customCfDomain = customDomain,
-            poolSize = poolSize,
+            mtprotoStandbyPerActiveSlotValue = poolSize,
             autostartOnBoot = autostart,
             speedPresetName = speedPresetName,
             tcpNoDelayModeName = tcpNoDelayModeName,
@@ -223,14 +234,13 @@ class PreferencesManager(context: Context) {
             vlessServerPort = vlessServerPort,
             vlessTlsSni = vlessTlsSni,
             vlessHostHeader = vlessHostHeader,
-            isLivenessProbeEnabled = isLivenessProbeEnabled,
-            livenessProbeTimeoutMs = livenessProbeTimeoutMs,
-            livenessProbeFailoverThreshold = livenessProbeFailoverThreshold,
             useOperaVpnForVless = useOperaVpnForVless,
             useOperaVpnForWarp = useOperaVpnForWarp,
             operaVpnEndpoint = operaVpnEndpoint,
             operaVpnNodeId = operaVpnNodeId,
-            warpWorkerDomain = warpWorkerDomain
+            warpWorkerDomain = warpWorkerDomain,
+            awgStrategyName = awgStrategyName,
+            awgCustomIni = awgCustomIni
         )
     }
 
@@ -270,6 +280,7 @@ class PreferencesManager(context: Context) {
             .putBoolean("cf_proxy_enabled", config.cfProxyEnabled)
             .putString("custom_cf_domain", domainToSave)
             .putInt("pool_size", config.poolSize)
+            .putInt("mtproto_standby_per_active_slot", config.mtprotoStandbyPerActiveSlot)
             .putBoolean("autostart_on_boot", config.autostartOnBoot)
             .putString("speed_preset", config.speedPresetName)
             .putString("tcp_nodelay_mode", config.tcpNoDelayModeName)
@@ -320,14 +331,13 @@ class PreferencesManager(context: Context) {
             .putInt("vless_server_port", config.vlessServerPort)
             .putString("vless_tls_sni", config.vlessTlsSni)
             .putString("vless_host_header", config.vlessHostHeader)
-            .putBoolean("liveness_probe_enabled", config.isLivenessProbeEnabled)
-            .putInt("liveness_probe_timeout_ms", config.livenessProbeTimeoutMs)
-            .putInt("liveness_probe_failover_threshold", config.livenessProbeFailoverThreshold)
             .putBoolean("use_opera_vpn_for_vless", config.useOperaVpnForVless)
             .putBoolean("use_opera_vpn_for_warp", config.useOperaVpnForWarp)
             .putString("opera_vpn_endpoint", config.operaVpnEndpoint)
             .putString("opera_vpn_node_id", config.operaVpnNodeId)
             .putString("warp_worker_domain", config.warpWorkerDomain)
+            .putString("awg_strategy_name", config.awgStrategyName)
+            .putString("awg_custom_ini", config.awgCustomIni)
             .apply()
 
         _isSocks5Flow.value = config.isSocks5Mode
@@ -466,6 +476,8 @@ class PreferencesManager(context: Context) {
         prefs.edit().putString("uplink_mode", mode.name).apply()
         _uplinkModeFlow.value = mode
     }
+
+    fun getUplinkMode(): com.mirrly.tgproxy.core.UplinkMode = _uplinkModeFlow.value
 
     fun getVlessUuid(): String {
         return prefs.getString("vless_uuid", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessUuid
@@ -613,45 +625,37 @@ class PreferencesManager(context: Context) {
         prefs.edit().putBoolean("auto_failover_enabled", enabled).apply()
     }
 
-    fun isLivenessProbeEnabled(): Boolean {
-        return prefs.getBoolean("liveness_probe_enabled", true)
-    }
-
-    fun setLivenessProbeEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("liveness_probe_enabled", enabled).apply()
-    }
-
     // ── Worker Profiles Management ──────────────────────────────────────────
 
     companion object {
         val DEFAULT_DEV_WORKERS = listOf(
             WorkerProfile(
                 id = "dev_default",
-                name = "Mirrly Основной",
+                name = "Mirrly Primary",
                 domain = "mirrly-tg-proxy-worker.brawny-singer.workers.dev",
                 isDeveloperWorker = true
             ),
             WorkerProfile(
                 id = "dev_alpha",
-                name = "Mirrly Альфа",
+                name = "Mirrly Alpha",
                 domain = "mtg-relay-5o77p2.mtg-alfaj.workers.dev",
                 isDeveloperWorker = true
             ),
             WorkerProfile(
                 id = "dev_beta",
-                name = "Mirrly Бета",
+                name = "Mirrly Beta",
                 domain = "mtg-relay-ki2q2v.mtg-beta.workers.dev",
                 isDeveloperWorker = true
             ),
             WorkerProfile(
                 id = "dev_gamma",
-                name = "Mirrly Гамма",
+                name = "Mirrly Gamma",
                 domain = "mtg-relay-vndj4a.tammistichtqvc264.workers.dev",
                 isDeveloperWorker = true
             ),
             WorkerProfile(
                 id = "dev_delta",
-                name = "Mirrly Дельта",
+                name = "Mirrly Delta",
                 domain = "mtg-relay-xbl1ts.mtg-beta.workers.dev",
                 isDeveloperWorker = true
             )
@@ -672,7 +676,7 @@ class PreferencesManager(context: Context) {
                 result.add(
                     WorkerProfile(
                         id = obj.getString("id"),
-                        name = obj.optString("name", "Личный воркер"),
+                        name = obj.optString("name", context.getString(R.string.pref_worker_custom_default_name)),
                         domain = obj.getString("domain"),
                         isDeveloperWorker = false
                     )
@@ -698,16 +702,16 @@ class PreferencesManager(context: Context) {
         val formRes = com.mirrly.tgproxy.core.WorkerDomainNormalizer.normalizeForm(name, domain)
         val cleanDomain = formRes.normalizedDomain
         if (cleanDomain.isBlank()) {
-            return Result.failure(IllegalArgumentException("Укажите корректный домен воркера (например: my-proxy.username.workers.dev)"))
+            return Result.failure(IllegalArgumentException(context.getString(R.string.pref_worker_err_invalid_domain)))
         }
 
         val current = getCustomWorkers().toMutableList()
         val allExisting = current + DEFAULT_DEV_WORKERS
         if (allExisting.any { it.domain.equals(cleanDomain, ignoreCase = true) }) {
-            return Result.failure(IllegalStateException("Этот воркер уже добавлен в ваш список"))
+            return Result.failure(IllegalStateException(context.getString(R.string.pref_worker_err_already_exists)))
         }
 
-        val cleanName = formRes.normalizedName.ifBlank { "Личный воркер #${current.size + 1}" }
+        val cleanName = formRes.normalizedName.ifBlank { context.getString(R.string.pref_worker_custom_indexed_name, current.size + 1) }
         val newWorker = WorkerProfile(
             id = UUID.randomUUID().toString(),
             name = cleanName,
@@ -841,5 +845,72 @@ class PreferencesManager(context: Context) {
             .putString("schedule_days_mode", config.daysMode.name)
             .putStringSet("schedule_custom_days", config.customDays.map { it.toString() }.toSet())
             .apply()
+    }
+
+    // ── Onboarding & Language Settings ───────────────────────────────────────
+
+    fun hasSeenOnboarding(): Boolean {
+        return prefs.getBoolean("has_seen_onboarding", false)
+    }
+
+    fun setHasSeenOnboarding(seen: Boolean = true) {
+        prefs.edit().putBoolean("has_seen_onboarding", seen).apply()
+    }
+
+    fun getAppLanguage(): String {
+        return prefs.getString("app_language", "system") ?: "system"
+    }
+
+    fun setAppLanguage(langCode: String) {
+        prefs.edit().putString("app_language", langCode).apply()
+        _appLanguageFlow.value = langCode
+        com.mirrly.tgproxy.util.LocaleHelper.applyLocale(context, langCode)
+    }
+
+    // ── Advanced / Expert Mode Settings ──────────────────────────────────────
+
+    fun isAdvancedSettingsEnabled(): Boolean {
+        return prefs.getBoolean("advanced_settings_enabled", false)
+    }
+
+    fun setAdvancedSettingsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("advanced_settings_enabled", enabled).apply()
+        _advancedSettingsEnabledFlow.value = enabled
+    }
+
+    fun getHappyEyeballsDelayMs(): Long {
+        return prefs.getLong("happy_eyeballs_delay_ms", 200L)
+    }
+
+    fun setHappyEyeballsDelayMs(delayMs: Long) {
+        prefs.edit().putLong("happy_eyeballs_delay_ms", delayMs.coerceIn(50L, 1000L)).apply()
+    }
+
+    fun getIpFamilyPreference(): String {
+        return prefs.getString("ip_family_preference", "DUAL_STACK") ?: "DUAL_STACK"
+    }
+
+    fun setIpFamilyPreference(pref: String) {
+        prefs.edit().putString("ip_family_preference", pref).apply()
+    }
+
+    fun getSocketKeepAliveSeconds(): Int {
+        return prefs.getInt("socket_keep_alive_seconds", 30)
+    }
+
+    fun setSocketKeepAliveSeconds(seconds: Int) {
+        prefs.edit().putInt("socket_keep_alive_seconds", seconds.coerceIn(10, 300)).apply()
+    }
+
+    fun resetAdvancedSettingsToDefaults(config: ProxyConfig) {
+        setHappyEyeballsDelayMs(200L)
+        setIpFamilyPreference("DUAL_STACK")
+        setSocketKeepAliveSeconds(30)
+        config.speedPresetName = com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
+        config.applyPreset(com.mirrly.tgproxy.core.SpeedPreset.AUTO)
+        config.tcpNoDelayModeName = com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO.name
+        config.tcpNoDelay = true
+        config.bufferSizeBytes = 262144
+        config.warpUserEndpointOverride = ""
     }
 }

@@ -27,12 +27,43 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     private var speedJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     val stats = ProxyStats()
+
+    val networkStabilizationGate = NetworkStabilizationGate()
+    val adaptiveController = AdaptiveNetworkPolicyController(stabilizationGate = networkStabilizationGate)
+
+    private val _transportPoolStatus = MutableStateFlow(
+        config.getTransportPoolStatus(isMobile = false, isRunning = false, activeConnections = 0)
+    )
+    val transportPoolStatus: StateFlow<TransportPoolStatus> = _transportPoolStatus.asStateFlow()
+
+    private val _adaptiveNetworkDecision = MutableStateFlow(adaptiveController.currentDecision)
+    val adaptiveNetworkDecision: StateFlow<NetworkEvaluationDecision> = _adaptiveNetworkDecision.asStateFlow()
+
+    fun setTcpNoDelayMode(mode: TcpNoDelayMode) {
+        config.tcpNoDelayModeName = mode.name
+        val effective = when (mode) {
+            TcpNoDelayMode.ON -> true
+            TcpNoDelayMode.OFF -> false
+            TcpNoDelayMode.AUTO -> adaptiveNetworkDecision.value.recommendedTcpNoDelay
+        }
+        config.tcpNoDelay = effective
+        if (isNativeRunning) {
+            try {
+                NativeProxy.setTcpNoDelay(effective)
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "Failed to set TCP_NODELAY: ${t.message}")
+            }
+        }
+    }
 
     @Volatile
     var isRunning: Boolean = false
@@ -55,13 +86,16 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 TgConstants.getWsDomains(2).firstOrNull() ?: ("kws2." + TgConstants.decodeCfDomain("virkgj.com"))
             }
         },
-        trafficThroughputProvider = { stats.downloadSpeedBps + stats.uploadSpeedBps },
-        onSelfHealingRequired = {
-            AppLogger.w("LocalProxyServer", "Watchdog: Выполняется превентивный сброс сокетов из-за серии сетевых сбоев...")
-            if (isNativeRunning) {
-                try {
-                    NativeProxy.resetNetworkSockets()
-                } catch (_: Exception) {}
+        onSelfHealingRequired = { failureType ->
+            AppLogger.w("LocalProxyServer", "Watchdog: Зафиксирован сетевой сбой $failureType")
+            when (failureType) {
+                FailureType.DNS_FAILURE -> {
+                    DohResolver.clearCache()
+                }
+                FailureType.CONNECT_TIMEOUT -> {
+                    // Мягкая обработка таймаута соединения без сброса рабочих потоков
+                }
+                else -> {}
             }
         }
     )
@@ -123,6 +157,8 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     var currentEffectiveTcpNoDelay: Boolean = true
         private set
 
+    val currentProfileGeneration = java.util.concurrent.atomic.AtomicLong(1L)
+
     val uptimeSeconds: Long
         get() = if (isRunning && startTimeMs > 0L) (System.currentTimeMillis() - startTimeMs) / 1000L else 0L
 
@@ -178,7 +214,13 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             config.socks5Password = p
         }
 
-        if (config.isAnyWarpUplink) {
+        if (config.isWarpCascadeUplink) {
+            // В режиме каскада настраиваем домен воркера для аварийного Level 3 failover
+            NativeProxy.setCfProxyConfig(
+                enabled = true,
+                userDomain = config.getEffectiveCfDomain()
+            )
+        } else if (config.isAnyWarpUplink) {
             NativeProxy.setCfProxyConfig(
                 enabled = false,
                 userDomain = ""
@@ -218,20 +260,8 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             warpEnabled = config.useOperaVpnForWarp,
             endpoint = config.getEffectiveOperaEndpoint()
         )
-        // Для всех WARP-режимов настраиваем MASQUE + AWG для гладкого двухканального каскада
+        // Для всех WARP-режимов настраиваем AmneziaWG (AWG)
         if (config.isAnyWarpUplink) {
-            NativeProxy.setWarpFullConfig(
-                endpoint = config.effectiveMasquePeerEndpoint,
-                sni = "consumer-masque-proxy.cloudflareclient.com",
-                authToken = config.effectiveMasqueToken,
-                clientIpv4 = config.effectiveMasqueClientIpv4,
-                clientIpv6 = config.effectiveMasqueClientIpv6,
-                p256PrivateKey = config.warpP256PrivateKey,
-                clientCert = config.warpClientCert,
-                peerPublicKey = config.effectiveMasquePeerPublicKey,
-                uriTemplate = config.warpUriTemplate
-            )
-
             val awgIni = config.awgCustomIni.trim().ifEmpty {
                 config.getAmneziaWgConfig(cleanEndpoint = config.warpPeerEndpoint)
             }
@@ -330,6 +360,11 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                         stats.activeCascadeStage = when (rawStage) {
                             1 -> "WARP MASQUE"
                             2 -> "WARP AmneziaWG"
+                            3 -> "Cloudflare Worker"
+                            4 -> "VLESS Direct"
+                            5 -> "Opera VPN"
+                            6 -> "Direct TCP"
+                            7 -> "VLESS + Opera Hop"
                             else -> stats.activeCascadeStage
                         }
                     }
@@ -577,7 +612,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                     enabled = config.cfProxyEnabled,
                     userDomain = effectiveDomain
                 )
-                NativeProxy.resetNetworkSockets()
             } catch (t: Throwable) {
                 AppLogger.w("LocalProxyServer", "Ошибка применения нового воркера в NativeProxy: ${t.message}")
             }
@@ -607,9 +641,139 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     /**
      * Динамически применяет выбранный режим аплинка (Worker WSS / WARP MASQUE / Hybrid).
      */
-    fun applyUplinkMode(mode: UplinkMode) {
+    fun applyBufferSizeBytes(newSize: Int) {
+        val clamped = if (newSize <= 0) {
+            0
+        } else {
+            newSize.coerceIn(32 * 1024, 2 * 1024 * 1024)
+        }
+        config.bufferSizeBytes = clamped
+        if (isNativeRunning && clamped > 0) {
+            try {
+                NativeProxy.setSocketBufferSizes(config.bufferSizeBytes, config.bufferSizeBytes)
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "setSocketBufferSizes failed: ${t.message}")
+            }
+        }
+    }
+
+    fun applyMtprotoStandbyPerActiveSlot(slots: Int) {
+        val clamped = slots.coerceIn(1, 4)
+        config.mtprotoStandbyPerActiveSlot = clamped
+        if (isNativeRunning) {
+            try {
+                NativeProxy.setPoolSize(clamped)
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "setPoolSize($clamped) failed: ${t.message}")
+            }
+        }
+    }
+
+    fun emergencyKillAllSockets(reason: String = "manual") {
+        AppLogger.w("LocalProxyServer", "Emergency killing all active network sockets (reason: $reason)")
+        if (isNativeRunning) {
+            try {
+                NativeProxy.emergencyKillAllSockets(reason)
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "Failed to reset network sockets: ${t.message}")
+            }
+        }
+    }
+
+    /**
+     * Эффективный профиль сетевого окружения.
+     */
+    var effectiveNetworkProfile: NetworkProfile = NetworkProfile()
+        private set
+
+    fun updateNetworkEnvironment(
+        environment: NetworkEnvironment = NetworkEnvironment(),
+        screenOn: Boolean = true,
+        powerSaveMode: Boolean = false,
+        env: NetworkEnvironment = environment
+    ) {
+        val target = if (environment != NetworkEnvironment()) environment else env
+        effectiveNetworkProfile = effectiveNetworkProfile
+            .withEnvironment(target)
+            .withRuntime(screenOn, powerSaveMode)
+    }
+
+    fun updateScreenPowerMode(screenOn: Boolean, powerSaveMode: Boolean) {
+        effectiveNetworkProfile = effectiveNetworkProfile.withRuntime(screenOn, powerSaveMode)
+    }
+
+    fun nextGeneration(): Long = currentProfileGeneration.incrementAndGet()
+
+    fun handleNetworkChanged(
+        newType: String = "",
+        oldType: String = "",
+        isMobile: Boolean = false,
+        isScreenOn: Boolean = true,
+        newNet: String = newType,
+        oldNet: String = oldType
+    ) {
+        val target = if (newType.isNotEmpty()) newType else newNet
+        if (target == "DISCONNECTED") return
+        nextGeneration()
+        setNetworkInterface(isMobile, isScreenOn)
+    }
+
+    /**
+     * Обработка событий приостановки/возобновления сети.
+     */
+    fun handleNetworkSuspended() {}
+    fun handleNetworkResumed(isMobile: Boolean = false, isScreenOn: Boolean = true) {}
+
+    fun getEffectiveMtprotoStandby(isMobile: Boolean = false): Int = config.getEffectiveMtprotoStandby(isMobile)
+    fun getGlobalEstablishmentBudget(isMobile: Boolean = false): Int = config.getGlobalEstablishmentBudget(isMobile)
+    fun getTransportPoolStatus(isMobile: Boolean = false): TransportPoolStatus = config.getTransportPoolStatus(isMobile, isRunning, stats.activeConnections.get())
+
+    fun applyWarpEndpoint(
+        endpoint: String,
+        expectedGeneration: Long? = null,
+        expectedMode: UplinkMode? = null
+    ): Boolean {
+        if (expectedGeneration != null && currentProfileGeneration.get() != expectedGeneration) {
+            AppLogger.w("LocalProxyServer", "Rejected warp endpoint change: generation $expectedGeneration is stale (current: ${currentProfileGeneration.get()})")
+            return false
+        }
+        if (expectedMode != null && config.uplinkMode != expectedMode) {
+            AppLogger.w("LocalProxyServer", "Rejected warp endpoint change: mode ${config.uplinkMode} does not match expected $expectedMode")
+            return false
+        }
+        if (expectedGeneration != null && !isRunning && !isNativeRunning) {
+            return false
+        }
+        config.warpPeerEndpoint = endpoint
+        config.warpMasquePeerEndpoint = endpoint
+        if (expectedGeneration == null) {
+            currentProfileGeneration.incrementAndGet()
+        }
+        if (isNativeRunning && (config.isMasqueUplink || config.isHybridUplink || config.isAwgUplink || config.isWarpCascadeUplink)) {
+            try {
+                val awgIni = config.awgCustomIni.trim().ifEmpty {
+                    config.getAmneziaWgConfig(cleanEndpoint = config.warpPeerEndpoint)
+                }
+                NativeProxy.setAwgConfig(awgIni)
+                NativeProxy.resetNetworkSockets()
+            } catch (t: Throwable) {
+                AppLogger.w("LocalProxyServer", "Failed to update WARP endpoint: ${t.message}")
+            }
+        }
+        return true
+    }
+
+    /**
+     * Динамически применяет выбранный режим аплинка (Worker WSS / WARP MASQUE / Hybrid).
+     */
+    fun applyUplinkMode(mode: UplinkMode, expectedGeneration: Long? = null): Boolean {
+        if (expectedGeneration != null && currentProfileGeneration.get() != expectedGeneration) {
+            AppLogger.w("LocalProxyServer", "Rejected uplink mode change: generation $expectedGeneration is stale (current: ${currentProfileGeneration.get()})")
+            return false
+        }
         config.uplinkModeName = mode.name
-        AppLogger.i("LocalProxyServer", "Применение режима аплинка: ${mode.displayName}")
+        currentProfileGeneration.incrementAndGet()
+        AppLogger.i("LocalProxyServer", "Применение режима аплинка: ${mode.displayName} (gen=${currentProfileGeneration.get()})")
         val syncStage = when (mode) {
             UplinkMode.VLESS -> CascadeStage.STAGE_3_VLESS_PRESET
             UplinkMode.MASQUE -> {
@@ -652,8 +816,14 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                         enabled = config.cfProxyEnabled,
                         userDomain = config.getEffectiveCfDomain()
                     )
+                } else if (mode == UplinkMode.WARP_CASCADE) {
+                    // WARP_CASCADE: активируем конфигурацию воркера для аварийного Level 3 failover
+                    NativeProxy.setCfProxyConfig(
+                        enabled = true,
+                        userDomain = config.getEffectiveCfDomain()
+                    )
                 } else {
-                    // Режимы WARP (MASQUE, AWG, WARP_CASCADE, HYBRID):
+                    // Режимы WARP (MASQUE, AWG, HYBRID):
                     // Воркеры разработчика и пользовательские воркеры полностью отключены
                     NativeProxy.setCfProxyConfig(
                         enabled = false,
@@ -661,18 +831,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                     )
                 }
                 if (mode == UplinkMode.MASQUE || mode == UplinkMode.HYBRID || mode == UplinkMode.AWG || mode == UplinkMode.WARP_CASCADE) {
-                    NativeProxy.setWarpFullConfig(
-                        endpoint = config.effectiveMasquePeerEndpoint,
-                        sni = "consumer-masque-proxy.cloudflareclient.com",
-                        authToken = config.effectiveMasqueToken,
-                        clientIpv4 = config.effectiveMasqueClientIpv4,
-                        clientIpv6 = config.effectiveMasqueClientIpv6,
-                        p256PrivateKey = config.warpP256PrivateKey,
-                        clientCert = config.warpClientCert,
-                        peerPublicKey = config.effectiveMasquePeerPublicKey,
-                        uriTemplate = config.warpUriTemplate
-                    )
-
                     val awgIni = config.awgCustomIni.trim().ifEmpty {
                         config.getAmneziaWgConfig(cleanEndpoint = config.warpPeerEndpoint)
                     }
@@ -683,6 +841,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 AppLogger.w("LocalProxyServer", "Сбой применения режима аплинка в NativeProxy: ${t.message}")
             }
         }
+        return true
     }
 
     /**
@@ -802,32 +961,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
     }
 
-    /**
-     * Динамически обновляет рабочий эндпоинт Anycast Cloudflare WARP/MASQUE.
-     */
-    fun applyWarpEndpoint(endpoint: String) {
-        config.warpPeerEndpoint = endpoint
-        config.warpMasquePeerEndpoint = endpoint
-        AppLogger.i("LocalProxyServer", "Применение нового эндпоинта WARP Anycast: $endpoint")
-        if (isNativeRunning && (config.isMasqueUplink || config.isHybridUplink)) {
-            try {
-                NativeProxy.setWarpFullConfig(
-                    endpoint = endpoint,
-                    sni = "consumer-masque-proxy.cloudflareclient.com",
-                    authToken = config.effectiveMasqueToken,
-                    clientIpv4 = config.effectiveMasqueClientIpv4,
-                    clientIpv6 = config.effectiveMasqueClientIpv6,
-                    p256PrivateKey = config.warpP256PrivateKey,
-                    clientCert = config.warpClientCert,
-                    peerPublicKey = config.effectiveMasquePeerPublicKey,
-                    uriTemplate = config.warpUriTemplate
-                )
-                NativeProxy.resetNetworkSockets()
-            } catch (t: Throwable) {
-                AppLogger.w("LocalProxyServer", "Сбой обновления эндпоинта WARP в NativeProxy: ${t.message}")
-            }
-        }
-    }
 
     /**
      * Динамически применяет конфигурацию Opera VPN прокси для VLESS и WARP.
@@ -876,6 +1009,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         pingEngine.setDormant(isDormant)
         activeLivenessProbe.isDormant = isDormant
         if (isDormant) {
+            currentProfileGeneration.incrementAndGet()
             AppLogger.i("LocalProxyServer", "Вход в спящий режим ожидания сети (Deep Dormancy / Offline). Сброс сокетов и пауза фоновых опросов.")
             stats.connectionQuality = ConnectionQuality.OFFLINE
             stats.lastFailureType = FailureType.NETWORK_LOST

@@ -40,7 +40,7 @@ class ProxyTileService : TileService() {
             }
             updateTileState(willBeRunning)
         } catch (e: Exception) {
-            AppLogger.e("ProxyTileService", "Не удалось запустить/остановить службу из быстрых настроек: ${e.message}")
+            AppLogger.e("ProxyTileService", "Failed to start/stop service from quick settings: ${e.message}")
             updateTileState()
         }
     }
@@ -49,7 +49,7 @@ class ProxyTileService : TileService() {
         val tile = qsTile ?: return
         val isRunning = forcedState ?: MirrlyApplication.instance.proxyServer.isRunning
         tile.state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        tile.label = if (isRunning) "Mirrly Proxy ON" else "Mirrly Proxy OFF"
+        tile.label = if (isRunning) getString(R.string.tile_proxy_on) else getString(R.string.tile_proxy_off)
         tile.icon = Icon.createWithResource(this, R.drawable.ic_qs_proxy)
         tile.updateTile()
     }

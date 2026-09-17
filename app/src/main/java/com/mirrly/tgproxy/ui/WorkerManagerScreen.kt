@@ -29,6 +29,7 @@ import android.os.Build
 import android.provider.Settings
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -86,6 +87,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -108,11 +110,11 @@ import com.mirrly.tgproxy.service.WorkerPingTester
 import com.mirrly.tgproxy.ui.theme.*
 import kotlinx.coroutines.launch
 
-enum class ManagerSection(val title: String) {
-    WORKERS("Воркеры"),
-    SHARE("Поделиться"),
-    SCANNER("Сканер"),
-    GUIDE("Инструкция")
+enum class ManagerSection(@StringRes val titleRes: Int) {
+    WORKERS(R.string.wm_tab_workers),
+    SHARE(R.string.wm_tab_share),
+    SCANNER(R.string.wm_tab_scanner),
+    GUIDE(R.string.wm_tab_guide)
 }
 
 private enum class WmWorkerFilterType {
@@ -121,25 +123,25 @@ private enum class WmWorkerFilterType {
     CUSTOM
 }
 
-private enum class WmGuideTab(val title: String) {
-    PC("Компьютер"),
-    PHONE("Андроид"),
-    SCRIPT("Скрипт воркера"),
-    FAQ("Преимущества и FAQ")
+private enum class WmGuideTab(@StringRes val titleRes: Int) {
+    PC(R.string.cf_guide_tab_pc),
+    PHONE(R.string.cf_guide_tab_phone),
+    SCRIPT(R.string.cf_guide_tab_script),
+    FAQ(R.string.cf_guide_tab_faq)
 }
 
 private data class WmGuideStepItem(
     val stepNumber: String,
-    val title: String,
-    val description: String,
-    val actionText: String? = null,
+    @StringRes val titleRes: Int,
+    @StringRes val descriptionRes: Int,
+    @StringRes val actionTextRes: Int? = null,
     val isCopyAction: Boolean = false,
     val isDashAction: Boolean = false
 )
 
 private data class WmFaqItem(
-    val title: String,
-    val description: String
+    @StringRes val titleRes: Int,
+    @StringRes val descriptionRes: Int
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -208,7 +210,7 @@ fun WorkerManagerScreen(
         val cmd = "irm https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/main/tools/deploy-worker/deploy.ps1 | iex"
         val clip = ClipData.newPlainText("Mirrly Deploy Command", cmd)
         clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, "Команда автодеплоя скопирована в буфер обмена", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.cf_guide_toast_deploy_copied), Toast.LENGTH_SHORT).show()
     }
 
     fun copyScriptToClipboard() {
@@ -216,7 +218,7 @@ fun WorkerManagerScreen(
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Cloudflare Worker Script", TgConstants.CLOUDFLARE_WORKER_JS_CODE)
         clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, "Скрипт воркера скопирован в буфер обмена", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.cf_guide_toast_script_copied), Toast.LENGTH_SHORT).show()
     }
 
     fun openCloudflareDashboard() {
@@ -289,13 +291,13 @@ fun WorkerManagerScreen(
                 pingResults[w.domain] = res
             }
             isPinging = false
-            Toast.makeText(context, "Замер пинга завершен", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.wm_toast_ping_finished), Toast.LENGTH_SHORT).show()
         }
     }
 
     fun shareWorker(worker: WorkerProfile) {
         if (worker.isDeveloperWorker) {
-            Toast.makeText(context, "Официальными воркерами разработчика делиться нельзя", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.wm_toast_cant_share_official), Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -304,23 +306,23 @@ fun WorkerManagerScreen(
         val deepLink = "mirrly://worker?domain=$encodedDomain&name=$encodedName"
         val httpsLink = "https://mirrly.app/worker?domain=$encodedDomain&name=$encodedName"
 
-        val shareText = buildString {
-            append("С тобой поделились подключением Cloudflare Worker для Mirrly TG Proxy:\n\n")
-            append("Имя узла: ${worker.name}\n")
-            append("Домен: ${worker.domain}\n\n")
-            append("Ссылка для импорта в приложение:\n")
-            append("$deepLink\n\n")
-            append("Веб-ссылка:\n")
-            append("$httpsLink\n\n")
-            append("Скачать актуальную сборку Mirrly TG Proxy:\n")
-            append("https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases")
-        }
+        val shareText = context.getString(
+            R.string.wm_share_template,
+            worker.name,
+            worker.domain,
+            deepLink,
+            httpsLink,
+            "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
+        )
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, shareText)
-            putExtra(Intent.EXTRA_SUBJECT, "Cloudflare Worker для Mirrly TG Proxy")
+            putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.wm_share_subject))
         }
-        context.startActivity(Intent.createChooser(intent, "Поделиться воркером"))
+        val chooser = Intent.createChooser(intent, context.getString(R.string.wm_share_chooser_title)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(chooser)
     }
 
     val hasRateLimitedWorkers by remember {
@@ -368,37 +370,37 @@ fun WorkerManagerScreen(
         listOf(
             WmGuideStepItem(
                 stepNumber = "1",
-                title = "Вход в Cloudflare Dashboard",
-                description = "Откройте браузер на компьютере и перейдите на dash.cloudflare.com. Авторизуйтесь или создайте бесплатный аккаунт (банковская карта не требуется).",
-                actionText = "Открыть Cloudflare Dashboard",
+                titleRes = R.string.cf_guide_step_pc_1_title,
+                descriptionRes = R.string.cf_guide_step_pc_1_desc,
+                actionTextRes = R.string.cf_guide_step_pc_1_action,
                 isDashAction = true
             ),
             WmGuideStepItem(
                 stepNumber = "2",
-                title = "Создание нового Worker",
-                description = "В левом боковом меню выберите раздел «Workers & Pages» (или «Compute (Workers)»). Нажмите синюю кнопку «Create Application», затем вкладку «Create Worker»."
+                titleRes = R.string.cf_guide_step_pc_2_title,
+                descriptionRes = R.string.cf_guide_step_pc_2_desc
             ),
             WmGuideStepItem(
                 stepNumber = "3",
-                title = "Базовое развертывание",
-                description = "В поле имени укажите любое название (например: my-tg-proxy) и нажмите кнопку «Deploy» внизу страницы."
+                titleRes = R.string.cf_guide_step_pc_3_title,
+                descriptionRes = R.string.cf_guide_step_pc_3_desc
             ),
             WmGuideStepItem(
                 stepNumber = "4",
-                title = "Вставка готового скрипта",
-                description = "На открывшейся странице созданного воркера нажмите кнопку «Edit Code» (Редактировать код). Полностью удалите стандартный шаблонный код из окна редактора.",
-                actionText = "Скопировать скрипт воркера",
+                titleRes = R.string.cf_guide_step_pc_4_title,
+                descriptionRes = R.string.cf_guide_step_pc_4_desc,
+                actionTextRes = R.string.cf_guide_step_pc_4_action,
                 isCopyAction = true
             ),
             WmGuideStepItem(
                 stepNumber = "5",
-                title = "Сохранение и публикация",
-                description = "Вставьте скопированный код в редактор Cloudflare и в правом верхнем углу нажмите «Deploy» (или «Save and Deploy»)."
+                titleRes = R.string.cf_guide_step_pc_5_title,
+                descriptionRes = R.string.cf_guide_step_pc_5_desc
             ),
             WmGuideStepItem(
                 stepNumber = "6",
-                title = "Копирование адреса и вставка в Mirrly",
-                description = "Скопируйте полученный публичный адрес (например: my-tg-proxy.yourname.workers.dev) и добавьте его в Менеджере воркеров приложения Mirrly TG Proxy."
+                titleRes = R.string.cf_guide_step_pc_6_title,
+                descriptionRes = R.string.cf_guide_step_pc_6_desc
             )
         )
     }
@@ -407,32 +409,32 @@ fun WorkerManagerScreen(
         listOf(
             WmGuideStepItem(
                 stepNumber = "1",
-                title = "Откройте сайт Cloudflare на смартфоне",
-                description = "Перейдите на dash.cloudflare.com в браузере телефона и войдите в свой аккаунт.",
-                actionText = "Перейти на Cloudflare",
+                titleRes = R.string.cf_guide_step_ph_1_title,
+                descriptionRes = R.string.cf_guide_step_ph_1_desc,
+                actionTextRes = R.string.cf_guide_step_ph_1_action,
                 isDashAction = true
             ),
             WmGuideStepItem(
                 stepNumber = "2",
-                title = "Перейдите в Workers & Pages",
-                description = "В боковом меню выберите «Workers & Pages» -> нажмите «Create Application» -> «Create Worker»."
+                titleRes = R.string.cf_guide_step_ph_2_title,
+                descriptionRes = R.string.cf_guide_step_ph_2_desc
             ),
             WmGuideStepItem(
                 stepNumber = "3",
-                title = "Нажмите Deploy и Edit Code",
-                description = "Нажмите кнопку «Deploy», затем «Edit Code» для открытия онлайн-редактора кода."
+                titleRes = R.string.cf_guide_step_ph_3_title,
+                descriptionRes = R.string.cf_guide_step_ph_3_desc
             ),
             WmGuideStepItem(
                 stepNumber = "4",
-                title = "Скопируйте и вставьте скрипт",
-                description = "Нажмите кнопку ниже, чтобы скопировать скрипт, выделите весь текст в мобильном редакторе и вставьте скопированный код.",
-                actionText = "Скопировать скрипт",
+                titleRes = R.string.cf_guide_step_ph_4_title,
+                descriptionRes = R.string.cf_guide_step_ph_4_desc,
+                actionTextRes = R.string.cf_guide_step_ph_4_action,
                 isCopyAction = true
             ),
             WmGuideStepItem(
                 stepNumber = "5",
-                title = "Сохраните и вставьте домен в Mirrly",
-                description = "Нажмите «Deploy». Скопируйте домен *.workers.dev и добавьте его в Менеджере воркеров приложения Mirrly."
+                titleRes = R.string.cf_guide_step_ph_5_title,
+                descriptionRes = R.string.cf_guide_step_ph_5_desc
             )
         )
     }
@@ -440,28 +442,28 @@ fun WorkerManagerScreen(
     val faqItems = remember {
         listOf(
             WmFaqItem(
-                title = "100 000 бесплатных запросов каждый день",
-                description = "Бесплатный тариф Cloudflare выделяет 100 000 обращений в сутки лично на ваш аккаунт, чего с избытком хватает для непрерывной переписки, видеозвонков и загрузки медиа."
+                titleRes = R.string.cf_guide_faq_1_title,
+                descriptionRes = R.string.cf_guide_faq_1_desc
             ),
             WmFaqItem(
-                title = "Создание нескольких личных воркеров (до 100 узлов)",
-                description = "Вы можете бесплатно создать до 100 отдельных воркеров на одном аккаунте (например: для смартфона, ноутбука, планшета или близких), добавить их все в Менеджер воркеров Mirrly и переключаться между ними в 1 клик."
+                titleRes = R.string.cf_guide_faq_2_title,
+                descriptionRes = R.string.cf_guide_faq_2_desc
             ),
             WmFaqItem(
-                title = "100% Приватность и собственный шлюз",
-                description = "Трафик не проходит через чужие прокси-серверы. Ваш личный воркер открывает сокеты напрямую к Telegram DC через глобальную сеть Cloudflare Anycast (300+ дата-центров)."
+                titleRes = R.string.cf_guide_faq_3_title,
+                descriptionRes = R.string.cf_guide_faq_3_desc
             ),
             WmFaqItem(
-                title = "Работа звонков и аудио/видео (SOCKS5)",
-                description = "Благодаря API cloudflare:sockets личный воркер поддерживает универсальный TCP-туннель к Telegram VoIP узлам, обеспечивая стабильную работу звонков без системного VPN."
+                titleRes = R.string.cf_guide_faq_4_title,
+                descriptionRes = R.string.cf_guide_faq_4_desc
             ),
             WmFaqItem(
-                title = "Что делать, если Telegram долго подключается через воркер?",
-                description = "В Cloudflare Dashboard откройте ваш воркер -> Settings -> Runtime. Убедитесь, что Compatibility Date установлена не ранее 2023-05-18 и включена опция Node.js compatibility (флаг nodejs_compat)."
+                titleRes = R.string.cf_guide_faq_5_title,
+                descriptionRes = R.string.cf_guide_faq_5_desc
             ),
             WmFaqItem(
-                title = "Автоматический приоритет в приложении",
-                description = "При добавлении и выборе своего воркера приложение автоматически направляет весь трафик SOCKS5 и MTProto через ваш узел с наивысшим приоритетом."
+                titleRes = R.string.cf_guide_faq_6_title,
+                descriptionRes = R.string.cf_guide_faq_6_desc
             )
         )
     }
@@ -525,8 +527,8 @@ fun WorkerManagerScreen(
     if (showDashboardConfirmDialog) {
         ExternalLinkConfirmDialog(
             url = "https://dash.cloudflare.com/",
-            title = "Панель Cloudflare Dashboard",
-            description = "Ссылка ведет на официальную веб-панель управления Cloudflare (dash.cloudflare.com) для создания и редактирования скрипта Worker.",
+            title = stringResource(R.string.cf_guide_link_dash_title),
+            description = stringResource(R.string.cf_guide_link_dash_desc),
             onDismiss = { showDashboardConfirmDialog = false }
         )
     }
@@ -534,8 +536,8 @@ fun WorkerManagerScreen(
     if (showDeployScriptConfirmDialog) {
         ExternalLinkConfirmDialog(
             url = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/tree/main/tools/deploy-worker",
-            title = "Скрипт автодеплоя на GitHub",
-            description = "Ссылка ведет на репозиторий со скриптом автоматического создания воркера для PowerShell и Bash.",
+            title = stringResource(R.string.cf_guide_link_autodeploy_title),
+            description = stringResource(R.string.cf_guide_link_autodeploy_desc),
             onDismiss = { showDeployScriptConfirmDialog = false }
         )
     }
@@ -652,7 +654,7 @@ fun WorkerManagerScreen(
                                     modifier = Modifier.size(52.dp)
                                 )
                                 Text(
-                                    text = if (searchQuery.isNotEmpty()) "Узлы не найдены" else "Список воркеров пуст",
+                                    text = if (searchQuery.isNotEmpty()) stringResource(R.string.wm_nodes_not_found) else stringResource(R.string.wm_list_empty),
                                     color = TextMuted,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Medium
@@ -671,7 +673,7 @@ fun WorkerManagerScreen(
                                             })
                                     ) {
                                         Text(
-                                            text = "Добавить",
+                                            text = stringResource(R.string.wm_btn_add_short),
                                             color = activeProtoColor,
                                             fontSize = 12.5.sp,
                                             fontWeight = FontWeight.Bold,
@@ -689,7 +691,7 @@ fun WorkerManagerScreen(
                                 .nestedScroll(nestedScrollConnection),
                             contentPadding = PaddingValues(
                                 top = headerHeightDp + 8.dp,
-                                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
+                                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 110.dp,
                                 start = 16.dp,
                                 end = 16.dp
                             ),
@@ -726,7 +728,7 @@ fun WorkerManagerScreen(
                                                     border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
                                                 ) {
                                                     Text(
-                                                        text = "Лимит 429",
+                                                        text = stringResource(R.string.wm_limit_429),
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color(0xFFF59E0B),
@@ -734,14 +736,14 @@ fun WorkerManagerScreen(
                                                     )
                                                 }
                                                 Text(
-                                                    text = "Cloudflare Rate Limit",
+                                                    text = stringResource(R.string.wm_limit_rate_limit_title),
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 12.sp,
                                                     color = Color(0xFFF59E0B)
                                                 )
                                             }
                                             Text(
-                                                text = "На бесплатном тарифе Cloudflare выделяет 100 000 запросов в сутки на домен. Лимит сбрасывается в 00:00 UTC. Выберите другой узел или подключите персональный воркер.",
+                                                text = stringResource(R.string.wm_limit_429_desc),
                                                 fontSize = 12.sp,
                                                 color = TextWhite.copy(alpha = 0.85f),
                                                 lineHeight = 16.5.sp
@@ -764,7 +766,7 @@ fun WorkerManagerScreen(
                                     onSelect = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         prefs.setActiveWorkerId(worker.id)
-                                        Toast.makeText(context, "Активирован: ${worker.name}", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.wm_toast_activated, worker.name), Toast.LENGTH_SHORT).show()
                                     },
                                     onShare = if (!worker.isDeveloperWorker) {
                                         {
@@ -806,14 +808,14 @@ fun WorkerManagerScreen(
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Text(
-                                                text = "Импорт узлов по ссылке",
+                                                text = stringResource(R.string.wm_import_links_title),
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 12.5.sp,
                                                 color = TextWhite
                                             )
                                         }
                                         Text(
-                                            text = "Если вы переходите по ссылке с воркером, но она открывается в браузере, а не в приложении, разрешите Mirrly TG Proxy открывать поддерживаемые ссылки по умолчанию в настройках Android.",
+                                            text = stringResource(R.string.wm_import_links_desc),
                                             fontSize = 11.5.sp,
                                             color = TextMuted,
                                             lineHeight = 15.5.sp
@@ -833,20 +835,26 @@ fun WorkerManagerScreen(
                                                             val intent = Intent(
                                                                 android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
                                                                 Uri.parse("package:${context.packageName}")
-                                                            )
+                                                            ).apply {
+                                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                            }
                                                             context.startActivity(intent)
                                                         } else {
                                                             val intent = Intent(
                                                                 android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                                                                 Uri.parse("package:${context.packageName}")
-                                                            )
+                                                            ).apply {
+                                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                            }
                                                             context.startActivity(intent)
                                                         }
                                                     } catch (_: Exception) {
                                                         val intent = Intent(
                                                             android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                                                             Uri.parse("package:${context.packageName}")
-                                                        )
+                                                        ).apply {
+                                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                        }
                                                         context.startActivity(intent)
                                                     }
                                                 })
@@ -856,7 +864,7 @@ fun WorkerManagerScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
-                                                    text = "Открыть настройки ссылок",
+                                                    text = stringResource(R.string.wm_btn_open_link_settings),
                                                     fontSize = 11.5.sp,
                                                     fontWeight = FontWeight.SemiBold,
                                                     color = activeProtoColor
@@ -894,7 +902,7 @@ fun WorkerManagerScreen(
                                 prefillDomain = parsed.cleanDomain
                                 prefillName = parsed.suggestedName
                                 showAddDialog = true
-                                Toast.makeText(context, "QR-код распознан: ${parsed.cleanDomain}", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.wm_toast_qr_recognized, parsed.cleanDomain), Toast.LENGTH_SHORT).show()
                             } else if (rawScanned.isNotBlank()) {
                                 prefillDomain = rawScanned
                                 prefillName = ""
@@ -908,9 +916,9 @@ fun WorkerManagerScreen(
                                 prefillDomain = parsed.cleanDomain
                                 prefillName = parsed.suggestedName
                                 showAddDialog = true
-                                Toast.makeText(context, "Адрес вставлен из буфера", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.wm_toast_addr_pasted), Toast.LENGTH_SHORT).show()
                             } else {
-                                Toast.makeText(context, "Буфер обмена пуст", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.wm_toast_clipboard_empty), Toast.LENGTH_SHORT).show()
                             }
                         },
                         headerPadding = headerHeightDp
@@ -924,7 +932,7 @@ fun WorkerManagerScreen(
                             .nestedScroll(nestedScrollConnection),
                         contentPadding = PaddingValues(
                             top = headerHeightDp + 8.dp,
-                            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
+                            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 110.dp,
                             start = 16.dp,
                             end = 16.dp
                         ),
@@ -961,7 +969,7 @@ fun WorkerManagerScreen(
                                                     border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.40f))
                                                 ) {
                                                     Text(
-                                                        text = "1 Клик",
+                                                        text = stringResource(R.string.cf_guide_badge_one_click),
                                                         fontSize = 9.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = activeProtoColor,
@@ -969,14 +977,14 @@ fun WorkerManagerScreen(
                                                     )
                                                 }
                                                 Text(
-                                                    text = "Автодеплой (BAT / PowerShell / Bash)",
+                                                    text = stringResource(R.string.cf_guide_autodeploy_title),
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 12.sp,
                                                     color = activeProtoColor
                                                 )
                                             }
                                             Text(
-                                                text = "Запустите deploy.bat двойным кликом на Windows или выполните 1 команду в PowerShell/Bash: скрипт откроет вход в Cloudflare, задеплоит воркер и скопирует готовый домен в буфер обмена.",
+                                                text = stringResource(R.string.cf_guide_autodeploy_desc),
                                                 fontSize = 11.5.sp,
                                                 color = TextWhite.copy(alpha = 0.9f),
                                                 lineHeight = 16.sp
@@ -1001,13 +1009,13 @@ fun WorkerManagerScreen(
                                                     ) {
                                                         Icon(
                                                             painter = painterResource(id = R.drawable.ic_copy),
-                                                            contentDescription = "Копировать",
+                                                            contentDescription = stringResource(R.string.cf_guide_btn_copy),
                                                             tint = activeProtoColor,
                                                             modifier = Modifier.size(12.dp)
                                                         )
                                                         Spacer(modifier = Modifier.width(5.dp))
                                                         Text(
-                                                            text = "Скопировать команду",
+                                                            text = stringResource(R.string.cf_guide_btn_copy_cmd),
                                                             fontSize = 11.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = TextWhite
@@ -1037,7 +1045,7 @@ fun WorkerManagerScreen(
                                                         )
                                                         Spacer(modifier = Modifier.width(5.dp))
                                                         Text(
-                                                            text = "deploy.bat на GitHub",
+                                                            text = stringResource(R.string.cf_guide_btn_deploy_bat),
                                                             fontSize = 11.sp,
                                                             fontWeight = FontWeight.Medium,
                                                             color = TextMuted
@@ -1055,10 +1063,10 @@ fun WorkerManagerScreen(
                                 ) { _, step ->
                                     GlassGuideStepCard(
                                         stepNumber = step.stepNumber,
-                                        title = step.title,
-                                        description = step.description,
+                                        title = stringResource(step.titleRes),
+                                        description = stringResource(step.descriptionRes),
                                         activeAccentColor = activeProtoColor,
-                                        actionText = step.actionText,
+                                        actionText = step.actionTextRes?.let { stringResource(it) },
                                         onAction = when {
                                             step.isCopyAction -> { { copyScriptToClipboard() } }
                                             step.isDashAction -> { { openCloudflareDashboard() } }
@@ -1097,7 +1105,7 @@ fun WorkerManagerScreen(
                                                     border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f))
                                                 ) {
                                                     Text(
-                                                        text = "Совет",
+                                                        text = stringResource(R.string.cf_guide_tip_badge),
                                                         fontSize = 9.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color(0xFF38BDF8),
@@ -1105,14 +1113,14 @@ fun WorkerManagerScreen(
                                                     )
                                                 }
                                                 Text(
-                                                    text = "Мобильный браузер",
+                                                    text = stringResource(R.string.cf_guide_tip_title),
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 12.sp,
                                                     color = Color(0xFF38BDF8)
                                                 )
                                             }
                                             Text(
-                                                text = "В мобильном браузере (Chrome / Firefox) включите в меню флажок «Версия для ПК», если интерфейс редактора Cloudflare покажется компактным.",
+                                                text = stringResource(R.string.cf_guide_tip_desc),
                                                 fontSize = 11.5.sp,
                                                 color = TextWhite.copy(alpha = 0.85f),
                                                 lineHeight = 16.sp
@@ -1127,10 +1135,10 @@ fun WorkerManagerScreen(
                                 ) { _, step ->
                                     GlassGuideStepCard(
                                         stepNumber = step.stepNumber,
-                                        title = step.title,
-                                        description = step.description,
+                                        title = stringResource(step.titleRes),
+                                        description = stringResource(step.descriptionRes),
                                         activeAccentColor = activeProtoColor,
-                                        actionText = step.actionText,
+                                        actionText = step.actionTextRes?.let { stringResource(it) },
                                         onAction = when {
                                             step.isCopyAction -> { { copyScriptToClipboard() } }
                                             step.isDashAction -> { { openCloudflareDashboard() } }
@@ -1190,12 +1198,12 @@ fun WorkerManagerScreen(
                                                     ) {
                                                         Icon(
                                                             painter = painterResource(id = R.drawable.ic_copy),
-                                                            contentDescription = "Копировать",
+                                                            contentDescription = stringResource(R.string.cf_guide_btn_copy),
                                                             tint = activeProtoColor,
                                                             modifier = Modifier.size(12.dp)
                                                         )
                                                         Text(
-                                                            text = "Копировать",
+                                                            text = stringResource(R.string.cf_guide_btn_copy),
                                                             color = activeProtoColor,
                                                             fontSize = 11.sp,
                                                             fontWeight = FontWeight.Bold
@@ -1241,14 +1249,14 @@ fun WorkerManagerScreen(
                                                         .background(activeProtoColor)
                                                 )
                                                 Text(
-                                                    text = faq.title,
+                                                    text = stringResource(faq.titleRes),
                                                     fontSize = 13.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = TextWhite
                                                 )
                                             }
                                             Text(
-                                                text = faq.description,
+                                                text = stringResource(faq.descriptionRes),
                                                 fontSize = 11.5.sp,
                                                 color = TextMuted,
                                                 lineHeight = 16.sp,
@@ -1341,7 +1349,7 @@ fun WorkerManagerScreen(
                     title = {
                         Column {
                             Text(
-                                text = "Менеджер воркеров",
+                                text = stringResource(R.string.wm_title),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 color = TextWhite,
@@ -1351,9 +1359,9 @@ fun WorkerManagerScreen(
                             )
                             Text(
                                 text = if (currentSection == ManagerSection.GUIDE) {
-                                    "Инструкция по настройке"
+                                    stringResource(R.string.wm_sub_guide)
                                 } else {
-                                    if (isSocks5) "SOCKS5 Cloudflare Туннели" else "MTProto Cloudflare Туннели"
+                                    if (isSocks5) stringResource(R.string.wm_sub_socks5) else stringResource(R.string.wm_sub_mtproto)
                                 },
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
@@ -1367,7 +1375,7 @@ fun WorkerManagerScreen(
                         }) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_arrow_left),
-                                contentDescription = "Назад",
+                                contentDescription = stringResource(R.string.action_back),
                                 tint = TextWhite,
                                 modifier = Modifier.size(22.dp)
                             )
@@ -1383,7 +1391,7 @@ fun WorkerManagerScreen(
                                 }) {
                                     Icon(
                                         painter = painterResource(id = R.drawable.ic_diag_formula),
-                                        contentDescription = "Аналитика запросов",
+                                        contentDescription = stringResource(R.string.wm_desc_analytics),
                                         tint = activeProtoColor,
                                         modifier = Modifier.size(20.dp)
                                     )
@@ -1403,7 +1411,7 @@ fun WorkerManagerScreen(
                             }) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_search),
-                                    contentDescription = "Поиск",
+                                    contentDescription = stringResource(R.string.action_search),
                                     tint = if (isSearchVisible || searchQuery.isNotEmpty()) activeProtoColor else TextWhite,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -1416,7 +1424,7 @@ fun WorkerManagerScreen(
                             }) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_refresh),
-                                    contentDescription = "Замерить пинг",
+                                    contentDescription = stringResource(R.string.wm_desc_measure_ping),
                                     tint = if (isPinging) activeProtoColor else TextWhite,
                                     modifier = Modifier
                                         .size(20.dp)
@@ -1430,7 +1438,7 @@ fun WorkerManagerScreen(
                             }) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_copy),
-                                    contentDescription = "Скопировать скрипт",
+                                    contentDescription = stringResource(R.string.cf_guide_toast_script_copied),
                                     tint = activeProtoColor,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -1440,7 +1448,7 @@ fun WorkerManagerScreen(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
 
-                // 4-Segment Primary Section Switcher Pill ([ Воркеры ] [ Поделиться ] [ Сканер ] [ Инструкция ])
+                // 4-Segment Primary Section Switcher Pill ([ Workers ] [ Share ] [ Scanner ] [ Guide ])
                 val sections = remember { ManagerSection.values() }
                 val sectionCapsuleHeight = 36.dp
                 val sectionInnerPadding = 3.dp
@@ -1508,7 +1516,7 @@ fun WorkerManagerScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = sec.title,
+                                        text = stringResource(sec.titleRes),
                                         color = if (isSelected) activeProtoColor else TextMuted,
                                         fontSize = 11.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
@@ -1549,7 +1557,7 @@ fun WorkerManagerScreen(
                                             .focusRequester(searchFocusRequester),
                                         placeholder = {
                                             Text(
-                                                text = "Поиск по названию или домену...",
+                                                text = stringResource(R.string.wm_search_placeholder),
                                                 color = TextMuted,
                                                 fontSize = 13.sp
                                             )
@@ -1594,7 +1602,7 @@ fun WorkerManagerScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     SegmentedFilterChip(
-                                        title = "Все",
+                                        title = stringResource(R.string.wm_filter_all),
                                         count = allWorkers.size,
                                         isSelected = selectedFilter == WmWorkerFilterType.ALL,
                                         activeColor = activeProtoColor,
@@ -1605,7 +1613,7 @@ fun WorkerManagerScreen(
                                         }
                                     )
                                     SegmentedFilterChip(
-                                        title = "Офиц.",
+                                        title = stringResource(R.string.wm_filter_official),
                                         count = devWorkers.size,
                                         isSelected = selectedFilter == WmWorkerFilterType.DEVELOPER,
                                         activeColor = activeProtoColor,
@@ -1616,7 +1624,7 @@ fun WorkerManagerScreen(
                                         }
                                     )
                                     SegmentedFilterChip(
-                                        title = "Личные",
+                                        title = stringResource(R.string.wm_filter_custom),
                                         count = customWorkers.size,
                                         isSelected = selectedFilter == WmWorkerFilterType.CUSTOM,
                                         activeColor = activeProtoColor,
@@ -1649,7 +1657,7 @@ fun WorkerManagerScreen(
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                text = "+ Добавить",
+                                                text = stringResource(R.string.wm_btn_add),
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 11.5.sp,
                                                 color = activeProtoColor
@@ -1679,12 +1687,12 @@ fun WorkerManagerScreen(
                                         ) {
                                             Icon(
                                                 painter = painterResource(id = R.drawable.ic_diag_worker),
-                                                contentDescription = "QR Сканер",
+                                                contentDescription = stringResource(R.string.wm_tab_scanner),
                                                 tint = activeProtoColor,
                                                 modifier = Modifier.size(14.dp)
                                             )
                                             Text(
-                                                text = "QR",
+                                                text = stringResource(R.string.wm_btn_qr),
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 11.5.sp,
                                                 color = activeProtoColor
@@ -1714,7 +1722,7 @@ fun WorkerManagerScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "QR-код и быстрый импорт воркера для друзей",
+                                        text = stringResource(R.string.wm_qr_scanner_desc),
                                         color = TextMuted,
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Medium
@@ -1742,7 +1750,7 @@ fun WorkerManagerScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Считывание QR из батника (.bat) и приложения",
+                                        text = stringResource(R.string.wm_qr_scanner_sub),
                                         color = TextMuted,
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Medium
@@ -1789,7 +1797,7 @@ fun WorkerManagerScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
-                                                    text = tab.title,
+                                                    text = stringResource(tab.titleRes),
                                                     color = titleColor,
                                                     fontSize = 11.5.sp,
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
@@ -1832,7 +1840,7 @@ fun WorkerManagerScreen(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = WmGuideTab.FAQ.title,
+                                            text = stringResource(WmGuideTab.FAQ.titleRes),
                                             color = faqTitleColor,
                                             fontSize = 11.5.sp,
                                             fontWeight = if (isFaqSelected) FontWeight.Bold else FontWeight.Medium
@@ -1870,10 +1878,10 @@ fun WorkerManagerScreen(
                         showAddDialog = false
                         prefillDomain = ""
                         prefillName = ""
-                        Toast.makeText(context, "Воркер «${added.name}» добавлен и активирован", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.wm_toast_worker_added, added.name), Toast.LENGTH_SHORT).show()
                     },
                     onFailure = { err ->
-                        Toast.makeText(context, err.message ?: "Ошибка добавления", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, err.message ?: context.getString(R.string.wm_toast_worker_add_error, ""), Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -1891,7 +1899,7 @@ fun WorkerManagerScreen(
                     prefillDomain = parsed.cleanDomain
                     prefillName = parsed.suggestedName
                     showAddDialog = true
-                    Toast.makeText(context, "QR-код распознан: ${parsed.cleanDomain}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.wm_toast_qr_recognized, parsed.cleanDomain), Toast.LENGTH_SHORT).show()
                 } else if (rawScanned.isNotBlank()) {
                     prefillDomain = rawScanned
                     prefillName = ""
@@ -1909,7 +1917,7 @@ fun WorkerManagerScreen(
                 prefs.deleteCustomWorker(worker.id)
                 refreshWorkers()
                 workerToDelete = null
-                Toast.makeText(context, "Воркер удален", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.wm_toast_worker_deleted), Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -2000,7 +2008,7 @@ private fun GlassGuideStepCard(
                     border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.45f))
                 ) {
                     Text(
-                        text = "Шаг $stepNumber",
+                        text = stringResource(R.string.cf_guide_step_label, stepNumber),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         color = activeAccentColor,
@@ -2075,7 +2083,7 @@ private fun GlassWorkerCard(
     val circuitRecord = com.mirrly.tgproxy.service.WorkerFailoverManager.getCircuitRecord(worker.id)
     val circuitState = circuitRecord?.state ?: com.mirrly.tgproxy.core.CircuitState.CLOSED
 
-    // Динамический секундный таймер карантина в реальном времени
+    // Dynamic seconds quarantine timer in real-time
     var currentRemSeconds by remember(circuitRecord?.cooldownUntilTimestamp, circuitState) {
         mutableStateOf(circuitRecord?.remainingCooldownSeconds ?: 0L)
     }
@@ -2095,11 +2103,11 @@ private fun GlassWorkerCard(
 
     val (statusColor, statusText) = when {
         isCircuitBroken -> {
-            val text = "Карантин (${currentRemSeconds}с)"
+            val text = stringResource(R.string.wm_status_quarantine, currentRemSeconds)
             Pair(Color(0xFFEF4444), text)
         }
         circuitState == com.mirrly.tgproxy.core.CircuitState.HALF_OPEN || (circuitState == com.mirrly.tgproxy.core.CircuitState.OPEN && currentRemSeconds <= 0L) -> {
-            Pair(Color(0xFFF59E0B), "Проверка...")
+            Pair(Color(0xFFF59E0B), stringResource(R.string.wm_status_checking))
         }
         else -> {
             val color = when (status) {
@@ -2109,9 +2117,9 @@ private fun GlassWorkerCard(
                 WorkerStatus.UNKNOWN -> TextMuted
             }
             val text = when (status) {
-                WorkerStatus.ONLINE -> "${pingMs ?: 0} мс"
-                WorkerStatus.RATE_LIMITED_429 -> "429 Лимит"
-                WorkerStatus.ERROR_UNREACHABLE -> "Недоступен"
+                WorkerStatus.ONLINE -> stringResource(R.string.wm_status_ms, pingMs ?: 0)
+                WorkerStatus.RATE_LIMITED_429 -> stringResource(R.string.wm_limit_429)
+                WorkerStatus.ERROR_UNREACHABLE -> stringResource(R.string.wm_status_unreachable)
                 WorkerStatus.UNKNOWN -> "—"
             }
             Pair(color, text)
@@ -2143,7 +2151,7 @@ private fun GlassWorkerCard(
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                         val clip = ClipData.newPlainText("Worker Domain", worker.domain)
                         clipboard?.setPrimaryClip(clip)
-                        Toast.makeText(context, "Домен скопирован в буфер обмена", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.wm_toast_domain_copied), Toast.LENGTH_SHORT).show()
                     }
                 } else null
             )
@@ -2193,7 +2201,7 @@ private fun GlassWorkerCard(
                             border = BorderStroke(1.dp, Color(0xFF1E283D))
                         ) {
                             Text(
-                                text = if (worker.isDeveloperWorker) "Официальный" else "Личный",
+                                text = if (worker.isDeveloperWorker) stringResource(R.string.wm_badge_official) else stringResource(R.string.wm_badge_custom),
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextMuted,
@@ -2205,7 +2213,7 @@ private fun GlassWorkerCard(
                     // Line 2: Subtitle / Domain
                     if (worker.isDeveloperWorker) {
                         Text(
-                            text = "Официальный узел Cloudflare",
+                            text = stringResource(R.string.wm_official_node_desc),
                             color = TextMuted,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Normal
@@ -2251,7 +2259,7 @@ private fun GlassWorkerCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Share,
-                            contentDescription = "Поделиться",
+                            contentDescription = stringResource(R.string.wm_tab_share),
                             tint = activeAccentColor,
                             modifier = Modifier.size(11.5.dp)
                         )
@@ -2271,7 +2279,7 @@ private fun GlassWorkerCard(
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_trash),
-                            contentDescription = "Удалить",
+                            contentDescription = stringResource(R.string.action_delete),
                             tint = Color(0xFFEF4444),
                             modifier = Modifier.size(11.5.dp)
                         )
@@ -2330,11 +2338,14 @@ private fun AddWorkerDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
-                    .fillMaxSize()
+                    .align(Alignment.Center)
+                    .adaptiveContainerWidth(440.dp)
                     .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .imePadding()
                     .padding(
                         top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                        bottom = 96.dp
                     )
                     .padding(horizontal = 24.dp)
                     .clickable(
@@ -2349,7 +2360,7 @@ private fun AddWorkerDialog(
                     border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.35f))
                 ) {
                     Text(
-                        text = "ДОБАВЛЕНИЕ ВОРКЕРА",
+                        text = stringResource(R.string.wm_add_dialog_header),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = activeAccentColor,
@@ -2360,7 +2371,7 @@ private fun AddWorkerDialog(
 
                 // Title
                 Text(
-                    text = "Новый Cloudflare Worker",
+                    text = stringResource(R.string.wm_add_dialog_title),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,
@@ -2380,7 +2391,7 @@ private fun AddWorkerDialog(
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Text(
-                            text = "ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ:",
+                            text = stringResource(R.string.wm_add_params_header),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = activeAccentColor,
@@ -2388,7 +2399,7 @@ private fun AddWorkerDialog(
                         )
 
                         Text(
-                            text = "Вставьте публичный адрес воркера (или скопируйте ссылку). Система автоматически очистит и нормализует формат.",
+                            text = stringResource(R.string.wm_add_params_desc),
                             fontSize = 12.sp,
                             color = TextWhite.copy(alpha = 0.8f),
                             lineHeight = 16.5.sp
@@ -2402,7 +2413,7 @@ private fun AddWorkerDialog(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "АДРЕС ВОРКЕРА (URL / ДОМЕН)",
+                                    text = stringResource(R.string.wm_add_field_url),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = activeAccentColor,
@@ -2415,7 +2426,7 @@ private fun AddWorkerDialog(
                                     border = BorderStroke(1.dp, Color(0xFFE53935).copy(alpha = 0.3f))
                                 ) {
                                     Text(
-                                        text = "ОБЯЗАТЕЛЬНО",
+                                        text = stringResource(R.string.wm_badge_required),
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFFFF6B6B),
@@ -2497,9 +2508,9 @@ private fun AddWorkerDialog(
                                                 if (nameText.isBlank() && parsed.normalizedName.isNotBlank()) {
                                                     nameText = parsed.normalizedName
                                                 }
-                                                Toast.makeText(context, "Адрес вставлен и нормализован", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, context.getString(R.string.wm_toast_addr_normalized), Toast.LENGTH_SHORT).show()
                                             } else {
-                                                Toast.makeText(context, "Буфер обмена пуст", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, context.getString(R.string.wm_toast_clipboard_empty), Toast.LENGTH_SHORT).show()
                                             }
                                         })
                                 ) {
@@ -2516,7 +2527,7 @@ private fun AddWorkerDialog(
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "Из буфера",
+                                            text = stringResource(R.string.wm_btn_from_clipboard),
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = activeAccentColor
@@ -2550,7 +2561,7 @@ private fun AddWorkerDialog(
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "QR-сканер",
+                                            text = stringResource(R.string.wm_btn_qr_scanner),
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = activeAccentColor
@@ -2604,12 +2615,12 @@ private fun AddWorkerDialog(
                                             )
                                             Text(
                                                 text = when {
-                                                    formResult.wasSwapped -> "ПОЛЯ АВТОМАТИЧЕСКИ СОГЛАСОВАНЫ"
-                                                    status == DomainFormatStatus.HOMOGLYPHS_FIXED -> "РАСПОЗНАН И ИСПРАВЛЕН АДРЕС УЗЛА:"
-                                                    isSuccess -> "РАСПОЗНАН ПУБЛИЧНЫЙ УЗЕЛ:"
-                                                    status == DomainFormatStatus.DASHBOARD_URL -> "ОБНАРУЖЕНА ССЫЛКА НА DASHBOARD CLOUDFLARE"
-                                                    status == DomainFormatStatus.NAME_ONLY -> "УКАЗАНО ТОЛЬКО ИМЯ ВОРКЕРА"
-                                                    else -> "ОШИБКА ФОРМАТА АДРЕСА"
+                                                    formResult.wasSwapped -> stringResource(R.string.wm_format_swapped)
+                                                    status == DomainFormatStatus.HOMOGLYPHS_FIXED -> stringResource(R.string.wm_format_homoglyphs)
+                                                    isSuccess -> stringResource(R.string.wm_format_public)
+                                                    status == DomainFormatStatus.DASHBOARD_URL -> stringResource(R.string.wm_format_dashboard)
+                                                    status == DomainFormatStatus.NAME_ONLY -> stringResource(R.string.wm_format_name_only)
+                                                    else -> stringResource(R.string.wm_format_error)
                                                 },
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -2634,7 +2645,7 @@ private fun AddWorkerDialog(
 
                                         if (formResult.wasSwapped) {
                                             Text(
-                                                text = "Адрес воркера обнаружен в поле названия («$nameText»). Он автоматически используется как адрес узла.",
+                                                text = stringResource(R.string.wm_swap_detected_desc, nameText),
                                                 fontSize = 11.5.sp,
                                                 color = TextWhite.copy(alpha = 0.85f),
                                                 lineHeight = 15.sp
@@ -2654,7 +2665,7 @@ private fun AddWorkerDialog(
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
                                                 Text(
-                                                    text = "⇄ Применить перестановку полей в форме",
+                                                    text = stringResource(R.string.wm_btn_apply_swap),
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = Color(0xFFFFD166)
@@ -2681,7 +2692,7 @@ private fun AddWorkerDialog(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "НАЗВАНИЕ УЗЛА",
+                                    text = stringResource(R.string.wm_field_name),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = TextMuted,
@@ -2694,7 +2705,7 @@ private fun AddWorkerDialog(
                                     border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                                 ) {
                                     Text(
-                                        text = "ОПЦИОНАЛЬНО",
+                                        text = stringResource(R.string.wm_badge_optional),
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextMuted,
@@ -2704,7 +2715,7 @@ private fun AddWorkerDialog(
                                 }
                             }
 
-                            val placeholderName = formResult.domainResult.suggestedName.ifBlank { "Мой домашний" }
+                            val placeholderName = formResult.domainResult.suggestedName.ifBlank { stringResource(R.string.wm_default_home_name) }
 
                             OutlinedTextField(
                                 value = nameText,
@@ -2748,14 +2759,14 @@ private fun AddWorkerDialog(
                                 verticalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
                                 Text(
-                                    text = "ГДЕ ВЗЯТЬ АДРЕС В CLOUDFLARE:",
+                                    text = stringResource(R.string.wm_help_where_header),
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = activeAccentColor,
                                     letterSpacing = 0.5.sp
                                 )
                                 Text(
-                                    text = "1. Перейдите в Cloudflare: Workers & Pages → Ваш воркер.\n2. Скопируйте ссылку под заголовком или со вкладки Deployments.\n3. Публичный адрес оканчивается на .workers.dev.\n4. Ссылка браузера (dash.cloudflare.com) не является адресом воркера.",
+                                    text = stringResource(R.string.wm_help_where_desc),
                                     fontSize = 11.sp,
                                     color = TextWhite.copy(alpha = 0.72f),
                                     lineHeight = 15.5.sp
@@ -2778,7 +2789,7 @@ private fun AddWorkerDialog(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "ПРЕДУПРЕЖДЕНИЕ СВЯЗИ:",
+                                text = stringResource(R.string.wm_conn_warning_header),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFFF6B6B),
@@ -2800,7 +2811,7 @@ private fun AddWorkerDialog(
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         val cleanDomain = formResult.normalizedDomain
                                         val finalName = formResult.normalizedName.ifBlank {
-                                            formResult.domainResult.suggestedName.ifBlank { "Личный воркер" }
+                                            formResult.domainResult.suggestedName.ifBlank { context.getString(R.string.wm_default_custom_name) }
                                         }
                                         onAdd(finalName, cleanDomain)
                                     },
@@ -2809,7 +2820,7 @@ private fun AddWorkerDialog(
                                     modifier = Modifier.weight(1f).height(38.dp)
                                 ) {
                                     Text(
-                                        text = "Сохранить всё равно",
+                                        text = stringResource(R.string.wm_btn_save_anyway),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = Color(0xFFFF6B6B)
@@ -2826,7 +2837,7 @@ private fun AddWorkerDialog(
                                     modifier = Modifier.weight(1f).height(38.dp)
                                 ) {
                                     Text(
-                                        text = "Исправить",
+                                        text = stringResource(R.string.wm_btn_fix),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF0A0E1A)
@@ -2854,11 +2865,11 @@ private fun AddWorkerDialog(
 
                                 val cleanDomain = formResult.normalizedDomain
                                 val finalName = formResult.normalizedName.ifBlank {
-                                    formResult.domainResult.suggestedName.ifBlank { "Личный воркер" }
+                                    formResult.domainResult.suggestedName.ifBlank { context.getString(R.string.wm_default_custom_name) }
                                 }
 
                                 if (cleanDomain.isBlank()) {
-                                    Toast.makeText(context, "Укажите корректный адрес воркера", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.wm_toast_specify_valid), Toast.LENGTH_SHORT).show()
                                     return@springPress
                                 }
 
@@ -2869,7 +2880,7 @@ private fun AddWorkerDialog(
 
                                 scope.launch {
                                     isCheckingWorker = true
-                                    checkStatusMessage = "Проверка доступности узла..."
+                                    checkStatusMessage = context.getString(R.string.wm_checking_node_avail)
                                     unreachableWarning = null
 
                                     val (status, pingMs) = WorkerPingTester.pingWorker(cleanDomain)
@@ -2879,7 +2890,7 @@ private fun AddWorkerDialog(
                                     if (status == WorkerStatus.ONLINE || status == WorkerStatus.RATE_LIMITED_429) {
                                         onAdd(finalName, cleanDomain)
                                     } else {
-                                        unreachableWarning = "Воркер «$cleanDomain» не отвечает на проверочный запрос (ERR_UNREACHABLE). Убедитесь, что скрипт развернут в Cloudflare и маршрутизация активна."
+                                        unreachableWarning = context.getString(R.string.wm_unreachable_warning, cleanDomain)
                                     }
                                 }
                             }
@@ -2897,7 +2908,7 @@ private fun AddWorkerDialog(
                                     strokeWidth = 2.dp
                                 )
                                 Text(
-                                    text = checkStatusMessage ?: "Проверка узла...",
+                                    text = checkStatusMessage ?: stringResource(R.string.wm_checking_node),
                                     color = Color(0xFF0A0E1A),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.5.sp
@@ -2905,7 +2916,7 @@ private fun AddWorkerDialog(
                             }
                         } else {
                             Text(
-                                text = "Сохранить и активировать",
+                                text = stringResource(R.string.wm_btn_save_activate),
                                 color = Color(0xFF0A0E1A),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp
@@ -2913,6 +2924,35 @@ private fun AddWorkerDialog(
                         }
                     }
                 }
+
+                // Cancel Button
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .springPress(
+                            onClick = {
+                                if (isCheckingWorker) return@springPress
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onDismiss()
+                            }
+                        )
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stringResource(R.string.action_cancel),
+                            color = TextWhite.copy(alpha = 0.85f),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(56.dp))
             }
 
             // Top Header with Back Button (pinned at top left over blurred background)
@@ -2932,7 +2972,7 @@ private fun AddWorkerDialog(
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_arrow_left),
-                        contentDescription = "Назад",
+                        contentDescription = stringResource(R.string.action_back),
                         tint = TextWhite,
                         modifier = Modifier.size(22.dp)
                     )
@@ -2970,11 +3010,14 @@ private fun DeleteWorkerConfirmDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
-                    .fillMaxSize()
+                    .align(Alignment.Center)
+                    .adaptiveContainerWidth(440.dp)
                     .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .imePadding()
                     .padding(
                         top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                        bottom = 96.dp
                     )
                     .padding(horizontal = 24.dp)
                     .clickable(
@@ -2989,7 +3032,7 @@ private fun DeleteWorkerConfirmDialog(
                     border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f))
                 ) {
                     Text(
-                        text = "УДАЛЕНИЕ ВОРКЕРА",
+                        text = stringResource(R.string.wm_delete_header),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFEF4444),
@@ -3000,7 +3043,7 @@ private fun DeleteWorkerConfirmDialog(
 
                 // Title
                 Text(
-                    text = "Удалить узел?",
+                    text = stringResource(R.string.wm_delete_title),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,
@@ -3020,7 +3063,7 @@ private fun DeleteWorkerConfirmDialog(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            text = "ПОДТВЕРЖДЕНИЕ ДЕЙСТВИЯ:",
+                            text = stringResource(R.string.wm_delete_confirm_header),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFEF4444),
@@ -3028,7 +3071,7 @@ private fun DeleteWorkerConfirmDialog(
                         )
 
                         Text(
-                            text = "Вы действительно хотите удалить узел «${worker.name}» (${worker.domain}) из вашего списка воркеров?",
+                            text = stringResource(R.string.wm_delete_confirm_desc, worker.name, worker.domain),
                             fontSize = 13.sp,
                             color = TextWhite.copy(alpha = 0.85f),
                             lineHeight = 18.sp
@@ -3053,13 +3096,41 @@ private fun DeleteWorkerConfirmDialog(
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            text = "Удалить узел",
+                            text = stringResource(R.string.wm_btn_delete_node),
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
                     }
                 }
+
+                // Cancel Button
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .springPress(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onDismiss()
+                            }
+                        )
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stringResource(R.string.action_cancel),
+                            color = TextWhite.copy(alpha = 0.85f),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(56.dp))
             }
 
             // Top Header with Back Button (pinned at top left over blurred background)
@@ -3077,7 +3148,7 @@ private fun DeleteWorkerConfirmDialog(
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_arrow_left),
-                        contentDescription = "Назад",
+                        contentDescription = stringResource(R.string.action_back),
                         tint = TextWhite,
                         modifier = Modifier.size(22.dp)
                     )
@@ -3126,13 +3197,13 @@ private fun ShareWorkerContent(
                     modifier = Modifier.size(56.dp)
                 )
                 Text(
-                    text = "Нет личных воркеров",
+                    text = stringResource(R.string.wm_no_custom_workers_title),
                     color = TextWhite,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Официальными узлами разработчика делиться нельзя. Добавьте или создайте свой личный воркер, чтобы сгенерировать QR-код и отправить его другу.",
+                    text = stringResource(R.string.wm_no_custom_workers_desc),
                     color = TextMuted,
                     fontSize = 12.5.sp,
                     textAlign = TextAlign.Center,
@@ -3148,7 +3219,7 @@ private fun ShareWorkerContent(
                         .springPress(onClick = onAddWorkerClick)
                 ) {
                     Text(
-                        text = "+ Добавить воркер",
+                        text = stringResource(R.string.wm_btn_add_worker_cta),
                         color = activeAccentColor,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
@@ -3187,7 +3258,7 @@ private fun ShareWorkerContent(
                 .verticalScroll(rememberScrollState())
                 .padding(
                     top = headerPadding + 8.dp,
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 110.dp,
                     start = 16.dp,
                     end = 16.dp
                 ),
@@ -3197,7 +3268,7 @@ private fun ShareWorkerContent(
             // Worker Selector Horizontal Row
             if (workers.size > 1) {
                 Text(
-                    text = "Выберите узел для генерации QR-кода:",
+                    text = stringResource(R.string.wm_select_node_qr_prompt),
                     color = TextMuted,
                     fontSize = 11.5.sp,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
@@ -3296,7 +3367,7 @@ private fun ShareWorkerContent(
                         if (qrBitmap != null) {
                             Image(
                                 bitmap = qrBitmap.asImageBitmap(),
-                                contentDescription = "QR код воркера",
+                                contentDescription = stringResource(R.string.wm_qr_code_desc),
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
@@ -3315,7 +3386,7 @@ private fun ShareWorkerContent(
                             .clickable {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 clipboardManager.setText(AnnotatedString(currentWorker.domain))
-                                Toast.makeText(context, "Домен скопирован в буфер обмена", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.wm_toast_domain_copied), Toast.LENGTH_SHORT).show()
                             }
                     ) {
                         Row(
@@ -3325,7 +3396,7 @@ private fun ShareWorkerContent(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Домен узла",
+                                    text = stringResource(R.string.wm_node_domain_label),
                                     color = TextMuted,
                                     fontSize = 10.5.sp
                                 )
@@ -3340,7 +3411,7 @@ private fun ShareWorkerContent(
                             }
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_copy),
-                                contentDescription = "Копировать",
+                                contentDescription = stringResource(R.string.cf_guide_btn_copy),
                                 tint = activeAccentColor,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -3381,7 +3452,7 @@ private fun ShareWorkerContent(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Отправить другу",
+                            text = stringResource(R.string.wm_btn_send_to_friend),
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = activeAccentColor
@@ -3401,7 +3472,7 @@ private fun ShareWorkerContent(
                         .springPress(onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             clipboardManager.setText(AnnotatedString(deepLink))
-                            Toast.makeText(context, "Ссылка mirrly:// скопирована", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.wm_toast_mirrly_link_copied), Toast.LENGTH_SHORT).show()
                         })
                 ) {
                     Row(
@@ -3417,7 +3488,7 @@ private fun ShareWorkerContent(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Ссылка",
+                            text = stringResource(R.string.wm_link_label),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = TextWhite
@@ -3445,13 +3516,15 @@ private fun ShareWorkerContent(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "Ваш друг может отсканировать этот QR-код на соседней вкладке «Сканер» или перейти по скопированной ссылке для автоматического добавления узла.",
+                        text = stringResource(R.string.wm_friend_qr_hint),
                         color = TextMuted,
                         fontSize = 11.5.sp,
                         lineHeight = 16.sp
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(56.dp))
         }
     }
 }
@@ -3494,7 +3567,7 @@ private fun ScannerWorkerContent(
             .verticalScroll(rememberScrollState())
             .padding(
                 top = headerPadding + 8.dp,
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 110.dp,
                 start = 16.dp,
                 end = 16.dp
             ),
@@ -3545,14 +3618,14 @@ private fun ScannerWorkerContent(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Доступ к камере отключен",
+                            text = stringResource(R.string.wm_camera_disabled_title),
                             color = TextWhite,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Разрешите доступ к камере в настройках устройства для работы сканера.",
+                            text = stringResource(R.string.wm_camera_disabled_desc),
                             color = TextMuted,
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center
@@ -3568,6 +3641,7 @@ private fun ScannerWorkerContent(
                                     try {
                                         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                             data = Uri.fromParts("package", context.packageName, null)
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                         }
                                         context.startActivity(intent)
                                     } catch (_: Exception) {
@@ -3576,7 +3650,7 @@ private fun ScannerWorkerContent(
                                 })
                         ) {
                             Text(
-                                text = "Предоставить доступ",
+                                text = stringResource(R.string.wm_btn_grant_access),
                                 color = activeAccentColor,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -3588,7 +3662,7 @@ private fun ScannerWorkerContent(
 
                 // Subtitle
                 Text(
-                    text = "Наведите камеру на QR-код из консоли деплоя (.bat) или из приложения друга.",
+                    text = stringResource(R.string.wm_scanner_hint),
                     color = TextMuted,
                     fontSize = 11.5.sp,
                     textAlign = TextAlign.Center,
@@ -3624,13 +3698,15 @@ private fun ScannerWorkerContent(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Вставить адрес или ссылку из буфера",
+                    text = stringResource(R.string.wm_btn_paste_address_link),
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(56.dp))
     }
 }
 

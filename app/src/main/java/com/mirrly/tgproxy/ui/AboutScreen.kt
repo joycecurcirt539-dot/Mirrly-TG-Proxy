@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -79,71 +80,13 @@ fun AboutScreen(
     onOpenLicense: () -> Unit = {},
     onOpenTerms: () -> Unit = {},
     onOpenUpdate: () -> Unit = {},
-    onOpenHallOfFame: () -> Unit = {},
-    onOpenVolunteers: () -> Unit = {},
-    onOpenChronicle: () -> Unit = {}
+    onOpenHallOfFame: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val pureBlack = Color(0xFF000000)
     val ledGreen = ActiveGreenLed
-
-    // Easter egg tap tracker for Secret Chronicle (5 taps on avatar or genesis badge)
     val coroutineScope = rememberCoroutineScope()
-    var easterEggTapCount by remember { mutableIntStateOf(0) }
-    var lastEasterEggTapTime by remember { mutableLongStateOf(0L) }
-    val tapBounceScale = remember { Animatable(1f) }
-    var isSupernovaActive by remember { mutableStateOf(false) }
-    val supernovaProgress = remember { Animatable(0f) }
-
-    fun onEasterEggTap() {
-        val now = System.currentTimeMillis()
-        if (now - lastEasterEggTapTime > 2200L) {
-            easterEggTapCount = 1
-        } else {
-            easterEggTapCount++
-        }
-        lastEasterEggTapTime = now
-
-        coroutineScope.launch {
-            tapBounceScale.snapTo(1.18f)
-            tapBounceScale.animateTo(
-                targetValue = 1f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            )
-        }
-
-        if (easterEggTapCount >= 5) {
-            easterEggTapCount = 0
-            isSupernovaActive = true
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            Toast.makeText(context, "Открыта секретная летопись Mirrly!", Toast.LENGTH_SHORT).show()
-
-            coroutineScope.launch {
-                launch {
-                    kotlinx.coroutines.delay(120)
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    kotlinx.coroutines.delay(120)
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                }
-
-                supernovaProgress.snapTo(0f)
-                supernovaProgress.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(480, easing = FastOutSlowInEasing)
-                )
-                onOpenChronicle()
-                kotlinx.coroutines.delay(350)
-                isSupernovaActive = false
-                supernovaProgress.snapTo(0f)
-            }
-        } else {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        }
-    }
 
     // Pulsing gradient glow for hero section
     val infiniteTransition = rememberInfiniteTransition(label = "pulseGlow")
@@ -160,10 +103,13 @@ fun AboutScreen(
     fun openUrl(url: String) {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            val uri = Uri.parse(url.trim())
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
             context.startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(context, "Не удалось открыть ссылку: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.about_err_open_link, e.localizedMessage ?: ""), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -172,7 +118,7 @@ fun AboutScreen(
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText(label, text)
         clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, "$label скопирован в буфер обмена", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.about_copied_to_clipboard, label), Toast.LENGTH_SHORT).show()
     }
 
     val scrollState = rememberScrollState()
@@ -258,23 +204,17 @@ fun AboutScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Glowing Avatar Icon Box (Shared Element Bounce Expansion with Easter Egg 5-Tap Listener)
+                    // Glowing Avatar Icon Box
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .size(96.dp)
                             .graphicsLayer {
-                                scaleX = avatarEntranceScale * tapBounceScale.value
-                                scaleY = avatarEntranceScale * tapBounceScale.value
+                                scaleX = avatarEntranceScale
+                                scaleY = avatarEntranceScale
                             }
                             .clip(CircleShape)
                             .background(Color.Transparent)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                onEasterEggTap()
-                            }
                     ) {
                         // Quantum Charge Ring around Avatar
                         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -290,24 +230,6 @@ fun AboutScreen(
                                 center = c,
                                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx())
                             )
-
-                            // Charge Arc for Easter Egg (fills with each tap)
-                            if (easterEggTapCount > 0) {
-                                val sweep = (easterEggTapCount / 5f) * 360f
-                                drawArc(
-                                    brush = Brush.sweepGradient(
-                                        colors = listOf(Color(0xFFFFB703), Color(0xFF00FF87), Color(0xFFFFB703)),
-                                        center = c
-                                    ),
-                                    startAngle = -90f,
-                                    sweepAngle = sweep,
-                                    useCenter = false,
-                                    style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                        width = 4.dp.toPx(),
-                                        cap = androidx.compose.ui.graphics.StrokeCap.Round
-                                    )
-                                )
-                            }
                         }
 
                         Image(
@@ -329,38 +251,8 @@ fun AboutScreen(
                             text = "R1Xern",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Black,
-                            color = TextWhite,
-                            modifier = Modifier.clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                onEasterEggTap()
-                            }
+                            color = TextWhite
                         )
-
-                        // Genesis Milestone Badge (Clickable • 27.07.2026)
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFFFFB703).copy(alpha = 0.12f),
-                            border = BorderStroke(0.8.dp, Color(0xFFFFB703).copy(alpha = 0.40f)),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    onEasterEggTap()
-                                }
-                        ) {
-                            Text(
-                                text = "GENESIS • 27.07.2026",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.6.sp,
-                                color = Color(0xFFFFB703),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
 
                         // Clickable GitHub handle pill
                         Row(
@@ -393,7 +285,7 @@ fun AboutScreen(
                         }
 
                         Text(
-                            text = "Создатель & Главный разработчик Mirrly TG Proxy",
+                            text = stringResource(R.string.about_creator_subtitle),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                             color = TextMuted,
@@ -421,7 +313,7 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "О РАЗРАБОТЧИКЕ И ПРОЕКТЕ",
+                    text = stringResource(R.string.about_section_bio),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -438,14 +330,14 @@ fun AboutScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            text = "Привет! Я R1Xern — разработчик экосистемы Mirrly.",
+                            text = stringResource(R.string.about_greeting),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
                         )
 
                         Text(
-                            text = "Mirrly TG Proxy создан для полного решения проблем с блокировками, замедлениями и сбоями в работе Telegram на Android. Приложение использует нативное ядро C/Rust, предварительно прогретый пул сокетов WsPool и маскировку трафика под безопасные WebSocket-соединения Cloudflare CDN.\n\nПроект работает исключительно локально на вашем устройстве, обеспечивая максимальную стабильность соединения, оптимизированную скорость и 100% приватность без сторонних VPN.",
+                            text = stringResource(R.string.about_bio_desc),
                             fontSize = 13.sp,
                             lineHeight = 20.sp,
                             color = TextWhite.copy(alpha = 0.85f)
@@ -460,7 +352,7 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "СВЯЗЬ И ИНФОРМАЦИЯ",
+                    text = stringResource(R.string.about_section_contacts),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -479,8 +371,8 @@ fun AboutScreen(
                     LinkCardItem(
                         iconRes = R.drawable.ic_telegram,
                         iconTint = Color(0xFF29B6F6),
-                        title = "Telegram Канал",
-                        subtitle = "Анонсы, обновления и новости: t.me/WhyOKyHb",
+                        title = stringResource(R.string.about_link_tg_title),
+                        subtitle = stringResource(R.string.about_link_tg_sub),
                         onClick = { pendingRedirectUrl = "https://t.me/WhyOKyHb" }
                     )
 
@@ -490,7 +382,7 @@ fun AboutScreen(
                     LinkCardItem(
                         iconRes = R.drawable.ic_github,
                         iconTint = TextWhite,
-                        title = "Профиль GitHub",
+                        title = stringResource(R.string.about_link_github_title),
                         subtitle = "github.com/joycecurcirt539-dot",
                         onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot" }
                     )
@@ -501,8 +393,8 @@ fun AboutScreen(
                     LinkCardItem(
                         iconRes = R.drawable.ic_github,
                         iconTint = ActiveGreenLed,
-                        title = "Репозиторий проекта",
-                        subtitle = "Исходный код Mirrly TG Proxy на GitHub",
+                        title = stringResource(R.string.about_link_repo_title),
+                        subtitle = stringResource(R.string.about_link_repo_sub),
                         onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy" }
                     )
 
@@ -512,8 +404,8 @@ fun AboutScreen(
                     LinkCardItem(
                         iconRes = R.drawable.ic_send,
                         iconTint = ActiveGreenLed,
-                        title = "Поделиться с друзьями",
-                        subtitle = "Рассказать о Mirrly TG Proxy в Telegram или соцсетях",
+                        title = stringResource(R.string.about_link_share_title),
+                        subtitle = stringResource(R.string.about_link_share_sub),
                         onClick = { context.shareApp() }
                     )
 
@@ -523,8 +415,8 @@ fun AboutScreen(
                     LinkCardItem(
                         iconRes = R.drawable.ic_bug,
                         iconTint = Color(0xFFFF9E00),
-                        title = "Нашли баг или есть идея?",
-                        subtitle = "Создайте Issue на GitHub — разработчик ответит лично",
+                        title = stringResource(R.string.about_link_issue_title),
+                        subtitle = stringResource(R.string.about_link_issue_sub),
                         onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues/new" }
                     )
 
@@ -534,8 +426,8 @@ fun AboutScreen(
                     LinkCardItem(
                         iconRes = R.drawable.ic_license,
                         iconTint = ActiveGreenLed,
-                        title = "Лицензия (GPLv3)",
-                        subtitle = "Открытый исходный код",
+                        title = stringResource(R.string.about_link_license_title),
+                        subtitle = stringResource(R.string.about_link_license_sub),
                         onClick = { onOpenLicense() }
                     )
                 }
@@ -547,7 +439,7 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "ПОДДЕРЖАТЬ ЗВЁЗДОЙ НА GITHUB",
+                    text = stringResource(R.string.about_section_star),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -565,14 +457,14 @@ fun AboutScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Column {
                             Text(
-                                text = "Понравился Mirrly TG Proxy?",
+                                text = stringResource(R.string.about_star_title),
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextWhite
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Ваша звезда на GitHub помогает проекту развиваться, привлекает новых пользователей и мотивирует на новые обновления.",
+                                text = stringResource(R.string.about_star_desc),
                                 fontSize = 12.sp,
                                 color = TextMuted
                             )
@@ -600,7 +492,7 @@ fun AboutScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Поставить Star на GitHub",
+                                text = stringResource(R.string.about_star_btn),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 color = Color(0xFFFFB703)
@@ -616,7 +508,7 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "ПОДДЕРЖАТЬ АВТОРА (DONATION)",
+                    text = stringResource(R.string.about_section_donation),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -634,13 +526,13 @@ fun AboutScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Column {
                             Text(
-                                text = "Поддержать развитие Mirrly",
+                                text = stringResource(R.string.about_donation_title),
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextWhite
                             )
                             Text(
-                                text = "Приложение полностью бесплатное! Донат — исключительно по желанию для поддержки R1Xern.",
+                                text = stringResource(R.string.about_donation_desc),
                                 fontSize = 12.sp,
                                 color = TextMuted
                             )
@@ -667,7 +559,7 @@ fun AboutScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Поддержать автора (DaLink)",
+                                text = stringResource(R.string.about_donation_btn),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp
                             )
@@ -676,13 +568,13 @@ fun AboutScreen(
                 }
             }
 
-            // 6. HALL OF FAME & VOLUNTEERS STANDOUT SECTION
+            // 6. HALL OF FAME STANDOUT SECTION
             Column(
                 modifier = Modifier.staggeredEntrance(index = 7),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "ЗАЛ СЛАВЫ И ТЕСТИРОВАНИЕ",
+                    text = stringResource(R.string.about_section_fame),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -734,7 +626,7 @@ fun AboutScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(
-                                    text = "Зал Славы и Благодарности",
+                                    text = stringResource(R.string.about_fame_card_title),
                                     fontSize = 14.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = TextWhite
@@ -745,7 +637,7 @@ fun AboutScreen(
                                     border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF7C4DFF).copy(alpha = 0.5f))
                                 ) {
                                     Text(
-                                        text = "TOP",
+                                        text = stringResource(R.string.badge_top),
                                         fontSize = 8.5.sp,
                                         fontWeight = FontWeight.Black,
                                         color = Color(0xFFC084FC),
@@ -754,7 +646,7 @@ fun AboutScreen(
                                 }
                             }
                             Text(
-                                text = "Первопроходцы, контрибьюторы и уникальные цифровые слепки",
+                                text = stringResource(R.string.about_fame_card_desc),
                                 fontSize = 11.5.sp,
                                 color = TextMuted
                             )
@@ -768,86 +660,6 @@ fun AboutScreen(
                         )
                     }
                 }
-
-                // Standout Volunteer Program Card
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Transparent)
-                        .border(1.dp, Color(0xFFFFB703).copy(alpha = 0.50f), RoundedCornerShape(20.dp))
-                        .lightSweep(
-                            isEnabled = true,
-                            shape = RoundedCornerShape(20.dp),
-                            sweepColor = Color(0xFFFFB703)
-                        )
-                        .springPress(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onOpenVolunteers()
-                        })
-                        .padding(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color(0xFFFFB703).copy(alpha = 0.15f))
-                                .border(1.dp, Color(0xFFFFB703).copy(alpha = 0.45f), RoundedCornerShape(14.dp))
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_volunteer_badge),
-                                contentDescription = null,
-                                tint = Color(0xFFFFB703),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = "Программа тестирования",
-                                    fontSize = 14.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextWhite
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFFFB703).copy(alpha = 0.20f),
-                                    border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFFFFB703).copy(alpha = 0.5f))
-                                ) {
-                                    Text(
-                                        text = "НАБОР",
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = Color(0xFFFFB703),
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                text = "Ищем волонтеров тестирования: ранний доступ к APK",
-                                fontSize = 11.5.sp,
-                                color = TextMuted
-                            )
-                        }
-
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_chevron_right),
-                            contentDescription = null,
-                            tint = Color(0xFFFFB703),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
             }
 
             // 7. TECH STACK BADGES
@@ -856,7 +668,7 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "ТЕХНОЛОГИЧЕСКИЙ СТЕК",
+                    text = stringResource(R.string.about_section_tech),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -890,7 +702,7 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = "Разработано командой Mirrly Dev",
+                    text = stringResource(R.string.about_footer_developed_by),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextMuted
@@ -902,7 +714,7 @@ fun AboutScreen(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Условия использования",
+                    text = stringResource(R.string.about_footer_terms),
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Medium,
                     color = TextMuted.copy(alpha = 0.85f),
@@ -935,7 +747,7 @@ fun AboutScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "О разработчике",
+                        text = stringResource(R.string.about_title),
                         color = TextWhite,
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
@@ -951,7 +763,7 @@ fun AboutScreen(
                     }) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_arrow_left),
-                            contentDescription = "Назад",
+                            contentDescription = stringResource(R.string.action_back),
                             tint = TextWhite,
                             modifier = Modifier.size(22.dp)
                         )
@@ -967,60 +779,6 @@ fun AboutScreen(
             particleCount = 42,
             alphaMultiplier = 0.70f
         )
-
-        // ── 4. SUPERNOVA EASTER EGG BLAST OVERLAY (5TH TAP EXPLOSION) ──
-        if (isSupernovaActive && supernovaProgress.value > 0f) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val p = supernovaProgress.value
-                val w = size.width
-                val h = size.height
-                val center = Offset(w / 2f, h * 0.28f) // from avatar position
-                val maxR = kotlin.math.sqrt((w * w + h * h).toDouble()).toFloat()
-
-                // 1. Expanding Quantum Core Glow
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = (1f - p) * 0.95f),
-                            Color(0xFFFFB703).copy(alpha = (1f - p) * 0.85f),
-                            Color(0xFF00FF87).copy(alpha = (1f - p) * 0.45f),
-                            Color.Transparent
-                        ),
-                        center = center,
-                        radius = maxR * p
-                    ),
-                    radius = maxR * p,
-                    center = center
-                )
-
-                // 2. Shockwave Rings
-                for (ring in 1..3) {
-                    val ringP = ((p * 1.3f) - (ring * 0.15f)).coerceIn(0f, 1f)
-                    if (ringP > 0f) {
-                        drawCircle(
-                            color = Color(0xFFFFB703).copy(alpha = (1f - ringP) * 0.8f),
-                            radius = maxR * ringP,
-                            center = center,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = (4f * (1f - ringP)).dp.toPx())
-                        )
-                    }
-                }
-
-                // 3. Photon Rays
-                for (ray in 0 until 12) {
-                    val angle = Math.toRadians((ray * 30.0 + p * 45.0))
-                    val rayLen = maxR * p * 0.9f
-                    val rx = center.x + (kotlin.math.cos(angle) * rayLen).toFloat()
-                    val ry = center.y + (kotlin.math.sin(angle) * rayLen).toFloat()
-                    drawLine(
-                        color = Color.White.copy(alpha = (1f - p) * 0.7f),
-                        start = center,
-                        end = Offset(rx, ry),
-                        strokeWidth = (2.5f * (1f - p)).dp.toPx()
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -1181,7 +939,7 @@ fun DownloadStatsCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "ВСЕГО СКАЧИВАНИЙ",
+                        text = stringResource(R.string.about_downloads_title),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.1.sp,
@@ -1208,7 +966,7 @@ fun DownloadStatsCard(
                             strokeWidth = 1.8.dp
                         )
                         Text(
-                            text = "Получение статистики...",
+                            text = stringResource(R.string.about_downloads_loading),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             color = TextMuted
@@ -1216,7 +974,7 @@ fun DownloadStatsCard(
                     }
                 } else if (isError) {
                     Text(
-                        text = "Сбой загрузки (нажмите для повтора)",
+                        text = stringResource(R.string.about_downloads_error),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFFFF9E00),
@@ -1235,7 +993,7 @@ fun DownloadStatsCard(
                             color = TextWhite
                         )
                         Text(
-                            text = "скачиваний",
+                            text = stringResource(R.string.about_downloads_unit),
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium,
                             color = cyanGlow

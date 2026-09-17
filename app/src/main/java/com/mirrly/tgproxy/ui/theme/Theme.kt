@@ -1,6 +1,7 @@
 package com.mirrly.tgproxy.ui.theme
 
 import android.app.Activity
+import com.mirrly.tgproxy.util.findActivity
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -20,7 +21,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -162,7 +167,7 @@ fun MirrlyTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as? Activity)?.window ?: return@SideEffect
+            val window = (view.context.findActivity())?.window ?: return@SideEffect
             WindowCompat.setDecorFitsSystemWindows(window, false)
             window.statusBarColor = android.graphics.Color.TRANSPARENT
             window.navigationBarColor = android.graphics.Color.TRANSPARENT
@@ -423,3 +428,140 @@ fun Modifier.lightSweep(
         }
     }
 }
+
+/**
+ * Universal Frosted Glass Card with Gaussian Ambient Glow & Optical Vignette Modifier.
+ * Designed for prominent floating banners and one-time prompt cards (Donation, GitHub Star, etc.).
+ *
+ * Provides:
+ * 1. Base Dark Acrylic Shield: Deep obsidian acrylic tint (Color(0xFF070C09) at 92-94% opacity)
+ *    ensuring underlying text and buttons do not bleed through.
+ * 2. Gaussian-Dispersed Ambient Glow: Soft radial ambient glow in the card's interior.
+ * 3. Optical Lens Vignette: Radial darkening falloff towards edges and corners for depth.
+ * 4. Micro Specular Cut-Glass Highlight: Crisp bevel at the top edge.
+ * 5. High-Precision Border & Outer Elevation Shadow.
+ */
+fun Modifier.frostedVignetteCard(
+    shape: Shape = RoundedCornerShape(22.dp),
+    accentColor: Color = Color(0xFF00E676),
+    secondaryAccentColor: Color? = null,
+    baseColor: Color = Color(0xFF070C09),
+    baseAlpha: Float = 0.92f,
+    vignetteStrength: Float = 0.70f,
+    borderBrush: Brush? = null,
+    borderWidth: Dp = 1.dp
+): Modifier = this
+    .shadow(
+        elevation = 14.dp,
+        shape = shape,
+        ambientColor = Color.Black.copy(alpha = 0.75f),
+        spotColor = Color.Black.copy(alpha = 0.75f)
+    )
+    .clip(shape)
+    .drawBehind {
+        val w = size.width
+        val h = size.height
+        val maxDim = maxOf(w, h)
+
+        // 1. Base dark obsidian acrylic glass (eliminates any bleed-through from underlying UI)
+        drawRect(color = baseColor.copy(alpha = baseAlpha))
+
+        // 2. Soft Gaussian ambient diffusion glow
+        if (secondaryAccentColor != null) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        accentColor.copy(alpha = 0.16f),
+                        accentColor.copy(alpha = 0.05f),
+                        Color.Transparent
+                    ),
+                    center = Offset(w * 0.22f, h * 0.35f),
+                    radius = maxDim * 0.55f
+                ),
+                center = Offset(w * 0.22f, h * 0.35f),
+                radius = maxDim * 0.55f
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        secondaryAccentColor.copy(alpha = 0.13f),
+                        secondaryAccentColor.copy(alpha = 0.04f),
+                        Color.Transparent
+                    ),
+                    center = Offset(w * 0.78f, h * 0.65f),
+                    radius = maxDim * 0.55f
+                ),
+                center = Offset(w * 0.78f, h * 0.65f),
+                radius = maxDim * 0.55f
+            )
+        } else {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        accentColor.copy(alpha = 0.18f),
+                        accentColor.copy(alpha = 0.06f),
+                        Color.Transparent
+                    ),
+                    center = Offset(w * 0.50f, h * 0.30f),
+                    radius = maxDim * 0.65f
+                ),
+                center = Offset(w * 0.50f, h * 0.30f),
+                radius = maxDim * 0.65f
+            )
+        }
+
+        // 3. Optical Vignette (delicate yet clearly defined edge/corner darkening)
+        drawRect(
+            brush = Brush.radialGradient(
+                colorStops = arrayOf(
+                    0.00f to Color.Transparent,
+                    0.40f to Color.Transparent,
+                    0.72f to Color.Black.copy(alpha = (vignetteStrength * 0.38f).coerceIn(0f, 1f)),
+                    1.00f to Color.Black.copy(alpha = (vignetteStrength * 0.78f).coerceIn(0f, 1f))
+                ),
+                center = Offset(w * 0.5f, h * 0.5f),
+                radius = maxDim * 0.72f
+            )
+        )
+
+        // 4. Subtle vertical framing vignette for top & bottom anchors
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Black.copy(alpha = (vignetteStrength * 0.22f).coerceIn(0f, 1f)),
+                    Color.Transparent,
+                    Color.Black.copy(alpha = (vignetteStrength * 0.32f).coerceIn(0f, 1f))
+                )
+            )
+        )
+
+        // 5. Specular cut-glass top bevel highlight
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.10f),
+                    Color.Transparent
+                ),
+                startY = 0f,
+                endY = 2.5.dp.toPx()
+            )
+        )
+    }
+    .then(
+        if (borderBrush != null) {
+            Modifier.border(width = borderWidth, brush = borderBrush, shape = shape)
+        } else {
+            Modifier.border(
+                width = borderWidth,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        accentColor.copy(alpha = 0.45f),
+                        accentColor.copy(alpha = 0.20f),
+                        accentColor.copy(alpha = 0.35f)
+                    )
+                ),
+                shape = shape
+            )
+        }
+    )
+

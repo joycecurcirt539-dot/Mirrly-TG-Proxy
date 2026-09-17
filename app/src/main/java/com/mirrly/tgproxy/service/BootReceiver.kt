@@ -16,7 +16,7 @@ class BootReceiver : BroadcastReceiver() {
             action == "com.htc.intent.action.QUICKBOOT_POWERON" ||
             action == Intent.ACTION_LOCKED_BOOT_COMPLETED
         ) {
-            AppLogger.i("BootReceiver", "Системный сигнал загрузки устройства: $action")
+            AppLogger.i("BootReceiver", "System boot intent received: $action")
 
             if (action == Intent.ACTION_MY_PACKAGE_REPLACED) {
                 UpdateManager.onAppInit(context)
@@ -29,7 +29,7 @@ class BootReceiver : BroadcastReceiver() {
             ScheduleManager.syncSchedule(context)
 
             if (config.autostartOnBoot) {
-                AppLogger.i("BootReceiver", "Автозапуск при включении активен, запускается служба прокси...")
+                AppLogger.i("BootReceiver", "Autostart on boot is enabled, starting proxy service...")
                 val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
                     this.action = ProxyForegroundService.ACTION_START
                 }
@@ -42,10 +42,10 @@ class BootReceiver : BroadcastReceiver() {
                 } catch (e: Exception) {
                     // On Android 12+ ForegroundServiceStartNotAllowedException may be thrown
                     // if the system is in a restricted state (locked screen, Doze, battery saver)
-                    AppLogger.e("BootReceiver", "Не удалось запустить службу при загрузке: ${e.message}")
+                    AppLogger.e("BootReceiver", "Failed to start service on boot: ${e.message}")
                 }
             } else {
-                AppLogger.i("BootReceiver", "Автозапуск при включении выключен")
+                AppLogger.i("BootReceiver", "Autostart on boot is disabled")
             }
         }
     }

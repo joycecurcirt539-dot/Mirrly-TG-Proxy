@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -114,7 +115,7 @@ fun SleepTimerDialog(
                     .navigationBarsPadding()
                     .padding(
                         top = statusBarTop + 44.dp,
-                        bottom = 72.dp
+                        bottom = 96.dp
                     )
                     .padding(horizontal = 20.dp)
                     .clickable(
@@ -151,7 +152,7 @@ fun SleepTimerDialog(
                             modifier = Modifier.padding(vertical = 8.dp)
                         ) {
                             Text(
-                                text = if (timerState.isActive) "ТАЙМЕР (АКТИВЕН)" else "ТАЙМЕР СНА",
+                                text = if (timerState.isActive) stringResource(R.string.sleep_timer_tab_active) else stringResource(R.string.sleep_timer_tab),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (selectedTab == TimerDialogTab.TIMER) {
@@ -184,7 +185,7 @@ fun SleepTimerDialog(
                             modifier = Modifier.padding(vertical = 8.dp)
                         ) {
                             Text(
-                                text = if (scheduleConfig.isEnabled) "РАСПИСАНИЕ (ВКЛ)" else "РАСПИСАНИЕ",
+                                text = if (scheduleConfig.isEnabled) stringResource(R.string.sleep_timer_tab_schedule_on) else stringResource(R.string.sleep_timer_tab_schedule),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (selectedTab == TimerDialogTab.SCHEDULE) {
@@ -199,9 +200,9 @@ fun SleepTimerDialog(
                 // Main Title
                 Text(
                     text = when {
-                        selectedTab == TimerDialogTab.SCHEDULE -> "Расписание работы прокси"
-                        timerState.isActive -> "Таймер автоотключения"
-                        else -> "Настройка таймера сна"
+                        selectedTab == TimerDialogTab.SCHEDULE -> stringResource(R.string.sleep_timer_title_schedule)
+                        timerState.isActive -> stringResource(R.string.sleep_timer_title_active)
+                        else -> stringResource(R.string.sleep_timer_title_setup)
                     },
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
@@ -224,7 +225,7 @@ fun SleepTimerDialog(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
-                                text = if (timerState.isActive) "ТЕКУЩИЙ СТАТУС:" else "РАЗОВЫЙ ТАЙМЕР СНА:",
+                                text = if (timerState.isActive) stringResource(R.string.sleep_timer_status_current) else stringResource(R.string.sleep_timer_status_one_time),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (timerState.isActive) greenLed else accentColor,
@@ -239,9 +240,9 @@ fun SleepTimerDialog(
 
                             Text(
                                 text = if (timerState.isActive) {
-                                    "Прокси-сервер автоматически остановится в $targetTimeStr. Соединение и фоновые службы будут безопасно отключены."
+                                    stringResource(R.string.sleep_timer_desc_stopping, targetTimeStr)
                                 } else {
-                                    "Выберите время, через которое прокси-сервер автоматически отключится в текущей сессии для экономии заряда и мобильного трафика."
+                                    stringResource(R.string.sleep_timer_desc_choose)
                                 },
                                 fontSize = 12.5.sp,
                                 color = TextWhite.copy(alpha = 0.8f),
@@ -263,7 +264,7 @@ fun SleepTimerDialog(
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Text(
-                                            text = "ОСТАЛОСЬ ДО ОТКЛЮЧЕНИЯ",
+                                            text = stringResource(R.string.sleep_timer_remaining_header),
                                             fontSize = 10.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             letterSpacing = 1.4.sp,
@@ -280,9 +281,9 @@ fun SleepTimerDialog(
                                     }
                                 }
 
-                                // Quick extend chips (+5 мин, +15 мин, +30 мин, +1 час)
+                                // Quick extend chips (+5 min, +15 min, +30 min, +1 hour)
                                 Text(
-                                    text = "БЫСТРОЕ ПРОДЛЕНИЕ:",
+                                    text = stringResource(R.string.sleep_timer_quick_extend_header),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = TextWhite.copy(alpha = 0.70f),
@@ -293,19 +294,19 @@ fun SleepTimerDialog(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    QuickExtendChip("+5 мин", accentColor, Modifier.weight(1f)) {
+                                    QuickExtendChip(stringResource(R.string.sleep_timer_plus_5m), accentColor, Modifier.weight(1f)) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         SleepTimerManager.extendTimer(context, 5)
                                     }
-                                    QuickExtendChip("+15 мин", accentColor, Modifier.weight(1f)) {
+                                    QuickExtendChip(stringResource(R.string.sleep_timer_plus_15m), accentColor, Modifier.weight(1f)) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         SleepTimerManager.extendTimer(context, 15)
                                     }
-                                    QuickExtendChip("+30 мин", accentColor, Modifier.weight(1f)) {
+                                    QuickExtendChip(stringResource(R.string.sleep_timer_plus_30m), accentColor, Modifier.weight(1f)) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         SleepTimerManager.extendTimer(context, 30)
                                     }
-                                    QuickExtendChip("+1 ч", accentColor, Modifier.weight(1f)) {
+                                    QuickExtendChip(stringResource(R.string.sleep_timer_plus_1h), accentColor, Modifier.weight(1f)) {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         SleepTimerManager.extendTimer(context, 60)
                                     }
@@ -313,7 +314,7 @@ fun SleepTimerDialog(
 
                                 Spacer(modifier = Modifier.height(4.dp))
 
-                                // Active Timer Actions: Закрыть / Отключить
+                                // Active Timer Actions: Close / Disable
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     modifier = Modifier.fillMaxWidth()
@@ -333,7 +334,7 @@ fun SleepTimerDialog(
                                     ) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             Text(
-                                                text = "Закрыть",
+                                                text = stringResource(R.string.action_close),
                                                 color = TextWhite.copy(alpha = 0.90f),
                                                 fontWeight = FontWeight.Medium,
                                                 fontSize = 14.sp
@@ -357,7 +358,7 @@ fun SleepTimerDialog(
                                     ) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             Text(
-                                                text = "Отключить",
+                                                text = stringResource(R.string.action_disable),
                                                 color = Color(0xFFEF4444),
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 14.sp
@@ -375,7 +376,7 @@ fun SleepTimerDialog(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        listOf(5 to "5 мин", 15 to "15 мин", 30 to "30 мин", 45 to "45 мин").forEach { (min, label) ->
+                                        listOf(5 to stringResource(R.string.time_min_val, 5), 15 to stringResource(R.string.time_min_val, 15), 30 to stringResource(R.string.time_min_val, 30), 45 to stringResource(R.string.time_min_val, 45)).forEach { (min, label) ->
                                             PresetChip(
                                                 title = label,
                                                 isSelected = customMinutes.toInt() == min,
@@ -391,7 +392,7 @@ fun SleepTimerDialog(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        listOf(60 to "1 час", 120 to "2 часа", 240 to "4 часа").forEach { (min, label) ->
+                                        listOf(60 to stringResource(R.string.time_1_hour), 120 to stringResource(R.string.time_2_hours), 240 to stringResource(R.string.time_4_hours)).forEach { (min, label) ->
                                             PresetChip(
                                                 title = label,
                                                 isSelected = customMinutes.toInt() == min,
@@ -423,7 +424,7 @@ fun SleepTimerDialog(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                text = "Точная настройка:",
+                                                text = stringResource(R.string.sleep_timer_precise_setup),
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Medium,
                                                 color = TextWhite.copy(alpha = 0.85f)
@@ -451,7 +452,7 @@ fun SleepTimerDialog(
 
                                 Spacer(modifier = Modifier.height(2.dp))
 
-                                // Action buttons for one-off timer: Отклонить / Запустить таймер
+                                // Action buttons for one-off timer: Decline / Start timer
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     modifier = Modifier.fillMaxWidth()
@@ -471,7 +472,7 @@ fun SleepTimerDialog(
                                     ) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             Text(
-                                                text = "Отклонить",
+                                                text = stringResource(R.string.action_dismiss),
                                                 color = TextWhite.copy(alpha = 0.90f),
                                                 fontWeight = FontWeight.Medium,
                                                 fontSize = 14.sp
@@ -494,7 +495,7 @@ fun SleepTimerDialog(
                                     ) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             Text(
-                                                text = "Запустить таймер",
+                                                text = stringResource(R.string.sleep_timer_btn_start),
                                                 color = Color(0xFF0A0E1A),
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 14.sp
@@ -526,7 +527,7 @@ fun SleepTimerDialog(
                             ) {
                                 Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                     Text(
-                                        text = "Автоотключение при старте",
+                                        text = stringResource(R.string.sleep_timer_autostop_title),
                                         fontSize = 13.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = TextWhite
@@ -534,9 +535,9 @@ fun SleepTimerDialog(
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = if (autoStopOnStartEnabled) {
-                                            "Отключение через $autoStopMinutes мин после запуска"
+                                            stringResource(R.string.sleep_timer_autostop_active, autoStopMinutes)
                                         } else {
-                                            "Автоматический таймер при каждом старте"
+                                            stringResource(R.string.sleep_timer_autostop_desc)
                                         },
                                         fontSize = 11.5.sp,
                                         color = TextMuted
@@ -558,7 +559,7 @@ fun SleepTimerDialog(
                                 ) {
                                     listOf(5, 10, 15, 30, 60).forEach { m ->
                                         PresetChip(
-                                            title = "$m мин",
+                                            title = stringResource(R.string.time_min_val, m),
                                             isSelected = autoStopMinutes == m,
                                             activeColor = accentColor,
                                             modifier = Modifier.weight(1f)
@@ -582,7 +583,7 @@ fun SleepTimerDialog(
                                             .background(greenLed)
                                     )
                                     Text(
-                                        text = "Настройка сохраняется автоматически для каждого запуска",
+                                        text = stringResource(R.string.sleep_timer_saved_hint),
                                         fontSize = 10.5.sp,
                                         color = TextMuted.copy(alpha = 0.8f)
                                     )
@@ -610,13 +611,13 @@ fun SleepTimerDialog(
                             ) {
                                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                                     Text(
-                                        text = "Включить расписание",
+                                        text = stringResource(R.string.sleep_timer_enable_schedule),
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextWhite
                                     )
                                     Text(
-                                        text = if (scheduleConfig.isEnabled) "Служба прокси будет работать по заданному времени" else "Автоматический запуск и остановка отключены",
+                                        text = if (scheduleConfig.isEnabled) stringResource(R.string.sleep_timer_schedule_enabled_desc) else stringResource(R.string.sleep_timer_schedule_disabled_desc),
                                         fontSize = 11.5.sp,
                                         color = if (scheduleConfig.isEnabled) greenLed else TextMuted
                                     )
@@ -664,7 +665,7 @@ fun SleepTimerDialog(
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Text(
-                                            text = "ВКЛЮЧЕНИЕ",
+                                            text = stringResource(R.string.sleep_timer_start_time_label),
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
                                             letterSpacing = 1.sp,
@@ -706,7 +707,7 @@ fun SleepTimerDialog(
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Text(
-                                            text = "ВЫКЛЮЧЕНИЕ",
+                                            text = stringResource(R.string.sleep_timer_stop_time_label),
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
                                             letterSpacing = 1.sp,
@@ -725,7 +726,7 @@ fun SleepTimerDialog(
 
                             // Days Mode Selection
                             Text(
-                                text = "ДНИ РАБОТЫ:",
+                                text = stringResource(R.string.sleep_timer_working_days_label),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextWhite.copy(alpha = 0.70f),
@@ -738,7 +739,7 @@ fun SleepTimerDialog(
                             ) {
                                 ScheduleDaysMode.entries.forEach { mode ->
                                     PresetChip(
-                                        title = mode.title.substringBefore(" ("),
+                                        title = stringResource(mode.titleRes).substringBefore(" ("),
                                         isSelected = scheduleConfig.daysMode == mode,
                                         activeColor = accentColor,
                                         modifier = Modifier.weight(1f)
@@ -754,13 +755,13 @@ fun SleepTimerDialog(
                             // Custom Day Pills if CUSTOM mode selected
                             if (scheduleConfig.daysMode == ScheduleDaysMode.CUSTOM) {
                                 val dayNames = listOf(
-                                    Calendar.MONDAY to "Пн",
-                                    Calendar.TUESDAY to "Вт",
-                                    Calendar.WEDNESDAY to "Ср",
-                                    Calendar.THURSDAY to "Чт",
-                                    Calendar.FRIDAY to "Пт",
-                                    Calendar.SATURDAY to "Сб",
-                                    Calendar.SUNDAY to "Вс"
+                                    Calendar.MONDAY to stringResource(R.string.day_mon_short),
+                                    Calendar.TUESDAY to stringResource(R.string.day_tue_short),
+                                    Calendar.WEDNESDAY to stringResource(R.string.day_wed_short),
+                                    Calendar.THURSDAY to stringResource(R.string.day_thu_short),
+                                    Calendar.FRIDAY to stringResource(R.string.day_fri_short),
+                                    Calendar.SATURDAY to stringResource(R.string.day_sat_short),
+                                    Calendar.SUNDAY to stringResource(R.string.day_sun_short)
                                 )
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -811,9 +812,9 @@ fun SleepTimerDialog(
                             ) {
                                 Text(
                                     text = if (scheduleConfig.isEnabled) {
-                                        "Прокси будет автоматически запускаться в ${scheduleConfig.formatStartTime()} и выключаться в ${scheduleConfig.formatStopTime()} (${scheduleConfig.daysMode.title})."
+                                        stringResource(R.string.sleep_timer_schedule_summary, scheduleConfig.formatStartTime(), scheduleConfig.formatStopTime(), scheduleConfig.daysMode.title)
                                     } else {
-                                        "Включите переключатель сверху, чтобы активировать расписание."
+                                        stringResource(R.string.sleep_timer_schedule_enable_hint)
                                     },
                                     fontSize = 12.sp,
                                     color = TextWhite.copy(alpha = 0.75f),
@@ -825,7 +826,7 @@ fun SleepTimerDialog(
                     }
                 }
 
-                // Schedule Action Button (Готово / Сохранить)
+                // Schedule Action Button (Done / Save)
                 if (selectedTab == TimerDialogTab.SCHEDULE) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Surface(
@@ -844,7 +845,7 @@ fun SleepTimerDialog(
                     ) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(
-                                text = "Сохранить расписание",
+                                text = stringResource(R.string.sleep_timer_btn_save_schedule),
                                 color = Color(0xFF0A0E1A),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp
@@ -852,6 +853,8 @@ fun SleepTimerDialog(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(48.dp))
             }
 
             // Top Header with Back Button
@@ -869,7 +872,7 @@ fun SleepTimerDialog(
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_arrow_left),
-                        contentDescription = "Назад",
+                        contentDescription = stringResource(R.string.action_back),
                         tint = TextWhite,
                         modifier = Modifier.size(22.dp)
                     )
@@ -943,8 +946,8 @@ private fun formatMinutes(totalMin: Int): String {
     val hours = totalMin / 60
     val mins = totalMin % 60
     return when {
-        hours > 0 && mins > 0 -> "$hours ч $mins мин"
-        hours > 0 -> "$hours ч"
-        else -> "$mins мин"
+        hours > 0 && mins > 0 -> "$hours h $mins m"
+        hours > 0 -> "$hours h"
+        else -> "$mins m"
     }
 }

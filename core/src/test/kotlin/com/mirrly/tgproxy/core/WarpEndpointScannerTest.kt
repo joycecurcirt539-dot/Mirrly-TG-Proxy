@@ -181,7 +181,7 @@ class WarpEndpointScannerTest {
     }
 
     @Test
-    fun testMockUdpQuicInitialProbeDetection() = runBlocking {
+    fun testMockUdpQuicInitialProbeFallbackToWireGuard() = runBlocking {
         val mockSocket = DatagramSocket(0, InetAddress.getByName("127.0.0.1"))
         val mockPort = mockSocket.localPort
 
@@ -191,16 +191,12 @@ class WarpEndpointScannerTest {
                 val packet = DatagramPacket(recvBuf, recvBuf.size)
                 mockSocket.receive(packet)
 
-                // Verify that incoming probe is a QUIC Initial packet (1250 bytes, Long header with 0xC0)
-                assertEquals(1250, packet.length, "QUIC Initial probe must be 1250 bytes")
-                val firstByte = recvBuf[0].toInt() and 0xFF
-                assertTrue((firstByte and 0x80) != 0, "Must have Long Header bit set")
+                // WireGuard initiation packet sent for WARP endpoints (148 bytes)
+                assertEquals(148, packet.length, "WARP initiation probe must be 148 bytes")
 
-                // Reply with a 40-byte QUIC Version Negotiation response
-                val resp = ByteArray(40)
-                resp[0] = 0xC0.toByte() // Long header
-                // bytes 1..4 = 0x00000000 (Version Negotiation)
-                resp[1] = 0; resp[2] = 0; resp[3] = 0; resp[4] = 0
+                // Reply with 92-byte Handshake Response
+                val resp = ByteArray(92)
+                resp[0] = 0x02 // Handshake Response message type
 
                 val replyPacket = DatagramPacket(resp, resp.size, packet.address, packet.port)
                 mockSocket.send(replyPacket)
@@ -218,7 +214,7 @@ class WarpEndpointScannerTest {
             assertTrue(res.isAlive, "Endpoint should be detected as alive")
             assertTrue(res.rttMs >= 0, "RTT should be positive")
             assertEquals(WarpProbeProtocol.MASQUE_QUIC, res.scanProtocol)
-            assertTrue(res.probeProtocol.contains("QUIC (Version Negotiation"), "Detected protocol: ${res.probeProtocol}")
+            assertEquals("WireGuard (Handshake Response)", res.probeProtocol)
         } finally {
             mockSocket.close()
             serverThread.join(1000)

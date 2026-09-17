@@ -1,7 +1,9 @@
 package com.mirrly.tgproxy.ui
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.ui.res.stringResource
 import android.os.Build
 import android.view.WindowManager
 import android.widget.Toast
@@ -43,12 +45,12 @@ data class LinkDetails(
     val description: String
 )
 
-fun getLinkDetails(url: String, customTitle: String? = null, customDesc: String? = null): LinkDetails {
+fun getLinkDetails(context: Context, url: String, customTitle: String? = null, customDesc: String? = null): LinkDetails {
     if (customTitle != null && customDesc != null) {
-        val cat = if (customTitle.contains("звёзд", ignoreCase = true) || customTitle.contains("звезд", ignoreCase = true) || customTitle.contains("Star", ignoreCase = true)) {
-            "ОЦЕНКА НА GITHUB (STAR)"
+        val cat = if (customTitle.contains("Star", ignoreCase = true) || customTitle.contains(context.getString(R.string.github_star_dialog_btn_star), ignoreCase = true)) {
+            context.getString(R.string.ext_link_cat_star)
         } else {
-            "ВНЕШНИЙ ПЕРЕХОД"
+            context.getString(R.string.ext_link_cat_external)
         }
         return LinkDetails(title = customTitle, category = cat, description = customDesc)
     }
@@ -68,83 +70,83 @@ fun getLinkDetails(url: String, customTitle: String? = null, customDesc: String?
         return when {
             // 1. Issues / Bug Tracker
             segments.contains("issues") || lowerUrl.contains("/issues") -> LinkDetails(
-                title = "Баг-трекер (Issues)",
+                title = context.getString(R.string.ext_link_issues_title),
                 category = "GITHUB ISSUES",
-                description = "Ссылка ведет в раздел «Issues» на GitHub. Здесь пользователи и разработчики обсуждают найденные ошибки, предлагаемый функционал и задачи проекта."
+                description = context.getString(R.string.ext_link_issues_desc)
             )
             // 2. Releases
             segments.contains("releases") || lowerUrl.contains("/releases") -> LinkDetails(
-                title = "Официальные релизы",
+                title = context.getString(R.string.ext_link_releases_title),
                 category = "GITHUB RELEASES",
-                description = "Ссылка ведет на страницу релизов репозитория на GitHub. Там вы можете скачать официальные проверенные APK-файлы и изучить ченджлог обновлений."
+                description = context.getString(R.string.ext_link_releases_desc)
             )
             // 3. License
             segments.any { it.contains("license") } || lowerUrl.contains("license") -> LinkDetails(
-                title = "Лицензия проекта",
-                category = "ЛИЦЕНЗИОННОЕ СОГЛАШЕНИЕ",
-                description = "Ссылка ведет на официальный файл лицензии в репозитории на GitHub, устанавливающий юридические условия использования и распространения кода."
+                title = context.getString(R.string.ext_link_license_title),
+                category = context.getString(R.string.ext_link_license_cat),
+                description = context.getString(R.string.ext_link_license_desc)
             )
             // 4. Terms of Use
             segments.any { it.contains("terms") } || lowerUrl.contains("terms") -> LinkDetails(
-                title = "Пользовательское соглашение",
-                category = "ЮРИДИЧЕСКИЙ ДОКУМЕНТ",
-                description = "Ссылка ведет на полные правила использования сервиса Mirrly TG Proxy, опубликованные в репозитории проекта на GitHub."
+                title = context.getString(R.string.ext_link_terms_title),
+                category = context.getString(R.string.ext_link_terms_cat),
+                description = context.getString(R.string.ext_link_terms_desc)
             )
             // 5. Pull Requests
             segments.contains("pulls") || segments.contains("pull") || lowerUrl.contains("/pull") -> LinkDetails(
-                title = "Пулл-реквесты (Pull Requests)",
+                title = context.getString(R.string.ext_link_pulls_title),
                 category = "GITHUB PULL REQUESTS",
-                description = "Ссылка ведет в раздел предложений кода и исправлений от участников открытого сообщества на GitHub."
+                description = context.getString(R.string.ext_link_pulls_desc)
             )
             // 6. User Profile (ONLY 1 segment after github.com, e.g. github.com/joycecurcirt539-dot)
             segments.size == 1 -> {
                 val username = segments.first()
                 LinkDetails(
-                    title = "Профиль автора ($username)",
-                    category = "ПРОФИЛЬ НА GITHUB",
-                    description = "Ссылка ведет на личный профиль разработчика $username на GitHub. Вы сможете посмотреть другие репозитории, активность и проекты автора."
+                    title = context.getString(R.string.ext_link_profile_title, username),
+                    category = context.getString(R.string.ext_link_profile_cat),
+                    description = context.getString(R.string.ext_link_profile_desc, username)
                 )
             }
             // 7. Repository Main Page (EXACTLY 2 segments after github.com, e.g. github.com/joycecurcirt539-dot/Mirrly-TG-Proxy)
             segments.size == 2 -> {
                 val repoName = segments[1]
                 LinkDetails(
-                    title = "Репозиторий проекта ($repoName)",
-                    category = "РЕПОЗИТОРИЙ ПРОЕКТА",
-                    description = "Ссылка ведет на главную страницу репозитория $repoName на GitHub. Здесь находится открытый исходный код приложения, README и файлы проекта."
+                    title = context.getString(R.string.ext_link_repo_title, repoName),
+                    category = context.getString(R.string.ext_link_repo_cat),
+                    description = context.getString(R.string.ext_link_repo_desc, repoName)
                 )
             }
             // 8. Subdirectories or files inside repository (> 2 segments)
             segments.size > 2 -> {
                 val repoName = segments[1]
                 LinkDetails(
-                    title = "Файлы репозитория ($repoName)",
-                    category = "ФАЙЛЫ ИСХОДНОГО КОДА",
-                    description = "Ссылка ведет к конкретным файлам или каталогам в репозитории $repoName на платформе GitHub."
+                    title = context.getString(R.string.ext_link_files_title, repoName),
+                    category = context.getString(R.string.ext_link_files_cat),
+                    description = context.getString(R.string.ext_link_files_desc, repoName)
                 )
             }
             // Fallback for GitHub
             else -> LinkDetails(
-                title = "Страница на GitHub",
+                title = context.getString(R.string.ext_link_github_title),
                 category = "GITHUB",
-                description = "Ссылка ведет на страницу сервиса разработки GitHub, связанную с Mirrly TG Proxy."
+                description = context.getString(R.string.ext_link_github_desc)
             )
         }
     }
 
     if (lowerUrl.contains("t.me") || lowerUrl.contains("telegram.me") || lowerUrl.contains("telegram.dog")) {
         return LinkDetails(
-            title = "Официальный Telegram-канал",
-            category = "TELEGRAM КАНАЛ",
-            description = "Ссылка ведет на публичный канал в мессенджере Telegram с анонсами, важными новостями и оперативной поддержкой."
+            title = context.getString(R.string.ext_link_tg_title),
+            category = context.getString(R.string.ext_link_tg_cat),
+            description = context.getString(R.string.ext_link_tg_desc)
         )
     }
 
     if (lowerUrl.contains("dalink.to") || lowerUrl.contains("dalink")) {
         return LinkDetails(
-            title = customTitle ?: "Поддержка автора (DaLink)",
-            category = "ДОБРОВОЛЬНЫЕ ЧАЕВЫЕ",
-            description = customDesc ?: "Приложение Mirrly TG Proxy абсолютно бесплатное! Ссылка ведет на платформу DaLink (СБП, банковские карты) исключительно для добровольной благодарности и чаевых разработчику R1Xern за развитие проекта."
+            title = customTitle ?: context.getString(R.string.ext_link_dalink_title),
+            category = context.getString(R.string.ext_link_dalink_cat),
+            description = customDesc ?: context.getString(R.string.ext_link_dalink_desc)
         )
     }
 
@@ -155,9 +157,9 @@ fun getLinkDetails(url: String, customTitle: String? = null, customDesc: String?
     }
 
     return LinkDetails(
-        title = customTitle ?: "Внешний веб-сайт ($domain)",
-        category = "ВНЕШНИЙ ПЕРЕХОД",
-        description = customDesc ?: "Ссылка ведет на внешний веб-сайт ($domain). При клике произойдет переход в вашем системном интернет-браузере."
+        title = customTitle ?: context.getString(R.string.ext_link_website_title, domain),
+        category = context.getString(R.string.ext_link_cat_external),
+        description = customDesc ?: context.getString(R.string.ext_link_website_desc, domain)
     )
 }
 
@@ -171,7 +173,7 @@ fun ExternalLinkConfirmDialog(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val details = remember(url, title, description) { getLinkDetails(url, title, description) }
+    val details = remember(url, title, description, context) { getLinkDetails(context, url, title, description) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -199,7 +201,7 @@ fun ExternalLinkConfirmDialog(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_arrow_left),
-                    contentDescription = "Назад",
+                    contentDescription = stringResource(R.string.action_back),
                     tint = TextWhite,
                     modifier = Modifier.size(22.dp)
                 )
@@ -214,6 +216,7 @@ fun ExternalLinkConfirmDialog(
                     .adaptiveContainerWidth(440.dp)
                     .padding(horizontal = 24.dp)
                     .navigationBarsPadding()
+                    .padding(bottom = 80.dp)
                     .verticalScroll(rememberScrollState())
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -273,17 +276,20 @@ fun ExternalLinkConfirmDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Primary "Перейти" Action Button placed directly under the link
+                // Primary "Proceed" Action Button placed directly under the link
                 Button(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onDismiss()
                         onConfirmed?.invoke()
                         try {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            val uri = Uri.parse(url.trim())
+                            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
                             context.startActivity(intent)
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Не удалось открыть ссылку: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.err_open_link, e.localizedMessage ?: ""), Toast.LENGTH_SHORT).show()
                         }
                     },
                     shape = RoundedCornerShape(16.dp),
@@ -297,8 +303,9 @@ fun ExternalLinkConfirmDialog(
                         .height(48.dp)
                         .springPress()
                 ) {
-                    Text("Перейти", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.action_open_link), fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }

@@ -104,32 +104,32 @@ class ProxyConfigTest {
     @Test
     fun testDefaultPoolSizeAndAutoPreset() {
         val config = ProxyConfig()
-        assertEquals(4, config.poolSize, "Default poolSize should be 4 sockets per DC to prevent battery drain")
+        assertEquals(2, config.mtprotoStandbyPerActiveSlot)
         assertEquals(SpeedPreset.AUTO, config.speedPreset)
-        assertEquals(4, SpeedPreset.AUTO.defaultPoolSize)
+        assertEquals(2, SpeedPreset.AUTO.defaultMtprotoStandbyPerActiveSlot)
         assertEquals(262144, SpeedPreset.AUTO.defaultBufferSizeBytes)
     }
 
     @Test
     fun testSpeedPresetsConfiguration() {
-        assertEquals("Эко (2 сокета)", SpeedPreset.ECO.displayName)
-        assertEquals(2, SpeedPreset.ECO.defaultPoolSize)
+        assertEquals("Эко (1 резерв/слот)", SpeedPreset.ECO.displayName)
+        assertEquals(1, SpeedPreset.ECO.defaultMtprotoStandbyPerActiveSlot)
         assertEquals(131072, SpeedPreset.ECO.defaultBufferSizeBytes)
 
-        assertEquals("Баланс (4 сокета)", SpeedPreset.BALANCED.displayName)
-        assertEquals(4, SpeedPreset.BALANCED.defaultPoolSize)
+        assertEquals("Баланс (2 резерва/слот)", SpeedPreset.BALANCED.displayName)
+        assertEquals(2, SpeedPreset.BALANCED.defaultMtprotoStandbyPerActiveSlot)
         assertEquals(262144, SpeedPreset.BALANCED.defaultBufferSizeBytes)
 
-        assertEquals("Турбо (8 сокетов)", SpeedPreset.TURBO.displayName)
-        assertEquals(8, SpeedPreset.TURBO.defaultPoolSize)
+        assertEquals("Турбо (3 резерва/слот)", SpeedPreset.TURBO.displayName)
+        assertEquals(3, SpeedPreset.TURBO.defaultMtprotoStandbyPerActiveSlot)
         assertEquals(1048576, SpeedPreset.TURBO.defaultBufferSizeBytes)
 
-        assertEquals("Ультра (16 сокетов)", SpeedPreset.ULTRA.displayName)
-        assertEquals(16, SpeedPreset.ULTRA.defaultPoolSize)
+        assertEquals("Ультра (4 резерва/слот)", SpeedPreset.ULTRA.displayName)
+        assertEquals(4, SpeedPreset.ULTRA.defaultMtprotoStandbyPerActiveSlot)
         assertEquals(2097152, SpeedPreset.ULTRA.defaultBufferSizeBytes)
 
         assertEquals("Авто (динамический)", SpeedPreset.AUTO.displayName)
-        assertEquals(4, SpeedPreset.AUTO.defaultPoolSize)
+        assertEquals(2, SpeedPreset.AUTO.defaultMtprotoStandbyPerActiveSlot)
         assertEquals(262144, SpeedPreset.AUTO.defaultBufferSizeBytes)
     }
 
@@ -139,17 +139,17 @@ class ProxyConfigTest {
         
         config.applyPreset(SpeedPreset.ECO)
         assertEquals(SpeedPreset.ECO.name, config.speedPresetName)
-        assertEquals(2, config.poolSize)
+        assertEquals(1, config.mtprotoStandbyPerActiveSlot)
         assertEquals(131072, config.bufferSizeBytes)
 
         config.applyPreset(SpeedPreset.TURBO)
         assertEquals(SpeedPreset.TURBO.name, config.speedPresetName)
-        assertEquals(8, config.poolSize)
+        assertEquals(3, config.mtprotoStandbyPerActiveSlot)
         assertEquals(1048576, config.bufferSizeBytes)
 
         config.applyPreset(SpeedPreset.ULTRA)
         assertEquals(SpeedPreset.ULTRA.name, config.speedPresetName)
-        assertEquals(16, config.poolSize)
+        assertEquals(4, config.mtprotoStandbyPerActiveSlot)
         assertEquals(2097152, config.bufferSizeBytes)
 
         config.applyPreset(SpeedPreset.AUTO)
@@ -158,7 +158,7 @@ class ProxyConfigTest {
 
         config.applyPreset(SpeedPreset.BALANCED)
         assertEquals(SpeedPreset.BALANCED.name, config.speedPresetName)
-        assertEquals(4, config.poolSize)
+        assertEquals(2, config.mtprotoStandbyPerActiveSlot)
         assertEquals(262144, config.bufferSizeBytes)
     }
 
@@ -253,8 +253,8 @@ class ProxyConfigTest {
         assertTrue(awg.contains("H2 = 2"))
         assertTrue(awg.contains("H3 = 3"))
         assertTrue(awg.contains("H4 = 4"))
-        assertTrue(awg.contains("I1 = <b 0x"))
-        assertTrue(awg.contains("Endpoint = 188.114.96.1:500"))
+        assertTrue(!awg.contains("I1 ="), "AWG config must NOT contain hallucinated I1")
+        assertTrue(awg.contains("Endpoint = 162.159.198.1:443"))
     }
 
     @Test
@@ -267,5 +267,3 @@ class ProxyConfigTest {
         assertTrue(workerCode.contains("OPTIONS"), "Worker code must handle OPTIONS CORS preflight")
     }
 }
-
-

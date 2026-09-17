@@ -87,4 +87,40 @@ class PredictivePreWarmTest {
         )
         assertFalse(result)
     }
+
+    @Test
+    fun testWarmupWsPoolOnUnstartedNativeProxyIsSafeNoOp() {
+        assertFalse(NativeProxy.isStarted)
+        org.junit.jupiter.api.assertDoesNotThrow { NativeProxy.warmupWsPool() }
+    }
+
+    @Test
+    fun testPredictivePreWarmDoesNotChangeGeneration() {
+        val config = ProxyConfig(bindHost = "127.0.0.1", bindPort = 19871)
+        val server = LocalProxyServer(config)
+        val initialGen = server.currentProfileGeneration.get()
+        server.predictivePreWarm("ACTION_USER_PRESENT")
+        org.junit.jupiter.api.Assertions.assertEquals(
+            initialGen,
+            server.currentProfileGeneration.get(),
+            "Predictive prewarm must not increment generation"
+        )
+    }
+
+    @Test
+    fun testPredictivePreWarmInSocks5ModeIsNoOp() {
+        val config = ProxyConfig(bindHost = "127.0.0.1", proxyModeName = ProxyMode.SOCKS5.name, socks5Port = 10808)
+        assertTrue(config.isSocks5Mode)
+        val server = LocalProxyServer(config)
+        val initialGen = server.currentProfileGeneration.get()
+        org.junit.jupiter.api.assertDoesNotThrow {
+            server.predictivePreWarm("ACTION_SCREEN_ON")
+        }
+        org.junit.jupiter.api.Assertions.assertEquals(
+            initialGen,
+            server.currentProfileGeneration.get(),
+            "SOCKS5 prewarm must be a safe no-op without generation change"
+        )
+    }
 }
+

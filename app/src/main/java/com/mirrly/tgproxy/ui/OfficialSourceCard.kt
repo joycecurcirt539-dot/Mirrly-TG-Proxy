@@ -1,4 +1,5 @@
 package com.mirrly.tgproxy.ui
+import androidx.compose.ui.res.stringResource
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -110,7 +111,7 @@ fun OfficialSourceCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = if (isUnofficial) "Неофициальная сборка" else "Официальная сборка Mirrly TG Proxy",
+                        text = if (isUnofficial) stringResource(R.string.official_source_unofficial_title) else stringResource(R.string.official_source_official_title),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextWhite
@@ -119,9 +120,9 @@ fun OfficialSourceCard(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = if (isUnofficial) {
-                        "Подпись приложения изменена. Будьте осторожны с несертифицированными модами."
+                        stringResource(R.string.official_source_unofficial_desc)
                     } else {
-                        "Оригинальный релиз с подтверждённым отпечатком подписи разработчика."
+                        stringResource(R.string.official_source_official_desc)
                     },
                     fontSize = 12.sp,
                     color = TextMuted,
@@ -163,7 +164,7 @@ fun OfficialSourceCard(
                         modifier = Modifier.size(15.dp)
                     )
                     Text(
-                        text = "Репозиторий",
+                        text = stringResource(R.string.official_source_btn_repo),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -188,7 +189,7 @@ fun OfficialSourceCard(
                     .height(38.dp)
             ) {
                 Text(
-                    text = "Проверить хеш",
+                    text = stringResource(R.string.official_source_btn_check_hash),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = statusColor
@@ -243,7 +244,7 @@ fun OfficialSourceCard(
                         border = BorderStroke(1.dp, themeColor.copy(alpha = 0.35f))
                     ) {
                         Text(
-                            text = "ПРОВЕРКА ПОДЛИННОСТИ",
+                            text = stringResource(R.string.official_source_dialog_category),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = themeColor,
@@ -254,7 +255,7 @@ fun OfficialSourceCard(
 
                     // Main Title
                     Text(
-                        text = "Безопасность и подпись",
+                        text = stringResource(R.string.official_source_dialog_title),
                         fontSize = 21.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextWhite,
@@ -271,9 +272,9 @@ fun OfficialSourceCard(
                     ) {
                         Text(
                             text = when (signatureStatus) {
-                                SignatureStatus.OFFICIAL_RELEASE -> "Официальная цифровая подпись Mirrly TG Proxy подтверждена. Данная сборка выпущена разработчиками в репозитории GitHub."
-                                SignatureStatus.DEBUG_BUILD -> "Отладочная версия (Debug). Приложение собрано в среде разработки с тестовым ключом."
-                                else -> "Цифровая подпись приложения верифицирована."
+                                SignatureStatus.OFFICIAL_RELEASE -> stringResource(R.string.official_source_sig_official)
+                                SignatureStatus.DEBUG_BUILD -> stringResource(R.string.official_source_sig_debug)
+                                else -> stringResource(R.string.official_source_sig_generic)
                             },
                             fontSize = 13.sp,
                             color = TextWhite.copy(alpha = 0.90f),
@@ -295,7 +296,7 @@ fun OfficialSourceCard(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "ОФИЦИАЛЬНЫЙ ОТПЕЧАТОК SHA-256",
+                                text = stringResource(R.string.official_source_dialog_fingerprint_title),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White.copy(alpha = 0.65f),
@@ -330,7 +331,7 @@ fun OfficialSourceCard(
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 val clip = ClipData.newPlainText("SHA256 Signature", currentSha256)
                                 clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Хеш подписи скопирован!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.official_source_hash_copied), Toast.LENGTH_SHORT).show()
                             } catch (_: Exception) {}
                         },
                         shape = RoundedCornerShape(16.dp),
@@ -343,7 +344,7 @@ fun OfficialSourceCard(
                             .height(48.dp)
                             .springPress()
                     ) {
-                        Text("Скопировать", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.action_copy_alt), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
 
                     Button(
@@ -362,7 +363,7 @@ fun OfficialSourceCard(
                             .height(48.dp)
                             .springPress()
                     ) {
-                        Text("Закрыть", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.action_close), fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

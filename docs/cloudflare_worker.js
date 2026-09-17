@@ -196,25 +196,200 @@ function parseVlessHeader(input, expectedUuid) {
   };
 }
 
+// Flow Control & Buffer Bounds (MOB-010)
+const MAX_WS_MESSAGE_BYTES = 256 * 1024;      // 256 KiB max incoming single WS message
+const MAX_PENDING_WRITE_BYTES = 4 * 1024 * 1024; // 4 MiB high watermark for uplink write buffer
+const UPLINK_LOW_WATERMARK = 1024 * 1024;      // 1 MiB low watermark
+const DOWNLINK_HIGH_WATERMARK = 512 * 1024;   // 512 KiB high watermark for downlink WS buffer
+const DOWNLINK_LOW_WATERMARK = 128 * 1024;    // 128 KiB low watermark
+const MAX_DOWNLINK_CHUNK = 32 * 1024;         // 32 KiB max chunk per WS frame
+const TCP_WRITE_TIMEOUT_MS = 10000;           // 10s write timeout before closing stalled socket
+const SLOW_READER_SOAK_TIMEOUT_MS = 30000;    // 30s slow-reader soak timeout
+
+/**
+ * Sequential FIFO Writer with Bounded Watermark and Write Timeout.
+ * Prevents heap growth on slow uplinks and guarantees strict byte order.
+ */
+function createBoundedSequentialWriter(tcpWriter, serverWs, onCleanup) {
+  let pendingWriteBytes = 0;
+  let isWriting = false;
+  let isStopped = false;
+  const writeQueue = [];
+
+  const pump = async () => {
+    if (isWriting || isStopped) return;
+    isWriting = true;
+    while (writeQueue.length > 0 && !isStopped) {
+      const item = writeQueue.shift();
+      let chunk;
+      try {
+        if (typeof Blob !== 'undefined' && item.raw instanceof Blob) {
+          const buf = await item.raw.arrayBuffer();
+          chunk = new Uint8Array(buf);
+        } else if (item.raw instanceof ArrayBuffer) {
+          chunk = new Uint8Array(item.raw);
+        } else if (ArrayBuffer.isView(item.raw)) {
+          chunk = new Uint8Array(item.raw.buffer, item.raw.byteOffset, item.raw.byteLength);
+        } else {
+          chunk = new Uint8Array(item.raw);
+        }
+      } catch (err) {
+        if (!isStopped) {
+          isStopped = true;
+          try { serverWs.close(1011, "Payload decode failure"); } catch (_) {}
+          onCleanup(1011, "Payload decode failure");
+        }
+        return;
+      }
+
+      let timer;
+      try {
+        const writePromise = tcpWriter.write(chunk);
+        const timeoutPromise = new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("TCP write timeout")), TCP_WRITE_TIMEOUT_MS);
+        });
+        await Promise.race([writePromise, timeoutPromise]);
+      } catch (err) {
+        if (!isStopped) {
+          isStopped = true;
+          try { serverWs.close(1011, "TCP write failure"); } catch (_) {}
+          onCleanup(1011, "TCP write failure");
+        }
+        return;
+      } finally {
+        if (timer) clearTimeout(timer);
+        pendingWriteBytes = Math.max(0, pendingWriteBytes - item.byteLength);
+      }
+    }
+    isWriting = false;
+  };
+
+  return {
+    enqueue(data) {
+      if (isStopped) return false;
+
+      let raw = data;
+      let byteLength = 0;
+      if (typeof Blob !== 'undefined' && raw instanceof Blob) {
+        byteLength = raw.size;
+      } else if (typeof raw === 'string') {
+        raw = new TextEncoder().encode(raw);
+        byteLength = raw.byteLength;
+      } else if (raw instanceof ArrayBuffer) {
+        byteLength = raw.byteLength;
+      } else if (ArrayBuffer.isView(raw)) {
+        byteLength = raw.byteLength;
+      } else if (raw && typeof raw.byteLength === 'number') {
+        byteLength = raw.byteLength;
+      }
+
+      if (byteLength > MAX_WS_MESSAGE_BYTES) {
+        isStopped = true;
+        try { serverWs.close(1009, "Message exceeds max size (256 KB)"); } catch (_) {}
+        onCleanup(1009, "Message exceeds max size (256 KB)");
+        return false;
+      }
+      if (pendingWriteBytes + byteLength > MAX_PENDING_WRITE_BYTES ||
+          pendingWriteBytes + data.byteLength > MAX_PENDING_WRITE_BYTES) {
+        isStopped = true;
+        try { serverWs.close(1009, "Uplink write buffer overflow (4 MB)"); } catch (_) {}
+        onCleanup(1009, "Uplink write buffer overflow (4 MB)");
+        return false;
+      }
+      pendingWriteBytes += byteLength;
+      writeQueue.push({ raw, byteLength });
+      pump();
+      return true;
+    },
+    stop() {
+      isStopped = true;
+      writeQueue.length = 0;
+      pendingWriteBytes = 0;
+    },
+    getPendingBytes() {
+      return pendingWriteBytes;
+    }
+  };
+}
+
+async function pumpTcpToWebSocket(tcpReader, serverWs, isClosedCheck, onCleanup) {
+  try {
+    while (true) {
+      if (isClosedCheck() || serverWs.readyState !== WebSocket.OPEN) break;
+
+      // Backpressure: pause TCP reading if WebSocket client is slow
+      if (typeof serverWs.bufferedAmount === 'number' && serverWs.bufferedAmount > DOWNLINK_HIGH_WATERMARK) {
+        const pauseStart = Date.now();
+        while (serverWs.bufferedAmount > DOWNLINK_LOW_WATERMARK) {
+          if (isClosedCheck() || serverWs.readyState !== WebSocket.OPEN) break;
+          if (Date.now() - pauseStart > SLOW_READER_SOAK_TIMEOUT_MS) {
+            try { serverWs.close(1008, "Downlink slow reader timeout"); } catch (_) {}
+            onCleanup();
+            return;
+          }
+          await new Promise(r => setTimeout(r, 25));
+        }
+      }
+
+      const { value, done } = await tcpReader.read();
+      if (done) break;
+
+      if (value && value.byteLength > 0 && serverWs.readyState === WebSocket.OPEN) {
+        if (value.byteLength > MAX_DOWNLINK_CHUNK) {
+          for (let offset = 0; offset < value.byteLength; offset += MAX_DOWNLINK_CHUNK) {
+            if (isClosedCheck() || serverWs.readyState !== WebSocket.OPEN) break;
+            if (typeof serverWs.bufferedAmount === 'number' && serverWs.bufferedAmount > DOWNLINK_HIGH_WATERMARK) {
+              const chunkPause = Date.now();
+              while (serverWs.bufferedAmount > DOWNLINK_LOW_WATERMARK) {
+                if (isClosedCheck() || serverWs.readyState !== WebSocket.OPEN) break;
+                if (Date.now() - chunkPause > SLOW_READER_SOAK_TIMEOUT_MS) {
+                  try { serverWs.close(1008, "Downlink slow reader timeout"); } catch (_) {}
+                  onCleanup();
+                  return;
+                }
+                await new Promise(r => setTimeout(r, 25));
+              }
+            }
+            const chunk = value.subarray(offset, Math.min(offset + MAX_DOWNLINK_CHUNK, value.byteLength));
+            serverWs.send(chunk);
+          }
+        } else {
+          serverWs.send(value);
+        }
+      }
+    }
+  } catch (_) {
+  } finally {
+    onCleanup();
+    try { serverWs.close(1000, "Upstream closed"); } catch (_) {}
+  }
+}
+
 async function handleVlessWebSocket(clientWs, serverWs, expectedUuid, earlyDataHeader) {
+  serverWs.binaryType = "arraybuffer";
   serverWs.accept();
 
   let tcpSocket = null;
   let tcpWriter = null;
   let tcpReader = null;
+  let writer = null;
   let isClosed = false;
-  let writeQueue = Promise.resolve();
 
-  const cleanup = () => {
+  const cleanup = (code = 1000, reason = "Normal Closure") => {
     if (isClosed) return;
     isClosed = true;
+    if (writer) writer.stop();
     try { if (tcpWriter) tcpWriter.close(); } catch (_) {}
     try { if (tcpSocket) tcpSocket.close(); } catch (_) {}
-    try { serverWs.close(); } catch (_) {}
+    try {
+      if (serverWs.readyState === 1 || serverWs.readyState === 0) {
+        serverWs.close(code, reason);
+      }
+    } catch (_) {}
   };
 
-  serverWs.addEventListener('close', cleanup);
-  serverWs.addEventListener('error', cleanup);
+  serverWs.addEventListener('close', () => cleanup(1000, "Client closed"));
+  serverWs.addEventListener('error', () => cleanup(1011, "WebSocket error"));
 
   const processFirstMessage = async (data) => {
     const parsed = parseVlessHeader(data, expectedUuid);
@@ -243,6 +418,13 @@ async function handleVlessWebSocket(clientWs, serverWs, expectedUuid, earlyDataH
       });
       tcpWriter = tcpSocket.writable.getWriter();
       tcpReader = tcpSocket.readable.getReader();
+      writer = createBoundedSequentialWriter(tcpWriter, serverWs, cleanup);
+
+      tcpSocket.closed.then(() => {
+        cleanup(1000, "Upstream closed");
+      }).catch(() => {
+        cleanup(1011, "Upstream TCP error");
+      });
     } catch (err) {
       serverWs.close(1011, "Connect failed: " + err.message);
       return;
@@ -253,33 +435,11 @@ async function handleVlessWebSocket(clientWs, serverWs, expectedUuid, earlyDataH
 
     // If there's initial payload in the first message, write it to TCP
     if (parsed.rawPayload && parsed.rawPayload.byteLength > 0) {
-      writeQueue = writeQueue.then(async () => {
-        if (isClosed || !tcpWriter) return;
-        await tcpWriter.write(parsed.rawPayload);
-      });
+      writer.enqueue(parsed.rawPayload);
     }
 
-    // Start reading from TCP and piping to WebSocket
-    (async () => {
-      try {
-        while (true) {
-          const { value, done } = await tcpReader.read();
-          if (done) break;
-          if (value && serverWs.readyState === WebSocket.OPEN) {
-            if (value.byteLength > 65536) {
-              for (let offset = 0; offset < value.byteLength; offset += 65536) {
-                serverWs.send(value.subarray(offset, offset + 65536));
-              }
-            } else {
-              serverWs.send(value);
-            }
-          }
-        }
-      } catch (_) {
-      } finally {
-        cleanup();
-      }
-    })();
+    // Start reading from TCP and piping to WebSocket with backpressure
+    pumpTcpToWebSocket(tcpReader, serverWs, () => isClosed, cleanup);
   };
 
   // Check and extract 0-RTT early data from Sec-WebSocket-Protocol header
@@ -306,37 +466,34 @@ async function handleVlessWebSocket(clientWs, serverWs, expectedUuid, earlyDataH
       await initPromise;
       if (isClosed) return;
 
-      const raw = event.data;
-      const data = typeof raw === 'string' ? new TextEncoder().encode(raw) : new Uint8Array(raw);
-
       if (isFirstMessage) {
         isFirstMessage = false;
+        let raw = event.data;
+        let data;
+        if (typeof Blob !== 'undefined' && raw instanceof Blob) {
+          const buf = await raw.arrayBuffer();
+          data = new Uint8Array(buf);
+        } else if (typeof raw === 'string') {
+          data = new TextEncoder().encode(raw);
+        } else if (raw instanceof ArrayBuffer) {
+          data = new Uint8Array(raw);
+        } else if (ArrayBuffer.isView(raw)) {
+          data = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+        } else {
+          data = new Uint8Array(raw);
+        }
         await processFirstMessage(data);
-        return;
+      } else {
+        writer.enqueue(event.data);
       }
-
-      // Subsequent messages are raw TCP payload
-      writeQueue = writeQueue.then(async () => {
-        if (isClosed || !tcpWriter) return;
-        await tcpWriter.write(data);
-      }).catch((_) => {
-        cleanup();
-      });
-
     } catch (_) {
-      cleanup();
+      cleanup(1011, "Message processing error");
     }
   });
 
-  const respHeaders = new Headers();
-  if (earlyDataHeader) {
-    respHeaders.set('Sec-WebSocket-Protocol', earlyDataHeader);
-  }
-
   return new Response(null, {
     status: 101,
-    webSocket: clientWs,
-    headers: respHeaders
+    webSocket: clientWs
   });
 }
 
@@ -393,6 +550,11 @@ export default {
 
           if (!targetPath.startsWith('/')) {
             targetPath = '/' + targetPath;
+          }
+
+          targetPath = targetPath.replace(/^\/v0a\d+/, '');
+          if (!targetPath || targetPath === '/') {
+            targetPath = '/reg';
           }
 
           const cfUrl = `https://api.cloudflareclient.com/v0a4471${targetPath}${url.search}`;
@@ -454,7 +616,8 @@ export default {
           security: "Protected Telegram Relay (Allowlist Enforced)",
           protocols: [
             "VLESS over WebSocket (TLS 1.3)",
-            "TCP over WebSocket (Legacy)",
+            "TCP over WebSocket (v2 with Relay-Ready ACK)",
+            "TCP over WebSocket (Legacy /tcp)",
             "Telegram MTProto",
             "Telegram SOCKS5",
             "Telegram VoIP Calls"
@@ -536,47 +699,70 @@ export default {
       return new Response("Forbidden: Destination host not allowed", { status: 403 });
     }
 
-    const webSocketPair = new WebSocketPair();
-    const [clientWs, serverWs] = Object.values(webSocketPair);
-    serverWs.accept();
-
+    let tcpSocket;
     try {
-      const tcpSocket = connect({
+      tcpSocket = connect({
         hostname: targetHost,
         port: targetPort
       });
+      let openTimer;
+      try {
+        await Promise.race([
+          tcpSocket.opened,
+          new Promise((_, reject) => {
+            openTimer = setTimeout(() => reject(new Error("TCP connect timeout")), 2200);
+          })
+        ]);
+      } finally {
+        if (openTimer !== undefined) clearTimeout(openTimer);
+      }
+    } catch (err) {
+      try { tcpSocket?.close(); } catch (_) {}
+      return new Response("Upstream TCP connect failed", { status: 502 });
+    }
 
+    // Do not complete the WebSocket upgrade until Cloudflare has confirmed the
+    // upstream TCP connection. This makes SOCKS5 REP=success truthful end-to-end.
+    const isTcpV2 = url.pathname === '/tcp-v2' || url.pathname.startsWith('/tcp-v2');
+    const webSocketPair = new WebSocketPair();
+    const [clientWs, serverWs] = Object.values(webSocketPair);
+    serverWs.binaryType = "arraybuffer";
+    serverWs.accept();
+
+    if (isTcpV2) {
+      // 4-byte versioned control ACK: [0x56 ('V'), 0x02, 0x00 (OK), 0x00 (reserved)]
+      try {
+        serverWs.send(new Uint8Array([0x56, 0x02, 0x00, 0x00]));
+      } catch (_) {
+        try { serverWs.close(1011, "Failed to emit relay-ready control ACK"); } catch (_) {}
+        try { tcpSocket.close(); } catch (_) {}
+        return new Response(null, { status: 101, webSocket: clientWs });
+      }
+    }
+
+    try {
       const tcpWriter = tcpSocket.writable.getWriter();
       const tcpReader = tcpSocket.readable.getReader();
-
-      let writeQueue = Promise.resolve();
       let isClosed = false;
 
       const cleanup = () => {
         if (isClosed) return;
         isClosed = true;
+        writer.stop();
         try { tcpWriter.close(); } catch (_) {}
         try { tcpSocket.close(); } catch (_) {}
       };
+
+      const writer = createBoundedSequentialWriter(tcpWriter, serverWs, cleanup);
 
       serverWs.addEventListener('message', (event) => {
         if (isClosed) return;
         try {
           const raw = event.data;
           const data = typeof raw === 'string' ? new TextEncoder().encode(raw) : new Uint8Array(raw);
-          writeQueue = writeQueue.then(async () => {
-            if (isClosed) return;
-            await tcpWriter.write(data);
-          }).catch((_) => {
-            if (!isClosed) {
-              isClosed = true;
-              try { serverWs.close(1011, "TCP Write Error"); } catch (_) {}
-              cleanup();
-            }
-          });
+          writer.enqueue(data);
         } catch (_) {
           if (!isClosed) {
-            isClosed = true;
             try { serverWs.close(1011, "TCP Write Error"); } catch (_) {}
             cleanup();
           }
@@ -586,27 +772,19 @@ export default {
       serverWs.addEventListener('close', cleanup);
       serverWs.addEventListener('error', cleanup);
 
-      (async () => {
-        try {
-          while (true) {
-            const { value, done } = await tcpReader.read();
-            if (done) break;
-            if (value && serverWs.readyState === WebSocket.OPEN) {
-              if (value.byteLength > 65536) {
-                for (let offset = 0; offset < value.byteLength; offset += 65536) {
-                  serverWs.send(value.subarray(offset, offset + 65536));
-                }
-              } else {
-                serverWs.send(value);
-              }
-            }
-          }
-        } catch (_) {
-        } finally {
+      tcpSocket.closed.then(() => {
+        if (!isClosed) {
+          try { serverWs.close(1000, "Upstream closed"); } catch (_) {}
           cleanup();
-          try { serverWs.close(); } catch (_) {}
         }
-      })();
+      }).catch(() => {
+        if (!isClosed) {
+          try { serverWs.close(1011, "Upstream TCP error"); } catch (_) {}
+          cleanup();
+        }
+      });
+
+      pumpTcpToWebSocket(tcpReader, serverWs, () => isClosed, cleanup);
 
     } catch (err) {
       serverWs.close(1011, "Connect failed: " + err.message);

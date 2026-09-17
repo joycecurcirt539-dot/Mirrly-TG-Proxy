@@ -23,6 +23,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.util.findActivity
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
@@ -49,6 +50,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +81,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -113,18 +116,22 @@ enum class ProxyUiState {
 @Immutable
 data class ProxyLiveTelemetry(
     val isRunning: Boolean = false,
-    val dlSpeed: String = "0 Б/с",
-    val ulSpeed: String = "0 Б/с",
+    val dlSpeed: String = "0 B/s",
+    val ulSpeed: String = "0 B/s",
     val activeConns: Int = 0,
-    val totalRecv: String = "0 Б",
-    val totalSent: String = "0 Б",
+    val totalRecv: String = "0 B",
+    val totalSent: String = "0 B",
     val uptimeSeconds: Long = 0L,
     val pingMs: Long = -1L,
     val jitterMs: Long = 0L,
     val healthScore: Int = 100,
-    val healthVerdict: String = "Идеальный канал связи",
-    val healthDetail: String = "Минимальная задержка и стабильный прямой WSS-туннель",
-    val healthSuccessRate: Int = 100
+    val healthVerdict: String = "Optimal Connection",
+    val healthDetail: String = "Minimal latency and stable direct WSS tunnel",
+    val healthSuccessRate: Int = 100,
+    val effectiveRoute: String = "",
+    val operator: String = "",
+    val isTrustBoundaryMaintained: Boolean = true,
+    val isPrivateNode: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -138,8 +145,12 @@ fun HomeScreen(
     onOpenWorkerManager: () -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
     onOpenSpeedTest: () -> Unit = {},
+    onOpenVpnMode: () -> Unit = {},
     onDragWorkerManager: (Float) -> Unit = {},
     onSettleWorkerManager: (Float) -> Unit = {},
+    isVpnTabActive: Boolean = false,
+    onVpnTabChange: (Boolean) -> Unit = {},
+    onOpenTelegramChannel: () -> Unit = {},
     isInteractive: Boolean = true
 ) {
     val context = LocalContext.current
@@ -153,6 +164,41 @@ fun HomeScreen(
     val activeWorkerId by app.prefsManager.activeWorkerIdFlow.collectAsState()
     val activeWorker = remember(activeWorkerId) { app.prefsManager.getActiveWorker(activeWorkerId) }
     val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+    val systemVpnColors = remember { com.mirrly.tgproxy.ui.theme.VpnThemeManager.getSystemVpnPalette(context) }
+
+    var activeTab by rememberSaveable {
+        mutableStateOf(
+            if (isVpnTabActive) HomeScreenTab.VPN
+            else if (isSocks5) HomeScreenTab.SOCKS5
+            else HomeScreenTab.MTPROTO
+        )
+    }
+    var showVpnInDevDialog by remember { mutableStateOf(false) }
+
+    val vpnState by com.mirrly.tgproxy.service.MirrlyVpnService.vpnState.collectAsState()
+    val vpnLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            com.mirrly.tgproxy.service.MirrlyVpnService.start(context)
+        } else {
+            Toast.makeText(context, context.getString(R.string.vpn_permission_denied), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(isVpnTabActive) {
+        if (isVpnTabActive && activeTab != HomeScreenTab.VPN) {
+            activeTab = HomeScreenTab.VPN
+        } else if (!isVpnTabActive && activeTab == HomeScreenTab.VPN) {
+            activeTab = if (isSocks5) HomeScreenTab.SOCKS5 else HomeScreenTab.MTPROTO
+        }
+    }
+
+    LaunchedEffect(isSocks5) {
+        if (activeTab != HomeScreenTab.VPN) {
+            activeTab = if (isSocks5) HomeScreenTab.SOCKS5 else HomeScreenTab.MTPROTO
+        }
+    }
 
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     var isAppResumed by remember { mutableStateOf(true) }
@@ -183,6 +229,9 @@ fun HomeScreen(
     val isSwitching by com.mirrly.tgproxy.service.ProtocolSwitchManager.isSwitching.collectAsState()
     val switchPhase by com.mirrly.tgproxy.service.ProtocolSwitchManager.switchPhase.collectAsState()
     val wasProxyRunningDuringSwitch by com.mirrly.tgproxy.service.ProtocolSwitchManager.wasProxyRunningDuringSwitch.collectAsState()
+    val preflightStage by com.mirrly.tgproxy.service.PreflightDiagnosticsEngine.preflightStage.collectAsState()
+    val preflightMessage by com.mirrly.tgproxy.service.PreflightDiagnosticsEngine.preflightStatusMessage.collectAsState()
+    val warpProfilerPhase by com.mirrly.tgproxy.core.WarpPipelineProfiler.currentPhase.collectAsState()
 
     // ── GROUPED IMMUTABLE TELEMETRY WITH DISTINCT-UNTIL-CHANGED ──
     val telemetry: ProxyLiveTelemetry by remember(isAppResumed) {
@@ -191,29 +240,37 @@ fun HomeScreen(
                 val running = server.isRunning
                 val uptime = server.uptimeSeconds
                 val currPing = server.currentPingMs
-                var dl = "0 Б/с"
-                var ul = "0 Б/с"
+                var dl = context.getString(R.string.telemetry_speed_zero)
+                var ul = context.getString(R.string.telemetry_speed_zero)
                 var conns = 0
-                var recv = "0 Б"
-                var sent = "0 Б"
+                var recv = context.getString(R.string.telemetry_bytes_zero)
+                var sent = context.getString(R.string.telemetry_bytes_zero)
                 var jitter = 0L
                 var healthScore = 100
-                var healthVerdict = "Идеальный канал связи"
-                var healthDetail = "Минимальная задержка и стабильный прямой WSS-туннель"
+                var healthVerdict = context.getString(R.string.verdict_ideal_channel)
+                var healthDetail = context.getString(R.string.verdict_ideal_channel_desc)
                 var successRate = 100
+                var effRoute = ""
+                var op = ""
+                var trustOk = true
+                var isPriv = false
 
                 if (running) {
                     val stats = server.stats
-                    dl = "${humanBytes(stats.downloadSpeedBps)}/с"
-                    ul = "${humanBytes(stats.uploadSpeedBps)}/с"
+                    dl = context.getString(R.string.telemetry_speed_format, humanBytes(stats.downloadSpeedBps))
+                    ul = context.getString(R.string.telemetry_speed_format, humanBytes(stats.uploadSpeedBps))
                     conns = stats.activeConnections.get()
                     recv = humanBytes(stats.totalBytesReceived.get())
                     sent = humanBytes(stats.totalBytesSent.get())
                     jitter = stats.jitterMs
                     healthScore = stats.healthScore
-                    healthVerdict = stats.healthVerdict
-                    healthDetail = stats.healthDetail
+                    healthVerdict = ConnectionHealthFormatter.formatVerdict(context, stats.healthVerdict)
+                    healthDetail = ConnectionHealthFormatter.formatDetail(context, stats.healthDetail)
                     successRate = stats.healthSuccessRate
+                    effRoute = stats.activeEffectiveRoute
+                    op = stats.activeOperator
+                    trustOk = stats.isTrustBoundaryMaintained
+                    isPriv = stats.isPrivateNode
                 }
 
                 emit(
@@ -230,7 +287,11 @@ fun HomeScreen(
                         healthScore = healthScore,
                         healthVerdict = healthVerdict,
                         healthDetail = healthDetail,
-                        healthSuccessRate = successRate
+                        healthSuccessRate = successRate,
+                        effectiveRoute = effRoute,
+                        operator = op,
+                        isTrustBoundaryMaintained = trustOk,
+                        isPrivateNode = isPriv
                     )
                 )
                 delay(500)
@@ -261,10 +322,10 @@ fun HomeScreen(
     var showConnectDialog by remember { mutableStateOf(false) }
     var showSocks5AuthRequiredDialog by remember { mutableStateOf(false) }
 
-    // Safety timeout to prevent stuck connecting/disconnecting UI
+    // Safety timeout to prevent stuck connecting/disconnecting UI (accommodates pre-flight phase)
     LaunchedEffect(pendingState) {
         if (pendingState != null) {
-            delay(3500)
+            delay(5500)
             pendingState = null
         }
     }
@@ -292,7 +353,7 @@ fun HomeScreen(
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 // =========================================================================
-                // УРОВЕНЬ 1: Верхняя строка (~38-40 dp, verticalAlignment = CenterVertically)
+                // LEVEL 1: Top row (~38-40 dp, verticalAlignment = CenterVertically)
                 // =========================================================================
                 Box(
                     modifier = Modifier
@@ -306,7 +367,7 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(1.dp),
                         modifier = Modifier.align(Alignment.CenterStart)
                     ) {
-                        // 1. Logs (Диагностика)
+                        // 1. Logs (Diagnostics)
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -316,13 +377,13 @@ fun HomeScreen(
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_logs),
-                                contentDescription = "Логи",
+                                contentDescription = stringResource(R.string.content_desc_logs),
                                 tint = TextWhite,
                                 modifier = Modifier.size(19.dp)
                             )
                         }
 
-                        // 2. Session History (Статистика сессий)
+                        // 2. Session History (Statistics sessions)
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -332,13 +393,13 @@ fun HomeScreen(
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_history),
-                                contentDescription = "История сессий",
+                                contentDescription = stringResource(R.string.content_desc_session_history),
                                 tint = TextWhite,
                                 modifier = Modifier.size(19.dp)
                             )
                         }
 
-                        // 3. Sleep Timer (Управление временем сессии)
+                        // 3. Sleep Timer (Management time note)
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -349,7 +410,7 @@ fun HomeScreen(
                             Box(contentAlignment = Alignment.TopEnd) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_timer),
-                                    contentDescription = "Таймер сна",
+                                    contentDescription = stringResource(R.string.content_desc_sleep_timer),
                                     tint = if (timerState.isActive) protoColors.primary else TextWhite,
                                     modifier = Modifier.size(19.dp)
                                 )
@@ -365,7 +426,7 @@ fun HomeScreen(
                         }
                     }
 
-                    // Строго по центру: заголовок «Mirrly» (на той же высоте и горизонтальной оси, что и иконки)
+                    // Strictly by center: title «Mirrly» (to same  height and horizontal axis, as and icons)
                     Text(
                         text = "Mirrly",
                         color = TextWhite,
@@ -382,7 +443,7 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(1.dp),
                         modifier = Modifier.align(Alignment.CenterEnd)
                     ) {
-                        // 1. Update Center (Обновления приложения)
+                        // 1. Update Center (note note)
                         val hasUpdate = updateInfo?.isUpdateAvailable == true
                         IconButton(
                             onClick = {
@@ -394,7 +455,7 @@ fun HomeScreen(
                             Box(contentAlignment = Alignment.TopEnd) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_refresh),
-                                    contentDescription = "Обновления",
+                                    contentDescription = stringResource(R.string.content_desc_updates),
                                     tint = if (hasUpdate) Color(0xFFFFB703) else TextWhite,
                                     modifier = Modifier.size(19.dp)
                                 )
@@ -409,7 +470,7 @@ fun HomeScreen(
                             }
                         }
 
-                        // 6. Settings (Настройки)
+                        // 6. Settings (note)
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -419,7 +480,7 @@ fun HomeScreen(
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_settings),
-                                contentDescription = "Настройки",
+                                contentDescription = stringResource(R.string.action_settings),
                                 tint = TextWhite,
                                 modifier = Modifier.size(19.dp)
                             )
@@ -427,15 +488,26 @@ fun HomeScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
+
+                TelegramChannelCapsuleButton(
+                    onClick = onOpenTelegramChannel
+                )
+
+                Spacer(modifier = Modifier.height(3.dp))
 
                 // =========================================================================
-                // УРОВЕНЬ 2: Нижний подуровень шапки (Таблетка MTProto | SOCKS5 + Бейдж воркера)
+                // LEVEL 2: note note note (note MTProto | SOCKS5 | VPN + note)
                 // =========================================================================
                 ProtocolSwitcherHeader(
-                    isSocks5 = isSocks5,
+                    currentTab = activeTab,
+                    onSelectTab = { newTab ->
+                        activeTab = newTab
+                        onVpnTabChange(newTab == HomeScreenTab.VPN)
+                    },
                     activeWorker = activeWorker,
                     protoColors = protoColors,
+                    vpnColors = systemVpnColors,
                     isSwitching = isSwitching,
                     onSwitchProtocol = { target ->
                         switchProtocol(target)
@@ -444,7 +516,8 @@ fun HomeScreen(
                     uplinkMode = uplinkMode,
                     warpProfile = warpProfile,
                     vlessUuid = vlessUuid,
-                    onOpenUplinkState = { showUplinkStateDialog = true }
+                    onOpenUplinkState = { showUplinkStateDialog = true },
+                    onOpenVpnInfo = { showVpnInDevDialog = true }
                 )
             }
         },
@@ -505,11 +578,12 @@ fun HomeScreen(
             }
             val powerIconSize = ringSize * (155f / 220f)
 
-            var showDonationBanner by remember {
-                mutableStateOf(com.mirrly.tgproxy.service.DonationManager.shouldShowDonationBanner(context))
+            val testBanner = context.findActivity<MainActivity>()?.testBannerState?.value
+            var showDonationBanner by remember(testBanner) {
+                mutableStateOf(testBanner == "donation" || com.mirrly.tgproxy.service.DonationManager.shouldShowDonationBanner(context))
             }
-            var showValueBanner by remember {
-                mutableStateOf(com.mirrly.tgproxy.service.ValueTriggerManager.shouldShowValueBanner(context))
+            var showValueBanner by remember(testBanner) {
+                mutableStateOf(testBanner == "star_banner" || com.mirrly.tgproxy.service.ValueTriggerManager.shouldShowValueBanner(context))
             }
 
             LaunchedEffect(Unit) {
@@ -603,13 +677,13 @@ fun HomeScreen(
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         Text(
-                                            text = "Обновление v${info.versionName}",
+                                            text = stringResource(R.string.banner_update_title, info.versionName),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 12.sp,
                                             color = updateYellow
                                         )
                                         Text(
-                                            text = "• Установить",
+                                            text = stringResource(R.string.banner_update_install),
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Medium,
                                             color = TextWhite.copy(alpha = 0.80f)
@@ -625,7 +699,7 @@ fun HomeScreen(
                                         onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             com.mirrly.tgproxy.service.UpdateManager.ignoreVersion(context, info.versionName)
-                                            Toast.makeText(context, "Обновление v${info.versionName} скрыто", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, context.getString(R.string.banner_update_dismissed, info.versionName), Toast.LENGTH_SHORT).show()
                                         },
                                         modifier = Modifier.size(24.dp)
                                     ) {
@@ -693,6 +767,20 @@ fun HomeScreen(
                                 interactionSource = powerInteractionSource,
                                 indication = null
                             ) {
+                                if (activeTab == HomeScreenTab.VPN) {
+                                    HapticHelper.performTapClick(context)
+                                    if (vpnState == VpnUiState.CONNECTED || vpnState == VpnUiState.CONNECTING) {
+                                        com.mirrly.tgproxy.service.MirrlyVpnService.stop(context)
+                                    } else {
+                                        val prepareIntent = com.mirrly.tgproxy.service.MirrlyVpnService.prepare(context)
+                                        if (prepareIntent != null) {
+                                            vpnLauncher.launch(prepareIntent)
+                                        } else {
+                                            com.mirrly.tgproxy.service.MirrlyVpnService.start(context)
+                                        }
+                                    }
+                                    return@clickable
+                                }
                                 if (pendingState != null || isSwitching) return@clickable
                                 val now = System.currentTimeMillis()
                                 if (now - lastPowerClickMs < 450L) return@clickable
@@ -720,22 +808,36 @@ fun HomeScreen(
                                     }
                                 } catch (e: Exception) {
                                     pendingState = null
-                                    AppLogger.e("HomeScreen", "Ошибка переключения службы прокси: ${e.message}")
+                                    AppLogger.e("HomeScreen", "Proxy service switch error: ${e.message}")
                                 }
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        RotatingProxyRing(
-                            state = currentState,
-                            isSocks5 = isSocks5,
-                            modifier = Modifier.size(ringSize)
-                        )
+                        if (activeTab == HomeScreenTab.VPN) {
+                            RotatingVpnRing(
+                                vpnColors = systemVpnColors,
+                                state = vpnState,
+                                modifier = Modifier.size(ringSize)
+                            )
 
-                        AnimatedWarpGlider(
-                            state = currentState,
-                            isSocks5 = isSocks5,
-                            modifier = Modifier.size(powerIconSize)
-                        )
+                            AnimatedVpnShield(
+                                vpnColors = systemVpnColors,
+                                state = vpnState,
+                                modifier = Modifier.size(powerIconSize)
+                            )
+                        } else {
+                            RotatingProxyRing(
+                                state = currentState,
+                                isSocks5 = isSocks5,
+                                modifier = Modifier.size(ringSize)
+                            )
+
+                            AnimatedWarpGlider(
+                                state = currentState,
+                                isSocks5 = isSocks5,
+                                modifier = Modifier.size(powerIconSize)
+                            )
+                        }
                     }
                 }
 
@@ -751,8 +853,118 @@ fun HomeScreen(
                         ),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // SOCKS5 Uplink / Worker Info Notice (Smooth expanding/shrinking from center with staggered delay)
-                    AnimatedVisibility(
+                    if (activeTab == HomeScreenTab.VPN) {
+                        // ─── VPN MODE DASHBOARD (AMOLED Transparent) ───
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        ) {
+                            Surface(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (vpnState == VpnUiState.CONNECTED || vpnState == VpnUiState.CONNECTING) {
+                                        com.mirrly.tgproxy.service.MirrlyVpnService.stop(context)
+                                    } else {
+                                        val prepareIntent = com.mirrly.tgproxy.service.MirrlyVpnService.prepare(context)
+                                        if (prepareIntent != null) {
+                                            vpnLauncher.launch(prepareIntent)
+                                        } else {
+                                            com.mirrly.tgproxy.service.MirrlyVpnService.start(context)
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, if (vpnState == VpnUiState.CONNECTED) systemVpnColors.primary.copy(alpha = 0.40f) else AmoledBorder),
+                                modifier = Modifier.springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (vpnState == VpnUiState.CONNECTED || vpnState == VpnUiState.CONNECTING) {
+                                        com.mirrly.tgproxy.service.MirrlyVpnService.stop(context)
+                                    } else {
+                                        val prepareIntent = com.mirrly.tgproxy.service.MirrlyVpnService.prepare(context)
+                                        if (prepareIntent != null) {
+                                            vpnLauncher.launch(prepareIntent)
+                                        } else {
+                                            com.mirrly.tgproxy.service.MirrlyVpnService.start(context)
+                                        }
+                                    }
+                                })
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = when (vpnState) {
+                                            VpnUiState.CONNECTED -> systemVpnColors.primary
+                                            VpnUiState.CONNECTING, VpnUiState.DISCONNECTING -> Color(0xFFFF9E00)
+                                            VpnUiState.DISCONNECTED -> Color(0xFF353C4F)
+                                        },
+                                        modifier = Modifier.size(6.dp)
+                                    ) {}
+
+                                    Text(
+                                        text = when (vpnState) {
+                                            VpnUiState.CONNECTED -> stringResource(R.string.status_vpn_enabled)
+                                            VpnUiState.CONNECTING -> stringResource(R.string.status_vpn_connecting)
+                                            VpnUiState.DISCONNECTING -> stringResource(R.string.status_vpn_disconnecting)
+                                            VpnUiState.DISCONNECTED -> stringResource(R.string.status_vpn_disabled)
+                                        },
+                                        color = if (vpnState == VpnUiState.CONNECTED) TextWhite else TextMuted,
+                                        fontSize = if (isCompactHeight) 13.5.sp else 14.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 1.1.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = if (vpnState == VpnUiState.CONNECTED) stringResource(R.string.status_vpn_system_connected_desc) else stringResource(R.string.status_vpn_system_mode_desc),
+                            color = TextMuted,
+                            fontSize = if (isCompactHeight) 11.sp else 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    showVpnInDevDialog = true
+                                }
+                        )
+
+                        Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
+
+                        VpnInfoWidget(
+                            isCompact = isCompactHeight,
+                            vpnState = vpnState,
+                            vpnColors = systemVpnColors,
+                            onTap = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showVpnInDevDialog = true
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
+
+                        VpnActionDock(
+                            onTapProtocol = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showVpnInDevDialog = true
+                            },
+                            onTapKillSwitch = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showVpnInDevDialog = true
+                            }
+                        )
+                    } else {
+                        // SOCKS5 Uplink / Worker Info Notice (Smooth expanding/shrinking from center with staggered delay)
+                        AnimatedVisibility(
                         visible = isUplinkNoticeVisible && shouldShowUplinkNotice,
                         enter = scaleIn(
                             initialScale = 0.92f,
@@ -796,7 +1008,7 @@ fun HomeScreen(
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
                                     Text(
-                                        text = if (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE) "WARP MASQUE: Требуется регистрация" else "Гибридный режим: Требуется WARP",
+                                        text = if (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE) stringResource(R.string.warp_masque_registration_needed) else stringResource(R.string.warp_hybrid_registration_needed),
                                         color = Color(0xFFFF9E00),
                                         fontSize = if (isCompactHeight) 10.5.sp else 11.5.sp,
                                         fontWeight = FontWeight.Bold,
@@ -804,7 +1016,7 @@ fun HomeScreen(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Нажмите для перехода в Настройки и создания профиля",
+                                        text = stringResource(R.string.warp_tap_settings_create_profile),
                                         color = Color(0xFFFFB74D).copy(alpha = 0.70f),
                                         fontSize = if (isCompactHeight) 9.5.sp else 10.5.sp,
                                         textAlign = TextAlign.Center
@@ -830,7 +1042,7 @@ fun HomeScreen(
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
                                     Text(
-                                        text = "${activeWorker.name} (Общий пул)",
+                                        text = stringResource(R.string.worker_shared_pool_badge, activeWorker.name),
                                         color = Color(0xFFFF9E00).copy(alpha = 0.85f),
                                         fontSize = if (isCompactHeight) 10.5.sp else 11.5.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -839,7 +1051,7 @@ fun HomeScreen(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Лимит запросов может исчерпаться. Выберите другой воркер в менеджере или разверните личный.",
+                                        text = stringResource(R.string.worker_shared_pool_warning),
                                         color = Color(0xFFFFB74D).copy(alpha = 0.60f),
                                         fontSize = if (isCompactHeight) 9.5.sp else 10.5.sp,
                                         fontFamily = FontFamily.Monospace,
@@ -904,8 +1116,17 @@ fun HomeScreen(
                                 // Uptime Connection Duration
                                 val statusText = when (currentState) {
                                     ProxyUiState.CONNECTED -> formatUptime(telemetry.uptimeSeconds)
-                                    ProxyUiState.CONNECTING -> "ПОДКЛЮЧЕНИЕ..."
-                                    ProxyUiState.DISCONNECTING -> "ОТКЛЮЧЕНИЕ..."
+                                    ProxyUiState.CONNECTING -> {
+                                        if (preflightStage == com.mirrly.tgproxy.service.PreflightStage.OPTIMIZING_ROUTE ||
+                                            preflightStage == com.mirrly.tgproxy.service.PreflightStage.VALIDATING_DNS ||
+                                            preflightStage == com.mirrly.tgproxy.service.PreflightStage.PROBING_CANDIDATES
+                                        ) {
+                                            stringResource(R.string.status_optimizing_route)
+                                        } else {
+                                            stringResource(R.string.status_connecting_caps)
+                                        }
+                                    }
+                                    ProxyUiState.DISCONNECTING -> stringResource(R.string.status_disconnecting_caps)
                                     ProxyUiState.DISCONNECTED -> "00:00:00"
                                 }
                                 RollingNumberText(
@@ -952,65 +1173,91 @@ fun HomeScreen(
                     // User-friendly Status line (Reflects active protocol and uplink mode)
                     val statusSubtitle = when (currentState) {
                         ProxyUiState.CONNECTED -> {
-                            if (telemetry.healthVerdict.contains("Ожидание сети", ignoreCase = true) || (telemetry.healthScore == 0 && telemetry.pingMs < 0)) {
-                                "Ожидание сети • Офлайн"
+                            if (telemetry.healthVerdict.contains(stringResource(R.string.status_waiting_network), ignoreCase = true) || telemetry.healthVerdict.contains("Waiting for network", ignoreCase = true) || (telemetry.healthScore == 0 && telemetry.pingMs < 0)) {
+                                stringResource(R.string.status_offline)
                             } else if (!isSocks5) {
                                 if (app.config.cfProxyEnabled) {
-                                    "MTProto Anycast Flowseal • Защищено"
+                                    stringResource(R.string.uplink_mtproto_flowseal_secured)
                                 } else {
-                                    "MTProto Direct (Fake-TLS) • Защищено"
+                                    stringResource(R.string.uplink_mtproto_direct_secured)
                                 }
                             } else {
-                                when (uplinkMode) {
-                                    com.mirrly.tgproxy.core.UplinkMode.WORKER -> {
-                                        "Cloudflare WSS (${activeWorker.name}) • Защищено"
+                                if (telemetry.effectiveRoute.isNotBlank()) {
+                                    com.mirrly.tgproxy.core.ProxyDisplayLabels.homeStatusLabel(
+                                        effectiveRoute = telemetry.effectiveRoute,
+                                        operator = telemetry.operator,
+                                        isTrustBoundaryMaintained = telemetry.isTrustBoundaryMaintained,
+                                        configuredWorker = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WORKER,
+                                        securedLabel = stringResource(R.string.status_secured),
+                                        publicFallbackLabel = stringResource(R.string.status_public_fallback)
+                                    )
+                                } else {
+                                    when (uplinkMode) {
+                                        com.mirrly.tgproxy.core.UplinkMode.WORKER -> {
+                                        stringResource(R.string.uplink_cf_wss_secured)
                                     }
                                     com.mirrly.tgproxy.core.UplinkMode.MASQUE -> {
                                         val ip = warpProfile?.clientIpv4?.ifEmpty { "Anycast" } ?: "Anycast"
-                                        "WARP MASQUE ($ip) • Защищено"
+                                        stringResource(R.string.uplink_warp_masque_secured, ip)
                                     }
                                     com.mirrly.tgproxy.core.UplinkMode.VLESS -> {
-                                        "VLESS over WSS (TLS 1.3 Chrome) • Защищено"
+                                        stringResource(R.string.uplink_vless_secured)
                                     }
                                     com.mirrly.tgproxy.core.UplinkMode.HYBRID -> {
-                                        "Гибрид Worker (${activeWorker.name}) + WARP • Защищено"
+                                        stringResource(R.string.uplink_hybrid_secured, activeWorker.name)
                                     }
                                     com.mirrly.tgproxy.core.UplinkMode.AWG -> {
-                                        "AmneziaWG (WARP Anycast) • Защищено"
+                                        stringResource(R.string.uplink_amnezia_secured)
                                     }
                                     com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> {
-                                        "WARP Cascade (Worker + AWG) • Защищено"
+                                        stringResource(R.string.uplink_warp_cascade_secured)
                                     }
+                                }
                                 }
                             }
                         }
                         ProxyUiState.CONNECTING -> {
-                            if (!isSocks5) {
-                                "Подключение к Telegram (MTProto)..."
+                            val phase = warpProfilerPhase
+                            if (isSocks5 && (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE) && phase != null) {
+                                "${stringResource(R.string.status_connecting)}: ${phase.displayName}"
+                            } else if (preflightMessage.isNotBlank()) {
+                                preflightMessage
+                            } else if (!isSocks5) {
+                                stringResource(R.string.status_connecting_tg_mtproto)
                             } else {
                                 when (uplinkMode) {
-                                    com.mirrly.tgproxy.core.UplinkMode.WORKER -> "Подключение к Cloudflare Worker WSS..."
-                                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "Подключение к Cloudflare WARP Anycast..."
-                                    com.mirrly.tgproxy.core.UplinkMode.VLESS -> "Установка VLESS over WSS соединения..."
-                                    com.mirrly.tgproxy.core.UplinkMode.HYBRID -> "Инициализация гибридного туннеля Worker + WARP..."
-                                    com.mirrly.tgproxy.core.UplinkMode.AWG -> "Установка AmneziaWG туннеля к WARP Anycast..."
-                                    com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> "Инициализация WARP Cascade (Worker + AWG)..."
+                                    com.mirrly.tgproxy.core.UplinkMode.WORKER -> stringResource(R.string.status_connecting_cf_wss)
+                                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> stringResource(R.string.status_connecting_cf_warp)
+                                    com.mirrly.tgproxy.core.UplinkMode.VLESS -> stringResource(R.string.status_connecting_vless)
+                                    com.mirrly.tgproxy.core.UplinkMode.HYBRID -> stringResource(R.string.status_connecting_hybrid)
+                                    com.mirrly.tgproxy.core.UplinkMode.AWG -> stringResource(R.string.status_connecting_amnezia)
+                                    com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> stringResource(R.string.status_connecting_warp_cascade)
                                 }
                             }
                         }
-                        ProxyUiState.DISCONNECTING -> "Остановка соединения..."
+                        ProxyUiState.DISCONNECTING -> stringResource(R.string.status_stopping)
                         ProxyUiState.DISCONNECTED -> {
-                            if (isSocks5 && (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.HYBRID) && (warpProfile == null || !warpProfile.isWarpEnabled)) {
-                                "WARP MASQUE • Требуется регистрация в Настройках"
+                            val lastFail = server.stats.lastFailureType
+                            if (lastFail != com.mirrly.tgproxy.core.FailureType.NONE) {
+                                val failDesc = ConnectionHealthFormatter.formatFailureForUser(context, lastFail)
+                                if (failDesc.isNotBlank()) {
+                                    failDesc
+                                } else {
+                                    stringResource(R.string.status_protection_disabled)
+                                }
+                            } else if (isSocks5 && (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.HYBRID) && (warpProfile == null || !warpProfile.isWarpEnabled)) {
+                                stringResource(R.string.status_warp_masque_needs_reg)
                             } else {
-                                "Защита отключена • Нажмите кнопку для старта"
+                                stringResource(R.string.status_protection_disabled)
                             }
                         }
                     }
 
                     Text(
                         text = statusSubtitle,
-                        color = if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.9f) else TextMuted,
+                        color = if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.9f)
+                            else if (currentState == ProxyUiState.DISCONNECTED && server.stats.lastFailureType != com.mirrly.tgproxy.core.FailureType.NONE) Color(0xFFFF6E6E)
+                            else TextMuted,
                         fontSize = if (isCompactHeight) 11.sp else 11.5.sp,
                         fontWeight = if (currentState == ProxyUiState.CONNECTED) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
@@ -1073,7 +1320,7 @@ fun HomeScreen(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            "Входящий",
+                                            stringResource(R.string.label_incoming),
                                             color = TextMuted,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Medium
@@ -1087,7 +1334,7 @@ fun HomeScreen(
                                         fontSize = if (isCompactHeight) 14.sp else 16.sp
                                     )
                                     Text(
-                                        text = "Всего: ${telemetry.totalRecv}",
+                                        text = stringResource(R.string.label_total, telemetry.totalRecv),
                                         color = TextMuted.copy(alpha = 0.70f),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Normal,
@@ -1130,7 +1377,7 @@ fun HomeScreen(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            "Исходящий",
+                                            stringResource(R.string.label_outgoing),
                                             color = TextMuted,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Medium
@@ -1144,7 +1391,7 @@ fun HomeScreen(
                                         fontSize = if (isCompactHeight) 14.sp else 16.sp
                                     )
                                     Text(
-                                        text = "Всего: ${telemetry.totalSent}",
+                                        text = stringResource(R.string.label_total, telemetry.totalSent),
                                         color = TextMuted.copy(alpha = 0.70f),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Normal,
@@ -1169,7 +1416,7 @@ fun HomeScreen(
                             WsPoolStabilityGraph(
                                 isProxyActive = currentState == ProxyUiState.CONNECTED,
                                 activeConns = telemetry.activeConns,
-                                maxPoolSize = app.config.poolSize,
+                                maxPoolSize = app.config.mtprotoStandbyPerActiveSlot,
                                 accentColor = protoColors.primary,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1190,7 +1437,7 @@ fun HomeScreen(
                             onClick = {
                                 if (currentState != ProxyUiState.CONNECTED) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    Toast.makeText(context, "Включите прокси сначала!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.msg_start_proxy_first), Toast.LENGTH_SHORT).show()
                                 } else {
                                     val tgUrl = if (app.config.isSocks5Mode) server.getTelegramSocks5Url() else server.getTelegramProxyUrl()
                                     val label = if (app.config.isSocks5Mode) "SOCKS5" else "MTProto"
@@ -1198,7 +1445,7 @@ fun HomeScreen(
                                     val clip = ClipData.newPlainText("Telegram Proxy", tgUrl)
                                     clipboard.setPrimaryClip(clip)
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    Toast.makeText(context, "Ссылка $label скопирована!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.msg_link_copied, label), Toast.LENGTH_SHORT).show()
                                 }
                             },
                             modifier = Modifier
@@ -1219,13 +1466,13 @@ fun HomeScreen(
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_copy),
-                                    contentDescription = "Скопировать",
+                                    contentDescription = stringResource(R.string.action_copy),
                                     tint = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    "Скопировать",
+                                    stringResource(R.string.action_copy),
                                     color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.sp,
@@ -1240,7 +1487,7 @@ fun HomeScreen(
                             onClick = {
                                 if (currentState != ProxyUiState.CONNECTED) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    Toast.makeText(context, "Включите прокси сначала!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.msg_start_proxy_first), Toast.LENGTH_SHORT).show()
                                 } else {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     val tgUrl = if (app.config.isSocks5Mode) server.getTelegramSocks5Url() else server.getTelegramProxyUrl()
@@ -1265,13 +1512,13 @@ fun HomeScreen(
                             ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_send),
-                                    contentDescription = "В Telegram",
+                                    contentDescription = stringResource(R.string.action_to_telegram),
                                     tint = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else TextMuted.copy(alpha = 0.5f),
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    "В Telegram",
+                                    stringResource(R.string.action_to_telegram),
                                     color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
@@ -1280,6 +1527,7 @@ fun HomeScreen(
                                 )
                             }
                         }
+                    }
                     }
                 }
             }
@@ -1294,14 +1542,17 @@ fun HomeScreen(
                     DonationBanner(
                         onSupportClicked = {
                             com.mirrly.tgproxy.service.DonationManager.setDismissedForever(context, true)
+                            context.findActivity<MainActivity>()?.testBannerState?.value = null
                             showDonationBanner = false
                         },
                         onPostponeClicked = {
                             com.mirrly.tgproxy.service.DonationManager.postpone3Days(context)
+                            context.findActivity<MainActivity>()?.testBannerState?.value = null
                             showDonationBanner = false
                         },
                         onDismissForeverClicked = {
                             com.mirrly.tgproxy.service.DonationManager.setDismissedForever(context, true)
+                            context.findActivity<MainActivity>()?.testBannerState?.value = null
                             showDonationBanner = false
                         }
                     )
@@ -1316,10 +1567,12 @@ fun HomeScreen(
                     ValueStarBanner(
                         onStarClicked = {
                             com.mirrly.tgproxy.service.ValueTriggerManager.markValuePromptShown(context)
+                            context.findActivity<MainActivity>()?.testBannerState?.value = null
                             showValueBanner = false
                         },
                         onDismiss = {
                             com.mirrly.tgproxy.service.ValueTriggerManager.markValuePromptShown(context)
+                            context.findActivity<MainActivity>()?.testBannerState?.value = null
                             showValueBanner = false
                         }
                     )
@@ -1360,7 +1613,7 @@ fun HomeScreen(
                             }
                         } catch (e: Exception) {
                             pendingState = null
-                            AppLogger.e("HomeScreen", "Ошибка запуска службы после настройки SOCKS5 auth: ${e.message}")
+                            AppLogger.e("HomeScreen", "Failed to start service after SOCKS5 auth update: ${e.message}")
                         }
                     }
                 )
@@ -1374,6 +1627,10 @@ fun HomeScreen(
                     warpProfile = warpProfile,
                     vlessUuid = vlessUuid,
                     vlessPath = vlessPath,
+                    effectiveRoute = telemetry.effectiveRoute,
+                    operator = telemetry.operator,
+                    isTrustBoundaryMaintained = telemetry.isTrustBoundaryMaintained,
+                    isPrivateNode = telemetry.isPrivateNode,
                     isProxyRunning = currentState == ProxyUiState.CONNECTED,
                     onDismiss = { showUplinkStateDialog = false },
                     onOpenSettings = {
@@ -1386,6 +1643,13 @@ fun HomeScreen(
                     }
                 )
             }
+
+            if (showVpnInDevDialog) {
+                VpnInDevDialog(
+                    vpnColors = systemVpnColors,
+                    onDismiss = { showVpnInDevDialog = false }
+                )
+            }
         }
     }
 }
@@ -1395,6 +1659,7 @@ fun HomeScreen(
 fun RotatingProxyRing(
     state: ProxyUiState,
     isSocks5: Boolean = false,
+    customColors: ProtocolColors? = null,
     tiltX: Float = 0f,
     tiltY: Float = 0f,
     modifier: Modifier = Modifier
@@ -1464,7 +1729,8 @@ fun RotatingProxyRing(
         label = "ringAlpha"
     )
 
-    val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+    val animatedProtoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+    val protoColors = customColors ?: animatedProtoColors
 
     val headColor = when (state) {
         ProxyUiState.CONNECTING -> protoColors.light
@@ -1543,7 +1809,7 @@ fun RotatingProxyRing(
         // Inner counter-rotation (~15 seconds per revolution, opposite direction)
         val innerAngle = -(t * 24f + kotlin.math.cos(t * 0.35f) * 28f) % 360f
 
-        // Smooth wave amplitude for organic curved path ("извилистая плавная дуга")
+        // Smooth wave amplitude for organic curved path ("note note note")
         val waveAmp = (diameter * 0.013f).coerceIn(dp2Px, dp3_5Px)
 
         // Outer Ring Bounds
@@ -1708,12 +1974,12 @@ fun AnimatedWarpGlider(
 
     val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
 
-    // Color transition based on proxy state
+    // Color transition based on proxy state (active glowing standby even when disconnected)
     val targetJetColor = when (state) {
         ProxyUiState.CONNECTING -> protoColors.light
         ProxyUiState.CONNECTED -> protoColors.primary
-        ProxyUiState.DISCONNECTING -> protoColors.primary.copy(alpha = 0.55f)
-        ProxyUiState.DISCONNECTED -> Color(0xFF384355) // Sleek Dark Titanium
+        ProxyUiState.DISCONNECTING -> protoColors.primary.copy(alpha = 0.65f)
+        ProxyUiState.DISCONNECTED -> protoColors.primary.copy(alpha = 0.85f)
     }
     val animatedJetColor by animateColorAsState(
         targetValue = targetJetColor,
@@ -1721,12 +1987,12 @@ fun AnimatedWarpGlider(
         label = "jetColor"
     )
 
-    // Engine thrust & particle intensity
+    // Engine thrust & particle intensity (idle ion glow in standby)
     val targetThrust = when (state) {
-        ProxyUiState.CONNECTING -> 0.85f
+        ProxyUiState.CONNECTING -> 0.95f
         ProxyUiState.CONNECTED -> 1.0f
-        ProxyUiState.DISCONNECTING -> 0.20f
-        ProxyUiState.DISCONNECTED -> 0.0f
+        ProxyUiState.DISCONNECTING -> 0.35f
+        ProxyUiState.DISCONNECTED -> 0.45f
     }
     val animatedThrust by animateFloatAsState(
         targetValue = targetThrust,
@@ -1739,7 +2005,7 @@ fun AnimatedWarpGlider(
         ProxyUiState.CONNECTING -> (-4).dp
         ProxyUiState.CONNECTED -> (-2.5).dp
         ProxyUiState.DISCONNECTING -> (-1).dp
-        ProxyUiState.DISCONNECTED -> 0.dp
+        ProxyUiState.DISCONNECTED -> (-1.5).dp
     }
     val animatedLiftDp by animateDpAsState(
         targetValue = targetLiftDp,
@@ -1752,15 +2018,19 @@ fun AnimatedWarpGlider(
 
     val density = LocalDensity.current
     val strokeWidthPx = remember(density) { with(density) { 2.dp.toPx() } }
-    val spineStrokePx = remember(density) { with(density) { 2.4.dp.toPx() } }
+    val spineStrokePx = remember(density) { with(density) { 2.2.dp.toPx() } }
     val dotRadiusPx = remember(density) { with(density) { 2.2.dp.toPx() } }
     val liftPx = with(density) { animatedLiftDp.toPx() }
 
     // Reusable Path instances to prevent frame GC allocations
     val leftWingPath = remember { Path() }
     val rightWingPath = remember { Path() }
+    val innerLeftWingPath = remember { Path() }
+    val innerRightWingPath = remember { Path() }
+    val cockpitPath = remember { Path() }
     val keelPath = remember { Path() }
-    val flamePath = remember { Path() }
+    val flameLeftPath = remember { Path() }
+    val flameRightPath = remember { Path() }
 
     Canvas(modifier = modifier) {
         val t = if (!isAnimationsDisabled) timeState.value / 1_000_000_000f else 0f
@@ -1768,52 +2038,62 @@ fun AnimatedWarpGlider(
         val cx = size.width / 2f
         val cy = size.height / 2f + liftPx
 
-        // Flight dynamics: gentle aerodynamic pitch & roll
+        // Flight dynamics: gentle levitation & aerodynamic pitch
         val isGliderActive = state == ProxyUiState.CONNECTED || state == ProxyUiState.CONNECTING
-        val floatAmp = if (isGliderActive) diameter * 0.024f else diameter * 0.010f
-        val floatFrequency = if (isGliderActive) 2.4f else 1.3f
-        val driftY = kotlin.math.sin(t * floatFrequency) * floatAmp
+        val floatAmp = if (isGliderActive) diameter * 0.024f else diameter * 0.014f
+        val floatFrequency = if (isGliderActive) 2.2f else 1.4f
+        val driftY = sin(t * floatFrequency) * floatAmp
 
         // High frequency vibration during connecting (micro-thrust rumble)
-        val rumbleY = if (state == ProxyUiState.CONNECTING) kotlin.math.sin(t * 36f) * (diameter * 0.008f) else 0f
+        val rumbleY = if (state == ProxyUiState.CONNECTING) sin(t * 36f) * (diameter * 0.008f) else 0f
         val effectiveCy = cy + driftY + rumbleY
 
         // Aerodynamic banking roll
         val rollAngle = if (state == ProxyUiState.CONNECTED) {
-            kotlin.math.sin(t * 1.7f) * 2.2f
+            sin(t * 1.6f) * 2.4f
         } else if (state == ProxyUiState.CONNECTING) {
-            kotlin.math.sin(t * 8f) * 1.2f
+            sin(t * 8f) * 1.4f
         } else {
-            0f
+            sin(t * 1.1f) * 1.2f
         }
 
-        // Glider scale factors
-        val planeH = diameter * 0.52f
-        val planeW = diameter * 0.48f
+        // Interceptor scale factors
+        val planeH = diameter * 0.54f
+        val planeW = diameter * 0.50f
 
-        // Key geometric vertices (symmetrical supersonic stealth delta)
-        val nose = Offset(cx, effectiveCy - planeH * 0.44f)
-        val leftTip = Offset(cx - planeW * 0.48f, effectiveCy + planeH * 0.26f)
-        val rightTip = Offset(cx + planeW * 0.48f, effectiveCy + planeH * 0.26f)
-        val leftNotch = Offset(cx - planeW * 0.16f, effectiveCy + planeH * 0.16f)
-        val rightNotch = Offset(cx + planeW * 0.16f, effectiveCy + planeH * 0.16f)
-        val tailCenter = Offset(cx, effectiveCy + planeH * 0.09f)
-        val keelTip = Offset(cx, effectiveCy + planeH * 0.35f)
+        // Symmetrical supersonic stealth delta key vertices
+        val nose = Offset(cx, effectiveCy - planeH * 0.48f)
+        val probeBase = Offset(cx, effectiveCy - planeH * 0.38f)
+        val chineLeft = Offset(cx - planeW * 0.16f, effectiveCy - planeH * 0.18f)
+        val chineRight = Offset(cx + planeW * 0.16f, effectiveCy - planeH * 0.18f)
+        val leftTip = Offset(cx - planeW * 0.50f, effectiveCy + planeH * 0.22f)
+        val rightTip = Offset(cx + planeW * 0.50f, effectiveCy + planeH * 0.22f)
+        val leftWinglet = Offset(cx - planeW * 0.51f, effectiveCy + planeH * 0.07f)
+        val rightWinglet = Offset(cx + planeW * 0.51f, effectiveCy + planeH * 0.07f)
+        val leftNotch = Offset(cx - planeW * 0.22f, effectiveCy + planeH * 0.16f)
+        val rightNotch = Offset(cx + planeW * 0.22f, effectiveCy + planeH * 0.16f)
+        val leftEngine = Offset(cx - planeW * 0.11f, effectiveCy + planeH * 0.26f)
+        val rightEngine = Offset(cx + planeW * 0.11f, effectiveCy + planeH * 0.26f)
+        val aftCenter = Offset(cx, effectiveCy + planeH * 0.20f)
+        val keelTip = Offset(cx, effectiveCy + planeH * 0.36f)
 
-        // Winglet tips (aerodynamic fins)
-        val leftWinglet = Offset(cx - planeW * 0.49f, effectiveCy + planeH * 0.13f)
-        val rightWinglet = Offset(cx + planeW * 0.49f, effectiveCy + planeH * 0.13f)
+        // Diamond cockpit canopy vertices
+        val cockpitApex = Offset(cx, effectiveCy - planeH * 0.26f)
+        val cockpitLeft = Offset(cx - planeW * 0.08f, effectiveCy - planeH * 0.05f)
+        val cockpitRight = Offset(cx + planeW * 0.08f, effectiveCy - planeH * 0.05f)
+        val cockpitBase = Offset(cx, effectiveCy + planeH * 0.10f)
+        val cockpitCore = Offset(cx, effectiveCy - planeH * 0.07f)
 
         rotate(degrees = rollAngle, pivot = Offset(cx, effectiveCy)) {
-            // ── 1. SUPERSONIC WARP SHOCKWAVE RINGS (Trail behind the jet) ──
+            // ── 1. SUPERSONIC WARP SLIPSTREAM & SHOCKWAVE RINGS ──
             if (animatedThrust > 0.02f) {
                 val ringCount = 3
                 for (i in 0 until ringCount) {
                     val ringPhase = (t * 0.85f + i * (1f / ringCount)) % 1.0f
-                    val ringCenterY = tailCenter.y + ringPhase * (diameter * 0.28f)
-                    val ringHalfW = (planeW * 0.30f) + ringPhase * (planeW * 0.45f)
-                    val ringHalfH = (diameter * 0.05f) * (1f + ringPhase * 0.4f)
-                    val ringAlpha = (1f - ringPhase) * animatedThrust * 0.55f
+                    val ringCenterY = aftCenter.y + ringPhase * (diameter * 0.26f)
+                    val ringHalfW = (planeW * 0.25f) + ringPhase * (planeW * 0.38f)
+                    val ringHalfH = (diameter * 0.045f) * (1f + ringPhase * 0.4f)
+                    val ringAlpha = (1f - ringPhase) * animatedThrust * 0.50f
 
                     if (ringAlpha > 0.01f) {
                         drawArc(
@@ -1829,169 +2109,353 @@ fun AnimatedWarpGlider(
                 }
             }
 
-            // ── 2. AFTERBURNER THRUSTER FLAME (Plasma core) ──
+            // ── 2. TWIN PLASMA AFTERBURNER THRUSTERS ──
             if (animatedThrust > 0.02f) {
-                val flameFlicker = 0.88f + 0.24f * kotlin.math.sin(t * 22f)
-                val flameLen = planeH * 0.22f * flameFlicker * animatedThrust
-                val flameW = planeW * 0.09f * animatedThrust
+                val flameFlickerL = 0.88f + 0.24f * sin(t * 24f)
+                val flameFlickerR = 0.88f + 0.24f * sin(t * 24f + 1.4f)
+                val flameLenL = planeH * 0.24f * flameFlickerL * animatedThrust
+                val flameLenR = planeH * 0.24f * flameFlickerR * animatedThrust
+                val flameW = planeW * 0.065f * (0.6f + 0.4f * animatedThrust)
 
-                flamePath.reset()
-                flamePath.moveTo(tailCenter.x - flameW, tailCenter.y)
-                flamePath.lineTo(tailCenter.x, tailCenter.y + flameLen)
-                flamePath.lineTo(tailCenter.x + flameW, tailCenter.y)
-                flamePath.close()
+                // Left engine plume
+                flameLeftPath.reset()
+                flameLeftPath.moveTo(leftEngine.x - flameW, leftEngine.y)
+                flameLeftPath.lineTo(leftEngine.x, leftEngine.y + flameLenL)
+                flameLeftPath.lineTo(leftEngine.x + flameW, leftEngine.y)
+                flameLeftPath.close()
 
                 drawPath(
-                    path = flamePath,
+                    path = flameLeftPath,
                     brush = Brush.verticalGradient(
                         colors = listOf(
                             Color.White.copy(alpha = animatedThrust * 0.95f),
-                            animatedJetColor.copy(alpha = animatedThrust * 0.75f),
+                            protoColors.light.copy(alpha = animatedThrust * 0.80f),
+                            animatedJetColor.copy(alpha = animatedThrust * 0.45f),
                             Color.Transparent
                         ),
-                        startY = tailCenter.y,
-                        endY = tailCenter.y + flameLen
+                        startY = leftEngine.y,
+                        endY = leftEngine.y + flameLenL
                     )
                 )
 
-                // Engine nozzle glow ring
+                // Right engine plume
+                flameRightPath.reset()
+                flameRightPath.moveTo(rightEngine.x - flameW, rightEngine.y)
+                flameRightPath.lineTo(rightEngine.x, rightEngine.y + flameLenR)
+                flameRightPath.lineTo(rightEngine.x + flameW, rightEngine.y)
+                flameRightPath.close()
+
+                drawPath(
+                    path = flameRightPath,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = animatedThrust * 0.95f),
+                            protoColors.light.copy(alpha = animatedThrust * 0.80f),
+                            animatedJetColor.copy(alpha = animatedThrust * 0.45f),
+                            Color.Transparent
+                        ),
+                        startY = rightEngine.y,
+                        endY = rightEngine.y + flameLenR
+                    )
+                )
+
+                // Twin engine nozzle glow rings
                 drawCircle(
                     color = animatedJetColor.copy(alpha = animatedThrust * 0.9f),
-                    radius = strokeWidthPx * 1.5f,
-                    center = tailCenter
+                    radius = strokeWidthPx * 1.4f,
+                    center = leftEngine
                 )
                 drawCircle(
-                    color = Color.White.copy(alpha = animatedThrust),
-                    radius = strokeWidthPx * 0.7f,
-                    center = tailCenter
+                    color = Color.White.copy(alpha = animatedThrust * 0.9f),
+                    radius = strokeWidthPx * 0.6f,
+                    center = leftEngine
+                )
+                drawCircle(
+                    color = animatedJetColor.copy(alpha = animatedThrust * 0.9f),
+                    radius = strokeWidthPx * 1.4f,
+                    center = rightEngine
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = animatedThrust * 0.9f),
+                    radius = strokeWidthPx * 0.6f,
+                    center = rightEngine
                 )
             }
 
             // ── 3. VENTRAL KEEL / STABILIZER FLAP ──
             keelPath.reset()
-            keelPath.moveTo(tailCenter.x, tailCenter.y)
-            keelPath.lineTo(leftNotch.x, leftNotch.y)
+            keelPath.moveTo(aftCenter.x, aftCenter.y)
+            keelPath.lineTo(leftEngine.x, leftEngine.y)
             keelPath.lineTo(keelTip.x, keelTip.y)
-            keelPath.lineTo(rightNotch.x, rightNotch.y)
+            keelPath.lineTo(rightEngine.x, rightEngine.y)
             keelPath.close()
 
             drawPath(
                 path = keelPath,
-                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.12f else 0.04f)
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.15f else 0.08f)
             )
             drawPath(
                 path = keelPath,
-                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.40f else 0.25f),
-                style = Stroke(width = strokeWidthPx * 0.7f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.50f else 0.30f),
+                style = Stroke(width = strokeWidthPx * 0.75f, cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
 
-            // ── 4. LEFT WING (Translucent Facet) ──
+            // ── 4. OUTER SWEPT DELTA WINGS ──
+            // Left Wing (Ambient Specular Facet)
             leftWingPath.reset()
-            leftWingPath.moveTo(nose.x, nose.y)
+            leftWingPath.moveTo(probeBase.x, probeBase.y)
+            leftWingPath.lineTo(chineLeft.x, chineLeft.y)
             leftWingPath.lineTo(leftTip.x, leftTip.y)
             leftWingPath.lineTo(leftNotch.x, leftNotch.y)
-            leftWingPath.lineTo(tailCenter.x, tailCenter.y)
+            leftWingPath.lineTo(leftEngine.x, leftEngine.y)
+            leftWingPath.lineTo(aftCenter.x, aftCenter.y)
             leftWingPath.close()
 
             drawPath(
                 path = leftWingPath,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        animatedJetColor.copy(alpha = if (isGliderActive) 0.22f else 0.06f),
-                        animatedJetColor.copy(alpha = if (isGliderActive) 0.08f else 0.02f)
+                        animatedJetColor.copy(alpha = if (isGliderActive) 0.26f else 0.14f),
+                        animatedJetColor.copy(alpha = if (isGliderActive) 0.10f else 0.04f)
                     ),
-                    start = nose,
+                    start = chineLeft,
                     end = leftTip
                 )
             )
-            // Left wing contour & winglet
             drawPath(
                 path = leftWingPath,
-                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.95f else 0.50f),
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.95f else 0.70f),
                 style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
-            // Left winglet fin
+            // Left winglet
             drawLine(
-                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.90f else 0.40f),
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.95f else 0.70f),
                 start = leftTip,
                 end = leftWinglet,
-                strokeWidth = strokeWidthPx,
+                strokeWidth = strokeWidthPx * 1.1f,
                 cap = StrokeCap.Round
             )
 
-            // ── 5. RIGHT WING (Specular 3D Facet) ──
+            // Right Wing (High-Gloss Specular Facet)
             rightWingPath.reset()
-            rightWingPath.moveTo(nose.x, nose.y)
+            rightWingPath.moveTo(probeBase.x, probeBase.y)
+            rightWingPath.lineTo(chineRight.x, chineRight.y)
             rightWingPath.lineTo(rightTip.x, rightTip.y)
             rightWingPath.lineTo(rightNotch.x, rightNotch.y)
-            rightWingPath.lineTo(tailCenter.x, tailCenter.y)
+            rightWingPath.lineTo(rightEngine.x, rightEngine.y)
+            rightWingPath.lineTo(aftCenter.x, aftCenter.y)
             rightWingPath.close()
 
             drawPath(
                 path = rightWingPath,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        animatedJetColor.copy(alpha = if (isGliderActive) 0.34f else 0.10f),
-                        animatedJetColor.copy(alpha = if (isGliderActive) 0.14f else 0.04f)
+                        protoColors.light.copy(alpha = if (isGliderActive) 0.38f else 0.20f),
+                        animatedJetColor.copy(alpha = if (isGliderActive) 0.14f else 0.06f)
                     ),
-                    start = nose,
+                    start = chineRight,
                     end = rightTip
                 )
             )
-            // Right wing contour & winglet
             drawPath(
                 path = rightWingPath,
-                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.95f else 0.50f),
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.95f else 0.70f),
                 style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
-            // Right winglet fin
+            // Right winglet
             drawLine(
-                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.90f else 0.40f),
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.95f else 0.70f),
                 start = rightTip,
                 end = rightWinglet,
-                strokeWidth = strokeWidthPx,
+                strokeWidth = strokeWidthPx * 1.1f,
                 cap = StrokeCap.Round
             )
 
-            // ── 6. CENTRAL ENERGY SPINE & RUNNING DATA PACKET ──
+            // ── 5. INNER COMPOSITE ARMOR PANELS (3D Faceted Detail) ──
+            innerLeftWingPath.reset()
+            innerLeftWingPath.moveTo(chineLeft.x, chineLeft.y)
+            innerLeftWingPath.lineTo(cockpitLeft.x, cockpitLeft.y)
+            innerLeftWingPath.lineTo(leftNotch.x, leftNotch.y)
+            innerLeftWingPath.close()
+
+            drawPath(
+                path = innerLeftWingPath,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        animatedJetColor.copy(alpha = if (isGliderActive) 0.18f else 0.10f),
+                        Color.Transparent
+                    ),
+                    start = cockpitLeft,
+                    end = leftNotch
+                )
+            )
+            drawPath(
+                path = innerLeftWingPath,
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.40f else 0.25f),
+                style = Stroke(width = strokeWidthPx * 0.6f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+
+            innerRightWingPath.reset()
+            innerRightWingPath.moveTo(chineRight.x, chineRight.y)
+            innerRightWingPath.lineTo(cockpitRight.x, cockpitRight.y)
+            innerRightWingPath.lineTo(rightNotch.x, rightNotch.y)
+            innerRightWingPath.close()
+
+            drawPath(
+                path = innerRightWingPath,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        protoColors.light.copy(alpha = if (isGliderActive) 0.24f else 0.14f),
+                        Color.Transparent
+                    ),
+                    start = cockpitRight,
+                    end = rightNotch
+                )
+            )
+            drawPath(
+                path = innerRightWingPath,
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.40f else 0.25f),
+                style = Stroke(width = strokeWidthPx * 0.6f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+
+            // ── 6. DIAMOND CRYSTALLINE COCKPIT CANOPY ──
+            cockpitPath.reset()
+            cockpitPath.moveTo(cockpitApex.x, cockpitApex.y)
+            cockpitPath.lineTo(cockpitLeft.x, cockpitLeft.y)
+            cockpitPath.lineTo(cockpitBase.x, cockpitBase.y)
+            cockpitPath.lineTo(cockpitRight.x, cockpitRight.y)
+            cockpitPath.close()
+
+            drawPath(
+                path = cockpitPath,
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        protoColors.light.copy(alpha = if (isGliderActive) 0.45f else 0.28f),
+                        animatedJetColor.copy(alpha = if (isGliderActive) 0.20f else 0.10f)
+                    ),
+                    startY = cockpitApex.y,
+                    endY = cockpitBase.y
+                )
+            )
+            drawPath(
+                path = cockpitPath,
+                color = protoColors.light.copy(alpha = if (isGliderActive) 0.95f else 0.75f),
+                style = Stroke(width = strokeWidthPx * 0.85f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+
+            // Internal glowing spark core
+            drawCircle(
+                color = protoColors.light.copy(alpha = 0.5f),
+                radius = dotRadiusPx * 1.8f,
+                center = cockpitCore
+            )
+            drawCircle(
+                color = Color.White,
+                radius = dotRadiusPx * 0.7f,
+                center = cockpitCore
+            )
+
+            // ── 7. FORWARD SENSOR PROBE & NEEDLE NOSE ──
             drawLine(
-                color = animatedJetColor.copy(alpha = if (isGliderActive) 1.0f else 0.70f),
-                start = nose,
-                end = tailCenter,
+                color = protoColors.light.copy(alpha = if (isGliderActive) 1.0f else 0.80f),
+                start = probeBase,
+                end = nose,
+                strokeWidth = strokeWidthPx * 1.1f,
+                cap = StrokeCap.Round
+            )
+
+            // ── 8. WINGTIP STROBE LED BEACONS ──
+            val strobePhase = (t * 7f) % (2f * Math.PI.toFloat())
+            val strobeFlash = (sin(strobePhase).coerceAtLeast(0f)).let { it * it * it }
+            val strobeAlpha = 0.35f + 0.65f * strobeFlash
+
+            // Left winglet beacon
+            drawCircle(
+                color = protoColors.light.copy(alpha = strobeAlpha * 0.5f),
+                radius = dotRadiusPx * 1.8f,
+                center = leftWinglet
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = strobeAlpha),
+                radius = dotRadiusPx * 0.8f,
+                center = leftWinglet
+            )
+
+            // Right winglet beacon
+            drawCircle(
+                color = protoColors.light.copy(alpha = strobeAlpha * 0.5f),
+                radius = dotRadiusPx * 1.8f,
+                center = rightWinglet
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = strobeAlpha),
+                radius = dotRadiusPx * 0.8f,
+                center = rightWinglet
+            )
+
+            // ── 9. SUPERCONDUCTING SPINE & RUNNING DATA PHOTON PACKET ──
+            drawLine(
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.95f else 0.65f),
+                start = probeBase,
+                end = cockpitApex,
+                strokeWidth = spineStrokePx,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = animatedJetColor.copy(alpha = if (isGliderActive) 0.95f else 0.65f),
+                start = cockpitBase,
+                end = aftCenter,
                 strokeWidth = spineStrokePx,
                 cap = StrokeCap.Round
             )
             drawLine(
                 color = animatedJetColor.copy(alpha = if (isGliderActive) 0.60f else 0.35f),
-                start = tailCenter,
+                start = aftCenter,
                 end = keelTip,
                 strokeWidth = strokeWidthPx * 0.8f,
                 cap = StrokeCap.Round
             )
 
-            // Data impulse running down the spine in active mode
-            if (isGliderActive) {
-                val packetPhase = (t * 2.2f) % 1.0f
-                val packetY = nose.y + (tailCenter.y - nose.y) * packetPhase
+            // Running photon packet
+            val packetPhase = (t * 2.4f) % 1.0f
+            val packetY = probeBase.y + (aftCenter.y - probeBase.y) * packetPhase
+            drawCircle(
+                color = animatedJetColor.copy(alpha = 0.55f),
+                radius = dotRadiusPx * 2.0f,
+                center = Offset(cx, packetY)
+            )
+            drawCircle(
+                color = Color.White,
+                radius = dotRadiusPx * 0.9f,
+                center = Offset(cx, packetY)
+            )
 
+            // ── 10. APEX DIFFRACTION STAR FLARE (QUANTUM SENSOR) ──
+            val starRot = t * 15f
+            val starPulse = 0.85f + 0.25f * sin(t * 3.5f)
+            val starHalfLen = with(density) { 5.dp.toPx() } * starPulse
+
+            rotate(degrees = starRot, pivot = nose) {
+                drawLine(
+                    color = protoColors.light.copy(alpha = 0.80f),
+                    start = Offset(nose.x - starHalfLen, nose.y),
+                    end = Offset(nose.x + starHalfLen, nose.y),
+                    strokeWidth = with(density) { 0.9.dp.toPx() },
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    color = protoColors.light.copy(alpha = 0.80f),
+                    start = Offset(nose.x, nose.y - starHalfLen),
+                    end = Offset(nose.x, nose.y + starHalfLen),
+                    strokeWidth = with(density) { 0.9.dp.toPx() },
+                    cap = StrokeCap.Round
+                )
                 drawCircle(
                     color = Color.White,
-                    radius = dotRadiusPx,
-                    center = Offset(cx, packetY)
-                )
-                drawCircle(
-                    color = animatedJetColor.copy(alpha = 0.6f),
-                    radius = dotRadiusPx * 2.2f,
-                    center = Offset(cx, packetY)
+                    radius = with(density) { 1.3.dp.toPx() },
+                    center = nose
                 )
             }
-
-            // Nose tip beacon dot
-            drawCircle(
-                color = if (isGliderActive) Color.White else animatedJetColor.copy(alpha = 0.6f),
-                radius = dotRadiusPx * 0.9f,
-                center = nose
-            )
         }
     }
 }
@@ -2043,7 +2507,7 @@ fun applyToTelegramPackages(context: Context, url: String) {
         try {
             context.startActivity(genericIntent)
         } catch (_: Exception) {
-            Toast.makeText(context, "Telegram клиент не найден", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.err_tg_client_not_found), Toast.LENGTH_SHORT).show()
         }
     } else if (targetedIntents.size == 1) {
         val intent = targetedIntents.first().apply {
@@ -2052,19 +2516,19 @@ fun applyToTelegramPackages(context: Context, url: String) {
         try {
             context.startActivity(intent)
         } catch (_: Exception) {
-            Toast.makeText(context, "Ошибка открытия клиента", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.err_tg_open_client), Toast.LENGTH_SHORT).show()
         }
     } else {
         val baseIntent = Intent(Intent.ACTION_VIEW, uri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        val chooserIntent = Intent.createChooser(baseIntent, "Выберите клиент Telegram").apply {
+        val chooserIntent = Intent.createChooser(baseIntent, context.getString(R.string.prompt_select_tg_client)).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         try {
             context.startActivity(chooserIntent)
         } catch (_: Exception) {
-            Toast.makeText(context, "Ошибка выбора клиента", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.err_select_tg_client), Toast.LENGTH_SHORT).show()
         }
     }
 }
@@ -2198,9 +2662,20 @@ fun WsPoolStabilityGraph(
         }
     }
 
+    val isSocks5 = app.config.isSocks5Mode
+    val transportPoolStatus by app.proxyServer.transportPoolStatus.collectAsState()
+    val requestedStandby = transportPoolStatus.mtprotoStandbyPerActiveSlotRequested
+    val effectiveStandby = transportPoolStatus.mtprotoStandbyPerActiveSlotEffective
+
     // Target amplitude smoothly interpolated with spring physics: drops flat to 0.0 when OFF
-    val targetAmplitude = if (isProxyActive && maxPoolSize > 0) {
-        (activeConns.toFloat() / maxPoolSize.toFloat()).coerceIn(0.18f, 0.95f)
+    val targetAmplitude = if (isProxyActive) {
+        if (isSocks5) {
+            (activeConns.toFloat() / 16f).coerceIn(0.18f, 0.95f)
+        } else if (maxPoolSize > 0) {
+            (activeConns.toFloat() / maxPoolSize.toFloat()).coerceIn(0.18f, 0.95f)
+        } else {
+            0.18f
+        }
     } else {
         0.00f
     }
@@ -2412,15 +2887,31 @@ fun WsPoolStabilityGraph(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val flowStoppedLabel = stringResource(R.string.status_flow_stopped)
+            val flowActiveConnsTemplate = stringResource(R.string.status_flow_active_conns)
+            val flowActiveStandbyTemplate = stringResource(R.string.status_flow_active_standby)
             Text(
-                text = "WSPOOL СОКЕТЫ",
+                text = com.mirrly.tgproxy.core.ProxyDisplayLabels.transportFlowTitle(
+                    isSocks5 = isSocks5,
+                    socks5Title = stringResource(R.string.status_flow_socks5_title),
+                    wsPoolTitle = stringResource(R.string.status_flow_wspool_title)
+                ),
                 color = TextMuted.copy(alpha = 0.55f),
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.1.sp
             )
             Text(
-                text = if (isProxyActive) "$activeConns / $maxPoolSize активных" else "остановлен",
+                text = com.mirrly.tgproxy.core.ProxyDisplayLabels.transportFlowSubtitle(
+                    isSocks5 = isSocks5,
+                    isProxyActive = isProxyActive,
+                    activeConns = activeConns,
+                    requestedStandby = requestedStandby,
+                    effectiveStandby = effectiveStandby,
+                    stoppedLabel = flowStoppedLabel,
+                    activeConnsFormat = { active -> flowActiveConnsTemplate.format(active) },
+                    activeStandbyFormat = { active, eff, req -> flowActiveStandbyTemplate.format(active, eff, req) }
+                ),
                 color = if (isProxyActive) accentColor.copy(alpha = 0.85f) else TextMuted.copy(alpha = 0.45f),
                 fontSize = 9.5.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -2434,13 +2925,26 @@ fun WsPoolStabilityGraph(
  * Modern tactile Protocol Switcher Header.
  * Supports smooth horizontal drag gestures with physics resistance,
  * instant tap switching, sliding pill indicator, anti-spam locking,
- * static pill position, app title "Мирли", and elegant active worker badge in SOCKS5 mode.
+ * static pill position, app title "note", and elegant active worker badge in SOCKS5 mode.
+ */
+enum class HomeScreenTab {
+    MTPROTO,
+    SOCKS5,
+    VPN
+}
+
+/**
+ * note note note note note and VPN note:
+ * instant tap switching, sliding pill indicator, anti-spam locking,
+ * static pill position, app title "note", and note active note.
  */
 @Composable
 fun ProtocolSwitcherHeader(
-    isSocks5: Boolean,
+    currentTab: HomeScreenTab,
+    onSelectTab: (HomeScreenTab) -> Unit,
     activeWorker: com.mirrly.tgproxy.core.WorkerProfile,
     protoColors: ProtocolColors,
+    vpnColors: ProtocolColors,
     isSwitching: Boolean,
     onSwitchProtocol: (com.mirrly.tgproxy.core.ProxyMode) -> Unit,
     onOpenWorkerManager: () -> Unit = {},
@@ -2448,31 +2952,39 @@ fun ProtocolSwitcherHeader(
     warpProfile: com.mirrly.tgproxy.core.WarpProfile? = null,
     vlessUuid: String = "",
     onOpenUplinkState: () -> Unit = {},
+    onOpenVpnInfo: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
 
-    // Drag offset for tactile horizontal swipe gesture
     val dragOffsetX = remember { Animatable(0f) }
     val badgeInteractionSource = remember { MutableInteractionSource() }
-    val capsuleWidth = 168.dp
+    val capsuleWidth = 246.dp
     val capsuleHeight = 31.dp
-    val tabWidth = capsuleWidth / 2
+    val tabWidth = capsuleWidth / 3
 
-    // Optimistic UI state for instant 0ms response
-    var optimisticIsSocks5 by remember(isSocks5) { mutableStateOf(isSocks5) }
+    val targetPillColor = when (currentTab) {
+        HomeScreenTab.MTPROTO -> MtprotoAccent
+        HomeScreenTab.SOCKS5 -> Socks5Accent
+        HomeScreenTab.VPN -> vpnColors.primary
+    }
 
     val switcherAccentColor by animateColorAsState(
-        targetValue = if (optimisticIsSocks5) Socks5Accent else MtprotoAccent,
+        targetValue = targetPillColor,
         animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "switcherAccentColor"
     )
 
-    // Smooth, slow, controlled, and physically natural sliding animation
+    val targetOffset = when (currentTab) {
+        HomeScreenTab.MTPROTO -> 0.dp
+        HomeScreenTab.SOCKS5 -> tabWidth
+        HomeScreenTab.VPN -> tabWidth * 2
+    }
+
     val animatedPillOffset by animateDpAsState(
-        targetValue = if (optimisticIsSocks5) tabWidth else 0.dp,
+        targetValue = targetOffset,
         animationSpec = spring(
             dampingRatio = 0.88f,
             stiffness = 380f
@@ -2486,7 +2998,7 @@ fun ProtocolSwitcherHeader(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
     ) {
-        // Switcher Pill and Dropdown Container (anchored so height does NOT shift pill position)
+        // Switcher Pill Container
         Box(
             contentAlignment = Alignment.TopCenter
         ) {
@@ -2508,16 +3020,35 @@ fun ProtocolSwitcherHeader(
                             },
                             onDragEnd = {
                                 val currentDrag = dragOffsetX.value
-                                val thresholdPx = with(density) { 16.dp.toPx() }
+                                val thresholdPx = with(density) { 18.dp.toPx() }
                                 scope.launch {
-                                    if (!optimisticIsSocks5 && currentDrag > thresholdPx) {
-                                        optimisticIsSocks5 = true
-                                        HapticHelper.performSwipeGlide(context)
-                                        onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
-                                    } else if (optimisticIsSocks5 && currentDrag < -thresholdPx) {
-                                        optimisticIsSocks5 = false
-                                        HapticHelper.performSwipeGlide(context)
-                                        onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
+                                    if (currentDrag > thresholdPx) {
+                                        when (currentTab) {
+                                            HomeScreenTab.MTPROTO -> {
+                                                HapticHelper.performSwipeGlide(context)
+                                                onSelectTab(HomeScreenTab.SOCKS5)
+                                                onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
+                                            }
+                                            HomeScreenTab.SOCKS5 -> {
+                                                HapticHelper.performSwipeGlide(context)
+                                                onSelectTab(HomeScreenTab.VPN)
+                                            }
+                                            HomeScreenTab.VPN -> {}
+                                        }
+                                    } else if (currentDrag < -thresholdPx) {
+                                        when (currentTab) {
+                                            HomeScreenTab.VPN -> {
+                                                HapticHelper.performSwipeGlide(context)
+                                                onSelectTab(HomeScreenTab.SOCKS5)
+                                                onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
+                                            }
+                                            HomeScreenTab.SOCKS5 -> {
+                                                HapticHelper.performSwipeGlide(context)
+                                                onSelectTab(HomeScreenTab.MTPROTO)
+                                                onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
+                                            }
+                                            HomeScreenTab.MTPROTO -> {}
+                                        }
                                     }
                                     dragOffsetX.animateTo(
                                         0f,
@@ -2543,12 +3074,8 @@ fun ProtocolSwitcherHeader(
                                 change.consume()
                                 val current = dragOffsetX.value
                                 val damped = dragAmount * 0.32f
-                                val newOffset = if (!optimisticIsSocks5) {
-                                    (current + damped).coerceIn(-4f, with(density) { tabWidth.toPx() } + 4f)
-                                } else {
-                                    (current + damped).coerceIn(-with(density) { tabWidth.toPx() } - 4f, 4f)
-                                }
-                                scope.launch { dragOffsetX.snapTo(newOffset) }
+                                val maxDragPx = with(density) { tabWidth.toPx() }
+                                scope.launch { dragOffsetX.snapTo((current + damped).coerceIn(-maxDragPx, maxDragPx)) }
                             }
                         )
                     }
@@ -2556,7 +3083,7 @@ fun ProtocolSwitcherHeader(
                 // Sliding Glowing Indicator Pill
                 Box(
                     modifier = Modifier
-                        .offset(x = totalOffsetX.coerceIn(0.dp, tabWidth))
+                        .offset(x = totalOffsetX.coerceIn(0.dp, tabWidth * 2))
                         .width(tabWidth)
                         .fillMaxHeight()
                         .padding(2.5.dp)
@@ -2569,7 +3096,7 @@ fun ProtocolSwitcherHeader(
                         )
                 )
 
-                // Segment Labels Row
+                // Segment Labels Row (3 tabs: MTProto | SOCKS5 | VPN)
                 Row(
                     modifier = Modifier.fillMaxSize(),
                     verticalAlignment = Alignment.CenterVertically
@@ -2584,9 +3111,9 @@ fun ProtocolSwitcherHeader(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                if (optimisticIsSocks5) {
+                                if (currentTab != HomeScreenTab.MTPROTO) {
                                     HapticHelper.performTapClick(context)
-                                    optimisticIsSocks5 = false
+                                    onSelectTab(HomeScreenTab.MTPROTO)
                                     onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
                                 }
                             },
@@ -2594,9 +3121,9 @@ fun ProtocolSwitcherHeader(
                     ) {
                         Text(
                             text = "MTProto",
-                            color = if (!optimisticIsSocks5) switcherAccentColor else TextMuted,
-                            fontSize = 12.sp,
-                            fontWeight = if (!optimisticIsSocks5) FontWeight.Bold else FontWeight.Medium,
+                            color = if (currentTab == HomeScreenTab.MTPROTO) switcherAccentColor else TextMuted,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (currentTab == HomeScreenTab.MTPROTO) FontWeight.Bold else FontWeight.Medium,
                             letterSpacing = 0.3.sp
                         )
                     }
@@ -2611,9 +3138,9 @@ fun ProtocolSwitcherHeader(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                if (!optimisticIsSocks5) {
+                                if (currentTab != HomeScreenTab.SOCKS5) {
                                     HapticHelper.performTapClick(context)
-                                    optimisticIsSocks5 = true
+                                    onSelectTab(HomeScreenTab.SOCKS5)
                                     onSwitchProtocol(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
                                 }
                             },
@@ -2621,9 +3148,35 @@ fun ProtocolSwitcherHeader(
                     ) {
                         Text(
                             text = "SOCKS5",
-                            color = if (optimisticIsSocks5) switcherAccentColor else TextMuted,
-                            fontSize = 12.sp,
-                            fontWeight = if (optimisticIsSocks5) FontWeight.Bold else FontWeight.Medium,
+                            color = if (currentTab == HomeScreenTab.SOCKS5) switcherAccentColor else TextMuted,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (currentTab == HomeScreenTab.SOCKS5) FontWeight.Bold else FontWeight.Medium,
+                            letterSpacing = 0.3.sp
+                        )
+                    }
+
+                    // VPN Tab
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                if (currentTab != HomeScreenTab.VPN) {
+                                    HapticHelper.performTapClick(context)
+                                    onSelectTab(HomeScreenTab.VPN)
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "VPN",
+                            color = if (currentTab == HomeScreenTab.VPN) switcherAccentColor else TextMuted,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (currentTab == HomeScreenTab.VPN) FontWeight.Bold else FontWeight.Medium,
                             letterSpacing = 0.3.sp
                         )
                     }
@@ -2633,70 +3186,74 @@ fun ProtocolSwitcherHeader(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // SOCKS5 / MTProto Active Uplink Indicator Badge
+        // Active Uplink Indicator Badge
         val isWarpActive = warpProfile != null && warpProfile.isWarpEnabled
 
-        val (badgeText, badgeBaseColor, badgeClick) = if (!optimisticIsSocks5) {
-            // MTProto Mode (Uses Anycast Flowseal CDN, independent of Cloudflare Workers)
-            Triple(
+        val (badgeText, badgeBaseColor, badgeClick) = when (currentTab) {
+            HomeScreenTab.MTPROTO -> Triple(
                 "Anycast Flowseal",
                 MtprotoAccent,
                 onOpenUplinkState
             )
-        } else {
-            // SOCKS5 Mode
-            when (uplinkMode) {
-                com.mirrly.tgproxy.core.UplinkMode.WORKER -> Triple(
-                    "Worker • ${activeWorker.name}",
-                    Socks5Accent,
-                    onOpenWorkerManager
-                )
-                com.mirrly.tgproxy.core.UplinkMode.MASQUE -> {
-                    if (isWarpActive) {
-                        Triple(
-                            "WARP MASQUE • ${warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2"}",
-                            Socks5Accent,
-                            onOpenUplinkState
-                        )
-                    } else {
-                        Triple(
-                            "WARP • Нужна регистрация",
-                            Color(0xFFFF9E00),
-                            onOpenUplinkState
-                        )
+            HomeScreenTab.SOCKS5 -> {
+                when (uplinkMode) {
+                    com.mirrly.tgproxy.core.UplinkMode.WORKER -> Triple(
+                        "Worker • ${activeWorker.name}",
+                        Socks5Accent,
+                        onOpenWorkerManager
+                    )
+                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> {
+                        if (isWarpActive) {
+                            Triple(
+                                "WARP MASQUE • ${warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2"}",
+                                Socks5Accent,
+                                onOpenUplinkState
+                            )
+                        } else {
+                            Triple(
+                                stringResource(R.string.badge_warp_needs_reg),
+                                Color(0xFFFF9E00),
+                                onOpenUplinkState
+                            )
+                        }
                     }
-                }
-                com.mirrly.tgproxy.core.UplinkMode.VLESS -> Triple(
-                    "VLESS over WSS • TLS 1.3",
-                    Socks5Accent,
-                    onOpenUplinkState
-                )
-                com.mirrly.tgproxy.core.UplinkMode.HYBRID -> {
-                    if (isWarpActive) {
-                        Triple(
-                            "Гибрид • ${activeWorker.name} + WARP",
-                            Socks5Accent,
-                            onOpenUplinkState
-                        )
-                    } else {
-                        Triple(
-                            "Гибрид • Нужен WARP",
-                            Color(0xFFFF9E00),
-                            onOpenUplinkState
-                        )
+                    com.mirrly.tgproxy.core.UplinkMode.VLESS -> Triple(
+                        "VLESS over WSS • TLS 1.3",
+                        Socks5Accent,
+                        onOpenUplinkState
+                    )
+                    com.mirrly.tgproxy.core.UplinkMode.HYBRID -> {
+                        if (isWarpActive) {
+                            Triple(
+                                stringResource(R.string.badge_hybrid_active, activeWorker.name),
+                                Socks5Accent,
+                                onOpenUplinkState
+                            )
+                        } else {
+                            Triple(
+                                stringResource(R.string.badge_hybrid_needs_warp),
+                                Color(0xFFFF9E00),
+                                onOpenUplinkState
+                            )
+                        }
                     }
+                    com.mirrly.tgproxy.core.UplinkMode.AWG -> Triple(
+                        "AmneziaWG • WARP Anycast",
+                        Socks5Accent,
+                        onOpenUplinkState
+                    )
+                    com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> Triple(
+                        "WARP Cascade • Worker + AWG",
+                        Socks5Accent,
+                        onOpenUplinkState
+                    )
                 }
-                com.mirrly.tgproxy.core.UplinkMode.AWG -> Triple(
-                    "AmneziaWG • WARP Anycast",
-                    Socks5Accent,
-                    onOpenUplinkState
-                )
-                com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> Triple(
-                    "WARP Cascade • Worker + AWG",
-                    Socks5Accent,
-                    onOpenUplinkState
-                )
             }
+            HomeScreenTab.VPN -> Triple(
+                stringResource(R.string.badge_vpn_in_dev),
+                vpnColors.primary,
+                onOpenVpnInfo
+            )
         }
 
         val animatedBadgeColor by animateColorAsState(
@@ -2739,9 +3296,68 @@ fun ProtocolSwitcherHeader(
     }
 }
 
+@Composable
+fun TelegramChannelCapsuleButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val capsuleHeight = 24.dp
+    val cyanAccent = Color(0xFF26A5E4)
+
+    Box(
+        modifier = modifier
+            .wrapContentWidth()
+            .height(capsuleHeight)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Transparent)
+            .border(
+                width = 1.dp,
+                color = cyanAccent.copy(alpha = 0.55f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .springPress(onClick = {
+                HapticHelper.performTapClick(context)
+                onClick()
+            })
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_telegram),
+                contentDescription = null,
+                tint = cyanAccent,
+                modifier = Modifier.size(11.5.dp)
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+                text = stringResource(R.string.tg_channel_btn_title),
+                color = TextWhite,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.2.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(
+                painter = painterResource(id = R.drawable.ic_chevron_right),
+                contentDescription = null,
+                tint = cyanAccent.copy(alpha = 0.70f),
+                modifier = Modifier.size(10.dp)
+            )
+        }
+    }
+}
+
+
 /**
- * Круглый виджет качества соединения с эффектом наполнения жидкими волнами (Liquid Wave Orb).
- * Показывает процент SQI и анимирует уровень жидкости с физикой волн.
+ * note note note note with note note note note (Liquid Wave Orb).
+ * note note SQI and note note note with note note.
  */
 @Composable
 fun LiquidWaveQualityCircle(
@@ -2899,6 +3515,10 @@ fun UplinkStateDialog(
     warpProfile: com.mirrly.tgproxy.core.WarpProfile?,
     vlessUuid: String,
     vlessPath: String,
+    effectiveRoute: String = "",
+    operator: String = "",
+    isTrustBoundaryMaintained: Boolean = true,
+    isPrivateNode: Boolean = false,
     isProxyRunning: Boolean,
     onDismiss: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -2914,7 +3534,7 @@ fun UplinkStateDialog(
             com.mirrly.tgproxy.core.UplinkMode.WORKER -> "Cloudflare Worker WSS"
             com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "Cloudflare WARP MASQUE"
             com.mirrly.tgproxy.core.UplinkMode.VLESS -> "VLESS over WSS"
-            com.mirrly.tgproxy.core.UplinkMode.HYBRID -> "Гибрид Worker + WARP"
+            com.mirrly.tgproxy.core.UplinkMode.HYBRID -> stringResource(R.string.mode_hybrid_worker_warp)
             com.mirrly.tgproxy.core.UplinkMode.AWG -> "AmneziaWG (WARP Anycast)"
             com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> "WARP Cascade (Worker + AWG)"
         }
@@ -2950,7 +3570,7 @@ fun UplinkStateDialog(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "Состояние аплинка",
+                                text = stringResource(R.string.uplink_status_title),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextWhite
@@ -2961,7 +3581,7 @@ fun UplinkStateDialog(
                             }
                         }
                         Text(
-                            text = "Сетевой транспорт и статус шифрования",
+                            text = stringResource(R.string.uplink_status_desc),
                             fontSize = 11.sp,
                             color = TextMuted
                         )
@@ -2996,59 +3616,74 @@ fun UplinkStateDialog(
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
                         if (!isSocks5) {
-                            UplinkStateRow("Протокол", "Telegram MTProto (:1080)")
-                            UplinkStateRow("Транспорт", "Anycast CDN Flowseal (kws*.apiws)")
-                            UplinkStateRow("Шифрование", "Fake-TLS 1.3 (dd-secret)")
-                            UplinkStateRow("Кэш-узлы", "20 гео-распределенных CDN-нод")
+                            UplinkStateRow(stringResource(R.string.uplink_field_protocol), "Telegram MTProto (:1080)")
+                            UplinkStateRow(stringResource(R.string.uplink_field_transport), "Anycast CDN Flowseal (kws*.apiws)")
+                            UplinkStateRow(stringResource(R.string.uplink_field_encryption), "Fake-TLS 1.3 (dd-secret)")
+                            UplinkStateRow(stringResource(R.string.uplink_field_cache_nodes), stringResource(R.string.uplink_field_cache_nodes_val))
                         } else {
                             when (uplinkMode) {
                                 com.mirrly.tgproxy.core.UplinkMode.WORKER -> {
-                                    UplinkStateRow("Протокол", "SOCKS5 TCP Relay")
-                                    UplinkStateRow("Транспорт", "Cloudflare Worker WSS :443")
-                                    UplinkStateRow("Активный воркер", activeWorker.name)
-                                    UplinkStateRow("Домен узла", activeWorker.domain)
-                                    UplinkStateRow("Пул соединений", if (activeWorker.isDeveloperWorker) "Общий пул разработчиков" else "Персональный воркер")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_protocol), "SOCKS5 TCP Relay")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_transport), "Cloudflare Worker WSS :443")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_active_worker), activeWorker.name)
+                                    UplinkStateRow(stringResource(R.string.uplink_field_node_domain), activeWorker.domain)
+                                    UplinkStateRow(stringResource(R.string.uplink_field_conn_pool), if (activeWorker.isDeveloperWorker) stringResource(R.string.uplink_pool_shared) else stringResource(R.string.uplink_pool_personal))
                                 }
                                 com.mirrly.tgproxy.core.UplinkMode.MASQUE -> {
-                                    UplinkStateRow("Протокол", "Cloudflare WARP Anycast MASQUE")
-                                    UplinkStateRow("Регистрация", if (isWarpActive) "Активен • Зарегистрирован" else "Не зарегистрирован", isAlert = !isWarpActive)
-                                    UplinkStateRow("Клиентский IPv4", warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2")
-                                    UplinkStateRow("Anycast шлюз", warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
-                                    UplinkStateRow("Криптография mTLS", if (warpProfile?.clientCertBase64?.isNotBlank() == true) "ECDSA P-256 готов" else "Ключи отсутствуют")
-                                    UplinkStateRow("Лицензия", if (warpProfile?.isWarpPlus == true) "Cloudflare WARP+ Unlimited" else "WARP Free")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_protocol), "Cloudflare WARP Anycast MASQUE")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_registration), if (isWarpActive) stringResource(R.string.uplink_reg_active) else stringResource(R.string.uplink_reg_inactive), isAlert = !isWarpActive)
+                                    UplinkStateRow(stringResource(R.string.uplink_field_client_ipv4), warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_anycast_gateway), warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_mtls_crypto), if (warpProfile?.clientCertBase64?.isNotBlank() == true) stringResource(R.string.uplink_mtls_ready) else stringResource(R.string.uplink_mtls_missing))
+                                    UplinkStateRow(stringResource(R.string.uplink_field_license), if (warpProfile?.isWarpPlus == true) "Cloudflare WARP+ Unlimited" else "WARP Free")
                                 }
                                 com.mirrly.tgproxy.core.UplinkMode.VLESS -> {
-                                    UplinkStateRow("Протокол", "VLESS v0 over WebSocket")
-                                    UplinkStateRow("UUID клиента", if (vlessUuid.length > 14) "${vlessUuid.take(8)}...${vlessUuid.takeLast(4)}" else vlessUuid)
-                                    UplinkStateRow("WebSocket путь", vlessPath)
-                                    UplinkStateRow("Хост / SNI", "${activeWorker.domain}:443")
-                                    UplinkStateRow("Маскировка TLS", "TLS 1.3 Chrome (utls-mimic)")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_protocol), "VLESS v0 over WebSocket")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_client_uuid), if (vlessUuid.length > 14) "${vlessUuid.take(8)}...${vlessUuid.takeLast(4)}" else vlessUuid)
+                                    UplinkStateRow(stringResource(R.string.uplink_field_ws_path), vlessPath)
+                                    UplinkStateRow(stringResource(R.string.uplink_field_host_sni), "${activeWorker.domain}:443")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_tls_camou), "TLS 1.3 Chrome (utls-mimic)")
                                 }
                                 com.mirrly.tgproxy.core.UplinkMode.HYBRID -> {
-                                    UplinkStateRow("Архитектура", "Worker WSS -> WARP MASQUE")
-                                    UplinkStateRow("Первый хоп (Worker)", "${activeWorker.name} (${activeWorker.domain})")
-                                    UplinkStateRow("Второй хоп (WARP)", if (isWarpActive) "MASQUE (${warpProfile?.clientIpv4})" else "Не зарегистрирован", isAlert = !isWarpActive)
-                                    UplinkStateRow("Anycast шлюз", warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_architecture), "Worker WSS -> WARP MASQUE")
+                                    UplinkStateRow(stringResource(R.string.uplink_hop_worker), "${activeWorker.name} (${activeWorker.domain})")
+                                    UplinkStateRow(stringResource(R.string.uplink_hop_warp), if (isWarpActive) "MASQUE (${warpProfile?.clientIpv4})" else stringResource(R.string.uplink_reg_inactive), isAlert = !isWarpActive)
+                                    UplinkStateRow(stringResource(R.string.uplink_field_anycast_gateway), warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
                                 }
                                 com.mirrly.tgproxy.core.UplinkMode.AWG -> {
-                                    UplinkStateRow("Протокол", "AmneziaWG (обфусцированный WireGuard)")
-                                    UplinkStateRow("Регистрация", if (isWarpActive) "Активен • WARP Anycast" else "Не зарегистрирован", isAlert = !isWarpActive)
-                                    UplinkStateRow("Anycast шлюз", warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
-                                    UplinkStateRow("Клиентский IPv4", warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2")
-                                    UplinkStateRow("Обфускация (Jc)", "4 junk-пакета перед хэндшейком")
-                                    UplinkStateRow("Маскировка I1", "QUIC Initial (SNI camouflage)")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_protocol), stringResource(R.string.uplink_amnezia_desc))
+                                    UplinkStateRow(stringResource(R.string.uplink_field_registration), if (isWarpActive) stringResource(R.string.uplink_reg_warp_anycast) else stringResource(R.string.uplink_reg_inactive), isAlert = !isWarpActive)
+                                    UplinkStateRow(stringResource(R.string.uplink_field_anycast_gateway), warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_client_ipv4), warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2")
+                                    UplinkStateRow(stringResource(R.string.uplink_obfuscation_jc), stringResource(R.string.uplink_obfuscation_jc_val))
+                                    UplinkStateRow(stringResource(R.string.uplink_masking_i1), "QUIC Initial (SNI camouflage)")
                                 }
                                 com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> {
-                                    UplinkStateRow("Архитектура", "MASQUE -> AWG -> Worker WSS")
-                                    UplinkStateRow("Уровень 1 (MASQUE)", if (isWarpActive) "WARP HTTP/3 Anycast" else "Не зарегистрирован", isAlert = !isWarpActive)
-                                    UplinkStateRow("Уровень 2 (AWG)", if (isWarpActive) "AmneziaWG Anycast (Jc=4)" else "Не зарегистрирован", isAlert = !isWarpActive)
-                                    UplinkStateRow("Уровень 3 (WSS)", "${activeWorker.name} — гарантированный TCP 443")
-                                    UplinkStateRow("Anycast шлюз", warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
+                                    UplinkStateRow(stringResource(R.string.uplink_field_architecture), "MASQUE -> AWG -> Worker WSS")
+                                    UplinkStateRow(stringResource(R.string.uplink_cascade_l1), if (isWarpActive) "WARP HTTP/3 Anycast" else stringResource(R.string.uplink_reg_inactive), isAlert = !isWarpActive)
+                                    UplinkStateRow(stringResource(R.string.uplink_cascade_l2), if (isWarpActive) "AmneziaWG Anycast (Jc=4)" else stringResource(R.string.uplink_reg_inactive), isAlert = !isWarpActive)
+                                    UplinkStateRow(stringResource(R.string.uplink_cascade_l3), stringResource(R.string.uplink_cascade_l3_val, activeWorker.name))
+                                    UplinkStateRow(stringResource(R.string.uplink_field_anycast_gateway), warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
                                 }
                             }
                         }
 
-                        UplinkStateRow("Статус движка", if (isProxyRunning) "Туннель запущен" else "Остановлен")
+                        if (effectiveRoute.isNotBlank()) {
+                            UplinkStateRow(stringResource(R.string.uplink_actual_route), effectiveRoute)
+                            if (operator.isNotBlank()) {
+                                UplinkStateRow(stringResource(R.string.uplink_node_operator), operator)
+                            }
+                            UplinkStateRow(
+                                stringResource(R.string.uplink_trust_boundary),
+                                if (isTrustBoundaryMaintained) {
+                                    if (isPrivateNode) stringResource(R.string.uplink_trust_private) else stringResource(R.string.uplink_trust_default)
+                                } else {
+                                    stringResource(R.string.uplink_trust_third_party)
+                                },
+                                isAlert = !isTrustBoundaryMaintained
+                            )
+                        }
+                        UplinkStateRow(stringResource(R.string.uplink_engine_status), if (isProxyRunning) stringResource(R.string.uplink_engine_running) else stringResource(R.string.uplink_engine_stopped))
                     }
                 }
 
@@ -3072,7 +3707,7 @@ fun UplinkStateDialog(
                             .height(38.dp)
                     ) {
                         Text(
-                            text = "Настройки аплинка",
+                            text = stringResource(R.string.uplink_settings_action),
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -3093,7 +3728,7 @@ fun UplinkStateDialog(
                             .height(38.dp)
                     ) {
                         Text(
-                            text = "Закрыть",
+                            text = stringResource(R.string.action_close),
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -3133,9 +3768,6 @@ private fun UplinkStateRow(label: String, value: String, isAlert: Boolean = fals
         )
     }
 }
-
-
-
 
 
 

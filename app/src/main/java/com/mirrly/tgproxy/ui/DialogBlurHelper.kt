@@ -42,7 +42,7 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 
 /**
- * Надежный поиск Dialog Window с обходом дерева ViewParent.
+ * Reliable search Dialog Window with traversing tree ViewParent.
  */
 fun findDialogWindow(view: View): Window? {
     var current: ViewParent? = view.parent
@@ -56,9 +56,9 @@ fun findDialogWindow(view: View): Window? {
 }
 
 /**
- * Хук для настройки системного размытия окна диалога (FLAG_BLUR_BEHIND)
- * с автоматическим переключением на темный акриловый фон на устройствах
- * без поддержки размытия (Android < 12, MIUI/HyperOS с выключенным blur, режим экономии энергии).
+ * Hook for configuring system blur window dialog (FLAG_BLUR_BEHIND)
+ * with note switching to dark acrylic background to devices
+ * without support blur (Android < 12, MIUI/HyperOS with disabled blur, mode saving energy).
  */
 @Composable
 fun rememberDialogBlurState(
@@ -131,10 +131,10 @@ fun rememberDialogBlurState(
 }
 
 /**
- * Унифицированный полноэкранный контейнер диалога с адаптивным фоном и парящими частицами:
- * - При поддержке WindowManager Blur: легкий затемняющий слой + системное оптическое размытие.
- * - Без аппаратного Blur (Android 8..11, недорогие GPU, Xiaomi/Samsung без поддержки): глубокий полупрозрачный акриловый слой (88% opacity).
- * - Поверх текста и всех элементов диалога парит деликатный слой интерактивных микро-частиц (CyberParticlesOverlay).
+ * Unified fullscreen container dialog with adaptive background and floating particles:
+ * - note note WindowManager Blur: note note note + note note note.
+ * - note note Blur (Android 8..11, note GPU, Xiaomi/Samsung without support): note note acrylic note (88% opacity).
+ * - note note and note note dialog note note note note micro-particles (CyberParticlesOverlay).
  */
 @Composable
 fun DialogBackdropBox(

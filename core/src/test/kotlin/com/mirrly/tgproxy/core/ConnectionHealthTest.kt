@@ -34,14 +34,14 @@ class ConnectionHealthTest {
         )
         assertTrue(report.score >= 95, "Expected SQI score >= 95 for ideal link, got ${report.score}")
         assertTrue(report.chatScore >= 95, "Expected chat score >= 95, got ${report.chatScore}")
-        assertEquals("Идеально для медиа", report.chatVerdict)
+        assertEquals("Ideal for media", report.chatVerdict)
         assertTrue(report.callScore >= 90, "Expected call score >= 90, got ${report.callScore}")
         assertTrue(report.isExcellent)
-        assertEquals("Идеальный канал связи", report.verdict)
-        assertEquals("Отлично", report.operatorLatencyGrade)
-        assertEquals("Стабилен", report.workerStatusGrade)
+        assertEquals("Optimal Connection", report.verdict)
+        assertEquals("Excellent", report.operatorLatencyGrade)
+        assertEquals("Stable", report.workerStatusGrade)
         assertTrue(report.mosScore >= 4.20, "Expected MOS >= 4.20 for ideal link, got ${report.mosScore}")
-        assertEquals("HD Voice (Отлично)", report.mosGrade)
+        assertEquals("HD Voice (Excellent)", report.mosGrade)
         assertTrue(report.isCallRecommended)
     }
 
@@ -54,7 +54,7 @@ class ConnectionHealthTest {
         )
         assertTrue(report.score in 50..89, "Expected SQI score between 50 and 89, got ${report.score}")
         assertTrue(report.mosScore in 3.80..4.19, "Expected MOS between 3.80 and 4.19, got ${report.mosScore}")
-        assertEquals("Хорошее качество", report.mosGrade)
+        assertEquals("Good quality", report.mosGrade)
         assertTrue(report.isCallRecommended)
     }
 
@@ -66,7 +66,7 @@ class ConnectionHealthTest {
             successRatePercent = 100
         )
         assertTrue(report.score in 60..89, "Expected SQI score between 60 and 89 for jittery link, got ${report.score}")
-        assertEquals("Высокий джиттер", report.operatorLatencyGrade)
+        assertEquals("High jitter", report.operatorLatencyGrade)
     }
 
     @Test
@@ -96,7 +96,7 @@ class ConnectionHealthTest {
             lastFailureType = FailureType.RATE_LIMITED_429
         )
         assertTrue(rateLimitedReport.score < normalReport.score, "429 Rate limited report must have lower score")
-        assertEquals("Лимит 429", rateLimitedReport.workerStatusGrade)
+        assertEquals("Limit 429", rateLimitedReport.workerStatusGrade)
         assertTrue(rateLimitedReport.mosScore < normalReport.mosScore)
     }
 
@@ -108,8 +108,8 @@ class ConnectionHealthTest {
             successRatePercent = 100,
             lastFailureType = FailureType.DPI_BLOCKED
         )
-        assertEquals("Блокировка DPI оператором", report.verdict)
-        assertEquals("DPI Блок", report.workerStatusGrade)
+        assertEquals("Operator DPI Block", report.verdict)
+        assertEquals("DPI Block", report.workerStatusGrade)
         assertEquals(1.00, report.mosScore)
         assertFalse(report.isCallRecommended)
     }
@@ -122,9 +122,9 @@ class ConnectionHealthTest {
             successRatePercent = 0
         )
         assertEquals(0, report.score)
-        assertEquals("Канал не активен", report.verdict)
+        assertEquals("Channel inactive", report.verdict)
         assertEquals(1.00, report.mosScore)
-        assertEquals("Нет связи", report.mosGrade)
+        assertEquals("No connection", report.mosGrade)
         assertFalse(report.isCallRecommended)
     }
 }

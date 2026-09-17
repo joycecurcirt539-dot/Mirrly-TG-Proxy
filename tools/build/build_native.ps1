@@ -114,6 +114,43 @@ if (-not $env:CARGO_TARGET_DIR) {
 $targetDir = $env:CARGO_TARGET_DIR
 Write-Host "Cargo Target Dir: $targetDir"
 
+# 4.1. Configure Rust path remapping to eliminate local developer paths from binaries and enable symbol stripping
+$normProjectRoot = $projectRoot.ToString().TrimEnd('\', '/')
+$normUser = if ($env:USERPROFILE) { $env:USERPROFILE.TrimEnd('\', '/') } else { "" }
+$normTarget = $targetDir.ToString().TrimEnd('\', '/')
+
+$remapList = @()
+if ($normProjectRoot) {
+    $remapList += "--remap-path-prefix=$normProjectRoot\mirrlyengine=/mirrlyengine"
+    $remapList += "--remap-path-prefix=$($normProjectRoot.Replace('\', '/'))/mirrlyengine=/mirrlyengine"
+    $remapList += "--remap-path-prefix=$normProjectRoot=/mirrly"
+    $remapList += "--remap-path-prefix=$($normProjectRoot.Replace('\', '/'))=/mirrly"
+}
+if ($normTarget) {
+    $remapList += "--remap-path-prefix=$normTarget=/cargo-target"
+    $remapList += "--remap-path-prefix=$($normTarget.Replace('\', '/'))=/cargo-target"
+}
+if ($normUser) {
+    $remapList += "--remap-path-prefix=$normUser\.cargo=/cargo"
+    $remapList += "--remap-path-prefix=$($normUser.Replace('\', '/'))/.cargo=/cargo"
+    $remapList += "--remap-path-prefix=$normUser\.rustup=/rustup"
+    $remapList += "--remap-path-prefix=$($normUser.Replace('\', '/'))/.rustup=/rustup"
+    $remapList += "--remap-path-prefix=$normUser=/user"
+    $remapList += "--remap-path-prefix=$($normUser.Replace('\', '/'))=/user"
+}
+$remapList += "--remap-path-prefix=C:\Users\iplii=/user"
+$remapList += "--remap-path-prefix=C:/Users/iplii=/user"
+$remapList += "--remap-path-prefix=c:\projects\Mirrly dev=/projects"
+$remapList += "--remap-path-prefix=c:/projects/Mirrly dev=/projects"
+$remapList += "-C"
+$remapList += "strip=symbols"
+$remapList += "-C"
+$remapList += "debuginfo=0"
+
+$env:RUSTFLAGS = $null
+$env:CARGO_ENCODED_RUSTFLAGS = $remapList -join [char]0x1F
+Write-Host "CARGO_ENCODED_RUSTFLAGS configured with path remapping & symbol stripping"
+
 # 5. Build each target
 Set-Location "$projectRoot\mirrlyengine"
 
@@ -134,6 +171,16 @@ foreach ($t in $targets) {
     $dst = "$dstDir\libmirrlyengine.so"
     Copy-Item -Path $src -Destination $dst -Force
     Write-Host "Copied $src -> $dst"
+
+    # Post-process with NDK llvm-strip to ensure zero leftover debug/comment symbols
+    $stripTool = "$ndkBin\llvm-strip.exe"
+    if (Test-Path $stripTool) {
+        Write-Host "Running llvm-strip on $dst..."
+        & $stripTool --strip-all "$dst"
+        & $stripTool --strip-debug "$dst"
+        & $stripTool --remove-section=.comment "$dst" 2>$null
+        & $stripTool --remove-section=.note.GNU-stack "$dst" 2>$null
+    }
 }
 
 Set-Location "$projectRoot"

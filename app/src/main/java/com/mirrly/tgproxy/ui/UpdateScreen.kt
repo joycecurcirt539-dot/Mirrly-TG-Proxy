@@ -29,6 +29,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -81,43 +82,44 @@ fun UpdateScreen(
     }
     val devicePrimaryType = remember(supportedAbis) { ApkType.fromAbis(supportedAbis) }
 
-    // ── Default Fallback Assets for v1.1.8.3 (Always available for reinstallation) ──
+    // ── Default Fallback Assets for Current Version (Always available for reinstallation) ──
     val defaultReleaseAssets = remember {
+        val ver = com.mirrly.tgproxy.core.UpdateChecker.cleanVersionString(com.mirrly.tgproxy.BuildConfig.VERSION_NAME)
         listOf(
             ReleaseApkAsset(
                 name = "app-arm64-v8a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-arm64-v8a-release.apk",
-                sizeBytes = 7185312L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-arm64-v8a-release.apk",
+                sizeBytes = 11037336L,
                 apkType = ApkType.ARM64,
-                sha256 = "1FDE62A0055BC452B5FEFB9CA77D8221486B4E0A320CEB84A9A0B9D5301ECC1D"
+                sha256 = "829C09A2CA8F074866C1483D4F8F7A26FBD36A9F178F659C84D5E6B0308C8C41"
             ),
             ReleaseApkAsset(
                 name = "app-universal-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-universal-release.apk",
-                sizeBytes = 17232762L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-universal-release.apk",
+                sizeBytes = 25524410L,
                 apkType = ApkType.UNIVERSAL,
-                sha256 = "E590DD61BDCC4466532BC0FC1B784DE3147F8C0D6BAAEC4D88251E2C0ECB51F3"
+                sha256 = "B0F87188F2880EEB4D019EEB6D5E3E6472945743BF32DB58CB5A8E6095CCA91F"
             ),
             ReleaseApkAsset(
                 name = "app-armeabi-v7a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-armeabi-v7a-release.apk",
-                sizeBytes = 6003316L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-armeabi-v7a-release.apk",
+                sizeBytes = 9444768L,
                 apkType = ApkType.ARM_V7,
-                sha256 = "2AB5B722946E342CBCCB45A0610E9ED4477869C4B8E209EDD5F6A3518FCA8E8B"
+                sha256 = "1E54FADD8E0FD5E0C8860696DA5A30826358CAF435A920066E028A0E467EDBBC"
             ),
             ReleaseApkAsset(
                 name = "app-x86_64-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-x86_64-release.apk",
-                sizeBytes = 7548868L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-x86_64-release.apk",
+                sizeBytes = 11547908L,
                 apkType = ApkType.X86_64,
-                sha256 = "385431F62EC2E785F680F44A0A02A1E248A6A9CAA08AF87375421F1327C8203F"
+                sha256 = "F473EF76511D9BD61A6C45CC4E600FBEB46F82A4B2E6771C0DFA2AE9242FF58B"
             ),
             ReleaseApkAsset(
                 name = "app-x86-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-x86-release.apk",
-                sizeBytes = 7436556L,
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-x86-release.apk",
+                sizeBytes = 11706036L,
                 apkType = ApkType.X86,
-                sha256 = "260FA112A9BEBC66E992D72E10F05B545021FA5F96593B2C5795BBA020BA31EC"
+                sha256 = "831105E27C344F1B616892DD16EE1D1AA6C5476FAC6BAF32F05E1788AAC5F277"
             )
         )
     }
@@ -127,24 +129,19 @@ fun UpdateScreen(
 
     val activeReleaseInfo = remember(releaseInfo, isSimulatedUpdate, defaultReleaseAssets) {
         if (isSimulatedUpdate) {
+            val ver = com.mirrly.tgproxy.core.UpdateChecker.cleanVersionString(com.mirrly.tgproxy.BuildConfig.VERSION_NAME)
             (releaseInfo ?: ReleaseInfo(
-                tagName = "v1.1.9",
-                versionName = "1.1.9",
+                tagName = "v$ver",
+                versionName = ver,
                 htmlUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases",
-                releaseNotes = "Тестовое обновление v1.1.9 для демонстрации интерфейса мульти-выбора APK и проверки работы алгоритмов.",
+                releaseNotes = "",
                 isUpdateAvailable = true
             )).copy(
                 isUpdateAvailable = true,
-                versionName = if (releaseInfo?.versionName == "1.1.8.3" || releaseInfo?.versionName == null) "1.1.9" else releaseInfo.versionName,
-                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-universal-release.apk",
-                expectedSha256 = "6AB67F380035761041405B9D133A8CB383B8EF015A7E37AA1412A0323477C70E",
-                expectedSha256List = listOf(
-                    "6AB67F380035761041405B9D133A8CB383B8EF015A7E37AA1412A0323477C70E",
-                    "940FD667930E8E1481B26F7A9B9B449A0F223CC6DF639B2385BDB8B01533DBC7",
-                    "A8AD72E5E343541F69B03895E2B2936E5E653FD579994C804FD79D9151B930F1",
-                    "17E59C1010CA297BE5F9BF45BAF79477FF9886622522A20D5B473EEA9D2A001E",
-                    "869974037B85439A6B2944756A063C5BE57AA026E200C2C3FE7DDD4CFA07A413"
-                ),
+                versionName = releaseInfo?.versionName ?: ver,
+                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-universal-release.apk",
+                expectedSha256 = null,
+                expectedSha256List = emptyList(),
                 apkAssets = if (releaseInfo?.apkAssets.isNullOrEmpty()) defaultReleaseAssets else releaseInfo!!.apkAssets
             )
         } else {
@@ -281,7 +278,7 @@ fun UpdateScreen(
                         val displayVer = if (isUpdateAvail) activeReleaseInfo?.versionName ?: currentAppVer else currentAppVer
 
                         Text(
-                            text = "Версия v$displayVer",
+                            text = stringResource(R.string.update_version_title, displayVer),
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Black,
                             color = TextWhite,
@@ -295,7 +292,7 @@ fun UpdateScreen(
                         )
 
                         // Release Tag Badge
-                        val badgeText = if (isUpdateAvail) "ДОСТУПНО ОБНОВЛЕНИЕ" else "УСТАНОВЛЕНА АКТУАЛЬНАЯ ВЕРСИЯ"
+                        val badgeText = if (isUpdateAvail) stringResource(R.string.update_badge_available) else stringResource(R.string.update_badge_actual)
                         val badgeColor = if (isUpdateAvail) Color(0xFFFFB703) else ActiveGreenLed
 
                         Box(
@@ -316,9 +313,9 @@ fun UpdateScreen(
 
                         Text(
                             text = if (isUpdateAvail) {
-                                "Доступна новая официальная сборка на GitHub"
+                                stringResource(R.string.update_banner_available_desc)
                             } else {
-                                "У вас установлена последняя официальная версия. Если возникли проблемы, ошибки или сбои в работе, вы можете переустановить приложение."
+                                stringResource(R.string.update_banner_actual_desc)
                             },
                             fontSize = 12.sp,
                             color = TextMuted,
@@ -351,7 +348,7 @@ fun UpdateScreen(
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                         val clip = ClipData.newPlainText("SHA256 Fingerprint", expectedSha)
                                         clipboard.setPrimaryClip(clip)
-                                        Toast.makeText(context, "SHA-256 скопирован в буфер обмена", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.update_toast_sha_copied), Toast.LENGTH_SHORT).show()
                                     } catch (_: Exception) {}
                                 }
                                 .padding(horizontal = 12.dp, vertical = 9.dp),
@@ -366,7 +363,7 @@ fun UpdateScreen(
                             )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Официальный SHA-256 отпечаток:",
+                                    text = stringResource(R.string.update_official_fingerprint_title),
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = TextMuted
@@ -396,7 +393,7 @@ fun UpdateScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (activeReleaseInfo?.isUpdateAvailable == true) "ВЫБОР ТИПА ПАКЕТА (APK)" else "ПАКЕТ ДЛЯ ПЕРЕУСТАНОВКИ",
+                        text = if (activeReleaseInfo?.isUpdateAvailable == true) stringResource(R.string.update_select_package_type) else stringResource(R.string.update_reinstall_package_type),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.3.sp,
@@ -492,7 +489,7 @@ fun UpdateScreen(
                                             .padding(horizontal = 5.dp, vertical = 1.dp)
                                     ) {
                                         Text(
-                                            text = "РЕКОМЕНДОВАНО",
+                                            text = stringResource(R.string.update_badge_recommended),
                                             fontSize = 7.5.sp,
                                             fontWeight = FontWeight.Black,
                                             color = ActiveGreenLed,
@@ -515,7 +512,7 @@ fun UpdateScreen(
                             )
                         }
 
-                        // Right Chip: "Выбрать ▾"
+                        // Right Chip: "Select ▾"
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color.White.copy(alpha = 0.05f),
@@ -527,7 +524,7 @@ fun UpdateScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = "Выбрать",
+                                    text = stringResource(R.string.update_btn_select),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextWhite
@@ -552,7 +549,7 @@ fun UpdateScreen(
                 val isAvail = activeReleaseInfo?.isUpdateAvailable == true
 
                 Text(
-                    text = if (isAvail) "УСТАНОВКА И ЗАГРУЗКА" else "ПЕРЕУСТАНОВКА И ВОССТАНОВЛЕНИЕ",
+                    text = if (isAvail) stringResource(R.string.update_section_install_download) else stringResource(R.string.update_section_reinstall_restore),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -595,9 +592,9 @@ fun UpdateScreen(
                             )
                             Text(
                                 text = if (isAvail) {
-                                    "Обратите внимание: для скачивания обновления может потребоваться включение VPN или прокси в связи с возможной фильтрацией CDN GitHub (githubusercontent.com) операторами связи."
+                                    stringResource(R.string.update_vpn_warning_desc)
                                 } else {
-                                    "Переустановка актуальной версии позволяет восстановить целостность файлов и исправить возможные сбои без потери ваших настроек и воркеров."
+                                    stringResource(R.string.update_reinstall_benefit_desc)
                                 },
                                 fontSize = 11.5.sp,
                                 color = if (isAvail) TextMuted else TextWhite.copy(alpha = 0.85f),
@@ -623,7 +620,7 @@ fun UpdateScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = if (isAvail) "Скачивание файла APK..." else "Скачивание пакета для переустановки...",
+                                            text = if (isAvail) stringResource(R.string.update_downloading_apk) else stringResource(R.string.update_downloading_reinstall),
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = TextWhite
@@ -662,8 +659,8 @@ fun UpdateScreen(
                                     } else null
 
                                     val etaStr = if (status.etaSeconds > 0) {
-                                        if (status.etaSeconds < 60) "~${status.etaSeconds} сек"
-                                        else "~${status.etaSeconds / 60} мин ${status.etaSeconds % 60} сек"
+                                        if (status.etaSeconds < 60) stringResource(R.string.update_eta_seconds, status.etaSeconds)
+                                        else stringResource(R.string.update_eta_mins_secs, status.etaSeconds / 60, status.etaSeconds % 60)
                                     } else null
 
                                     Row(
@@ -708,7 +705,7 @@ fun UpdateScreen(
                                         strokeWidth = 2.dp
                                     )
                                     Text(
-                                        text = "Проверка SHA-256 отпечатка и цифровой подписи...",
+                                        text = stringResource(R.string.update_verifying_signature),
                                         fontSize = 12.5.sp,
                                         color = TextWhite,
                                         fontWeight = FontWeight.Medium
@@ -727,7 +724,7 @@ fun UpdateScreen(
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Text(
-                                        text = "Ошибка скачивания",
+                                        text = stringResource(R.string.update_download_error),
                                         color = Color(0xFFFF5252),
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp
@@ -756,7 +753,7 @@ fun UpdateScreen(
                                         shape = RoundedCornerShape(10.dp)
                                     ) {
                                         Text(
-                                            text = "Скачать через браузер",
+                                            text = stringResource(R.string.update_btn_download_browser),
                                             color = TextWhite,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium
@@ -777,13 +774,13 @@ fun UpdateScreen(
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Text(
-                                        text = "✓ Файл верифицирован (SHA-256 OK)",
+                                        text = stringResource(R.string.update_verified_success),
                                         color = ActiveGreenLed,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.5.sp
                                     )
                                     Text(
-                                        text = "Нажмите кнопку ниже для запуска установки пакета Android.",
+                                        text = stringResource(R.string.update_install_cta_hint),
                                         color = TextWhite.copy(alpha = 0.85f),
                                         fontSize = 12.sp,
                                         textAlign = TextAlign.Center
@@ -871,7 +868,7 @@ fun UpdateScreen(
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                                 Text(
-                                                    text = "Скачать и установить ${selectedApkType.title} (v${activeReleaseInfo?.versionName ?: ""})",
+                                                    text = stringResource(R.string.update_btn_download_install, selectedApkType.title, activeReleaseInfo?.versionName ?: ""),
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 13.5.sp
                                                 )
@@ -941,7 +938,7 @@ fun UpdateScreen(
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                                 Text(
-                                                    text = "Переустановить ${selectedApkType.title} (v$currentAppVer)",
+                                                    text = stringResource(R.string.update_btn_reinstall, selectedApkType.title, currentAppVer),
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 13.5.sp
                                                 )
@@ -966,7 +963,7 @@ fun UpdateScreen(
                                                             if (!info.isUpdateAvailable) {
                                                                 Toast.makeText(
                                                                     context,
-                                                                    "У вас установлена актуальная версия",
+                                                                    context.getString(R.string.update_toast_already_latest),
                                                                     Toast.LENGTH_SHORT
                                                                 ).show()
                                                             }
@@ -974,7 +971,7 @@ fun UpdateScreen(
                                                         onFailure = { err ->
                                                             Toast.makeText(
                                                                 context,
-                                                                "Ошибка проверки: ${err.localizedMessage}",
+                                                                context.getString(R.string.update_toast_check_error, err.localizedMessage ?: ""),
                                                                 Toast.LENGTH_SHORT
                                                             ).show()
                                                         }
@@ -1011,7 +1008,7 @@ fun UpdateScreen(
                                                     )
                                                 }
                                                 Text(
-                                                    text = if (isManualChecking) "Проверка..." else "Проверить обновления",
+                                                    text = if (isManualChecking) stringResource(R.string.update_btn_checking) else stringResource(R.string.update_btn_check_updates),
                                                     fontWeight = FontWeight.Medium,
                                                     fontSize = 13.sp
                                                 )
@@ -1047,7 +1044,7 @@ fun UpdateScreen(
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Text(
-                                                text = "Открыть релиз на GitHub",
+                                                text = stringResource(R.string.update_btn_open_github),
                                                 fontWeight = FontWeight.Medium,
                                                 fontSize = 13.sp
                                             )
@@ -1063,10 +1060,10 @@ fun UpdateScreen(
                                                 val ver = activeReleaseInfo?.versionName ?: ""
                                                 if (isIgnored) {
                                                     com.mirrly.tgproxy.service.UpdateManager.unignoreVersion(context, ver)
-                                                    Toast.makeText(context, "Напоминания для v$ver включены", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, context.getString(R.string.update_toast_remind_enabled, ver), Toast.LENGTH_SHORT).show()
                                                 } else {
                                                     com.mirrly.tgproxy.service.UpdateManager.ignoreVersion(context, ver)
-                                                    Toast.makeText(context, "Версия v$ver скрыта", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, context.getString(R.string.update_toast_ver_hidden, ver), Toast.LENGTH_SHORT).show()
                                                 }
                                             },
                                             colors = ButtonDefaults.buttonColors(
@@ -1081,7 +1078,7 @@ fun UpdateScreen(
                                                 .springPress()
                                         ) {
                                             Text(
-                                                text = if (isIgnored) "Вернуть напоминание об обновлении" else "Пропустить эту версию",
+                                                text = if (isIgnored) stringResource(R.string.update_btn_restore_reminder) else stringResource(R.string.update_btn_skip_version),
                                                 fontWeight = FontWeight.Medium,
                                                 fontSize = 12.5.sp,
                                                 color = if (isIgnored) ActiveGreenLed else TextMuted
@@ -1113,7 +1110,7 @@ fun UpdateScreen(
                                             .springPress()
                                     ) {
                                         Text(
-                                            text = if (canInstall) (if (isAvail) "Запустить установку обновления" else "Запустить переустановку приложения") else "Разрешить установку в Настройках",
+                                            text = if (canInstall) (if (isAvail) stringResource(R.string.update_btn_launch_install) else stringResource(R.string.update_btn_launch_reinstall)) else stringResource(R.string.update_btn_allow_install_settings),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp
                                         )
@@ -1135,7 +1132,7 @@ fun UpdateScreen(
                                             .height(40.dp)
                                     ) {
                                         Text(
-                                            text = "Сбросить статус",
+                                            text = stringResource(R.string.update_btn_reset_status),
                                             fontSize = 12.5.sp,
                                             fontWeight = FontWeight.Medium
                                         )
@@ -1195,7 +1192,7 @@ fun UpdateScreen(
                                             .springPress()
                                     ) {
                                         Text(
-                                            text = "Повторить загрузку ${selectedApkType.title}",
+                                            text = stringResource(R.string.update_btn_retry_download, selectedApkType.title),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp
                                         )
@@ -1231,7 +1228,7 @@ fun UpdateScreen(
                                                 color = Color(0xFFFF6B6B)
                                             )
                                             Text(
-                                                text = "Отменить загрузку",
+                                                text = stringResource(R.string.update_btn_cancel_download),
                                                 fontWeight = FontWeight.SemiBold,
                                                 fontSize = 13.5.sp,
                                                 color = Color(0xFFFF6B6B)
@@ -1251,7 +1248,7 @@ fun UpdateScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "СПИСОК ИЗМЕНЕНИЙ (CHANGELOG)",
+                    text = stringResource(R.string.update_changelog_header),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -1290,7 +1287,7 @@ fun UpdateScreen(
                             }
 
                             Text(
-                                text = "Что нового в этой версии",
+                                text = stringResource(R.string.update_whats_new_title),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 color = TextWhite
@@ -1303,8 +1300,7 @@ fun UpdateScreen(
                         val changelogMarkdown = if (isUpdateAvail && !activeReleaseInfo?.releaseNotes.isNullOrBlank()) {
                             activeReleaseInfo!!.releaseNotes
                         } else {
-                            "У вас установлена последняя официальная версия v${com.mirrly.tgproxy.BuildConfig.VERSION_NAME}.\n\n" +
-                            "Официальный список изменений и релизные сборки доступны в репозитории на GitHub."
+                            stringResource(R.string.update_actual_version_notice, com.mirrly.tgproxy.BuildConfig.VERSION_NAME)
                         }
 
                         GithubMarkdownText(
@@ -1334,7 +1330,7 @@ fun UpdateScreen(
                             isSimulatedUpdate = !isSimulatedUpdate
                             Toast.makeText(
                                 context,
-                                if (isSimulatedUpdate) "Включен тестовый режим: Доступно обновление v1.1.9" else "Тестовый режим отключен",
+                                if (isSimulatedUpdate) context.getString(R.string.update_sim_active_desc) else context.getString(R.string.update_sim_inactive_desc),
                                 Toast.LENGTH_SHORT
                             ).show()
                         })
@@ -1351,7 +1347,7 @@ fun UpdateScreen(
                             modifier = Modifier.size(12.dp)
                         )
                         Text(
-                            text = if (isSimulatedUpdate) "Тестовый режим v1.1.9 (нажмите для сброса)" else "Тестирование UI обновления",
+                            text = if (isSimulatedUpdate) stringResource(R.string.update_sim_btn_reset) else stringResource(R.string.update_sim_btn_test_ui),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Medium,
                             color = if (isSimulatedUpdate) Color(0xFFFFB703) else TextMuted.copy(alpha = 0.5f)
@@ -1385,7 +1381,7 @@ fun UpdateScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "Обновление",
+                            text = stringResource(R.string.update_screen_title),
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
                             color = TextWhite,
@@ -1402,7 +1398,7 @@ fun UpdateScreen(
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = "NEW",
+                                    text = stringResource(R.string.badge_new),
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Black,
                                     color = Color(0xFFFFB703)
@@ -1418,7 +1414,7 @@ fun UpdateScreen(
                     }) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_arrow_left),
-                            contentDescription = "Назад",
+                            contentDescription = stringResource(R.string.action_back),
                             tint = TextWhite,
                             modifier = Modifier.size(22.dp)
                         )
@@ -1507,7 +1503,7 @@ fun SelectApkTypeDialog(
                     border = BorderStroke(1.dp, accentColor.copy(alpha = 0.35f))
                 ) {
                     Text(
-                        text = if (isUpdateAvailable) "ВЫБОР АРХИТЕКТУРЫ APK" else "ПАКЕТ ДЛЯ ПЕРЕУСТАНОВКИ",
+                        text = if (isUpdateAvailable) stringResource(R.string.update_architecture_selection) else stringResource(R.string.update_reinstall_package_type),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = accentColor,
@@ -1518,7 +1514,7 @@ fun SelectApkTypeDialog(
 
                 // Title
                 Text(
-                    text = if (isUpdateAvailable) "Тип установочного пакета" else "Выбор пакета для переустановки",
+                    text = if (isUpdateAvailable) stringResource(R.string.update_package_type_title) else stringResource(R.string.update_reinstall_type_title),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,
@@ -1547,14 +1543,14 @@ fun SelectApkTypeDialog(
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "CPU устройства: ${primaryAbi.uppercase()}",
+                                text = stringResource(R.string.update_cpu_device, primaryAbi.uppercase()),
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
                                 color = greenLed
                             )
                             Text(
-                                text = "Рекомендуется: ${devicePrimaryType.title} (${devicePrimaryType.abiName})",
+                                text = stringResource(R.string.update_recommended_arch, devicePrimaryType.title, devicePrimaryType.abiName),
                                 fontSize = 11.5.sp,
                                 color = TextWhite.copy(alpha = 0.85f)
                             )
@@ -1645,7 +1641,7 @@ fun SelectApkTypeDialog(
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text(
-                                                text = "РЕКОМЕНДОВАНО",
+                                                text = stringResource(R.string.update_badge_recommended),
                                                 fontSize = 8.5.sp,
                                                 fontWeight = FontWeight.Black,
                                                 color = greenLed,
@@ -1710,7 +1706,7 @@ fun SelectApkTypeDialog(
                                                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                                             val clip = ClipData.newPlainText("APK SHA-256", assetSha)
                                                             clipboard.setPrimaryClip(clip)
-                                                            Toast.makeText(context, "SHA-256 для ${type.title} скопирован", Toast.LENGTH_SHORT).show()
+                                                            Toast.makeText(context, context.getString(R.string.update_toast_arch_copied, type.title), Toast.LENGTH_SHORT).show()
                                                         } catch (_: Exception) {}
                                                     }
                                                     .padding(horizontal = 8.dp, vertical = 5.dp),
@@ -1755,7 +1751,7 @@ fun SelectApkTypeDialog(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
-                                        text = if (isExpanded) "Скрыть подробности" else "Подробнее об архитектуре",
+                                        text = if (isExpanded) stringResource(R.string.update_arch_hide_details) else stringResource(R.string.update_arch_show_details),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = accentColor.copy(alpha = 0.9f)
@@ -1796,7 +1792,7 @@ fun SelectApkTypeDialog(
                     ) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(
-                                text = if (isUpdateAvailable) "Выбрать ${currentChoice.title}" else "Выбрать ${currentChoice.title} для переустановки",
+                                text = if (isUpdateAvailable) stringResource(R.string.update_btn_select_choice, currentChoice.title) else stringResource(R.string.update_btn_select_choice_reinstall, currentChoice.title),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 color = accentColor
@@ -1820,7 +1816,7 @@ fun SelectApkTypeDialog(
                     ) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(
-                                text = "Закрыть",
+                                text = stringResource(R.string.action_cancel),
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 13.sp,
                                 color = TextMuted

@@ -1,0 +1,1945 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Mirrly TG Proxy - Native MTProto & Cloudflare WebSocket Proxy for Android
+  Copyright (C) 2026 R1Xern (Mirrly Dev)
+-->
+<resources>
+    <!-- App Metadata -->
+    <string name="app_name">Mirrly TG Proxy</string>
+    <string name="app_slogan">Безопасный нативный релей для Telegram</string>
+
+    <!-- Onboarding Screen -->
+    <string name="onboarding_brand_title">MIRRLY TG PROXY</string>
+    <string name="onboarding_brand_subtitle">SECURE NATIVE RELAY FOR TELEGRAM</string>
+    <string name="onboarding_step_language_title">ВЫБЕРИТЕ ЯЗЫК ИНТЕРФЕЙСА</string>
+    <string name="onboarding_step_language_desc">Язык интерфейса можно изменить в любой момент в настройках приложения.</string>
+    <string name="onboarding_lang_system">Системный</string>
+    <string name="onboarding_lang_system_desc">Автоматический выбор на основе настроек ОС</string>
+    <string name="onboarding_lang_ru">Русский</string>
+    <string name="onboarding_lang_ru_desc">Русский язык интерфейса</string>
+    <string name="onboarding_lang_en">English</string>
+    <string name="onboarding_lang_en_desc">English interface language</string>
+
+    <string name="onboarding_step_about_title">О ПРОЕКТЕ MIRRLY TG PROXY</string>
+    <string name="onboarding_step_about_desc">Высокоскоростной прокси-клиент нового поколения для обхода блокировок и ускорения Telegram.</string>
+    <string name="onboarding_feature_mtproto">MTProto релей с динамическим обфусцированием трафика</string>
+    <string name="onboarding_feature_socks5">SOCKS5 TCP-релей с оптимизацией для голосовых вызовов и медиа</string>
+    <string name="onboarding_feature_cf_workers">WSS-туннелирование через Cloudflare Workers и собственные домены</string>
+    <string name="onboarding_feature_amoled">Минималистичный глубокий AMOLED-интерфейс без рекламы и трекеров</string>
+
+    <string name="onboarding_step_guide_title">БЫСТРЫЙ СТАРТ</string>
+    <string name="onboarding_step_guide_desc">Три простых шага для настройки защищенного соединения:</string>
+    <string name="onboarding_guide_1_title">Выберите рабочий протокол</string>
+    <string name="onboarding_guide_1_desc">MTProto для быстрой текстовой переписки или SOCKS5 для стабильных звонков и загрузки медиа.</string>
+    <string name="onboarding_guide_2_title">Запустите службу прокси</string>
+    <string name="onboarding_guide_2_desc">Нажмите центральную кнопку питания на главном экране для старта локального релея.</string>
+    <string name="onboarding_guide_3_title">Подключите Telegram</string>
+    <string name="onboarding_guide_3_desc">Нажмите кнопку «Подключить Telegram», чтобы параметры прокси автоматически применились в клиенте.</string>
+
+    <string name="onboarding_btn_skip">Пропустить</string>
+    <string name="onboarding_btn_next">Далее</string>
+    <string name="onboarding_btn_start">Начать работу</string>
+
+    <!-- Settings Language Section -->
+    <string name="settings_section_language">Язык интерфейса</string>
+    <string name="settings_section_language_desc">Выбор предпочтительного языка приложения</string>
+    <string name="settings_language_system">Авто (Системный)</string>
+    <string name="settings_language_ru">Русский</string>
+    <string name="settings_language_en">English</string>
+    <string name="settings_onboarding_replay">Обучение при первом запуске</string>
+    <string name="settings_onboarding_replay_desc">Повторно просмотреть вводный экран и краткое руководство</string>
+
+    <!-- Common Actions & States -->
+    <string name="action_cancel">Отмена</string>
+    <string name="action_save">Сохранить</string>
+    <string name="action_close">Закрыть</string>
+    <string name="action_copy">Копировать</string>
+    <string name="action_done">Готово</string>
+    <string name="action_connect">Подключить Telegram</string>
+    <string name="action_disconnect">Отключить</string>
+    <string name="action_settings">Настройки</string>
+    <string name="action_back">Назад</string>
+    <string name="action_reset">Сброс</string>
+
+    <!-- Statuses -->
+    <string name="status_connected">ПОДКЛЮЧЕНО</string>
+    <string name="status_connecting">ПОДКЛЮЧЕНИЕ...</string>
+    <string name="status_disconnected">ОТКЛЮЧЕНО</string>
+    <string name="status_disconnecting">ОТКЛЮЧЕНИЕ...</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">Служба прокси Mirrly</string>
+    <string name="notification_channel_desc">Уведомления фоновой службы прокси Mirrly TG Proxy</string>
+    <string name="notification_proxy_running">Прокси активен</string>
+
+    <string name="exit_press_again">Нажмите еще раз для выхода</string>
+    <string name="worker_imported_activated">Воркер «%1$s» импортирован и активирован</string>
+    <string name="worker_already_exists_activated">Воркер уже был в списке и теперь активирован</string>
+    <string name="worker_import_error">Ошибка импорта</string>
+    <string name="status_waiting_network">Ожидание сети</string>
+    <string name="status_offline">Ожидание сети • Офлайн</string>
+    <string name="status_protection_disabled">Защита отключена • Нажмите кнопку для старта</string>
+    <string name="status_stopping">Остановка соединения...</string>
+    <string name="status_optimizing_route">Оптимизация маршрута...</string>
+    <string name="status_selecting_optimal_node">Выбор оптимального узла...</string>
+    <string name="status_validating_dns">Проверка DNS...</string>
+    <string name="status_connecting_tg_mtproto">Подключение к Telegram (MTProto)...</string>
+    <string name="status_connecting_cf_wss">Подключение к Cloudflare Worker WSS...</string>
+    <string name="status_connecting_cf_warp">Подключение к Cloudflare WARP Anycast...</string>
+    <string name="status_connecting_vless">Установка VLESS over WSS соединения...</string>
+    <string name="status_connecting_hybrid">Инициализация гибридного туннеля Worker + WARP...</string>
+    <string name="status_connecting_amnezia">Установка AmneziaWG туннеля к WARP Anycast...</string>
+    <string name="status_connecting_warp_cascade">Инициализация WARP Cascade (Worker + AWG)...</string>
+    <string name="status_warp_masque_needs_reg">WARP MASQUE • Требуется регистрация в Настройках</string>
+    <string name="status_vpn_disabled">VPN ОТКЛЮЧЕН</string>
+    <string name="status_vpn_enabled">VPN ПОДКЛЮЧЁН</string>
+    <string name="status_vpn_connecting">ПОДКЛЮЧЕНИЕ VPN...</string>
+    <string name="status_vpn_disconnecting">ОТКЛЮЧЕНИЕ VPN...</string>
+    <string name="status_vpn_system_mode_desc">Режим всей системы • Нажмите для подключения</string>
+    <string name="status_vpn_system_connected_desc">Системный туннель активен • Cloudflare Anycast</string>
+    <string name="vpn_permission_denied">Разрешение на системный VPN отклонено</string>
+    <string name="uplink_mtproto_flowseal_secured">MTProto Anycast Flowseal • Защищено</string>
+    <string name="uplink_mtproto_direct_secured">MTProto Direct (Fake-TLS) • Защищено</string>
+    <string name="uplink_cf_wss_secured">Cloudflare WSS · Защищено</string>
+    <string name="uplink_warp_masque_secured">WARP MASQUE (%1$s) • Защищено</string>
+    <string name="uplink_vless_secured">VLESS over WSS (TLS 1.3 Chrome) • Защищено</string>
+    <string name="uplink_hybrid_secured">Гибрид Worker (%1$s) + WARP • Защищено</string>
+    <string name="uplink_amnezia_secured">AmneziaWG (WARP Anycast) • Защищено</string>
+    <string name="uplink_warp_cascade_secured">WARP Cascade (Worker + AWG) • Защищено</string>
+    <string name="status_secured">Защищено</string>
+    <string name="status_public_fallback">Публичный резерв</string>
+    <string name="status_flow_socks5_title">SOCKS5 ПОТОКИ</string>
+    <string name="status_flow_wspool_title">WSPOOL СОКЕТЫ</string>
+    <string name="status_flow_stopped">остановлен</string>
+    <string name="status_flow_active_conns">%1$d активных</string>
+    <string name="status_flow_active_standby">%1$d активных · Резерв: %2$d (%3$d)</string>
+    <string name="preflight_hot_reserve_active">Горячий резерв: маршрут актуален</string>
+    <string name="preflight_timeout">Таймаут предстартовой проверки</string>
+    <string name="preflight_no_workers">Нет доступных воркеров</string>
+    <string name="unit_ms_format">%1$d мс</string>
+    <string name="unit_sec_format">%1$d сек</string>
+    <string name="vpn_mode_title">Режим VPN</string>
+    <string name="onboarding_feature_mtproto_title">MTProto &amp; Fake-TLS</string>
+    <string name="onboarding_feature_socks5_title">SOCKS5 Relay</string>
+    <string name="onboarding_feature_cf_workers_title">Cloudflare Workers WSS</string>
+    <string name="telemetry_speed_zero">0 Б/с</string>
+    <string name="telemetry_bytes_zero">0 Б</string>
+    <string name="telemetry_speed_format">%1$s/с</string>
+    <string name="verdict_ideal_channel">Идеальный канал связи</string>
+    <string name="verdict_ideal_channel_desc">Минимальная задержка и стабильный прямой WSS-туннель</string>
+    <string name="verdict_dpi_blocked">Блокировка DPI оператором</string>
+    <string name="verdict_dpi_blocked_desc">Обнаружен сброс TCP/ClientHello пакетов middlebox-системой</string>
+    <string name="verdict_tls_failed">Сбой защищенного TLS</string>
+    <string name="verdict_tls_failed_desc">Разрыв TLS-рукопожатия или попытка подмены сертификата узла</string>
+    <string name="verdict_good_connection">Хорошее соединение</string>
+    <string name="verdict_good_connection_desc">Небольшая вариация задержки (джиттер мобильной сети или Wi-Fi)</string>
+    <string name="verdict_operator_delays">Задержки на стороне оператора</string>
+    <string name="verdict_operator_delays_desc">Повышенный джиттер сотового радиоканала (LTE/5G) или перегрузка вышки</string>
+    <string name="verdict_link_degradation">Деградация канала</string>
+    <string name="verdict_link_degradation_desc">Потери пакетов на маршруте к узлу Cloudflare Edge</string>
+    <string name="verdict_critical_instability">Критическая нестабильность</string>
+    <string name="verdict_critical_instability_desc">Высокий процент таймаутов или блокировка провайдером</string>
+    <string name="verdict_channel_inactive">Канал не активен</string>
+    <string name="verdict_channel_inactive_desc">Ожидание первых сетевых проб</string>
+    <string name="verdict_waiting_network">Ожидание сети</string>
+    <string name="verdict_waiting_network_desc">Нет подключения к интернету. Ожидание сети...</string>
+    <string name="verdict_waiting_check_desc">Ожидание проверки канала...</string>
+    <string name="chat_verdict_ideal">Идеально для медиа</string>
+    <string name="chat_verdict_stable">Стабильно</string>
+    <string name="chat_verdict_moderate">Умеренная скорость</string>
+    <string name="chat_verdict_delays">Задержка загрузки</string>
+    <string name="chat_verdict_failures">Сбои доставки</string>
+    <string name="chat_verdict_none">Нет связи</string>
+    <string name="mos_grade_hd">HD Voice (Отлично)</string>
+    <string name="mos_grade_good">Хорошее качество</string>
+    <string name="mos_grade_acceptable">Приемлемо</string>
+    <string name="mos_grade_noise">С помехами</string>
+    <string name="mos_grade_unusable">Непригодно</string>
+    <string name="mos_grade_none">Нет связи</string>
+    <string name="op_grade_excellent">Отлично</string>
+    <string name="op_grade_normal">В норме</string>
+    <string name="op_grade_high_jitter">Высокий джиттер</string>
+    <string name="op_grade_delays">Задержки</string>
+    <string name="op_grade_unavailable">Недоступно</string>
+    <string name="ws_grade_dpi_block">DPI Блок</string>
+    <string name="ws_grade_tls_failure">TLS Сбой</string>
+    <string name="ws_grade_limit_429">Лимит 429</string>
+    <string name="ws_grade_stable">Стабилен</string>
+    <string name="ws_grade_reachable">Доступен</string>
+    <string name="ws_grade_failures">Сбои</string>
+    <string name="ws_grade_awaiting">Ожидание</string>
+    <string name="settings_uplink_worker_sub">Cloudflare Edge</string>
+    <string name="settings_uplink_masque_sub">Anycast HTTP/3</string>
+    <string name="settings_uplink_cascade_sub">MASQUE (HTTP/3) -> AWG</string>
+    <string name="toast_doh_selected_best">Отобрано %1$d лучших серверов: %2$s</string>
+    <string name="content_desc_logs">Логи</string>
+    <string name="content_desc_session_history">История сессий</string>
+    <string name="content_desc_sleep_timer">Таймер сна</string>
+    <string name="content_desc_updates">Обновления</string>
+    <string name="banner_update_title">Обновление v%1$s</string>
+    <string name="banner_update_install">• Установить</string>
+    <string name="banner_update_dismissed">Обновление v%1$s скрыто</string>
+    <string name="err_service_switch">Ошибка переключения службы прокси: %1$s</string>
+    <string name="warp_masque_registration_needed">WARP MASQUE: Требуется регистрация</string>
+    <string name="warp_hybrid_registration_needed">Гибридный режим: Требуется WARP</string>
+    <string name="warp_tap_settings_create_profile">Нажмите для перехода в Настройки и создания профиля</string>
+    <string name="worker_shared_pool_badge">%1$s (Общий пул)</string>
+    <string name="worker_shared_pool_warning">Лимит запросов может исчерпаться. Выберите другой воркер в менеджере или разверните личный.</string>
+    <string name="label_incoming">Входящий</string>
+    <string name="label_outgoing">Исходящий</string>
+    <string name="label_total">Всего: %1$s</string>
+    <string name="msg_start_proxy_first">Включите прокси сначала!</string>
+    <string name="msg_link_copied">Ссылка %1$s скопирована!</string>
+    <string name="action_to_telegram">В Telegram</string>
+    <string name="err_socks5_auth_start">Ошибка запуска службы после настройки SOCKS5 auth: %1$s</string>
+    <string name="err_tg_client_not_found">Telegram клиент не найден</string>
+    <string name="err_tg_open_client">Ошибка открытия клиента</string>
+    <string name="prompt_select_tg_client">Выберите клиент Telegram</string>
+    <string name="err_select_tg_client">Ошибка выбора клиента</string>
+    <string name="uplink_status_title">Состояние аплинка</string>
+    <string name="uplink_status_desc">Сетевой транспорт и статус шифрования</string>
+    <string name="uplink_field_protocol">Протокол</string>
+    <string name="uplink_field_transport">Транспорт</string>
+    <string name="uplink_field_encryption">Шифрование</string>
+    <string name="uplink_field_cache_nodes">Кэш-узлы</string>
+    <string name="uplink_field_cache_nodes_val">20 гео-распределенных CDN-нод</string>
+    <string name="uplink_field_active_worker">Активный воркер</string>
+    <string name="uplink_field_node_domain">Домен узла</string>
+    <string name="uplink_field_conn_pool">Пул соединений</string>
+    <string name="uplink_pool_shared">Общий пул разработчиков</string>
+    <string name="uplink_pool_personal">Персональный воркер</string>
+    <string name="uplink_field_registration">Регистрация</string>
+    <string name="uplink_reg_active">Активен • Зарегистрирован</string>
+    <string name="uplink_reg_inactive">Не зарегистрирован</string>
+    <string name="uplink_field_client_ipv4">Клиентский IPv4</string>
+    <string name="uplink_field_anycast_gateway">Anycast шлюз</string>
+    <string name="uplink_field_mtls_crypto">Криптография mTLS</string>
+    <string name="uplink_mtls_ready">ECDSA P-256 готов</string>
+    <string name="uplink_mtls_missing">Ключи отсутствуют</string>
+    <string name="uplink_field_license">Лицензия</string>
+    <string name="uplink_field_client_uuid">UUID клиента</string>
+    <string name="uplink_field_ws_path">WebSocket путь</string>
+    <string name="uplink_field_host_sni">Хост / SNI</string>
+    <string name="uplink_field_tls_camou">Маскировка TLS</string>
+    <string name="uplink_field_architecture">Архитектура</string>
+    <string name="uplink_hop_worker">Первый хоп (Worker)</string>
+    <string name="uplink_hop_warp">Второй хоп (WARP)</string>
+    <string name="uplink_amnezia_desc">AmneziaWG (обфусцированный WireGuard)</string>
+    <string name="uplink_reg_warp_anycast">Активен • WARP Anycast</string>
+    <string name="uplink_obfuscation_jc">Обфускация (Jc)</string>
+    <string name="uplink_obfuscation_jc_val">4 junk-пакета перед хэндшейком</string>
+    <string name="uplink_masking_i1">Маскировка I1</string>
+    <string name="uplink_cascade_l1">Уровень 1 (MASQUE)</string>
+    <string name="uplink_cascade_l2">Уровень 2 (AWG)</string>
+    <string name="uplink_cascade_l3">Уровень 3 (WSS)</string>
+    <string name="uplink_cascade_l3_val">%1$s — гарантированный TCP 443</string>
+    <string name="uplink_actual_route">Фактический маршрут</string>
+    <string name="uplink_node_operator">Оператор узла</string>
+    <string name="uplink_trust_boundary">Граница доверия</string>
+    <string name="uplink_trust_private">Соблюдена (Приватный узел)</string>
+    <string name="uplink_trust_default">Соблюдена (Штатный оператор)</string>
+    <string name="uplink_trust_third_party">Изменена (Сторонний публичный релей)</string>
+    <string name="uplink_engine_status">Статус движка</string>
+    <string name="uplink_engine_running">Туннель запущен</string>
+    <string name="uplink_engine_stopped">Остановлен</string>
+    <string name="uplink_settings_action">Настройки аплинка</string>
+    <string name="settings_category_all">Все</string>
+    <string name="settings_category_network">Сеть</string>
+    <string name="settings_category_uplink">Аплинк</string>
+    <string name="settings_category_system">Система</string>
+    <string name="settings_category_other">Прочее</string>
+    <string name="settings_network_title">СЕТЬ</string>
+    <string name="settings_port_mtproto">Порт MTProto</string>
+    <string name="settings_port_range_hint">Введите число от 1 до 65535</string>
+    <string name="settings_port_mtproto_desc">Локальный порт для Telegram</string>
+    <string name="settings_secret_hex">Секретный ключ (Hex)</string>
+    <string name="settings_port_socks5">Порт SOCKS5</string>
+    <string name="settings_port_socks5_desc">Локальный TCP Relay порт</string>
+    <string name="settings_socks5_auth_title">Авторизация SOCKS5</string>
+    <string name="settings_socks5_auth_open">ОТКРЫТЫЙ</string>
+    <string name="settings_login">Логин</string>
+    <string name="settings_login_open_desc">Без логина (открытый)</string>
+    <string name="settings_password">Пароль</string>
+    <string name="settings_password_open_desc">Без пароля (открытый)</string>
+    <string name="settings_btn_generate_creds">Сгенерировать логин и пароль</string>
+    <string name="settings_btn_clear">Очистить</string>
+    <string name="settings_perf_title">ПРОИЗВОДИТЕЛЬНОСТЬ</string>
+    <string name="settings_wspool_modes">Режимы пропускной способности (WsPool)</string>
+    <string name="settings_speed_eco">Эко</string>
+    <string name="settings_speed_balance">Баланс</string>
+    <string name="settings_speed_turbo">Турбо</string>
+    <string name="settings_speed_ultra">Ультра</string>
+    <string name="settings_speed_auto">Авто</string>
+    <string name="settings_tcp_nodelay_title">Мгновенная отдача (TCP_NODELAY)</string>
+    <string name="settings_tcp_nodelay_on">Включено: Мгновенная отправка (все сети)</string>
+    <string name="settings_tcp_nodelay_off">Выключено: Склеивание пакетов Nagle (все сети)</string>
+    <string name="settings_cf_title">ТУННЕЛИРОВАНИЕ CLOUDFLARE</string>
+    <string name="settings_worker_manager">Менеджер воркеров</string>
+    <string name="settings_worker_active">Активен: %1$s</string>
+    <string name="settings_worker_guide">Инструкция по развертыванию</string>
+    <string name="settings_worker_guide_desc">Создать личный воркер за 2 минуты</string>
+    <string name="settings_cf_worker_desc_socks5">Cloudflare Worker принимает WSS/VLESS соединения и пересылает TCP-трафик SOCKS5 к серверам через cloudflare:sockets.</string>
+    <string name="settings_cf_worker_desc_mtproto">Cloudflare Worker применяется для аплинка SOCKS5. В текущем режиме MTProto соединение идет напрямую к шлюзам Telegram.</string>
+    <string name="settings_uplink_title">РЕЖИМ АПЛИНКА (WARP &amp; WORKER)</string>
+    <string name="settings_uplink_note">Аплинк туннелирует SOCKS5. Для MTProto используется прямое подключение.</string>
+    <string name="settings_mode_basic">Базовый</string>
+    <string name="settings_mode_in_dev">В разработке</string>
+    <string name="settings_anycast_obfuscation">Anycast обфускация</string>
+    <string name="settings_unregistered_autoreg">Не зарегистрирован (авторегистрация)</string>
+    <string name="settings_btn_refresh">Обновить</string>
+    <string name="settings_btn_create">Создать</string>
+    <string name="settings_reg_details">Детали регистрации</string>
+    <string name="settings_amnezia_copied">Конфиг AmneziaWG скопирован</string>
+    <string name="settings_anycast_endpoint">Anycast эндпоинт</string>
+    <string name="settings_mtls_cert">Сертификат mTLS P-256</string>
+    <string name="settings_cert_active_x509">Активен (X.509)</string>
+    <string name="settings_warp_plus_license">Лицензия WARP+</string>
+    <string name="settings_vless_uuid_client">UUID клиента:</string>
+    <string name="settings_btn_new_uuid">Новый UUID</string>
+    <string name="settings_vless_active_host">Активный хост</string>
+    <string name="settings_vless_node_region">Регион узла</string>
+    <string name="settings_vless_ws_path">WebSocket путь</string>
+    <string name="settings_vless_transport_port">Транспортный порт</string>
+    <string name="settings_vless_browser_mimic">Мимикрия браузера</string>
+    <string name="settings_system_title">СИСТЕМА И ЭНЕРГОСБЕРЕЖЕНИЕ</string>
+    <string name="settings_autostart_title">Автозапуск при загрузке</string>
+    <string name="settings_autostart_desc">Автоматический запуск службы прокси после перезагрузки устройства</string>
+    <string name="settings_sleep_timer_title">Таймер сна (автоотключение)</string>
+    <string name="settings_sleep_timer_active">Активен • Отключение через %1$s</string>
+    <string name="settings_sleep_timer_off">Выключен • Нажмите для выбора интервала</string>
+    <string name="settings_schedule_title">Расписание работы прокси</string>
+    <string name="settings_battery_guard_title">Защита аккумулятора</string>
+    <string name="settings_battery_guard_active">Автоотключение при заряде ниже %1$s%% или энергосбережении</string>
+    <string name="settings_battery_guard_off">Выключена • Автоматическое сохранение заряда батареи</string>
+    <string name="settings_battery_threshold">Порог отключения по заряду:</string>
+    <string name="settings_battery_android_saver">Отключать при энергосбережении Android</string>
+    <string name="settings_battery_android_saver_desc">Срабатывает при активации системного режима экономии энергии</string>
+    <string name="settings_qos_title">Адаптивный QoS и троттлинг</string>
+    <string name="settings_qos_active">Включен • Динамическое урезание пула сокетов и буферов при нагреве и энергосбережении</string>
+    <string name="settings_qos_off">Выключен • Прокси работает на максимальной мощности без троттлинга</string>
+    <string name="settings_err_open_battery_settings">Не удалось открыть настройки энергосбережения</string>
+    <string name="settings_doze_mode_title">Исключение из Doze Mode</string>
+    <string name="settings_doze_mode_allowed">Разрешено • Защита от заморозки сокетов в глубоком сне активна</string>
+    <string name="settings_doze_mode_optimizing">Оптимизируется системой • Нажмите для отключения ограничений Doze Mode</string>
+    <string name="settings_doze_status_active">Активно</string>
+    <string name="settings_doze_btn_configure">Настроить</string>
+    <string name="settings_power_saver_title">Режим энергосбережения</string>
+    <string name="settings_power_saver_desc">Отключение фоновых анимаций и частиц для экономии заряда батареи</string>
+    <string name="settings_help_title">СПРАВКА И НАСТРОЙКИ</string>
+    <string name="settings_tab_security">БЕЗОПАСНОСТЬ</string>
+    <string name="settings_tab_how_it_works">КАК РАБОТАЕТ</string>
+    <string name="settings_tab_why_custom_worker">ПОЧЕМУ СВОЙ ВОРКЕР</string>
+    <string name="settings_support_dev">Поддержать разработчика</string>
+    <string name="settings_support_dev_desc">Ссылка ведет на страницу сервиса DaLink для добровольной поддержки автора R1Xern. Mirrly TG Proxy — полностью бесплатный проект с открытым исходным кодом.</string>
+
+    <string name="status_connecting_caps">ПОДКЛЮЧЕНИЕ...</string>
+    <string name="status_disconnecting_caps">ОТКЛЮЧЕНИЕ...</string>
+    <string name="badge_warp_needs_reg">WARP • Нужна регистрация</string>
+    <string name="badge_hybrid_active">Гибрид • %1$s + WARP</string>
+    <string name="badge_hybrid_needs_warp">Гибрид • Нужен WARP</string>
+    <string name="badge_vpn_in_dev">Mirrly VPN • В разработке</string>
+    <string name="mode_hybrid_worker_warp">Гибрид Worker + WARP</string>
+
+    <string name="mode_socks5_beta">SOCKS5 [БЕТА]</string>
+    <string name="mode_vpn_in_dev">VPN [В РАЗРАБОТКЕ]</string>
+    <string name="vpn_system_title_dev">СИСТЕМНЫЙ VPN [В РАЗРАБОТКЕ]</string>
+    <string name="vpn_badge_locked">ЗАБЛОКИРОВАНО</string>
+    <string name="vpn_tunnel_title">Системный VPN-туннель (Android VpnService)</string>
+    <string name="vpn_tunnel_desc">Перенаправление всего трафика устройства через зашифрованные туннели без необходимости настройки прокси в отдельных приложениях.</string>
+    <string name="vpn_killswitch_title">Аварийная блокировка (Kill Switch)</string>
+    <string name="vpn_killswitch_desc">Блокировка исходящего сетевого трафика в обход туннеля при разрыве VPN-соединения</string>
+    <string name="vpn_status_unavailable">Недоступно</string>
+    <string name="vpn_splittunnel_title">Раздельное туннелирование (Split Tunneling)</string>
+    <string name="vpn_splittunnel_desc">Выбор установленных приложений для выборочной маршрутизации через VPN или прямое соединение</string>
+    <string name="vpn_architecture_title">Архитектура ядра маршрутизации</string>
+    <string name="vpn_details_btn">Подробнее о статусе разработки VPN</string>
+    <string name="settings_opera_upstream_title">Opera VPN Upstream для WARP</string>
+    <string name="settings_opera_upstream_desc">Каскад: ТСПУ -&gt; Opera VPN Anycast -&gt; Cloudflare MASQUE</string>
+    <string name="settings_opera_node_select">ВЫБОР УЗЛА OPERA VPN</string>
+    <string name="settings_opera_node_selected">Узел Opera VPN: %1$s</string>
+    <string name="settings_vless_pages_title">ПУБЛИЧНЫЕ УЗЛЫ (PAGES &amp; ANYCAST CDN)</string>
+    <string name="settings_vless_page_selected">Выбран узел Pages: %1$s</string>
+    <string name="settings_vless_cf_workers_title">ВОРКЕРЫ CLOUDFLARE ДЛЯ VLESS</string>
+    <string name="settings_vless_worker_selected">Выбран воркер для VLESS: %1$s</string>
+    <string name="settings_vless_opera_servers_title">СЕРВЕРЫ OPERA VPN (VLESS ХОСТИНГ)</string>
+    <string name="settings_vless_opera_selected">Выбран сервер Opera VPN: %1$s</string>
+    <string name="settings_vless_uuid_copied">UUID скопирован в буфер</string>
+    <string name="settings_vless_node_imported">Импортирован узел: %1$s</string>
+    <string name="settings_vless_err">Ошибка VLESS: %1$s</string>
+    <string name="settings_vless_no_link_in_clip">В буфере нет ссылки vless://</string>
+    <string name="settings_vless_btn_import">Импорт vless</string>
+    <string name="settings_vless_nodes_available">Доступно узлов: %1$s</string>
+    <string name="settings_vless_link_copied">Ссылка vless:// скопирована в буфер</string>
+    <string name="settings_vless_btn_export">Экспорт</string>
+    <string name="label_tspu_bypass">ТСПУ Bypass</string>
+    <string name="state_loading">Загрузка...</string>
+    <string name="settings_schedule_active">Включено • %1$s</string>
+    <string name="settings_schedule_off">Выключено • Запуск и остановка по времени</string>
+    <string name="settings_language_title">Язык интерфейса</string>
+    <string name="settings_language_desc">Выбор предпочтительного языка приложения</string>
+    <string name="settings_about_category_title">О ПРИЛОЖЕНИИ И СООБЩЕСТВЕ</string>
+    <string name="settings_hall_of_fame_title">Зал Славы и Благодарности</string>
+    <string name="settings_hall_of_fame_desc">Первопроходцы, контрибьюторы и цифровые слепки</string>
+    <string name="settings_about_dev_title">О разработчике &amp; Проекте</string>
+    <string name="settings_about_dev_desc">Mirrly Dev (R1Xern) • Информация, соцсети и статус сборки</string>
+    <string name="settings_update_actual">У вас установлена актуальная версия</string>
+    <string name="settings_update_check_err">Ошибка проверки обновлений: %1$s</string>
+    <string name="settings_update_available">Найдено обновление!</string>
+    <string name="settings_btn_check_updates">Проверить обновления</string>
+    <string name="settings_update_checking">Проверка GitHub Releases...</string>
+    <string name="settings_update_available_tap">Доступна новая версия • Нажмите для установки</string>
+    <string name="settings_update_search_github">Поиск новых версий на GitHub</string>
+    <string name="doh_btn_enable_all">Все %1$s</string>
+    <string name="doh_btn_enable_all_ok">Все %1$s OK</string>
+    <string name="doh_btn_reset">Сброс</string>
+    <string name="doh_notice_proxy_running">Прокси активен • Для смены узлов остановите службу</string>
+    <string name="action_stop">Остановить</string>
+    <string name="doh_testing_progress">Тестирование: %1$s из %2$s...</string>
+    <string name="doh_smart_selection_title">Умный автоподбор DNS</string>
+    <string name="doh_measuring_rtt">Замер RTT и обход ТСПУ</string>
+    <string name="doh_stop_to_measure">Остановите прокси для замера</string>
+    <string name="doh_auto_pick_fastest">Автовыбор самых быстрых незаблокированных узлов</string>
+    <string name="doh_btn_test">Тест</string>
+    <string name="doh_list_title">Список DoH-серверов</string>
+    <string name="doh_list_ratio">%1$s ИЗ %2$s</string>
+    <string name="doh_hide_list_hint">Нажмите для скрытия списка узлов</string>
+    <string name="doh_active_race_hint">%1$s активно • Конкурентный Race Resolver</string>
+    <string name="unit_ms_val">%1$s мс</string>
+    <string name="doh_status_tspu_block">Блок ТСПУ</string>
+    <string name="doh_status_timeout">Таймаут</string>
+    <string name="doh_status_ip_poison">Подмена IP</string>
+    <string name="doh_badge_top">Топ</string>
+    <string name="doh_status_pending">Ожидание...</string>
+    <string name="doh_status_tspu_ok">ТСПУ OK</string>
+    <string name="doh_status_rkn_block">РКН блок?</string>
+    <string name="toast_vless_uuid_generated">Сгенерирован новый UUID для VLESS</string>
+    <string name="toast_stop_proxy_change_dns">Остановите прокси для смены DNS</string>
+    <string name="toast_doh_keep_at_least_one">Необходимо оставить хотя бы один DoH-провайдер</string>
+    <string name="toast_stop_proxy_reset_dns">Остановите прокси для сброса DNS</string>
+    <string name="toast_doh_reset_defaults">Настройки DoH сброшены по умолчанию</string>
+    <string name="toast_doh_all_enabled">Включены все DoH-серверы (%1$s)</string>
+    <string name="toast_stop_proxy_start_benchmark">Остановите прокси для запуска автоподбора</string>
+    <string name="toast_doh_all_unreachable">Все серверы недоступны. Проверьте интернет-соединение.</string>
+    <string name="toast_doh_benchmark_err">Ошибка тестирования: %1$s</string>
+    <string name="info_uplink_modes_title">Режимы аплинка (Транспорт и обход ТСПУ)</string>
+    <string name="info_uplink_modes_body">АРХИТЕКТУРА АПЛИНКА В MIRRLY:
+• Аплинк (Upstream Tunnel) определяет физический и криптографический сетевой маршрут от локального SOCKS5-прокси (127.0.0.1:10808) до серверов Telegram через цензурные шлюзы ТСПУ/DPI.
+• Трафик мессенджера инкапсулируется в современные протоколы с маскировкой под обычный веб-серфинг или туннелируется через Anycast-инфраструктуру Cloudflare.
+• В отличие от системного VPN, Mirrly работает как локальный transparent TCP-релей без создания TUN-интерфейса, что исключает утечки DNS, батарейный голод и системные ограничения Android.
+
+1. CLOUDFLARE WORKER (WEBSOCKET OVER TLS 1.3):
+• Принцип работы: трафик передается по защищенному WebSocket-туннелю (порт 443) к бессерверной V8-функции в сети Cloudflare Edge. Воркер использует внутренний сокетный API (cloudflare:sockets) для прямого TCP-подключения к дата-центрам Telegram.
+• Обход блокировок: оператор связи и оборудование ТСПУ видят стандартный HTTPS-запрос с доверенным TLS 1.3 сертификатом глобального CDN, что исключает блокировку по протокольным сигнатурам.
+• Особенности: бесплатный лимит Cloudflare составляет 100 000 вызовов в сутки. Благодаря мультиплексированию (передаче тысяч пакетов внутри одного открытого сокета) данный лимит практически невозможно исчерпать в повседневном использовании.
+
+2. CLOUDFLARE WARP (MASQUE / RFC 9484):
+• Принцип работы: передовой стандарт IETF CONNECT-IP / CONNECT-UDP поверх протоколов HTTP/3 и QUIC. Прокси связывается с Anycast-шлюзами Cloudflare (188.114.96.1) через нативные учетные данные WireGuard и сертификаты mTLS (ECDSA P-256).
+• Преимущества: полное отсутствие блокировки начала очереди (Head-of-Line Blocking), минимальные задержки (RTT) и высочайшая стабильность при голосовых звонках и видеосвязи.
+• Устойчивость к ТСПУ: поддерживает автоматический подбор незаблокированных портов Anycast (500, 8095, 8443, 1074, 443) и фрагментацию первого пакета рукопожатия (Noise Handshake Fragmentation).
+
+3. VLESS OVER WEBSOCKET (ANYCAST PAGES CDN &amp; ПОДПИСКИ):
+• Принцип работы: компактный бинарный протокол VLESS v0 в связке с транспортом WebSocket (порт 443) и шифрованием TLS 1.3. Соединение мимикрирует под обычный браузерный трафик Google Chrome.
+• Доступность без регистрации: не требует создания аккаунта Cloudflare, настройки API-токенов или развертывания личных воркеров.
+• Автоматический пул и зеркала: приложение включает пул стабильных Anycast-узлов в Европе (Амстердам, Франкфурт) и Азии (Сингапур), а также потоковый загрузчик публичных зеркал подписок с проверкой валидности и гонкой Happy Eyeballs в нативном Rust-ядре.
+
+4. ГИБРИДНЫЙ РЕЖИМ (КАСКАД WORKER + WARP):
+• Принцип работы: двухзвенное туннелирование. Смартфон подключается к доверенному Cloudflare Worker по зашифрованному WSS, а воркер перенаправляет поток в Anycast-сеть WARP к целевому Telegram DC.
+• Преимущества: решает проблему блокировки UDP-трафика и прямого доступа к IP-диапазонам WARP операторами связи. Узел ТСПУ видит лишь легитимный HTTPS-трафик к Cloudflare Worker.</string>
+    <string name="info_warp_masque_title">Туннель Cloudflare WARP &amp; MASQUE</string>
+    <string name="info_warp_masque_body">ПРИНЦИП РАБОТЫ И СТАНДАРТ MASQUE:
+• Протокол MASQUE (Multiplexing Application Substrate over QUIC Encryption, RFC 9484 / RFC 9298) позволяет мультиплексировать IP-пакеты и UDP-дейтаграммы поверх защищенного транспортного уровня HTTP/3 и QUIC.
+• Трафик маршрутизируется через ближайший по задержке Anycast-сервер Cloudflare Edge.
+
+АВТОМАТИЧЕСКАЯ РЕГИСТРАЦИЯ И КРИПТОГРАФИЯ:
+• При создании профиля приложение обращается к API регистрации Cloudflare через защищенный обфусцированный HTTP-клиент.
+• Генерируется ключевая пара эллиптической кривой Curve25519 / ECDSA P-256 и выпускается персональный клиентский X.509 сертификат взаимной аутентификации (mTLS).
+• Устройству выделяется индивидуальный внутренний IPv4 (172.16.0.2) и IPv6 (/128) адрес.
+
+ОБХОД БЛОКИРОВОК И ФРАГМЕНТАЦИЯ ПАКЕТОВ:
+• Системы ТСПУ фильтруют стандартные заголовки рукопожатия WireGuard. Для обхода блокировок ядро Mirrly применяет фрагментацию первого пакета: разделение инициализирующего сообщения на части менее MTU с задержкой отправки хвоста.
+• Встроенный сканер конечных точек автоматически подбирает рабочий Anycast-порт среди 8095, 8443, 500, 1074 и 443.
+
+ЭКСПОРТ В AMNEZIAWG:
+• При необходимости параметры сгенерированного профиля (включая мусорные заголовки Init Packet Magic Header I1) можно скопировать в буфер обмена для использования в сторонних клиентах AmneziaWG.</string>
+    <string name="info_vless_title">Протокол VLESS &amp; Публичные Anycast-узлы</string>
+    <string name="info_vless_body">ОСОБЕННОСТИ ПРОТОКОЛА VLESS:
+• VLESS — это легковесный транспортный протокол нулевой версии (v0) без избыточного внутреннего шифрования (encryption=none).
+• Вся криптографическая защита возлагается на внешний слой TLS 1.3 с маскировкой под стандартный браузерный трафик (Chrome utls-mimic) на порту 443.
+
+РАБОТА ЧЕРЕЗ CLOUDFLARE PAGES:
+• В отличие от воркеров, узлы Cloudflare Pages развернуты на глобальной статической Anycast CDN-инфраструктуре Cloudflare.
+• Домены вида *.pages.dev обладают высоким доверием в сетевых фильтрах и не вызывают подозрений у оборудования DPI.
+
+ДИНАМИЧЕСКИЙ ПУЛ И ГОНКА HAPPY EYEBALLS:
+• В нативном Rust-движке (mirrlyengine) реализован параллельный опрос узлов. При сбое основного сервера прокси мгновенно подбирает альтернативный живой узел из пула без разрыва сессии Telegram.
+• Потоковый загрузчик автоматически синхронизирует актуальные узлы из проверенных зеркал подписок GitHub с жесткой фильтрацией (поддерживаются только чистые WSS over TLS узлы; несовместимые с WSS протоколы Reality, gRPC и raw TCP отсекаются при парсинге).
+• Все проверенные узлы кэшируются в локальной энергонезависимой памяти устройства.</string>
+    <string name="info_ports_title">Локальные порты прокси</string>
+    <string name="info_ports_body">НАЗНАЧЕНИЕ ПОРТОВ:
+• Локальный порт прослушивания — это сетевой сокет (127.0.0.1) на вашем устройстве, к которому подключается клиент Telegram.
+• Порт 1080: стандартный порт режима MTProto (нативный протокол Telegram с Fake-TLS).
+• Порт 10808: стандартный порт режима SOCKS5 (универсальный прозрачный TCP-релей).
+
+РЕКОМЕНДАЦИИ ПО НАСТРОЙКЕ:
+• Рекомендованные порты: 1080 (MTProto) и 10808 (SOCKS5). Они не требуют прав root и стандартизированы для прокси-серверов.
+• Допустимый диапазон: от 1024 до 65535.
+• Если указанный порт занят другой службой на устройстве, ядро прокси не сможет запустить слушатель (Bind Error).
+• При изменении порта не забудьте обновить параметры прокси в Telegram по кнопке «Подключить Telegram».</string>
+    <string name="info_secret_title">Секретный ключ MTProto (Fake-TLS)</string>
+    <string name="info_secret_body">СТРУКТУРА И КРИПТОГРАФИЯ КЛЮЧА:
+• 32-символьный шестнадцатеричный (Hex) ключ используется клиентом Telegram для аутентификации и шифрования заголовков сессии MTProto.
+• Префикс «dd»: активирует защитный режим Fake-TLS.
+• При Fake-TLS первое сообщение рукопожатия мессенджера маскируется под ClientHello стандартного протокола TLS 1.3 с легитимным доменным именем (SNI).
+
+ГЕНЕРАЦИЯ И ПРИМЕНЕНИЕ:
+• Нажмите на значок генерации для создания криптографически стойкого случайного ключа.
+• После генерации нового ключа обязательно обновите ссылку прокси в Telegram.</string>
+    <string name="info_worker_title">Cloudflare Worker &amp; Персональный домен</string>
+    <string name="info_worker_body">АРХИТЕКТУРА И БЕЗОПАСНОСТЬ:
+• Cloudflare Worker выполняет роль распределенного релея между прокси и серверами Telegram через сокетный интерфейс cloudflare:sockets.
+• Весь трафик шифруется на всем пути следования. Провайдер связи видит исключительно обращение к защищенному CDN-домену по порту 443.
+
+РАЗВЕРТЫВАНИЕ ЛИЧНОГО ВОРКЕРА:
+• Использование личного бесплатного воркера гарантирует максимальную стабильность, отсутствие посторонней нагрузки и полную конфиденциальность.
+• Бесплатный план Cloudflare предоставляет 100 000 запросов в день на каждый персональный аккаунт.
+• Добавленный личный домен имеет наивысший приоритет в системе маршрутизации Mirrly.</string>
+    <string name="info_autostart_title">Автозапуск службы при загрузке устройства</string>
+    <string name="info_autostart_body">ПРИНЦИП РАБОТЫ:
+• Служба регистрирует системный широковещательный ресивер события BOOT_COMPLETED.
+• После включения или перезагрузки смартфона прокси автоматически поднимает локальный сокет без необходимости ручного открытия приложения.
+
+ОСОБЕННОСТИ НАСТРОЙКИ НА РАЗНЫХ ПРОШИВКАХ:
+• Xiaomi (MIUI/HyperOS): открыть Настройки -&gt; Приложения -&gt; Разрешения -&gt; Автозапуск и разрешить автозапуск Mirrly TG Proxy.
+• Samsung (One UI): добавить приложение в список \'Никогда не спящие приложения\'.
+• Huawei (EMUI/HarmonyOS): перевести управление в ручной режим и отметить Автозапуск.</string>
+    <string name="info_wspool_title">Пропускная способность и пул сокетов (WsPool)</string>
+    <string name="info_wspool_body">ТЕХНОЛОГИЯ WEBSOCKET PRE-WARMING:
+• Для устранения задержек при открытии чатов и загрузке медиа нативное ядро Mirrly поддерживает предварительно открытый пул сокетов (Pre-Warming Pool) и кольцевых буферов.
+
+ДОСТУПНЫЕ ПРОФИЛИ:
+• Эко (2 сокета, буфер 128 КБ): минимальная нагрузка на CPU и RAM (~150 КБ).
+• Баланс (4 сокета, буфер 256 КБ): оптимально для повседневного использования.
+• Турбо (8 сокетов, буфер 1 МБ): ускоренная загрузка медиа и стикеров.
+• Ультра (16 сокетов, буфер 2 МБ): максимальная скорость для 4K-видео.
+• Авто (2–16 сокетов): адаптивное расширение пула под нагрузкой.</string>
+    <string name="info_tcp_nodelay_title">Управление алгоритмом Нагла (TCP_NODELAY)</string>
+    <string name="info_tcp_nodelay_body">ПРИНЦИП РАБОТЫ АЛГОРИТМА НАГЛА (RFC 896):
+• По умолчанию TCP объединяет короткие пакеты, ожидая подтверждения (ACK).
+• Это снижает сетевые накладные расходы, но приводит к задержкам сообщений (до 200–500 мс).
+
+РЕЖИМЫ РАБОТЫ В MIRRLY:
+• Авто: TCP_NODELAY активируется при RTT &lt; 140 мс. При джиттере включается группировка.
+• Включено: немедленная отправка пакетов без задержек.
+• Выключено: пакеты группируются ОС. Рекомендуется для слабых 2G-сетей.</string>
+    <string name="info_powersaver_title">Энергосбережение и отключение визуальных эффектов</string>
+    <string name="info_powersaver_body">ОПТИМИЗАЦИЯ ДЛЯ AMOLED И БЮДЖЕТНЫХ УСТРОЙСТВ:
+• Полное отключение отрисовки частиц фонового Canvas-оверлея (CyberParticlesOverlay).
+• Минимизация количества фаз перерисовки Compose-интерфейса.
+• Снижение энергопотребления на экранах 90–120 Гц и продление времени автономной работы устройства.</string>
+    <string name="info_protocols_title">Протоколы подключения Telegram</string>
+    <string name="info_protocols_body">СРАВНЕНИЕ РЕЖИМОВ РАБОТЫ:
+• MTProto (порт 1080): нативный протокол Telegram с Fake-TLS и Anycast Flowseal CDN.
+• SOCKS5 (порт 10808): прозрачный TCP-релей RFC 1928, сквозное шифрование Telegram, голосовые и видеозвонки без задержек, поддержка всех аплинков (Cloudflare Worker, WARP MASQUE, VLESS).</string>
+    <string name="info_socks5_auth_title">Аутентификация SOCKS5 (RFC 1929)</string>
+    <string name="info_socks5_auth_body">ЗАЩИТА ЛОКАЛЬНОГО ИНТЕРФЕЙСА:
+• По умолчанию сокет 127.0.0.1:10808 открыт для всех процессов.
+• Настройка логина и пароля активирует RFC 1929 аутентификацию, блокируя доступ посторонним приложениям.
+• Учетные данные автоматически добавляются в ссылку tg://socks при копировании или переходе в Telegram.</string>
+    <string name="info_battery_guard_title">Защита батареи и температурный контроль</string>
+    <string name="info_battery_guard_body">МНОГОУРОВНЕВАЯ СИСТЕМА ЭНЕРГОСБЕРЕЖЕНИЯ:
+• Контроль минимального заряда: автоотключение при разряде ниже 5-25% с 5-минутным предупреждением.
+• Кнопка отмены автоотключения прямо в уведомлении.
+• Остановка при активации системного режима энергосбережения.
+• Автосброс таймеров при подключении к зарядному устройству.
+• Снижение размера пула при температуре батареи выше 42°C.</string>
+    <string name="info_qos_title">Адаптивный QoS и динамический троттлинг</string>
+    <string name="info_qos_body">УПРАВЛЕНИЕ ПРОИЗВОДИТЕЛЬНОСТЬЮ И ТРОТТЛИНГОМ:
+• Включено: динамическое масштабирование пула сокетов и буферов при нагреве и разряде.
+• Выключено: работа на полной мощности (16 сокетов, 2 МБ буфер) без искусственных ограничений.
+• Защита от критического перегрева чипа активна всегда на аппаратном уровне ядра.</string>
+    <string name="info_doze_mode_title">Исключение из режима энергосбережения (Doze Mode)</string>
+    <string name="info_doze_mode_body">РЕЖИМ ГЛУБОКОГО СНА ANDROID (DOZE MODE):
+• Начиная с Android 6.0, система замораживает сокеты и отключает сеть при неподвижном устройстве с выключенным экраном.
+• Исключение из оптимизации батареи позволяет Mirrly удерживать сетевые сокеты активными для мгновенного приема входящих звонков и сообщений Telegram.
+• Потребление энергии нативным ядром в режиме ожидания минимально (~0.1% заряда в сутки).</string>
+    <string name="info_doh_title">Резолвер DNS-over-HTTPS (Параллельная DoH Гонка)</string>
+    <string name="info_doh_body">ТЕХНОЛОГИЯ ПАРАЛЛЕЛЬНОЙ ГОНКИ (DOH RACE):
+• Запросы на определение IP отправляются параллельно всем включенным серверам по HTTP/2 с TLS 1.3.
+• Первый ответивший сервер побеждает, остальные отменяются.
+• Результат кэшируется в локальном LRU-кэше.
+• Проверка на принадлежность официальной автономной системе Telegram (AS44907) исключает подмену IP цензурными шлюзами.</string>
+    <string name="info_default_title">Справка</string>
+    <string name="info_default_body">Описание отсутствует</string>
+    <string name="settings_protocol_title">ПРОТОКОЛ</string>
+    <string name="speed_test_dialog_title">Тест скорости сети</string>
+    <string name="speed_test_dialog_badge">В разработке</string>
+    <string name="speed_test_dialog_desc">Модуль комплексного замера пропускной способности, пинга и сетевой стабильности туннеля временно скрыт на период оптимизации и будет доступен в следующем обновлении.</string>
+    <string name="action_understood">ПОНЯТНО</string>
+    <string name="unofficial_dialog_category">ПРЕДУПРЕЖДЕНИЕ БЕЗОПАСНОСТИ</string>
+    <string name="unofficial_dialog_title">Неофициальная или измененная сборка</string>
+    <string name="unofficial_dialog_desc">Данная версия приложения была пересобрана или изменена сторонними лицами. Разработчики Mirrly TG Proxy не несут ответственности за безопасность и сохранность данных в сторонних сборках. Настоятельно рекомендуем установить оригинальную версию из репозитория GitHub.</string>
+    <string name="unofficial_dialog_btn_download">Скачать с официального GitHub</string>
+    <string name="unofficial_dialog_btn_dismiss">Я понимаю риск</string>
+    <string name="donation_banner_dialog_title">Поддержать разработку Mirrly</string>
+    <string name="donation_banner_dialog_desc">Ссылка ведет на сервис DaLink (DonationAlerts) автора R1Xern. Добровольное пожертвование помогает покрывать расходы на хостинг и разработку обновлений.</string>
+    <string name="donation_banner_title">Поддержка разработчика</string>
+    <string name="donation_banner_desc">Если Mirrly обеспечивает стабильный доступ к Telegram, вы можете поддержать автора R1Xern добровольным донатом.</string>
+    <string name="action_support">Поддержать</string>
+    <string name="action_later">Позже</string>
+    <string name="action_do_not_show_again">Больше не показывать</string>
+    <string name="github_star_dialog_title">Оценить проект звёздочкой на GitHub</string>
+    <string name="github_star_dialog_desc">Ссылка ведет на официальную страницу открытого репозитория Mirrly TG Proxy на GitHub. Оценка звёздочкой (Star) — это совершенно бесплатный способ поддержать автора R1Xern и помочь продвижению проекта!</string>
+    <string name="value_star_banner_title">Mirrly защищает ваш Telegram уже 1 час!</string>
+    <string name="value_star_banner_desc">Если вам нравится скорость — поддержите проект звездочкой на GitHub.</string>
+    <string name="action_star_github">Поставить звезду</string>
+    <string name="markdown_no_changelog">Описание изменений отсутствует.</string>
+    <string name="github_star_dialog_category">ОЦЕНКА НА GITHUB (STAR)</string>
+    <string name="github_star_dialog_sub">Поддержите проект Star на GitHub</string>
+    <string name="github_star_dialog_body">Приложение Mirrly TG Proxy распространяется абсолютно бесплатно. Поставив «Звезду» в репозитории на GitHub, вы помогаете проекту расти и мотивируете автора развивать новые функции.</string>
+    <string name="github_star_dialog_btn_star">Поставить Star</string>
+    <string name="github_star_dialog_btn_dismiss">Не показывать</string>
+    <string name="qr_scanner_title">QR-сканер воркеров</string>
+    <string name="qr_scanner_header">Сканирование узла Cloudflare</string>
+    <string name="qr_scanner_desc">Наведите камеру на QR-код с экрана монитора или другого устройства для мгновенного импорта воркера.</string>
+    <string name="qr_scanner_no_cam_title">Доступ к камере отключен</string>
+    <string name="qr_scanner_no_cam_desc">Предоставьте разрешение камеры для автоматического считывания QR-кодов.</string>
+    <string name="qr_scanner_btn_open_settings">Открыть настройки</string>
+    <string name="qr_scanner_formats_hint">Поддерживаются ссылки mirrly://, https:// и домены .workers.dev</string>
+    <string name="qr_scanner_torch_off">Выключить подсветку</string>
+    <string name="qr_scanner_torch_on">Включить подсветку</string>
+    <string name="official_source_unofficial_title">Неофициальная сборка</string>
+    <string name="official_source_official_title">Официальная сборка Mirrly TG Proxy</string>
+    <string name="official_source_unofficial_desc">Подпись приложения изменена. Будьте осторожны с несертифицированными модами.</string>
+    <string name="official_source_official_desc">Оригинальный релиз с подтверждённым отпечатком подписи разработчика.</string>
+    <string name="official_source_btn_repo">Репозиторий</string>
+    <string name="official_source_btn_check_hash">Проверить хеш</string>
+    <string name="official_source_dialog_category">ПРОВЕРКА ПОДЛИННОСТИ</string>
+    <string name="official_source_dialog_title">Безопасность и подпись</string>
+    <string name="official_source_sig_official">Официальная цифровая подпись Mirrly TG Proxy подтверждена. Данная сборка выпущена разработчиками в репозитории GitHub.</string>
+    <string name="official_source_sig_debug">Отладочная версия (Debug). Приложение собрано в среде разработки с тестовым ключом.</string>
+    <string name="official_source_sig_generic">Цифровая подпись приложения верифицирована.</string>
+    <string name="official_source_dialog_fingerprint_title">ОФИЦИАЛЬНЫЙ ОТПЕЧАТОК SHA-256</string>
+    <string name="official_source_hash_copied">Хеш подписи скопирован!</string>
+    <string name="action_copy_alt">Скопировать</string>
+    <string name="socks5_auth_dialog_category">SOCKS5 • ТРЕБУЕТСЯ АВТОРИЗАЦИЯ</string>
+    <string name="socks5_auth_dialog_title">Настройка доступа SOCKS5</string>
+    <string name="socks5_auth_dialog_desc">Для запуска SOCKS5 прокси необходимо указать логин и пароль. Они обеспечат защиту вашего локального прокси-сервера (RFC 1929) и будут автоматически переданы в Telegram.</string>
+    <string name="socks5_auth_field_username">Логин (Username)</string>
+    <string name="socks5_auth_hint_username">Введите логин</string>
+    <string name="socks5_auth_err_username_required">Логин обязателен для SOCKS5</string>
+    <string name="socks5_auth_field_password">Пароль (Password)</string>
+    <string name="socks5_auth_hint_password">Введите пароль</string>
+    <string name="socks5_auth_err_password_required">Пароль обязателен для SOCKS5</string>
+    <string name="socks5_auth_btn_generate_random">Сгенерировать случайные</string>
+    <string name="socks5_auth_btn_save_and_start">Сохранить и запустить</string>
+    <string name="tg_connect_dialog_category">ВЫБОР ПРОТОКОЛА ДЛЯ TELEGRAM</string>
+    <string name="tg_connect_dialog_title">Подключение к Telegram</string>
+    <string name="tg_connect_dialog_subtitle">Выберите подходящий протокол под вашу текущую задачу:</string>
+    <string name="tg_connect_mtproto_badge_active">АКТИВЕН • РЕКОМЕНДУЕТСЯ</string>
+    <string name="tg_connect_mtproto_badge">РЕКОМЕНДУЕТСЯ</string>
+    <string name="tg_connect_mtproto_desc">Идеально для чатов, каналов и 4K-медиа. Максимальная скорость, пул WsPool и минимальный расход батареи.</string>
+    <string name="tg_connect_btn_open_tg">В Telegram</string>
+    <string name="tg_connect_toast_mtproto_copied">MTProto ссылка скопирована!</string>
+    <string name="tg_connect_socks5_badge_active">АКТИВЕН • БЕТА</string>
+    <string name="tg_connect_socks5_badge">БЕТА • ДЛЯ ЗВОНКОВ</string>
+    <string name="tg_connect_socks5_desc">Поддерживает обход блокировок аудио- и видеозвонков через TCP-туннель. Режим находится в стадии БЕТА-тестирования, стабильность работы не гарантируется.</string>
+    <string name="tg_connect_socks5_login_prefix">Логин: %1$s</string>
+    <string name="tg_connect_socks5_pass_prefix">Пароль: %1$s</string>
+    <string name="tg_connect_toast_socks5_copied">SOCKS5 ссылка скопирована!</string>
+    <string name="import_worker_dialog_category">ИМПОРТ ВОРКЕРА</string>
+    <string name="import_worker_dialog_title">Импорт Cloudflare Worker</string>
+    <string name="import_worker_params_header">ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ:</string>
+    <string name="import_worker_desc">Вы открыли ссылку для подключения Cloudflare Worker. Проверьте данные и подтвердите добавление узла в конфигурацию прокси.</string>
+    <string name="import_worker_domain_header">ДОМЕН УЗЛА</string>
+    <string name="import_worker_field_name">Название (опционально)</string>
+    <string name="import_worker_hint_name">например: От друга</string>
+    <string name="import_worker_warning_header">ПРЕДУПРЕЖДЕНИЕ СВЯЗИ:</string>
+    <string name="import_worker_default_name">Импортированный воркер</string>
+    <string name="import_worker_btn_import">Импортировать</string>
+    <string name="import_worker_warning_unreachable">Воркер «%1$s» не отвечает на проверочный запрос (ERR_UNREACHABLE). Убедитесь, что скрипт развернут в Cloudflare.</string>
+    <string name="import_worker_checking">Проверка узла...</string>
+    <string name="import_worker_btn_import_activate">Импортировать и активировать</string>
+    <string name="vpn_stat_servers">Серверов</string>
+    <string name="vpn_stat_protocol">Протокол</string>
+    <string name="vpn_screen_in_dev_hint">VPN режим находится в разработке. Ожидайте в следующем обновлении.</string>
+    <string name="vpn_dialog_title_dev">В разработке</string>
+    <string name="vpn_dialog_desc_dev">VPN режим обеспечивает защиту всего трафика устройства, а не только Telegram. Функция находится в разработке и будет доступна в следующем обновлении.</string>
+    <string name="vpn_dialog_independent_hint">Прокси для Telegram работает независимо и доступен уже сейчас.</string>
+    <string name="action_understood_short">Понятно</string>
+    <string name="ext_link_cat_star">ОЦЕНКА НА GITHUB (STAR)</string>
+    <string name="ext_link_cat_external">ВНЕШНИЙ ПЕРЕХОД</string>
+    <string name="ext_link_issues_title">Баг-трекер (Issues)</string>
+    <string name="ext_link_issues_desc">Ссылка ведет в раздел «Issues» на GitHub. Здесь пользователи и разработчики обсуждают найденные ошибки, предлагаемый функционал и задачи проекта.</string>
+    <string name="ext_link_releases_title">Официальные релизы</string>
+    <string name="ext_link_releases_desc">Ссылка ведет на страницу релизов репозитория на GitHub. Там вы можете скачать официальные проверенные APK-файлы и изучить ченджлог обновлений.</string>
+    <string name="ext_link_license_title">Лицензия проекта</string>
+    <string name="ext_link_license_cat">ЛИЦЕНЗИОННОЕ СОГЛАШЕНИЕ</string>
+    <string name="ext_link_license_desc">Ссылка ведет на официальный файл лицензии в репозитории на GitHub, устанавливающий юридические условия использования и распространения кода.</string>
+    <string name="ext_link_terms_title">Пользовательское соглашение</string>
+    <string name="ext_link_terms_cat">ЮРИДИЧЕСКИЙ ДОКУМЕНТ</string>
+    <string name="ext_link_terms_desc">Ссылка ведет на полные правила использования сервиса Mirrly TG Proxy, опубликованные в репозитории проекта на GitHub.</string>
+    <string name="ext_link_pulls_title">Пулл-реквесты (Pull Requests)</string>
+    <string name="ext_link_pulls_desc">Ссылка ведет в раздел предложений кода и исправлений от участников открытого сообщества на GitHub.</string>
+    <string name="ext_link_profile_title">Профиль автора (%1$s)</string>
+    <string name="ext_link_profile_cat">ПРОФИЛЬ НА GITHUB</string>
+    <string name="ext_link_profile_desc">Ссылка ведет на личный профиль разработчика %1$s на GitHub. Вы сможете посмотреть другие репозитории, активность и проекты автора.</string>
+    <string name="ext_link_repo_title">Репозиторий проекта (%1$s)</string>
+    <string name="ext_link_repo_cat">РЕПОЗИТОРИЙ ПРОЕКТА</string>
+    <string name="ext_link_repo_desc">Ссылка ведет на главную страницу репозитория %1$s на GitHub. Здесь находится открытый исходный код приложения, README и файлы проекта.</string>
+    <string name="ext_link_files_title">Файлы репозитория (%1$s)</string>
+    <string name="ext_link_files_cat">ФАЙЛЫ ИСХОДНОГО КОДА</string>
+    <string name="ext_link_files_desc">Ссылка ведет к конкретным файлам или каталогам в репозитории %1$s на платформе GitHub.</string>
+    <string name="ext_link_github_title">Страница на GitHub</string>
+    <string name="ext_link_github_desc">Ссылка ведет на страницу сервиса разработки GitHub, связанную с Mirrly TG Proxy.</string>
+    <string name="ext_link_tg_title">Официальный Telegram-канал</string>
+    <string name="ext_link_tg_cat">TELEGRAM КАНАЛ</string>
+    <string name="ext_link_tg_desc">Ссылка ведет на публичный канал в мессенджере Telegram с анонсами, важными новостями и оперативной поддержкой.</string>
+    <string name="ext_link_dalink_title">Поддержка автора (DaLink)</string>
+    <string name="ext_link_dalink_cat">ДОБРОВОЛЬНЫЕ ЧАЕВЫЕ</string>
+    <string name="ext_link_dalink_desc">Приложение Mirrly TG Proxy абсолютно бесплатное! Ссылка ведет на платформу DaLink (СБП, банковские карты) исключительно для добровольной благодарности и чаевых разработчику R1Xern за развитие проекта.</string>
+    <string name="ext_link_website_title">Внешний веб-сайт (%1$s)</string>
+    <string name="ext_link_website_desc">Ссылка ведет на внешний веб-сайт (%1$s). При клике произойдет переход в вашем системном интернет-браузере.</string>
+    <string name="err_open_link">Не удалось открыть ссылку: %1$s</string>
+    <string name="action_open_link">Перейти</string>
+    <string name="sleep_timer_tab_active">ТАЙМЕР (АКТИВЕН)</string>
+    <string name="sleep_timer_tab">ТАЙМЕР СНА</string>
+    <string name="sleep_timer_tab_schedule_on">РАСПИСАНИЕ (ВКЛ)</string>
+    <string name="sleep_timer_tab_schedule">РАСПИСАНИЕ</string>
+    <string name="sleep_timer_title_schedule">Расписание работы прокси</string>
+    <string name="sleep_timer_title_active">Таймер автоотключения</string>
+    <string name="sleep_timer_title_setup">Настройка таймера сна</string>
+    <string name="sleep_timer_status_current">ТЕКУЩИЙ СТАТУС:</string>
+    <string name="sleep_timer_status_one_time">РАЗОВЫЙ ТАЙМЕР СНА:</string>
+    <string name="sleep_timer_desc_stopping">Прокси-сервер автоматически остановится в %1$s. Соединение и фоновые службы будут безопасно отключены.</string>
+    <string name="sleep_timer_desc_choose">Выберите время, через которое прокси-сервер автоматически отключится в текущей сессии для экономии заряда и мобильного трафика.</string>
+    <string name="sleep_timer_remaining_header">ОСТАЛОСЬ ДО ОТКЛЮЧЕНИЯ</string>
+    <string name="sleep_timer_quick_extend_header">БЫСТРОЕ ПРОДЛЕНИЕ:</string>
+    <string name="sleep_timer_plus_5m">+5 мин</string>
+    <string name="sleep_timer_plus_15m">+15 мин</string>
+    <string name="sleep_timer_plus_30m">+30 мин</string>
+    <string name="sleep_timer_plus_1h">+1 ч</string>
+    <string name="action_disable">Отключить</string>
+    <string name="action_dismiss">Отклонить</string>
+    <string name="time_min_val">%1$s мин</string>
+    <string name="time_hour_val">%1$s ч</string>
+    <string name="time_1_hour">1 час</string>
+    <string name="time_2_hours">2 часа</string>
+    <string name="time_4_hours">4 часа</string>
+    <string name="sleep_timer_precise_setup">Точная настройка:</string>
+    <string name="sleep_timer_btn_start">Запустить таймер</string>
+    <string name="sleep_timer_autostop_title">Автоотключение при старте</string>
+    <string name="sleep_timer_autostop_active">Отключение через %1$s мин после запуска</string>
+    <string name="sleep_timer_autostop_desc">Автоматический таймер при каждом старте</string>
+    <string name="sleep_timer_saved_hint">Настройка сохраняется автоматически для каждого запуска</string>
+    <string name="sleep_timer_enable_schedule">Включить расписание</string>
+    <string name="sleep_timer_schedule_enabled_desc">Служба прокси будет работать по заданному времени</string>
+    <string name="sleep_timer_schedule_disabled_desc">Автоматический запуск и остановка отключены</string>
+    <string name="sleep_timer_start_time_label">ВКЛЮЧЕНИЕ</string>
+    <string name="sleep_timer_stop_time_label">ВЫКЛЮЧЕНИЕ</string>
+    <string name="sleep_timer_working_days_label">ДНИ РАБОТЫ:</string>
+    <string name="day_mon_short">Пн</string>
+    <string name="day_tue_short">Вт</string>
+    <string name="day_wed_short">Ср</string>
+    <string name="day_thu_short">Чт</string>
+    <string name="day_fri_short">Пт</string>
+    <string name="day_sat_short">Сб</string>
+    <string name="day_sun_short">Вс</string>
+    <string name="sleep_timer_schedule_summary">Прокси будет автоматически запускаться в %1$s и выключаться в %2$s (%3$s).</string>
+    <string name="sleep_timer_schedule_enable_hint">Включите переключатель сверху, чтобы активировать расписание.</string>
+    <string name="sleep_timer_btn_save_schedule">Сохранить расписание</string>
+    <string name="format_hours_mins">%1$s ч %2$s мин</string>
+    <string name="format_hours">%1$s ч</string>
+    <string name="format_mins">%1$s мин</string>
+    <string name="warp_toast_scanning_ports">Подбор живых Anycast портов WARP...</string>
+    <string name="warp_toast_port_found">Подобран живой порт: %1$s (%2$sмс)</string>
+    <string name="warp_toast_no_ports">Открытых портов не найдено (ТСПУ блокирует UDP)</string>
+    <string name="warp_toast_scan_failed">Сбой подбора: %1$s</string>
+    <string name="warp_toast_enter_key">Введите лицензионный ключ WARP+</string>
+    <string name="warp_toast_invalid_key_format">Неверный формат ключа (ожидается 26 символов)</string>
+    <string name="warp_toast_attaching_key">Привязка лицензии WARP+...</string>
+    <string name="warp_license_activated">Лицензия WARP+ успешно активирована (%1$s)</string>
+    <string name="warp_license_attach_error">Ошибка привязки лицензии: %1$s</string>
+    <string name="warp_offline_profile_applied">Применен офлайн-профиль (требуется онлайн-проверка): %1$s</string>
+    <string name="warp_registered">WARP зарегистрирован: %1$s</string>
+    <string name="warp_err_cf_stack">Сбой сетевого стека Cloudflare</string>
+    <string name="warp_err_prefix">Ошибка: %1$s</string>
+    <string name="warp_dialog_title_registering">Регистрация профиля WARP</string>
+    <string name="warp_dialog_title_profile">Профиль Cloudflare WARP</string>
+    <string name="warp_dialog_subtitle">Автономная регистрация устройства, привязка mTLS P-256 и Anycast-маршрутизация</string>
+    <string name="warp_toast_copied">%1$s скопирован</string>
+    <string name="warp_btn_scanning_ports">Сканирование портов...</string>
+    <string name="warp_btn_auto_scan">Подобрать живой Anycast порт (Auto-Scan)</string>
+    <string name="warp_toast_awg_copied">Конфиг AmneziaWG (QUIC I1 Госуслуги) скопирован</string>
+    <string name="warp_btn_copy_awg">Скопировать конфиг AmneziaWG (QUIC I1)</string>
+    <string name="warp_btn_reregister">Зарегистрировать заново</string>
+    <string name="warp_btn_start_reg">Запустить регистрацию</string>
+    <string name="warp_status_registering">Выполняется регистрация в Cloudflare...</string>
+    <string name="warp_err_cancelled_by_user">Регистрация прервана пользователем</string>
+    <string name="warp_btn_cancel_reg">Прервать регистрацию</string>
+    <string name="warp_step_wg">WireGuard</string>
+    <string name="warp_step_curve">Ключи Curve25519</string>
+    <string name="warp_step_act">Активация</string>
+    <string name="warp_step_anycast">Anycast</string>
+    <string name="warp_step_routing">Маршрутизация (8095)</string>
+    <string name="warp_header_stages">ЭТАПЫ РЕГИСТРАЦИИ</string>
+    <string name="warp_header_logs">ЖУРНАЛ СЕТЕВЫХ ВЫЗОВОВ</string>
+    <string name="warp_records_count">%1$s записей</string>
+    <string name="warp_calling_api">Обращение к API Cloudflare...</string>
+    <string name="warp_err_format">ОШИБКА: %1$s</string>
+    <string name="warp_header_results">РЕЗУЛЬТАТ РЕГИСТРАЦИИ</string>
+    <string name="warp_badge_offline">OFFLINE-КЭШ</string>
+    <string name="warp_badge_needs_check">ТРЕБУЕТСЯ ПРОВЕРКА</string>
+    <string name="warp_badge_ready">ГОТОВ К РАБОТЕ</string>
+    <string name="warp_badge_active">АКТИВЕН</string>
+    <string name="warp_badge_not_active">НЕ АКТИВИРОВАН</string>
+    <string name="warp_plan_plus">WARP+ (Премиум)</string>
+    <string name="warp_plan_unverified">Не подтвержден сервером (Free)</string>
+    <string name="warp_plan_free">Бесплатный профиль (Free)</string>
+    <string name="warp_label_plan">Тип подписки</string>
+    <string name="warp_status_registered">Зарегистрирован</string>
+    <string name="warp_status_unconfirmed">Не подтвержден</string>
+    <string name="warp_status_activated">Активирован</string>
+    <string name="warp_status_unactivated">Не активирован</string>
+    <string name="warp_label_cf_api_status">Статус Cloudflare API</string>
+    <string name="warp_dp_ready">Готов к передаче трафика</string>
+    <string name="warp_dp_offline">Офлайн (требуется онлайн-проверка)</string>
+    <string name="warp_dp_not_ready">Не готов (нет активного туннеля)</string>
+    <string name="warp_label_dp_status">Готовность Data Plane</string>
+    <string name="warp_label_device_id">ID устройства</string>
+    <string name="warp_not_avail">Н/Д</string>
+    <string name="warp_label_client_ipv4">Выделенный IPv4</string>
+    <string name="warp_label_client_ipv6">Выделенный IPv6</string>
+    <string name="warp_label_anycast_endpoint">Anycast эндпоинт</string>
+    <string name="warp_anycast_val_bypass">%1$s (ТСПУ Bypass)</string>
+    <string name="warp_cert_verified">Серверный X.509 DER подтвержден</string>
+    <string name="warp_bearer_token">Bearer-токен (RFC 9298)</string>
+    <string name="warp_label_mtls">Аутентификация mTLS</string>
+    <string name="warp_label_peer_pubkey">Публичный ключ Cloudflare</string>
+    <string name="warp_standard_anycast">Стандартный Anycast</string>
+    <string name="warp_label_license">Лицензия WARP+</string>
+    <string name="warp_header_license">ЛИЦЕНЗИЯ WARP+ / ZERO TRUST</string>
+    <string name="warp_status_plus_active">WARP+ АКТИВЕН</string>
+    <string name="warp_status_free_tier">FREE ТАРИФ</string>
+    <string name="warp_license_desc">Лицензионный ключ WARP+ (26 символов) для повышенного Anycast-приоритета и неограниченного трафика.</string>
+    <string name="warp_btn_attach_license">Привязать</string>
+    <string name="warp_err_attach_format">Ошибка: %1$s</string>
+    <string name="logs_entry_copied">Запись скопирована</string>
+    <string name="logs_no_events_to_copy">Нет событий для копирования</string>
+    <string name="logs_all_copied">Все записи скопированы</string>
+    <string name="logs_cleared">Логи очищены</string>
+    <string name="logs_events_not_found">События не найдены</string>
+    <string name="logs_empty">Логи пусты</string>
+    <string name="logs_title">Логи</string>
+    <string name="logs_search_placeholder">Поиск по тексту или тегу...</string>
+    <string name="logs_filter_all">Все</string>
+    <string name="logs_filter_info">Инфо</string>
+    <string name="logs_filter_warn">Варн</string>
+    <string name="logs_filter_error">Ошибки</string>
+    <string name="logs_scroll_to_new">К новым логам</string>
+    <string name="logs_action_copy_all">Скопировать все</string>
+    <string name="logs_action_clear">Очистить</string>
+    <string name="history_empty_title">История сессий пуста</string>
+    <string name="history_empty_desc">Запустите прокси на Главном экране для фиксации сессий, времени работы и трафика.</string>
+    <string name="history_title">История сессий</string>
+    <string name="history_action_clear">Очистить историю</string>
+    <string name="history_stat_sessions">СЕССИЙ</string>
+    <string name="history_stat_time">ВРЕМЯ</string>
+    <string name="history_stat_traffic">ТРАФИК</string>
+    <string name="history_dialog_clear_title">Очистить историю?</string>
+    <string name="history_dialog_clear_desc">Вся сохранённая история подключений и статистика передаваемого трафика будут безвозвратно удалены.</string>
+    <string name="history_btn_delete">Удалить</string>
+    <string name="history_time_now">сейчас</string>
+    <string name="history_status_active">АКТИВНА</string>
+    <string name="history_status_completed">ЗАВЕРШЕНА</string>
+    <string name="history_status_interrupted">ПРЕРВАНА</string>
+    <string name="history_stat_traffic_header">ТРАФИК</string>
+    <string name="history_stat_peak_sockets">ПИК / СОКЕТЫ</string>
+    <string name="history_speed_sockets_format">%1$s/с  •  %2$d сок.</string>
+    <string name="duration_sec_short">%1$dс</string>
+    <string name="duration_min_short">%1$dм</string>
+    <string name="duration_hr_min_short">%1$dч %2$dм</string>
+    <string name="duration_hr_short">%1$dч</string>
+    <string name="duration_sec_full">%1$d сек</string>
+    <string name="duration_min_sec_full">%1$dмин %2$dсек</string>
+    <string name="duration_min_full">%1$dмин</string>
+    <string name="duration_hr_min_full">%1$dч %2$dмин</string>
+    <string name="about_err_open_link">Не удалось открыть ссылку: %1$s</string>
+    <string name="about_copied_to_clipboard">%1$s скопирован в буфер обмена</string>
+    <string name="about_creator_subtitle">Создатель &amp; Главный разработчик Mirrly TG Proxy</string>
+    <string name="about_section_bio">О РАЗРАБОТЧИКЕ И ПРОЕКТЕ</string>
+    <string name="about_greeting">Привет! Я R1Xern — разработчик экосистемы Mirrly.</string>
+    <string name="about_bio_desc">Mirrly TG Proxy создан для полного решения проблем с блокировками, замедлениями и сбоями в работе Telegram на Android. Приложение использует нативное ядро C/Rust, предварительно прогретый пул сокетов WsPool и маскировку трафика под безопасные WebSocket-соединения Cloudflare CDN.
+
+Проект работает исключительно локально на вашем устройстве, обеспечивая максимальную стабильность соединения, оптимизированную скорость и 100% приватность без сторонних VPN.</string>
+    <string name="about_section_contacts">СВЯЗЬ И ИНФОРМАЦИЯ</string>
+    <string name="about_link_tg_title">Telegram Канал</string>
+    <string name="about_link_tg_sub">Анонсы, обновления и новости: t.me/WhyOKyHb</string>
+    <string name="about_link_github_title">Профиль GitHub</string>
+    <string name="about_link_repo_title">Репозиторий проекта</string>
+    <string name="about_link_repo_sub">Исходный код Mirrly TG Proxy на GitHub</string>
+    <string name="about_link_share_title">Поделиться с друзьями</string>
+    <string name="about_link_share_sub">Рассказать о Mirrly TG Proxy в Telegram или соцсетях</string>
+    <string name="about_link_issue_title">Нашли баг или есть идея?</string>
+    <string name="about_link_issue_sub">Создайте Issue на GitHub — разработчик ответит лично</string>
+    <string name="about_link_license_title">Лицензия (GPLv3)</string>
+    <string name="about_link_license_sub">Открытый исходный код</string>
+    <string name="about_section_star">ПОДДЕРЖАТЬ ЗВЁЗДОЙ НА GITHUB</string>
+    <string name="about_star_title">Понравился Mirrly TG Proxy?</string>
+    <string name="about_star_desc">Ваша звезда на GitHub помогает проекту развиваться, привлекает новых пользователей и мотивирует на новые обновления.</string>
+    <string name="about_star_btn">Поставить Star на GitHub</string>
+    <string name="about_section_donation">ПОДДЕРЖАТЬ АВТОРА (DONATION)</string>
+    <string name="about_donation_title">Поддержать развитие Mirrly</string>
+    <string name="about_donation_desc">Приложение полностью бесплатное! Донат — исключительно по желанию для поддержки R1Xern.</string>
+    <string name="about_donation_btn">Поддержать автора (DaLink)</string>
+    <string name="about_section_fame">ЗАЛ СЛАВЫ</string>
+    <string name="about_fame_card_title">Зал Славы Mirrly</string>
+    <string name="about_fame_card_desc">Первопроходцы, контрибьюторы и уникальные цифровые слепки</string>
+    <string name="about_section_tech">ТЕХНОЛОГИЧЕСКИЙ СТЕК</string>
+    <string name="about_footer_developed_by">Разработано командой Mirrly Dev</string>
+    <string name="about_footer_terms">Условия использования</string>
+    <string name="about_title">О разработчике</string>
+    <string name="about_downloads_title">ВСЕГО СКАЧИВАНИЙ</string>
+    <string name="about_downloads_loading">Получение статистики...</string>
+    <string name="about_downloads_error">Сбой загрузки (нажмите для повтора)</string>
+    <string name="about_downloads_unit">скачиваний</string>
+    <string name="terms_title">Условия использования</string>
+    <string name="terms_subtitle_header">Дополнительная защита • R1Xern (Mirrly Dev)</string>
+    <string name="terms_intro_desc">Дополнительные правила и правила добросовестного использования, действующие в дополнение к базовой лицензии GNU GPLv3 для максимальной защиты авторских прав и продвижения проекта.</string>
+    <string name="terms_btn_copy">Скопировать</string>
+    <string name="terms_section_rules">КЛЮЧЕВЫЕ ПРАВИЛА И ЗАЩИТА</string>
+    <string name="terms_rule_malware_title">Запрет малвари</string>
+    <string name="terms_rule_malware_desc">Запрещено встраивание вирусов, троянов и скрытых майнеров</string>
+    <string name="terms_rule_catalogs_title">Каталоги и магазины</string>
+    <string name="terms_rule_catalogs_desc">Публикация в сторонних App Stores разрешена с указанием автора и бесплатностью</string>
+    <string name="terms_rule_brand_title">Защита бренда</string>
+    <string name="terms_rule_brand_desc">Запрещено использовать имя Mirrly и логотипы в форках</string>
+    <string name="terms_rule_forks_title">Маркировка форков</string>
+    <string name="terms_rule_forks_desc">Форки обязаны содержать дисклеймер об авторе R1Xern</string>
+    <string name="terms_violation_notice">Нарушение условий ведет к автоматическому аннулированию лицензионных прав на использование кода.</string>
+    <string name="terms_toast_copied">Текст условий скопирован!</string>
+    <string name="terms_copy_label_ru">Условия использования (Русская версия)</string>
+    <string name="terms_copy_label_en">Terms of Use (English)</string>
+    <string name="terms_lang_russian">Русский</string>
+    <string name="terms_lang_english">English</string>
+    <string name="fame_tier_pioneer_title">Архитектурный Первопроходец</string>
+    <string name="fame_tier_pioneer_badge">ПЕРВОПРОХОДЕЦ</string>
+    <string name="fame_tier_bughunter_title">Охотник за багами</string>
+    <string name="fame_tier_bughunter_badge">БАГ-ХАНТЕР</string>
+    <string name="fame_tier_tester_title">Бета-Тестировщик</string>
+    <string name="fame_tier_tester_badge">БЕТА-ТЕСТЕР</string>
+    <string name="fame_tier_tg_title">Участник Telegram-сообщества</string>
+    <string name="fame_tier_tg_badge">ПОДПИСЧИК TG</string>
+    <string name="fame_title">Зал Славы и Благодарности</string>
+    <string name="fame_desc">Выражаю глубокую признательность первопроходцам, контрибьюторам и тестировщикам, чьи наработки и тестирование сделали Mirrly TG Proxy надежным инструментом.</string>
+    <string name="fame_fingerprint_badge_header">УНИКАЛЬНЫЙ ЦИФРОВОЙ СЛЕПОК ДЛЯ КАЖДОГО УЧАСТНИКА</string>
+    <string name="fame_section_pioneers">АРХИТЕКТУРНЫЕ ПЕРВОПРОХОДЦЫ</string>
+    <string name="fame_section_bughunters">ОХОТНИКИ ЗА БАГАМИ (BUG HUNTERS)</string>
+    <string name="fame_section_testers">ВОЛОНТЕРЫ БЕТА-ТЕСТИРОВАНИЯ</string>
+    <string name="fame_section_community">СООБЩЕСТВО TELEGRAM</string>
+    <string name="fame_topbar_title">Благодарности</string>
+    <string name="fame_dialog_contrib_header">ВКЛАД В ПРОЕКТ</string>
+    <string name="fame_dialog_fingerprint_header">ВЕРИФИЦИРОВАННЫЙ СЛЕПОК</string>
+    <string name="fame_dialog_copied_toast">Цифровой слепок скопирован</string>
+    <string name="fame_dialog_btn_copy">Скопировать отпечаток</string>
+    <string name="fame_dialog_btn_github">Открыть профиль GitHub</string>
+    <string name="fame_dialog_btn_close">Закрыть</string>
+    <string name="fame_c_amurcanov_role">Автор проекта tg-ws-proxy-android</string>
+    <string name="fame_c_amurcanov_contrib">Создатель базового открытого Android-клиента tg-ws-proxy-android и C++ NDK реализации WSS-клиента, послуживших фундаментом для сетевого стека приложения.</string>
+    <string name="fame_c_flowseal_role">Автор концепции туннелирования Telegram</string>
+    <string name="fame_c_flowseal_contrib">Создатель проекта tg-ws-proxy. Разработал архитектурную концепцию проксирования трафика Telegram через Cloudflare WebSocket без необходимости в VPN.</string>
+    <string name="fame_c_grovymon_role">Охотник за багами &amp; Аудит безопасности</string>
+    <string name="fame_c_grovymon_contrib">Автор Issues #3, #4, #5, #7, #8, #15, #16, #18, #19, #20. Обнаружил баги Window Insets под системную панель навигации (Redmi Note 13 Pro+ 5G, Android 16), залипание плашки обновления, уязвимость валидации TLS-сертификатов NoServerCertVerifier, исследовал обход блокировок на LTE (Т-Мобайл), выявил пропуск Rust-ядра в релизе и инициировал внедрение обязательной авторизации SOCKS5 RFC 1929.</string>
+    <string name="fame_c_zzzxxx_role">Охотник за багами &amp; Исследователь воркеров</string>
+    <string name="fame_c_zzzxxx_contrib">Автор Issues #1, #9, #10, #13. Локализовал сброс секретного ключа в памяти на Xiaomi 12T (Android 15) и POCO X8 Pro Max (Android 16), выявил потерю приоритета пользовательских воркеров после перезагрузки и исследовал конфигурации Cloudflare Workers.</string>
+    <string name="fame_c_bbibux_role">Охотник за багами &amp; Диагностика MTProto</string>
+    <string name="fame_c_bbibux_contrib">Автор Issues #11, #12, #17. Обнаружил сбой загрузки медиафайлов (фото и видео) в MTProto на сетях T2 и Ростелеком после удаления MsgSplitter, сообщил о дефекте прозрачности подложки диалоговых окон и исследовал добавление пользовательских воркеров.</string>
+    <string name="fame_c_ustiprog_role">Охотник за багами &amp; Архитектор энергоэффективности</string>
+    <string name="fame_c_ustiprog_contrib">Автор Issue #21. Инициировал разработку постоянного таймера сна (Auto-Stop on Start) и предоставил детальную аналитику разряда аккумулятора в режиме ожидания при выключенном интернете, что послужило основой для реализации спящего режима Deep Dormancy и системы расписания работы.</string>
+    <string name="fame_c_vikkalm_role">Охотник за багами релизных сборок</string>
+    <string name="fame_c_vikkalm_contrib">Автор Issue #6. Зафиксировал и предоставил логи полного отказа подключения в релизе v1.1.2 на Android 13 (arm64-v8a) через Wi-Fi/LTE из-за блокировки дефолтных воркеров Cloudflare, что привело к выпуску срочного хотфикса.</string>
+    <string name="fame_c_liveonloan_role">Охотник за багами интерфейса</string>
+    <string name="fame_c_liveonloan_contrib">Автор Issue #14. Обнаружил визуальный дефект перекрытия кнопок управления таймером сна системной панелью навигации на Realme GT7 (Android 16), послуживший основой для редизайна экрана таймера в v1.1.8.1.</string>
+    <string name="fame_c_40oil_role">Охотник за багами &amp; Диагностика UI</string>
+    <string name="fame_c_40oil_contrib">Автор Issue #22. Выявил критический дефект верстки модальных диалогов импорта воркера (Samsung Galaxy A55), при котором кнопка «Сохранить» перекрывалась 3-кнопочной панелью навигации Android, что привело к масштабному редизайну безопасных отступов.</string>
+    <string name="fame_c_mslight_role">Инициатор интернационализации</string>
+    <string name="fame_c_mslight_contrib">Автор Issue #23. Инициировал глобальную интернационализацию интерфейса приложения и внедрение полноценной английской локализации (English translation).</string>
+    <string name="fame_c_aseptronn_role">Участник локализации &amp; Сообщество</string>
+    <string name="fame_c_aseptronn_contrib">Участник Issue #23. Выдвинул инициативу персидской локализации (Farsi translation) и содействовал распространению Mirrly TG Proxy в международном сообществе.</string>
+    <string name="fame_c_shon4k_role">Бета-тестировщик</string>
+    <string name="fame_c_shon4k_contrib">Тестирование предварительных сборок приложения, проверка стабильности прокси-соединения и валидация сценариев использования.</string>
+    <string name="fame_c_linar_role">Бета-тестировщик</string>
+    <string name="fame_c_linar_contrib">Тестирование стабильности сетевых сценариев, проверка совместимости на различных Android-устройствах и сбор обратной связи.</string>
+    <string name="fame_c_astimir_role">Подписчик Telegram-канала</string>
+    <string name="fame_c_astimir_contrib">Активный подписчик Telegram-канала проекта (@WhyOkyHb), поддержка разработки и участие в жизни сообщества.</string>
+    <string name="fame_c_dimaakaj_role">Охотник за багами Cloudflare Worker</string>
+    <string name="fame_c_dimaakaj_contrib">Обнаружил синтаксическую ошибку TypeScript ts(2554) в коде воркера при вызове serverWs.accept() с аргументами, блокировавшую сохранение и развертывание скрипта через Cloudflare Dashboard.</string>
+    <string name="terms_full_legal_text_ru">        ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ И ДОПОЛНИТЕЛЬНЫЕ УСЛОВИЯ ИСПОЛЬЗОВАНИЯ
+
+        Проект: Mirrly TG Proxy
+        Автор и правообладатель: R1Xern (Mirrly Dev)
+        Базовая лицензия: GNU GPLv3
+
+        1. ПРЕАМБУЛА И ПРАВОВОЙ СТАТУС
+        Настоящий документ устанавливает дополнительные условия в соответствии с Разделом 7 свободной лицензии GNU GPLv3. Любая форма использования, модификации или распространения данного программного обеспечения означает полное и безоговорочное согласие с настоящими условиями.
+
+        2. ЗАПРЕТ НА ВРЕДОНОСНОЕ ПО И МОШЕННИЧЕСТВО
+        Категорически запрещается использовать исходный код проекта или скомпилированные бинарные файлы для создания, внедрения или распространения вредоносного ПО (малвари), вирусов, троянов, скрытых майнеров криптовалют, шпионских модулей (spyware), фишинговых систем или кода для несанкционированного перехвата трафика пользователей.
+
+        3. РАСПРОСТРАНЕНИЕ В СТОРОННИХ МАГАЗИНАХ ПРИЛОЖЕНИЙ И КАТАЛОГАХ (APP STORES POLICY)
+        Размещение, зеркалирование и публикация оригинального приложения Mirrly TG Proxy или его форков в любых сторонних магазинах приложений (App Stores), каталогах ПО, на софт-порталах, файлообменниках и в Telegram-каналах РАЗРЕШЕНЫ И ПРИВЕТСТВУЮТСЯ для продвижения проекта при соблюдении условий:
+        (a) Указание имени оригинального автора (R1Xern / Mirrly Dev) и прямой ссылки на репозиторий GitHub.
+        (b) Явное упоминание распространения проекта под свободной лицензией GNU GPLv3.
+        (c) Полная бесплатность скачивания (запрещено требовать плату за скачивание APK).
+        (d) Чистота сборки (файлы APK не должны содержать вредоносных модулей, рекламы или иных модификаций).
+
+        4. ЗАЩИТА ТОВАРНОГО ЗНАКА И БРЕНДА
+        Наименования «Mirrly», «Mirrly Dev», «Mirrly TG Proxy», псевдоним автора «R1Xern» и официальная символика являются интеллектуальной собственностью автора.
+
+        5. ПРОЗРАЧНОСТЬ И МАРКИРОВКА ФОРКОВ
+        Любые сторонние форки или сборки с изменениями кода ОБЯЗАНЫ содержать явное уведомление:
+        «Данный продукт является сторонним форком на основе исходного кода Mirrly TG Proxy. Оригинальный проект: R1Xern (Mirrly Dev).»
+
+        6. ОТКАЗ ОТ ОТВЕТСТВЕННОСТИ И АННУЛИРОВАНИЕ ПРАВ
+        Автор не несет ответственности за сторонние модифицированные сборки. Любое нарушение настоящих условий ведет к автоматическому и немедленному аннулированию всех лицензионных прав.
+        </string>
+    <string name="terms_full_legal_text_en">        TERMS OF USE &amp; ADDITIONAL CONDITIONS
+
+        Project: Mirrly TG Proxy
+        Author &amp; Copyright: R1Xern (Mirrly Dev)
+        Base License: GNU GPLv3
+
+        1. PREAMBLE
+        These Terms of Use establish additional conditions under Section 7 of GNU GPLv3. Any use, modification, or distribution of this software constitutes full acceptance of these terms.
+
+        2. BAN ON MALWARE AND FRAUD
+        It is strictly prohibited to use this source code or its binaries to build, embed, or distribute malware, viruses, trojans, hidden cryptocurrency miners, spyware, or phishing tools, or to secretly intercept user traffic.
+
+        3. APP STORES &amp; THIRD-PARTY MIRRORS POLICY
+        Distributing, mirroring, or publishing this application or its forks on third-party app stores, tech portals, software catalogs, and Telegram channels IS ALLOWED AND ENCOURAGED for promotion, provided that:
+        (a) The original author (R1Xern / Mirrly Dev) and direct link to the GitHub repository are specified.
+        (b) The presence of GNU GPLv3 license is mentioned.
+        (c) Downloads remain 100% free with NO commercial paywalls.
+        (d) APK files contain zero malware or modifications.
+
+        4. TRADEMARK &amp; BRAND PROTECTION
+        The names \"Mirrly\", \"Mirrly Dev\", \"Mirrly TG Proxy\", the author\'s handle \"R1Xern\", and official logo assets are intellectual property of the author.
+
+        5. FORK TRANSPARENCY &amp; LABELLING
+        Any third-party fork or modified build MUST display a clear notice stating:
+        \"This product is an unofficial fork based on Mirrly TG Proxy code. Original project: R1Xern (Mirrly Dev).\"
+
+        6. DISCLAIMER &amp; TERMINATION
+        The author bears zero liability for third-party modified APKs. Any breach of terms automatically terminates all permissions granted under this license.
+        </string>
+    <string name="action_search">Поиск</string>
+    <string name="speed_test_tab_test">ЗАМЕР (В РАЗРАБОТКЕ)</string>
+    <string name="speed_test_tab_history">ИСТОРИЯ</string>
+    <string name="speed_test_error_conn">Ошибка соединения</string>
+    <string name="speed_test_phase_ping">Пинг</string>
+    <string name="speed_test_phase_download">Входящая</string>
+    <string name="speed_test_phase_upload">Исходящая</string>
+    <string name="speed_test_phase_summary">Итог</string>
+    <string name="speed_test_header_title">ТЕСТ СКОРОСТИ ТУННЕЛЯ</string>
+    <string name="speed_test_tunnel_node">Узел туннелирования</string>
+    <string name="speed_test_mbps_unit">Мбит / с</string>
+    <string name="speed_test_mbps_compact">%1$s Мбит/с</string>
+    <string name="speed_test_stat_ping">ПИНГ</string>
+    <string name="speed_test_stat_ping_ms">%1$d мс</string>
+    <string name="speed_test_stat_min_ping">Мин: %1$d мс</string>
+    <string name="speed_test_stat_rtt_delay">Задержка RTT</string>
+    <string name="speed_test_stat_jitter">ДЖИТТЕР</string>
+    <string name="speed_test_stat_jitter_val">±%1$d мс</string>
+    <string name="speed_test_stat_high_stability">Высокая стабильность</string>
+    <string name="speed_test_stat_jitter_variation">Вариация RTT</string>
+    <string name="speed_test_stat_download">ВХОДЯЩАЯ</string>
+    <string name="speed_test_stat_downloaded_mb">%1$d МБ получено</string>
+    <string name="speed_test_stat_download_channel">Канал загрузки</string>
+    <string name="speed_test_stat_upload">ИСХОДЯЩАЯ</string>
+    <string name="speed_test_stat_uploaded_mb">%1$d МБ отправлено</string>
+    <string name="speed_test_stat_upload_channel">Канал отдачи</string>
+    <string name="speed_test_chart_header">ДИНАМИКА СКОРОСТИ В РЕАЛЬНОМ ВРЕМЕНИ</string>
+    <string name="speed_test_chart_peak">Пик: %1$s Мбит/с</string>
+    <string name="speed_test_report_header">ОЦЕНКА КАЧЕСТВА КАНАЛА</string>
+    <string name="speed_test_suit_chats">Текстовые чаты и стикеры</string>
+    <string name="speed_test_suit_voice">Голосовые и видеозвонки</string>
+    <string name="speed_test_suit_media">Фотографии и медиа</string>
+    <string name="speed_test_suit_video">Тяжелые файлы и видео</string>
+    <string name="speed_test_failed">Сбой замера скорости</string>
+    <string name="speed_test_btn_start">ЗАПУСТИТЬ ТЕСТ СКОРОСТИ</string>
+    <string name="speed_test_btn_retry">ПОВТОРИТЬ ТЕСТ</string>
+    <string name="speed_test_btn_stop">ОСТАНОВИТЬ ТЕСТ</string>
+    <string name="speed_test_total_records">ВСЕГО ЗАМЕРОВ: %1$d</string>
+    <string name="speed_test_empty_history_title">История замеров пуста</string>
+    <string name="speed_test_empty_history_desc">Запустите тестирование скорости туннеля, чтобы результаты и телеметрия сохранились здесь.</string>
+    <string name="speed_test_btn_first_test">Запустить первый тест</string>
+    <string name="speed_test_in_short">ВХОД.</string>
+    <string name="speed_test_out_short">ИСХОД.</string>
+    <string name="speed_test_rtt_jitter">RTT / ДЖИТТЕР</string>
+    <string name="speed_test_rtt_jitter_val">%1$d мс (±%2$d)</string>
+    <string name="speed_test_clear_dialog_title">Очистить историю замеров?</string>
+    <string name="speed_test_clear_dialog_desc">Все сохраненные результаты тестов скорости сетевого туннеля будут безвозвратно удалены.</string>
+    <string name="speed_test_btn_delete_all">Удалить всё</string>
+    <string name="update_version_title">Версия v%1$s</string>
+    <string name="update_badge_available">ДОСТУПНО ОБНОВЛЕНИЕ</string>
+    <string name="update_badge_actual">УСТАНОВЛЕНА АКТУАЛЬНАЯ ВЕРСИЯ</string>
+    <string name="update_banner_available_desc">Доступна новая официальная сборка на GitHub</string>
+    <string name="update_banner_actual_desc">У вас установлена последняя официальная версия. Если возникли проблемы, ошибки или сбои в работе, вы можете переустановить приложение.</string>
+    <string name="update_toast_sha_copied">SHA-256 скопирован в буфер обмена</string>
+    <string name="update_official_fingerprint_title">Официальный SHA-256 отпечаток:</string>
+    <string name="update_select_package_type">ВЫБОР ТИПА ПАКЕТА (APK)</string>
+    <string name="update_reinstall_package_type">ПАКЕТ ДЛЯ ПЕРЕУСТАНОВКИ</string>
+    <string name="update_badge_recommended">РЕКОМЕНДОВАНО</string>
+    <string name="update_btn_select">Выбрать</string>
+    <string name="update_section_install_download">УСТАНОВКА И ЗАГРУЗКА</string>
+    <string name="update_section_reinstall_restore">ПЕРЕУСТАНОВКА И ВОССТАНОВЛЕНИЕ</string>
+    <string name="update_vpn_warning_desc">Обратите внимание: для скачивания обновления может потребоваться включение VPN или прокси в связи с возможной фильтрацией CDN GitHub (githubusercontent.com) операторами связи.</string>
+    <string name="update_reinstall_benefit_desc">Переустановка актуальной версии позволяет восстановить целостность файлов и исправить возможные сбои без потери ваших настроек и воркеров.</string>
+    <string name="update_downloading_apk">Скачивание файла APK...</string>
+    <string name="update_downloading_reinstall">Скачивание пакета для переустановки...</string>
+    <string name="update_eta_seconds">~%1$d сек</string>
+    <string name="update_eta_mins_secs">~%1$d мин %2$d сек</string>
+    <string name="update_verifying_signature">Проверка SHA-256 отпечатка и цифровой подписи...</string>
+    <string name="update_download_error">Ошибка скачивания</string>
+    <string name="update_btn_download_browser">Скачать через браузер</string>
+    <string name="update_verified_success">✓ Файл верифицирован (SHA-256 OK)</string>
+    <string name="update_install_cta_hint">Нажмите кнопку ниже для запуска установки пакета Android.</string>
+    <string name="update_btn_download_install">Скачать и установить %1$s (v%2$s)</string>
+    <string name="update_btn_reinstall">Переустановить %1$s (v%2$s)</string>
+    <string name="update_toast_already_latest">У вас установлена актуальная версия</string>
+    <string name="update_toast_check_error">Ошибка проверки: %1$s</string>
+    <string name="update_btn_checking">Проверка...</string>
+    <string name="update_btn_check_updates">Проверить обновления</string>
+    <string name="update_btn_open_github">Открыть релиз на GitHub</string>
+    <string name="update_toast_remind_enabled">Напоминания для v%1$s включены</string>
+    <string name="update_toast_ver_hidden">Версия v%1$s скрыта</string>
+    <string name="update_btn_restore_reminder">Вернуть напоминание об обновлении</string>
+    <string name="update_btn_skip_version">Пропустить эту версию</string>
+    <string name="update_btn_launch_install">Запустить установку обновления</string>
+    <string name="update_btn_launch_reinstall">Запустить переустановку приложения</string>
+    <string name="update_btn_allow_install_settings">Разрешить установку в Настройках</string>
+    <string name="update_btn_reset_status">Сбросить статус</string>
+    <string name="update_btn_retry_download">Повторить загрузку %1$s</string>
+    <string name="update_btn_cancel_download">Отменить загрузку</string>
+    <string name="update_changelog_header">СПИСОК ИЗМЕНЕНИЙ (CHANGELOG)</string>
+    <string name="update_whats_new_title">Что нового в этой версии</string>
+    <string name="update_actual_version_notice">У вас установлена последняя официальная версия v%1$s.
+
+Официальный список изменений и релизные сборки доступны в репозитории на GitHub.</string>
+    <string name="update_sim_active_desc">Включен тестовый режим: Доступно обновление v1.1.9</string>
+    <string name="update_sim_inactive_desc">Тестовый режим отключен</string>
+    <string name="update_sim_btn_reset">Тестовый режим v1.1.9 (нажмите для сброса)</string>
+    <string name="update_sim_btn_test_ui">Тестирование UI обновления</string>
+    <string name="update_screen_title">Обновление</string>
+    <string name="update_architecture_selection">ВЫБОР АРХИТЕКТУРЫ APK</string>
+    <string name="update_package_type_title">Тип установочного пакета</string>
+    <string name="update_reinstall_type_title">Выбор пакета для переустановки</string>
+    <string name="update_cpu_device">CPU устройства: %1$s</string>
+    <string name="update_recommended_arch">Рекомендуется: %1$s (%2$s)</string>
+    <string name="update_toast_arch_copied">SHA-256 для %1$s скопирован</string>
+    <string name="update_arch_hide_details">Скрыть подробности</string>
+    <string name="update_arch_show_details">Подробнее об архитектуре</string>
+    <string name="update_btn_select_choice">Выбрать %1$s</string>
+    <string name="update_btn_select_choice_reinstall">Выбрать %1$s для переустановки</string>
+    <string name="cf_guide_tab_pc">Компьютер</string>
+    <string name="cf_guide_tab_phone">Андроид</string>
+    <string name="cf_guide_tab_script">Скрипт воркера</string>
+    <string name="cf_guide_tab_faq">Преимущества и FAQ</string>
+    <string name="cf_guide_link_dash_title">Панель Cloudflare Dashboard</string>
+    <string name="cf_guide_link_dash_desc">Ссылка ведет на официальную веб-панель управления Cloudflare (dash.cloudflare.com) для создания и редактирования скрипта Worker.</string>
+    <string name="cf_guide_link_autodeploy_title">Скрипт автодеплоя на GitHub</string>
+    <string name="cf_guide_link_autodeploy_desc">Ссылка ведет на репозиторий со скриптом автоматического создания воркера для PowerShell и Bash.</string>
+    <string name="cf_guide_toast_deploy_copied">Команда автодеплоя скопирована в буфер обмена</string>
+    <string name="cf_guide_toast_script_copied">Скрипт воркера скопирован в буфер обмена</string>
+    <string name="cf_guide_step_pc_1_title">Вход в Cloudflare Dashboard</string>
+    <string name="cf_guide_step_pc_1_desc">Откройте браузер на компьютере и перейдите на dash.cloudflare.com. Авторизуйтесь или создайте бесплатный аккаунт (банковская карта не требуется).</string>
+    <string name="cf_guide_step_pc_1_action">Открыть Cloudflare Dashboard</string>
+    <string name="cf_guide_step_pc_2_title">Создание нового Worker</string>
+    <string name="cf_guide_step_pc_2_desc">В левом боковом меню выберите раздел «Workers &amp; Pages» (или «Compute (Workers)»). Нажмите синюю кнопку «Create Application», затем вкладку «Create Worker».</string>
+    <string name="cf_guide_step_pc_3_title">Базовое развертывание</string>
+    <string name="cf_guide_step_pc_3_desc">В поле имени укажите любое название (например: my-tg-proxy) и нажмите кнопку «Deploy» внизу страницы.</string>
+    <string name="cf_guide_step_pc_4_title">Вставка готового скрипта</string>
+    <string name="cf_guide_step_pc_4_desc">На открывшейся странице созданного воркера нажмите кнопку «Edit Code» (Редактировать код). Полностью удалите стандартный шаблонный код из окна редактора.</string>
+    <string name="cf_guide_step_pc_4_action">Скопировать скрипт воркера</string>
+    <string name="cf_guide_step_pc_5_title">Сохранение и публикация</string>
+    <string name="cf_guide_step_pc_5_desc">Вставьте скопированный код в редактор Cloudflare и в правом верхнем углу нажмите «Deploy» (или «Save and Deploy»).</string>
+    <string name="cf_guide_step_pc_6_title">Копирование адреса и вставка в Mirrly</string>
+    <string name="cf_guide_step_pc_6_desc">Скопируйте полученный публичный адрес (например: my-tg-proxy.yourname.workers.dev) и добавьте его в Менеджере воркеров приложения Mirrly TG Proxy.</string>
+    <string name="cf_guide_step_ph_1_title">Откройте сайт Cloudflare на смартфоне</string>
+    <string name="cf_guide_step_ph_1_desc">Перейдите на dash.cloudflare.com в браузере телефона и войдите в свой аккаунт.</string>
+    <string name="cf_guide_step_ph_1_action">Перейти на Cloudflare</string>
+    <string name="cf_guide_step_ph_2_title">Перейдите в Workers &amp; Pages</string>
+    <string name="cf_guide_step_ph_2_desc">В боковом меню выберите «Workers &amp; Pages» -> нажмите «Create Application» -> «Create Worker».</string>
+    <string name="cf_guide_step_ph_3_title">Нажмите Deploy и Edit Code</string>
+    <string name="cf_guide_step_ph_3_desc">Нажмите кнопку «Deploy», затем «Edit Code» для открытия онлайн-редактора кода.</string>
+    <string name="cf_guide_step_ph_4_title">Скопируйте и вставьте скрипт</string>
+    <string name="cf_guide_step_ph_4_desc">Нажмите кнопку ниже, чтобы скопировать скрипт, выделите весь текст в мобильном редакторе и вставьте скопированный код.</string>
+    <string name="cf_guide_step_ph_4_action">Скопировать скрипт</string>
+    <string name="cf_guide_step_ph_5_title">Сохраните и вставьте домен в Mirrly</string>
+    <string name="cf_guide_step_ph_5_desc">Нажмите «Deploy». Скопируйте домен *.workers.dev и добавьте его в Менеджере воркеров приложения Mirrly.</string>
+    <string name="cf_guide_faq_1_title">100 000 бесплатных запросов каждый день</string>
+    <string name="cf_guide_faq_1_desc">Бесплатный тариф Cloudflare выделяет 100 000 обращений в сутки лично на ваш аккаунт, чего с избытком хватает для непрерывной переписки, видеозвонков и загрузки медиа.</string>
+    <string name="cf_guide_faq_2_title">Создание нескольких личных воркеров (до 100 узлов)</string>
+    <string name="cf_guide_faq_2_desc">Вы можете бесплатно создать до 100 отдельных воркеров на одном аккаунте (например: для смартфона, ноутбука, планшета или близких), добавить их все в Менеджер воркеров Mirrly и переключаться между ними в 1 клик.</string>
+    <string name="cf_guide_faq_3_title">100% Приватность и собственный шлюз</string>
+    <string name="cf_guide_faq_3_desc">Трафик не проходит через чужие прокси-серверы. Ваш личный воркер открывает сокеты напрямую к Telegram DC через глобальную сеть Cloudflare Anycast (300+ дата-центров).</string>
+    <string name="cf_guide_faq_4_title">Работа звонков и аудио/видео (SOCKS5)</string>
+    <string name="cf_guide_faq_4_desc">Благодаря API cloudflare:sockets личный воркер поддерживает универсальный TCP-туннель к Telegram VoIP узлам, обеспечивая стабильную работу звонков без системного VPN.</string>
+    <string name="cf_guide_faq_5_title">Что делать, если Telegram долго подключается через воркер?</string>
+    <string name="cf_guide_faq_5_desc">В Cloudflare Dashboard откройте ваш воркер -> Settings -> Runtime. Убедитесь, что Compatibility Date установлена не ранее 2023-05-18 и включена опция Node.js compatibility (флаг nodejs_compat).</string>
+    <string name="cf_guide_faq_6_title">Автоматический приоритет в приложении</string>
+    <string name="cf_guide_faq_6_desc">При добавлении и выборе своего воркера приложение автоматически направляет весь трафик SOCKS5 и MTProto через ваш узел с наивысшим приоритетом.</string>
+    <string name="cf_guide_badge_one_click">1 Клик</string>
+    <string name="cf_guide_autodeploy_title">Автодеплой (BAT / PowerShell / Bash)</string>
+    <string name="cf_guide_autodeploy_desc">Запустите deploy.bat двойным кликом на Windows или выполните 1 команду в PowerShell/Bash: скрипт откроет вход в Cloudflare, задеплоит воркер и скопирует готовый домен в буфер обмена.</string>
+    <string name="cf_guide_btn_copy_cmd">Скопировать команду</string>
+    <string name="cf_guide_btn_deploy_bat">deploy.bat на GitHub</string>
+    <string name="cf_guide_tip_badge">Совет</string>
+    <string name="cf_guide_tip_title">Мобильный браузер</string>
+    <string name="cf_guide_tip_desc">В мобильном браузере (Chrome / Firefox) включите в меню флажок «Версия для ПК», если интерфейс редактора Cloudflare покажется компактным.</string>
+    <string name="cf_guide_btn_copy">Копировать</string>
+    <string name="cf_guide_screen_title">Инструкция Cloudflare</string>
+    <string name="cf_guide_screen_subtitle">Пошаговая настройка за 2 минуты</string>
+    <string name="cf_guide_step_label">Шаг %1$s</string>
+    <string name="license_copy_label_ru">Лицензия GNU GPLv3 (Русский)</string>
+    <string name="license_copy_label_en">GNU GPLv3 License (English)</string>
+    <string name="license_copied_toast">Текст лицензии скопирован!</string>
+    <string name="license_header_desc">Данное приложение является свободным программным обеспечением под защитой лицензии GNU GPLv3. Все производные работы и форки обязаны сохранять исходный код открытым.</string>
+    <string name="license_btn_copy">Скопировать</string>
+    <string name="license_section_permissions">ПРАВА И УСЛОВИЯ (GPLv3)</string>
+    <string name="license_perm_free_use">Разрешено свободное использование и распространение</string>
+    <string name="license_perm_modification">Разрешена модификация исходного кода</string>
+    <string name="license_perm_copyleft">Защита Copyleft: Запрещено закрывать код в форках</string>
+    <string name="license_perm_patent_protection">Защита от патентных исков и блокировки устройств</string>
+    <string name="license_condition_notice">Обязательное условие: Сохранение указания авторства, копилефт-лицензии GPLv3 и открытого исходного кода во всех производных работах.</string>
+    <string name="license_section_text">ТЕКСТ ЛИЦЕНЗИИ</string>
+    <string name="license_lang_russian">Русский</string>
+    <string name="license_lang_english">English</string>
+    <string name="license_screen_title">Лицензия GNU GPLv3</string>
+    <string name="wm_tab_workers">Воркеры</string>
+    <string name="wm_tab_share">Поделиться</string>
+    <string name="wm_tab_scanner">Сканер</string>
+    <string name="wm_tab_guide">Инструкция</string>
+    <string name="wm_share_template">С тобой поделились подключением Cloudflare Worker для Mirrly TG Proxy:
+
+Имя узла: %1$s
+Домен: %2$s
+
+Ссылка для импорта в приложение:
+%3$s
+
+Веб-ссылка:
+%4$s
+
+Скачать актуальную сборку Mirrly TG Proxy:
+%5$s</string>
+    <string name="wm_share_subject">Cloudflare Worker для Mirrly TG Proxy</string>
+    <string name="wm_share_chooser_title">Поделиться воркером</string>
+    <string name="wm_filter_all">Все</string>
+    <string name="wm_filter_official">Офиц.</string>
+    <string name="wm_filter_custom">Личные</string>
+    <string name="wm_search_placeholder">Поиск по названию или домену...</string>
+    <string name="wm_nodes_not_found">Узлы не найдены</string>
+    <string name="wm_list_empty">Список воркеров пуст</string>
+    <string name="wm_btn_add">+ Добавить</string>
+    <string name="wm_btn_add_short">Добавить</string>
+    <string name="wm_limit_429">Лимит 429</string>
+    <string name="wm_limit_429_desc">На бесплатном тарифе Cloudflare выделяет 100 000 запросов в сутки на домен. Лимит сбрасывается в 00:00 UTC. Выберите другой узел или подключите персональный воркер.</string>
+    <string name="wm_status_quarantine">Карантин (%1$dс)</string>
+    <string name="wm_status_checking">Проверка...</string>
+    <string name="wm_status_ms">%1$d мс</string>
+    <string name="wm_status_unreachable">Недоступен</string>
+    <string name="wm_badge_official">Официальный</string>
+    <string name="wm_badge_custom">Личный</string>
+    <string name="wm_official_node_desc">Официальный узел Cloudflare</string>
+    <string name="wm_add_dialog_header">ДОБАВЛЕНИЕ ВОРКЕРА</string>
+    <string name="wm_add_dialog_title">Новый Cloudflare Worker</string>
+    <string name="wm_add_params_header">ПАРАМЕТРЫ ПОДКЛЮЧЕНИЯ:</string>
+    <string name="wm_add_params_desc">Вставьте публичный адрес воркера (или скопируйте ссылку). Система автоматически очистит и нормализует формат.</string>
+    <string name="wm_add_field_url">АДРЕС ВОРКЕРА (URL / ДОМЕН)</string>
+    <string name="wm_badge_required">ОБЯЗАТЕЛЬНО</string>
+    <string name="wm_badge_optional">ОПЦИОНАЛЬНО</string>
+    <string name="wm_btn_from_clipboard">Из буфера</string>
+    <string name="wm_btn_qr_scanner">QR-сканер</string>
+    <string name="wm_format_swapped">ПОЛЯ АВТОМАТИЧЕСКИ СОГЛАСОВАНЫ</string>
+    <string name="wm_format_homoglyphs">РАСПОЗНАН И ИСПРАВЛЕН АДРЕС УЗЛА:</string>
+    <string name="wm_format_public">РАСПОЗНАН ПУБЛИЧНЫЙ УЗЕЛ:</string>
+    <string name="wm_format_dashboard">ОБНАРУЖЕНА ССЫЛКА НА DASHBOARD CLOUDFLARE</string>
+    <string name="wm_format_name_only">УКАЗАНО ТОЛЬКО ИМЯ ВОРКЕРА</string>
+    <string name="wm_format_error">ОШИБКА ФОРМАТА АДРЕСА</string>
+    <string name="wm_swap_detected_desc">Адрес воркера обнаружен в поле названия («%1$s»). Он автоматически используется как адрес узла.</string>
+    <string name="wm_btn_apply_swap">⇄ Применить перестановку полей в форме</string>
+    <string name="wm_field_name">НАЗВАНИЕ УЗЛА</string>
+    <string name="wm_default_custom_name">Личный воркер</string>
+    <string name="wm_default_home_name">Мой домашний</string>
+    <string name="wm_help_where_header">ГДЕ ВЗЯТЬ АДРЕС В CLOUDFLARE:</string>
+    <string name="wm_help_where_desc">1. Перейдите в Cloudflare: Workers &amp; Pages → Ваш воркер.
+2. Скопируйте ссылку под заголовком или со вкладки Deployments.
+3. Публичный адрес оканчивается на .workers.dev.
+4. Ссылка браузера (dash.cloudflare.com) не является адресом воркера.</string>
+    <string name="wm_conn_warning_header">ПРЕДУПРЕЖДЕНИЕ СВЯЗИ:</string>
+    <string name="wm_btn_save_anyway">Сохранить всё равно</string>
+    <string name="wm_btn_fix">Исправить</string>
+    <string name="wm_toast_specify_valid">Укажите корректный адрес воркера</string>
+    <string name="wm_checking_node">Проверка узла...</string>
+    <string name="wm_checking_node_avail">Проверка доступности узла...</string>
+    <string name="wm_unreachable_warning">Воркер «%1$s» не отвечает на проверочный запрос (ERR_UNREACHABLE). Убедитесь, что скрипт развернут в Cloudflare и маршрутизация активна.</string>
+    <string name="wm_btn_save_activate">Сохранить и активировать</string>
+    <string name="wm_delete_header">УДАЛЕНИЕ ВОРКЕРА</string>
+    <string name="wm_delete_title">Удалить узел?</string>
+    <string name="wm_delete_confirm_header">ПОДТВЕРЖДЕНИЕ ДЕЙСТВИЯ:</string>
+    <string name="wm_delete_confirm_desc">Вы действительно хотите удалить узел «%1$s» (%2$s) из вашего списка воркеров?</string>
+    <string name="wm_btn_delete_node">Удалить узел</string>
+    <string name="wm_no_custom_workers_title">Нет личных воркеров</string>
+    <string name="wm_no_custom_workers_desc">Официальными узлами разработчика делиться нельзя. Добавьте или создайте свой личный воркер, чтобы сгенерировать QR-код и отправить его другу.</string>
+    <string name="wm_btn_add_worker_cta">+ Добавить воркер</string>
+    <string name="wm_select_node_qr_prompt">Выберите узел для генерации QR-кода:</string>
+    <string name="wm_node_domain_label">Домен узла</string>
+    <string name="wm_btn_send_to_friend">Отправить другу</string>
+    <string name="wm_link_label">Ссылка</string>
+    <string name="wm_friend_qr_hint">Ваш друг может отсканировать этот QR-код на соседней вкладке «Сканер» или перейти по скопированной ссылке для автоматического добавления узла.</string>
+    <string name="wm_camera_disabled_title">Доступ к камере отключен</string>
+    <string name="wm_camera_disabled_desc">Разрешите доступ к камере в настройках устройства для работы сканера.</string>
+    <string name="wm_btn_grant_access">Предоставить доступ</string>
+    <string name="wm_scanner_hint">Наведите камеру на QR-код из консоли деплоя (.bat) или из приложения друга.</string>
+    <string name="wm_btn_paste_address_link">Вставить адрес или ссылку из буфера</string>
+    <string name="wm_import_links_title">Импорт узлов по ссылке</string>
+    <string name="wm_import_links_desc">Если вы переходите по ссылке с воркером, но она открывается в браузере, а не в приложении, разрешите Mirrly TG Proxy открывать поддерживаемые ссылки по умолчанию в настройках Android.</string>
+    <string name="wm_btn_open_link_settings">Открыть настройки ссылок</string>
+    <string name="wm_qr_scanner_desc">QR-код и быстрый импорт воркера для друзей</string>
+    <string name="wm_qr_scanner_sub">Считывание QR из батника (.bat) и приложения</string>
+    <string name="wm_title">Менеджер воркеров</string>
+    <string name="wm_sub_socks5">SOCKS5 Cloudflare Туннели</string>
+    <string name="wm_sub_mtproto">MTProto Cloudflare Туннели</string>
+    <string name="wm_sub_guide">Инструкция по настройке</string>
+    <string name="wm_desc_analytics">Аналитика запросов</string>
+    <string name="wm_desc_measure_ping">Замерить пинг</string>
+    <string name="wm_toast_ping_finished">Замер пинга завершен</string>
+    <string name="wm_toast_cant_share_official">Официальными воркерами разработчика делиться нельзя</string>
+    <string name="wm_toast_activated">Активирован: %1$s</string>
+    <string name="wm_toast_qr_recognized">QR-код распознан: %1$s</string>
+    <string name="wm_toast_addr_pasted">Адрес вставлен из буфера</string>
+    <string name="wm_toast_addr_normalized">Адрес вставлен и нормализован</string>
+    <string name="wm_toast_clipboard_empty">Буфер обмена пуст</string>
+    <string name="wm_toast_worker_added">Воркер «%1$s» добавлен и активирован</string>
+    <string name="wm_toast_worker_add_error">Ошибка добавления: %1$s</string>
+    <string name="wm_toast_worker_deleted">Воркер удален</string>
+    <string name="wm_toast_domain_copied">Домен скопирован в буфер обмена</string>
+    <string name="wm_toast_mirrly_link_copied">Ссылка mirrly:// скопирована</string>
+    <string name="action_delete">Удалить</string>
+    <string name="wm_qr_code_desc">QR код воркера</string>
+    <!-- Worker Analytics & Diagnostics -->
+    <string name="analytics_period_session">Сессия</string>
+    <string name="analytics_period_hour_1">1 час</string>
+    <string name="analytics_period_hour_5">5 часов</string>
+    <string name="analytics_period_hour_12">12 часов</string>
+    <string name="analytics_period_hour_24">24 часа</string>
+    <string name="analytics_period_days_7">7 дней</string>
+    <string name="analytics_period_days_30">30 дней</string>
+    <string name="analytics_period_all_time">Всего</string>
+    <string name="wa_info_cf_limits_title">Лимиты Cloudflare Workers Free</string>
+    <string name="wa_info_cf_limits_desc" formatted="false">КАК РАБОТАЕТ ТАРИФИКАЦИЯ:\n• На бесплатном тарифе Cloudflare Workers Free каждому аккаунту выделяется квота 100 000 запросов в сутки.\n• Сброс счетчика квоты происходит ежедневно в 00:00 по всемирному координированному времени (UTC).\n\nПОЧЕМУ WSS ЭКОНОМИТ ЗАПРОСЫ:\n• 1 WebSocket-подключение = ровно 1 запрос Cloudflare на этапе открытия туннеля (HTTP Upgrade: websocket).\n• После открытия туннеля весь обмен данными Telegram (сообщения, фото, видео гигабайтами, голосовые звонки) передается внутри открытого сокета и НЕ СОЗДАЕТ новых запросов.\n\nОРИЕНТИРЫ НАГРУЗКИ:\n• 1 активный пользователь расходует всего 200–800 запросов в сутки (менее 1% от квоты 100 000).\n• Даже группа из 10–20 человек на одном личном воркере использует не более 10–15% суточного лимита.</string>
+    <string name="wa_info_zero_cost_title">Локальный подсчёт запросов (Zero Cost)</string>
+    <string name="wa_info_zero_cost_desc">КАК РАБОТАЕТ СЧЁТЧИК:\n• Аналитический модуль Mirrly TG Proxy считает запросы исключительно ЛОКАЛЬНО на вашем устройстве.\n• Фиксируются события открытия WSS-сессий ядром прокси и результаты локальных проверок доступности.\n\nПОЛНОЕ ОТСУТСТВИЕ СЕТЕВЫХ ЗАТРАТ:\n• Сам счётчик не делает никаких внешних запросов к API Cloudflare или сторонним серверам.\n• Статистика сохраняется в зашифрованном локальном кэше устройства и не потребляет интернет-трафик.</string>
+    <string name="wa_info_wss_traffic_title">WSS Туннелирование данных</string>
+    <string name="wa_info_wss_traffic_desc">НАЗНАЧЕНИЕ:\n• Количество установленных защищенных WebSocket-сессий между прокси и воркером Cloudflare.\n\nОСОБЕННОСТИ РАБОТЫ:\n• Каждая WSS-сессия инкапсулирует трафик дата-центров Telegram (DC1–DC5) в защищенный TLS 1.3 поток.\n• При непрерывном общении сокет остается открытым часами, расходуя лишь 1 первоначальный запрос.</string>
+    <string name="wa_info_probes_title">Служебные пробы доступности</string>
+    <string name="wa_info_probes_desc">НАЗНАЧЕНИЕ:\n• Запросы проверки работоспособности воркера и автоматического переключения при авариях (Multi-Worker Circuit Breaker).\n\nКОГДА ОТПРАВЛЯЮТСЯ:\n• При ручной проверке доступности по кнопке «Тест» в Менеджере воркеров.\n• При автоматическом подтверждении восстановления узла после сбоя сети.</string>
+    <string name="wa_info_burn_rate_title">Темп расхода запросов</string>
+    <string name="wa_info_burn_rate_desc">КАК РАССЧИТЫВАЕТСЯ:\n• Среднее количество создаваемых запросов в час за выбранный интервал времени.\n\nПРОГНОЗИРОВАНИЕ:\n• Позволяет оценить суточную нагрузку на квоту при текущей интенсивности использования Telegram.</string>
+    <string name="wa_info_reset_timer_title">Ежедневный сброс квоты</string>
+    <string name="wa_info_reset_timer_desc">ПРАВИЛА CLOUDFLARE:\n• Все суточные счетчики бесплатных воркеров Cloudflare обнуляются ровно в 00:00:00 UTC.\n\nТАЙМЕР:\n• Отображает точное время в часах и минутах, оставшееся до следующего обнуления квоты Cloudflare.</string>
+    <string name="wa_info_mtproto_dc_traffic_title">Распределение трафика по Дата-Центрам Telegram</string>
+    <string name="wa_info_mtproto_dc_traffic_desc">КАК РАБОТАЕТ МАРШРУТИЗАЦИЯ:\n• Telegram разделяет трафик между 5 основными кластерами дата-центров (DC1–DC5) и сетью распределенных кэш-узлов FlowSeal CDN.\n• DC 2 (Амстердам): чаты, синхронизация сообщений, авторизация и контакты.\n• DC 4 (Амстердам): личные медиафайлы, голосовые и видеосообщения.\n• CDN FlowSeal: 20 гео-распределенных кэш-серверов для быстрой доставки тяжелого публичного контента каналов.</string>
+    <string name="wa_info_mtproto_cdn_title">Сеть CDN FlowSeal (20 узлов кэширования)</string>
+    <string name="wa_info_mtproto_cdn_desc">НАЗНАЧЕНИЕ КЭШ-НОД:\n• Публичные видеофайлы и медиа из крупных каналов кэшируются на 20 CDN-нодах Telegram.\n• Это снижает задержку загрузки видео и разгружает центральный дата-центр DC 4.</string>
+    <string name="wa_info_mtproto_affinity_title">Балансировщик пула сокетов (DC-Affinity)</string>
+    <string name="wa_info_mtproto_affinity_desc">АДАПТИВНАЯ КОНЦЕНТРАЦИЯ РЕСУРСОВ:\n• Движок динамически выделяет сокеты WSS-пула под тот дата-центр, с которым прямо сейчас идет наиболее интенсивный обмен данными.\n• При паузах в активности сокеты переводятся в режим энергосбережения по закону экспоненциального затухания.</string>
+    <string name="wa_info_mtproto_dialects_title">Протокольные транспорты MTProto (Dialects)</string>
+    <string name="wa_info_mtproto_dialects_desc">ТИПЫ ТРАНСПОРТА TELEGRAM:\n• Intermediate (0xee): основной скоростной транспорт обмена сообщениями.\n• Padded Intermediate (0xdd): рандомизированный транспорт с плавающим паддингом для защиты от DPI-блокировок.\n• Abridged (0xef): ультра-компактный транспорт для служебных синхронизаций.</string>
+    <string name="wa_info_mtproto_multiplexing_title">Эффективность WSS-мультиплексирования</string>
+    <string name="wa_info_mtproto_multiplexing_desc" formatted="false">КАК ЭКОНОМИТСЯ КВОТА:\n• Коэффициент показывает, сколько сотен пакетов и сообщений MTProto было передано внутри одной открытой WSS-сессии.\n• Позволяет обслуживать активное общение без лишних затрат суточных запросов к Cloudflare.</string>
+    <string name="wa_info_mtproto_entropy_title">Математическая модель энтропии пула и затухания</string>
+    <string name="wa_info_mtproto_entropy_desc" formatted="false">1. ШЕННОНОВСКАЯ ЭНТРОПИЯ ПУЛА (H):\n• Формула: H = -∑ p_i * ln(p_i), где p_i — доля нагрузки i-го дата-центра.\n• H &lt; 0.60: Высокая концентрация (Single-DC Affinity). Вся емкость сосредоточена на одном DC (например, чтение текстового чата в DC2). Максимальная экономия батареи и сокетов.\n• 0.60 ≤ H ≤ 1.30: Сбалансированный режим (Dual Affinity). Параллельный обмен с DC2 (сообщения) и DC4 (медиа) или FlowSeal CDN.\n• H &gt; 1.30: Высокодисперсный режим (Multi-Cluster Burst). Одновременная синхронизация, звонки и скачивание контента по всей географии Telegram.\n\n2. ЭКСПОНЕНЦИАЛЬНОЕ ЗАТУХАНИЕ АКТИВНОСТИ:\n• Формула: Weight(DC) = (sqrt(Bytes) / 100 + Conns * 25 + 1.0) * exp(-Δt / 60).\n• Период полураспада T½ = 60 секунд. Каждую минуту бездействия вес активности DC уменьшается вдвое.\n• При достижении порога неактивности (&gt;180с) сокет автоматически закрывается или переводится в режим ожидания (Sleep Mode).</string>
+    <string name="wa_quota_title">РАСХОД КВОТЫ CLOUDFLARE</string>
+    <string name="wa_unit_requests">запросов</string>
+    <string name="wa_quota_percent_limit">%1$s%% лимита</string>
+    <string name="wa_stat_0_req">0 запр.</string>
+    <string name="wa_quota_limit_day">Лимит: 100 000 / день</string>
+    <string name="wa_period_title">ПЕРИОД АНАЛИТИКИ</string>
+    <string name="wa_timeline_title">ДИНАМИКА ЗАПРОСОВ ПО ВРЕМЕНИ</string>
+    <string name="wa_details_title">ДЕТАЛИЗАЦИЯ И СТАТИСТИКА</string>
+    <string name="wa_stat_wss_title">WSS Туннелирование данных</string>
+    <string name="wa_stat_wss_sessions">%1$d сессий</string>
+    <string name="wa_badge_wss_ratio">1 WSS = 1 запр.</string>
+    <string name="wa_stat_probes_title">Служебные пробы доступности</string>
+    <string name="wa_stat_probes_checks">%1$d проверок</string>
+    <string name="wa_stat_burn_rate_title">Средний темп расхода</string>
+    <string name="wa_stat_burn_rate_val">~%1$s запр/час</string>
+    <string name="wa_stat_reset_title">Сброс суточной квоты</string>
+    <string name="wa_stat_reset_val">Через %1$dч %2$dмин</string>
+    <string name="wa_chart_tooltip">%1$s • %2$d запр. (WSS: %3$d, Пробы: %4$d)</string>
+    <string name="wa_title">Аналитика запросов</string>
+    <string name="wa_chart_100k_day">100k / день</string>
+    <string name="wa_traffic_b">%1$d Б</string>
+    <string name="wa_traffic_kb">%1$s КБ</string>
+    <string name="wa_traffic_mb">%1$s МБ</string>
+    <string name="wa_traffic_gb">%1$s ГБ</string>
+    <string name="wa_dc_all">ВСЕ DC</string>
+    <string name="wa_dc_pct_total">%1$s%% от общего</string>
+    <string name="wa_dc_role_node">%1$s • Узел: %2$s:443</string>
+    <string name="wa_dc_rx">Вход (RX): %1$s (%2$s%%)</string>
+    <string name="wa_dc_tx">Исход (TX): %1$s (%2$s%%)</string>
+    <string name="wa_dc_sockets_weight">Сокетов: %1$d • Вес: %2$s</string>
+    <string name="wa_dc_deselect">Снять выбор</string>
+    <string name="wa_dc_traffic_map_title">КАРТА РАСПРЕДЕЛЕНИЯ ТРАФИКА DC</string>
+    <string name="wa_dc_total_label">всего</string>
+    <string name="wa_region_europe">Европа</string>
+    <string name="wa_region_americas">Америка</string>
+    <string name="wa_region_asia">Азия</string>
+    <string name="wa_dc_clusters_title">ДАТА-ЦЕНТРЫ И СЕТЕВЫЕ КЛАСТЕРЫ</string>
+    <string name="wa_cdn_title">СЕТЬ CDN FLOWSEAL</string>
+    <string name="wa_cdn_subtitle">20 кэш-узлов публичных каналов</string>
+    <string name="wa_cdn_cache_efficiency">ЭФФЕКТИВНОСТЬ КЭШИРОВАНИЯ</string>
+    <string name="wa_cdn_dc4_offload">Разгрузка DC4</string>
+    <string name="wa_cdn_dc4_saved_title">СЭКОНОМЛЕНО DC4</string>
+    <string name="wa_cdn_amsterdam_traffic">Трафик Амстердама</string>
+    <string name="wa_cdn_media_accel_title">УСКОРЕНИЕ МЕДИА</string>
+    <string name="wa_cdn_speed_boost">+45% к скорости</string>
+    <string name="wa_cdn_edge_delivery">Прямая Edge-отдача</string>
+    <string name="wa_cdn_edge_cluster_title">EDGE-КЛАСТЕР</string>
+    <string name="wa_cdn_nodes_count">20 из 20 узлов</string>
+    <string name="wa_cdn_flowseal_network">Сеть FlowSeal</string>
+    <string name="wa_cdn_quota_saving_title">ЭКОНОМИЯ КВОТЫ</string>
+    <string name="wa_cdn_quota_subtext">1 WSS на гигабайты</string>
+    <string name="wa_cdn_topology_title">ТОПОЛОГИЯ 20 КЭШ-УЗЛОВ FLOWSEAL</string>
+    <string name="wa_cdn_node_item">Кэш-узел FlowSeal CDN #%1$s</string>
+    <string name="wa_cdn_node_item_details">Статус: Активен • Кэш: Видео H.265 / Аудио • Шлюз: WSS</string>
+    <string name="wa_close">Закрыть</string>
+    <string name="wa_cdn_categories_title">КАТЕГОРИИ КЭШИРУЕМОГО КОНТЕНТА</string>
+    <string name="wa_cdn_cat_video_title">4K Видео и медиапотоки каналов</string>
+    <string name="wa_cdn_cat_video_share">65% объема</string>
+    <string name="wa_cdn_cat_audio_title">Голосовые заметки и подкасты</string>
+    <string name="wa_cdn_cat_audio_share">20% объема</string>
+    <string name="wa_cdn_cat_docs_title">Крупные документы и архивы</string>
+    <string name="wa_cdn_cat_docs_share">15% объема</string>
+    <string name="wa_pool_balancer_title">БАЛАНСИРОВЩИК ПУЛА СОКЕТОВ</string>
+    <string name="wa_pool_distribution_title">РАСПРЕДЕЛЕНИЕ WSS-ПУЛА</string>
+    <string name="wa_pool_sockets_active">сокетов активно</string>
+    <string name="wa_pool_entropy_val">H = %1$s нат</string>
+    <string name="wa_pool_active_dcs">Активных DC: %1$d</string>
+    <string name="wa_pool_focus">Фокус: %1$s</string>
+    <string name="wa_pool_balanced_load">Сбалансированная нагрузка</string>
+    <string name="wa_pool_load_focus_title">ФОКУС НАГРУЗКИ</string>
+    <string name="wa_pool_dominant_dc">Доминантный DC</string>
+    <string name="wa_pool_half_life_title">ПОЛУРАСПАД ВЕСА</string>
+    <string name="wa_pool_half_life_60s">T½ = 60с</string>
+    <string name="wa_pool_energy_save_title">ЭНЕРГОСБЕРЕЖЕНИЕ</string>
+    <string name="wa_pool_auto_sleep">Авто-усыпление</string>
+    <string name="wa_pool_dc_capacity_title">РАСПРЕДЕЛЕНИЕ ЕМКОСТИ ПО ДАТА-ЦЕНТРАМ</string>
+    <string name="wa_pool_sockets_count">%1$d сок.</string>
+    <string name="wa_pool_standby_zero">Standby (0)</string>
+    <string name="wa_pool_weight_val">Вес: %1$s</string>
+    <string name="wa_pool_hot">Горячий пул</string>
+    <string name="wa_pool_standby">Standby</string>
+    <string name="wa_pool_principles_title">ПРИНЦИПЫ ЭНЕРГОСБЕРЕЖЕНИЯ DC-AFFINITY:</string>
+    <string name="wa_pool_principles_text">• Чтение чатов: 100% емкости WSS концентрируется на DC2 (Амстердам).\n• Просмотр медиа: мгновенный переход на DC4 и FlowSeal CDN.\n• Фоновый режим: сокеты неактивных DC усыпляются за 60 секунд.</string>
+    <string name="wa_proto_split_title">ПРОТОКОЛЬНЫЙ СПЛИТ ТРАНСПОРТА</string>
+    <string name="wa_proto_split_sub">Диалекты MTProto 2.0 и защита от DPI</string>
+    <string name="wa_proto_distribution_title">РАСПРЕДЕЛЕНИЕ ТРАНСПОРТОВ</string>
+    <string name="wa_unit_packets">пакетов</string>
+    <string name="wa_proto_0xee_sub">0xee скоростной</string>
+    <string name="wa_proto_0xdd_sub">0xdd анти-DPI</string>
+    <string name="wa_proto_0xef_sub">0xef служебный</string>
+    <string name="wa_proto_spec_title">СПЕЦИФИКАЦИЯ ТРАНСПОРТНЫХ ДИАЛЕКТОВ</string>
+    <string name="wa_proto_intermediate_desc">Основной протокол быстрой передачи сообщений и медиапотоков с 4-байтным выравниванием длины.</string>
+    <string name="wa_proto_padded_desc">Каждый кадр дополняется случайным паддингом. Разрушает характерные сигнатуры длин пакетов Telegram, предотвращая блокировки ТСПУ и DPI.</string>
+    <string name="wa_proto_abridged_desc">Ультра-компактный транспорт с 1-байтным заголовком. Используется для служебных квитанций и синхронизаций с минимальным оверхедом.</string>
+    <string name="wa_mux_title">МУЛЬТИПЛЕКСИРОВАНИЕ WSS</string>
+    <string name="wa_mux_sub">Эффективность туннеля Cloudflare</string>
+    <string name="wa_mux_ratio_title">КОЭФФИЦИЕНТ МУЛЬТИПЛЕКСИРОВАНИЯ</string>
+    <string name="wa_mux_packets_processed_title">ОБРАБОТАНО ПАКЕТОВ</string>
+    <string name="wa_mux_mtproto_transport">Транспорт MTProto</string>
+    <string name="wa_mux_dpi_protection_title">ЗАЩИТА ОТ DPI</string>
+    <string name="wa_mux_padding_random">Рандомизация паддинга</string>
+    <string name="wa_mux_tunnel_mode_title">РЕЖИМ ТУННЕЛЯ</string>
+    <string name="wa_mux_quota_saving_title">ЭКОНОМИЯ КВОТЫ</string>
+    <string name="wa_mux_wss_per_session">1 WSS на сессию</string>
+    <string name="wa_mux_arch_title">АРХИТЕКТУРА WSS-МУЛЬТИПЛЕКСИРОВАНИЯ:</string>
+    <string name="wa_mux_arch_text">• 1 WSS сессия открывается по защищенному WebSocket туннелю (1 запрос Cloudflare Free).\n• Все пакеты MTProto инкапсулируются в бинарные фреймы без повторных HTTP рукопожатий.\n• Это обеспечивает 99.8% экономию суточной квоты даже при многогигабайтном трафике.</string>
+    <string name="wa_packets_val">%1$d пак.</string>
+    <string name="wa_frame_structure_val">Структура кадра: %1$s</string>
+    <string name="wa_unit_nat">нат</string>
+    <string name="wa_decay_curve_title">КРИВАЯ ЗАТУХАНИЯ e^(-Δt/60)</string>
+    <string name="wa_decay_half_life">T½ = 60 сек</string>
+    <string name="wa_decay_pt_0">0с (100%)</string>
+    <string name="wa_decay_pt_60">60с (50%)</string>
+    <string name="wa_decay_pt_120">120с (25%)</string>
+    <string name="wa_decay_pt_180">180с (Сон)</string>
+    <string name="wa_entropy_mode_single_title">Фокусированный (Single DC)</string>
+    <string name="wa_entropy_mode_single_desc">100% емкости на одном дата-центре. Максимальная энергоэффективность.</string>
+    <string name="wa_entropy_mode_dual_title">Сбалансированный (Dual DC)</string>
+    <string name="wa_entropy_mode_dual_desc">Равномерный параллельный обмен: чаты (DC2) + медиа (DC4 / CDN).</string>
+    <string name="wa_entropy_mode_multi_title">Мульти-кластерный (Multi DC)</string>
+    <string name="wa_entropy_mode_multi_desc">Многопоточная нагрузка: одновременные звонки, медиа и синхронизация.</string>
+    <string name="wa_entropy_decay_title">ИНДЕКС ЭНТРОПИИ И ЗАТУХАНИЯ</string>
+    <string name="wa_shannon_model_sub">Шенноновская модель концентрации</string>
+    <string name="wa_entropy_h_title">ЭНТРОПИЯ H</string>
+    <string name="wa_entropy_val">%1$s нат</string>
+    <string name="wa_uniformity_title">РАВНОМЕРНОСТЬ</string>
+    <string name="wa_half_life_title">ПОЛУРАСПАД T½</string>
+    <string name="wa_half_life_val">60 сек</string>
+    <string name="wa_decay_dynamics_title">ДИНАМИКА ЗАТУХАНИЯ АКТИВНОСТИ</string>
+    <string name="wa_decay_status_hot">Горячий</string>
+    <string name="wa_decay_status_cooling">Остывание</string>
+    <string name="wa_decay_status_standby">Спящий (Standby)</string>
+    <string name="wa_decay_idle_val">Простой: %1$s сек</string>
+    <string name="wa_decay_weight_val">Вес активности: %1$s</string>
+    <string name="wa_math_engine_title">МАТЕМАТИЧЕСКИЙ АППАРАТ ДВИЖКА:</string>
+    <string name="wa_math_engine_text">• Энтропия Шеннона: H(X) = -∑ pᵢ ln(pᵢ) [мера распределенности нагрузки]\n• Коэффициент свежести: e^(-Δt/60) [закон полураспада неактивных сокетов]</string>
+    <!-- Network Diagnostic Screen -->
+    <string name="nd_info_sqi_title">Индекс качества сети (SQI)</string>
+    <string name="nd_info_sqi_desc" formatted="false">КАК РАБОТАЕТ:\n• Комплексный интегральный скоринг стабильности сетевого туннеля (от 0 до 100%), рассчитываемый в реальном времени.\n• Объединяет оценку качества для чатов/медиафайлов (55%) и аудио/видеозвонков (45%).\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Позволяет моментально определить пригодность соединения для всех сервисов Telegram.\n\nОРИЕНТИРЫ И НОРМЫ:\n• 90–100%: идеальный прямой канал без задержек.\n• 75–89%: стабильное рабочее соединение.\n• 50–74%: задержки на стороне оператора связи.\n• Ниже 50%: деградация канала или потеря пакетов.</string>
+    <string name="nd_info_chats_sqi_title">Качество для чатов и медиа (TCP)</string>
+    <string name="nd_info_chats_sqi_desc" formatted="false">КАК РАБОТАЕТ:\n• Оценивает надежность и скорость передачи текстовых сообщений, стикеров, фото и видеофайлов по защищенному протоколу TCP/TLS.\n• Алгоритм отдает 50% приоритета надежности доставки пакетов, 30% времени отклика (RTT) и 20% стабильности очередей.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Для чатов и медиа задержка до 200 мс не ощущается, но критически важно отсутствие потерь пакетов и раздувания буферов оборудования.\n\nОРИЕНТИРЫ И НОРМЫ:\n• 90–100%: идеальная мгновенная отправка и быстрая загрузка медиа.\n• 75–89%: стабильный комфортный обмен сообщениями.\n• 50–74%: умеренная скорость передачи тяжелых файлов.\n• Ниже 50%: задержки и сбои загрузки.</string>
+    <string name="nd_info_latency_sparkline_title">Динамика задержки (Sparkline 60 сек)</string>
+    <string name="nd_info_latency_sparkline_desc" formatted="false">КАК РАБОТАЕТ ГРАФИК:\n• Отображает историю каждого замера времени отклика (RTT) туннеля за последнюю минуту в реальном времени.\n• Зеленые точки — идеальный отклик (&lt; 80 мс), синие — стандартный (80–180 мс), желтые — повышенный, красные — сетевой сбой или таймаут.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Позволяет визуально выявить микро-скачки (Jitter Spikes), переключение сотовых вышек (Cell Handover) и нестабильность Wi-Fi.\n• Вы можете коснуться любой точки на графике пальцем для просмотра точного времени и задержки конкретного замера.</string>
+    <string name="nd_info_readiness_grid_title">Готовность сервисов Telegram</string>
+    <string name="nd_info_readiness_grid_desc" formatted="false">КАК РАБОТАЕТ МАТРИЦА:\n• Анализирует физические сетевые метрики (задержку, джиттер, потери, размер буферов и пула сокетов) и оценивает готовность 4 ключевых типов сервисов Telegram в реальном времени.\n\nТИПЫ СЕРВИСОВ:\n• Чаты и стикеры: готовность к мгновенной отправке сообщений без буферных задержек (&lt; 80 мс).\n• Фото и голосовые: высокая скорость передачи медиапотока без потерь (&gt;= 95%).\n• Файлы и 4K видео: пропускная способность пула сокетов и буфера (до 2 МБ).\n• Звонки и видео HD: качество аудиокодека Opus и отсутствие лагов видеосвязи.</string>
+    <string name="nd_info_readiness_text_title">Текстовые чаты и стикеры</string>
+    <string name="nd_info_readiness_text_desc" formatted="false">ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ:\n• Текстовый трафик передается короткими TCP/TLS пакетами (50–300 байт).\n• При задержке RTT &lt; 80 мс отправка сообщений происходит мгновенно («одна галочка» появляется за доли секунды).\n• Включенный режим TCP_NODELAY исключает буферную паузу алгоритма Нагла.</string>
+    <string name="nd_info_readiness_media_title">Фото и голосовые сообщения</string>
+    <string name="nd_info_readiness_media_desc" formatted="false">ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ:\n• Требует стабильного потока со скоростью от 150 КБ/с и надежности доставки пакетов &gt;= 95%.\n• Голосовые сообщения кэшируются фрагментами: при отсутствии джиттера воспроизведение начинается без пауз.</string>
+    <string name="nd_info_readiness_files_title">Тяжелые файлы и 4K видео</string>
+    <string name="nd_info_readiness_files_desc" formatted="false">ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ:\n• Для тяжёлых загрузок ядро адаптирует MTProto standby от 1 до 4 соединений на активный слот и подбирает буфер по измеренному BDP.\n• Контроль Bufferbloat предотвращает зависание оборудования при максимальной нагрузке канала.</string>
+    <string name="nd_info_readiness_calls_title">Голосовые и видеозвонки HD</string>
+    <string name="nd_info_readiness_calls_desc" formatted="false">ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ:\n• Голосовой трафик кодируется широкополосным кодеком Opus (частота дискретизации 48 кГц).\n• Для идеального разговора без роботизации звука джиттер не должен превышать 15–25 мс, а потери пакетов — не более 2%.</string>
+    <string name="nd_info_network_path_title">Сетевой тракт и задержка</string>
+    <string name="nd_info_network_path_desc">КАК РАБОТАЕТ:\n• Диагностический модуль измеряет три ключевые метрики сетевого пути: задержку кругового прохождения сигнала (RTT), стабильность интервалов (джиттер) и процент успешно доставленных TCP/WSS сегментов.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Низкая задержка обеспечивает мгновенный отклик приложения, а отсутствие джиттера исключает прерывания в звонках Telegram.</string>
+    <string name="nd_info_rtt_title">Задержка туннеля (EWMA RTT)</string>
+    <string name="nd_info_rtt_desc">КАК РАБОТАЕТ:\n• Экспоненциально сглаженное время кругового прохождения сигнала (Round-Trip Time) от смартфона до узла Cloudflare Edge по алгоритму RFC 6298.\n• Исключает случайные одиночные всплески и отражает реальную скорость отклика.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Влияет на мгновенность появления статуса отправки сообщений, скорость загрузки профилей и списков диалогов.\n\nОРИЕНТИРЫ И НОРМЫ:\n• До 80 мс: превосходный отклик.\n• 80–180 мс: стабильная работа в мобильных сетях.\n• Свыше 250 мс: возможны задержки при интерактивном общении.</string>
+    <string name="nd_info_jitter_title">Вариация задержки (LTE Jitter)</string>
+    <string name="nd_info_jitter_desc">КАК РАБОТАЕТ:\n• Разброс и колебание задержки между последовательными контрольными пакетами данных.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Высокий джиттер возникает из-за нестабильности радиосигнала сотовой вышки (переключение вышек в движении, помехи, загрузка базовой станции).\n• Приводит к задержкам и прерываниям в аудио- и видеозвонках.\n\nОРИЕНТИРЫ И НОРМЫ:\n• До 15 мс: стабильный радиоканал.\n• 15–40 мс: допустимая вариация мобильной сети.\n• Выше 50 мс: сильная нестабильность радиоканала.</string>
+    <string name="nd_info_delivery_title">Доставка контрольных пакетов</string>
+    <string name="nd_info_delivery_desc" formatted="false">КАК РАБОТАЕТ:\n• Процент успешно доставленных тестовых сетевых зондов до воркера за последние 10 циклов измерений.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Потеря даже 5% пакетов заставляет сетевой стек TCP повторно отправлять сегменты (Retransmission), из-за чего скорость загрузки медиафайлов может падать в несколько раз.\n\nОРИЕНТИРЫ И НОРМЫ:\n• 100%: идеальная доставка без потерь.\n• 90–99%: допустимо в мобильных сетях.\n• Ниже 80%: потеря пакетов на стороне провайдера связи.</string>
+    <string name="nd_info_localization_title">Локализация узких мест</string>
+    <string name="nd_info_localization_desc">КАК РАБОТАЕТ:\n• Разделяет сетевой маршрут на два независимых участка: от смартфона до базовой станции (Last-Mile) и от базовой станции до Cloudflare Edge (Core).\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Помогает точно определить источник неполадок: вызван ли сбой слабым сигналом сотовой связи или недоступностью облачного узла.</string>
+    <string name="nd_info_bottleneck_radar_title">Радар узких мест (Hop-by-Hop)</string>
+    <string name="nd_info_bottleneck_radar_desc">КАК РАБОТАЕТ ЦЕПОЧКА:\n• Отслеживает прохождение трафика Telegram через 5 ключевых узлов:\n  1. Устройство (:10808) — локальный native-прокси на Android.\n  2. Вышка / Wi-Fi — радиоканал последней мили.\n  3. Провайдер / DPI — магистраль оператора и системы ТСПУ/DPI.\n  4. Cloudflare Edge — облачный воркер и WSS-туннель.\n  5. Telegram DC — целевые дата-центры мессенджера (DC 1–5).\n\nПОЧЕМУ ЭТО ВАЖНО:\n• При возникновении задержки система подсвечивает конкретный проблемный узел (желтым или красным), избавляя от гаданий.</string>
+    <string name="nd_info_smart_insights_title">Интеллектуальные рекомендации движка</string>
+    <string name="nd_info_smart_insights_desc">КАК РАБОТАЕТ СИСТЕМА СОВЕТОВ:\n• Аналитический модуль оценивает текущие параметры задержки, джиттера, раздувания буферов и потерь пакетов, формируя контекстные советы по улучшению качества связи в реальном времени.\n\nОСНОВНЫЕ СЦЕНАРИИ:\n• Высокий джиттер мобильной сети: рекомендация переключиться на стабильный Wi-Fi для исключения прерываний в звонках.\n• Раздувание буфера (Bufferbloat): рекомендация разгрузить локальный роутер от фоновых скачиваний.\n• Магистральные задержки: предложение проверить узел Cloudflare Worker.</string>
+    <string name="nd_info_hop_device_title">Устройство (Локальный прокси)</string>
+    <string name="nd_info_hop_device_desc">УЗЕЛ #1:\n• Приложение Mirrly TG Proxy запускает локальный прокси-сервер на порту 10808 (127.0.0.1).\n• Клиент Telegram перенаправляет весь свой трафик в этот сокет.</string>
+    <string name="nd_info_hop_isp_title">Провайдер связи и DPI</string>
+    <string name="nd_info_hop_isp_desc">УЗЕЛ #3:\n• Сегмент оператора связи (МТС, Билайн, Мегафон, Ростелеком и др.).\n• Прокси использует маскировку WSS и защищенный SNI, предотвращая блокировку ТСПУ/DPI middlebox-системами.</string>
+    <string name="nd_info_hop_tg_dc_title">Дата-центры Telegram</string>
+    <string name="nd_info_hop_tg_dc_desc">УЗЕЛ #5:\n• Конечные серверы Telegram (DC 1 — Майами, DC 2/4 — Амстердам, DC 5 — Сингапур).\n• Модуль DC Affinity поддерживает выделенные сокеты для каждого дата-центра.</string>
+    <string name="nd_info_last_mile_title">Сегмент оператора связи (Last-Mile)</string>
+    <string name="nd_info_last_mile_desc">КАК РАБОТАЕТ:\n• Участок сетевого тракта от радиомодуля вашего смартфона до ближайшей вышки сотовой связи или Wi-Fi роутера.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Если у вас высокий джиттер, но воркер работает исправно — причина сбоев кроется в слабом сигнале сети смартфона, а не в прокси-сервере.\n\nОРИЕНТИРЫ И НОРМЫ:\n• Статус «Норма» означает отсутствие помех и потерь пакетов на радиоканале.</string>
+    <string name="nd_info_cf_edge_title">Сегмент Cloudflare Worker (Core)</string>
+    <string name="nd_info_cf_edge_desc">КАК РАБОТАЕТ:\n• Состояние пограничного сервера Cloudflare Edge, обрабатывающего WebSocket туннелирование трафика и DNS-over-HTTPS.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Показывает, не превышен ли суточный лимит запросов на воркере (HTTP 429) и не замедлен ли отклик инфраструктуры Cloudflare.\n\nОРИЕНТИРЫ И НОРМЫ:\n• Статус «Доступен» подтверждает корректную передачу данных через защищенный сокет.</string>
+    <string name="nd_info_config_title">Конфигурация туннеля</string>
+    <string name="nd_info_config_desc">КАК РАБОТАЕТ:\n• Отображает текущие параметры активного туннеля: выбранный Cloudflare Worker, локальный порт прослушивания и криптографический режим.</string>
+    <string name="nd_info_active_worker_title">Активный узел туннелирования (Predictive Failover)</string>
+    <string name="nd_info_active_worker_desc">КАК РАБОТАЕТ:\n• Конкретный узел Cloudflare Worker, через который в данный момент ретранслируется трафик Telegram.\n• Система непрерывно отслеживает тренд задержки и Bufferbloat. При монотонном росте RTT или деградации узла предиктивный триггер упреждающе переключает связь на здоровый резервный узел до полного обрыва.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Защищает голосовые звонки и загрузку медиа от зависаний без необходимости перезапускать сокеты или ожидать жестких таймаутов.\n\nОРИЕНТИРЫ И НОРМЫ:\n• Личный домен воркера имеет наивысший приоритет и не подвержен публичным нагрузкам.</string>
+    <string name="nd_info_protocol_mode_title">Протокол туннелирования</string>
+    <string name="nd_info_protocol_mode_desc">КАК РАБОТАЕТ:\n• Режим работы локального прокси-сервера на устройстве.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• SOCKS5 (порт 10808) передает весь трафик Telegram (чаты, медиафайлы, голосовые и видеозвонки) с поддержкой гибких аплинков (Cloudflare Worker, WARP MASQUE, VLESS over WSS, Гибрид).\n• MTProto (порт 1080) использует криптографический протокол Telegram FakeTLS и маршрутизируется через нативный Anycast CDN Flowseal.\n\nОРИЕНТИРЫ И НОРМЫ:\n• Все протоколы инкапсулируются в защищенный WebSocket/QUIC канал с шифрованием TLS 1.3 на порту 443.</string>
+    <string name="nd_info_mos_title">Качество голосовой связи (ITU-T MOS)</string>
+    <string name="nd_info_mos_desc" formatted="false">КАК РАБОТАЕТ:\n• Стандартизированная оценка качества речи (Mean Opinion Score) по математической модели ITU-T G.107 E-Model в диапазоне от 1.00 до 4.50.\n• Учитывает эффективную одностороннюю задержку d = RTT/2 + 2*Jitter, фактор искажений широкополосного кодека Opus (Ie) и процент потери пакетов.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Показывает, насколько комфортно будут проходить аудио- и видеозвонки в Telegram без эффекта эха, задержек и обрывов речи.\n\nОРИЕНТИРЫ И НОРМЫ:\n• 4.20–4.50: HD Voice — идеальное студийное качество без задержек.\n• 3.80–4.19: Хорошее качество — комфортный естественный разговор.\n• 3.10–3.79: Приемлемо — минимальные задержки, голос разборчив.\n• 2.40–3.09: С помехами — возможны заикания и проглатывание слогов.\n• Ниже 2.40: Непригодно для звонков.</string>
+    <string name="nd_info_bufferbloat_title">Буферизация и Min-RTT (Bufferbloat)</string>
+    <string name="nd_info_bufferbloat_desc">КАК РАБОТАЕТ:\n• Алгоритм скользящего окна Min-RTT (60 секунд, как в Google BBR) определяет чистую физическую задержку кабельного/радиоканала без очередей.\n• Индекс Bufferbloat (ΔRTT = SRTT - Min-RTT) вычисляет скрытое накопление сетевых пакетов в буферах оборудования оператора при активной передаче данных.\n• Динамический фильтр (адаптивный α от 0.125 до 0.50) подстраивает скорость сглаживания под текущую стабильность канала.\n\nПОЧЕМУ ЭТО ВАЖНО:\n• Показывает, не раздуваются ли буферы сотовой вышки во время скачивания медиафайлов, что вызывает задержки и «залипание» отправки сообщений.\n\nОРИЕНТИРЫ И НОРМЫ:\n• A+ (до 10 мс): идеальный канал без очередей.\n• A (10–30 мс): незначительное накопление буфера.\n• B (30–75 мс): умеренное раздувание буферов.\n• C (75–150 мс): повышенные задержки в очередях.\n• D (свыше 150 мс): тяжелый Bufferbloat.</string>
+    <string name="nd_info_math_model_title">Математическая модель SQI и ITU-T MOS</string>
+    <string name="nd_info_math_model_desc" formatted="false">ИНДЕКС СТАБИЛЬНОСТИ SQI (0–100%):\n• Нелинейная сигмоидальная функция полезности:\n  - 45% вес RTT (плавный спад свыше 60 мс).\n  - 25% вес LTE/Wi-Fi Jitter (штраф за вариацию свыше 10 мс).\n  - 30% вес надежности доставки зондов с степенным фактором потерь.\n• Вычитаются штрафы за блокировки DPI, сбои TLS и лимиты Cloudflare 429.\n\nГОЛОСОВОЙ РЕЙТИНГ ITU-T G.107 (MOS 1.00–4.50):\n• Расчет фактора передачи R = 93.2 - Id(задержка) - Ie(потери Opus).\n• Полиномиальное преобразование R в шкалу восприятия речи MOS.</string>
+    <string name="nd_info_cf_quota_title">Расход квоты Cloudflare Workers</string>
+    <string name="nd_info_cf_quota_desc">ЛИМИТЫ БЕСПЛАТНОГО ТАРИФА:\n• Cloudflare предоставляет 100 000 бесплатных запросов в сутки.\n• WSS-туннель списывает 1 запрос только при старте, после чего трафик передается бесплатно.\n• В приложении доступен интерактивный график аналитики за сессию, 1ч, 5ч, 12ч, 24ч, 7д и 30д.</string>
+    <string name="nd_proxy_stopped">Прокси остановлен</string>
+    <string name="nd_stopped">Остановлен</string>
+    <string name="nd_initial_health_detail">Запустите службу для автоматической оценки качества</string>
+    <string name="nd_no_connection">Нет связи</string>
+    <string name="nd_chats_media_title">ЧАТЫ И МЕДИА</string>
+    <string name="nd_calls_video_title">ЗВОНКИ И ВИДЕО</string>
+    <string name="nd_speedtest_title">Тест скорости туннеля</string>
+    <string name="nd_speedtest_desc">Замер Download, Upload, Ping и Jitter через Cloudflare</string>
+    <string name="nd_speedtest_in_dev">В РАЗРАБОТКЕ</string>
+    <string name="nd_network_path_title">СЕТЕВОЙ ТРАКТ И ЗАДЕРЖКА</string>
+    <string name="nd_rtt_title">Задержка туннеля (EWMA RTT)</string>
+    <string name="nd_badge_excellent">Отлично</string>
+    <string name="nd_badge_normal">В норме</string>
+    <string name="nd_badge_elevated">Повышен</string>
+    <string name="nd_jitter_title">Вариация задержки (LTE Jitter)</string>
+    <string name="nd_badge_stable">Стабильно</string>
+    <string name="nd_badge_moderate">Умеренно</string>
+    <string name="nd_badge_unstable">Нестабильно</string>
+    <string name="nd_delivery_title">Доставка контрольных пакетов</string>
+    <string name="nd_badge_100_norm">100% норма</string>
+    <string name="nd_badge_packet_loss">Потери пакетов</string>
+    <string name="nd_badge_failures">Сбои</string>
+    <string name="nd_calls_quality_title">Качество звонков (ITU-T MOS)</string>
+    <string name="nd_badge_noise">Помехи</string>
+    <string name="nd_badge_waiting">Ожидание</string>
+    <string name="nd_isp_wifi_title">Сегмент оператора / Wi-Fi</string>
+    <string name="nd_radio_stable">Радиоканал стабилен</string>
+    <string name="nd_radio_noise">Помехи вышки / Wi-Fi</string>
+    <string name="nd_badge_norm">Норма</string>
+    <string name="nd_badge_attention">Внимание</string>
+    <string name="nd_cf_segment_title">Сегмент Cloudflare Worker</string>
+    <string name="nd_wss_tunnel_active">Туннель WSS активен</string>
+    <string name="nd_waiting_probe">Ожидание пробы</string>
+    <string name="nd_badge_available">Доступен</string>
+    <string name="nd_badge_lag">Задержка</string>
+    <string name="nd_badge_fail">Сбой</string>
+    <string name="nd_bufferbloat_title">Буферизация (Bufferbloat)</string>
+    <string name="nd_bufferbloat_val">+%1$d мс (Min: %2$d мс, α=%3$s)</string>
+    <string name="nd_config_title">КОНФИГУРАЦИЯ ТУННЕЛЯ</string>
+    <string name="nd_active_worker_title">Активный узел туннелирования</string>
+    <string name="nd_badge_builtin">Встроенный</string>
+    <string name="nd_badge_custom">Личный</string>
+    <string name="nd_protocol_port_title">Протокол и локальный порт</string>
+    <string name="nd_cf_quota_title">Расход квоты Cloudflare</string>
+    <string name="nd_cf_quota_val">График и аналитика запросов</string>
+    <string name="nd_chart_100k_day">100k / день</string>
+    <string name="nd_math_model_title">МАТЕМАТИЧЕСКАЯ МОДЕЛЬ SQI &amp; ITU-T MOS</string>
+    <string name="nd_nonlinear_title">Нелинейная модель SQI и E-Model</string>
+    <string name="nd_nonlinear_desc" formatted="false">Индекс SQI (0–100%) рассчитывается непрерывной нелинейной функцией восприятия задержки (RTT 45% + Jitter 25% + Доставка 30%). Оценка качества звонков вычисляется по стандарту ITU-T G.107 (шкала MOS 1.00–4.50 для широкополосного кодека Opus).</string>
+    <string name="nd_screen_title">Качество сети</string>
+    <string name="nd_sparkline_title">ДИНАМИКА ЗАДЕРЖКИ (60 СЕК)</string>
+    <string name="nd_live_ping">Live: %1$s</string>
+    <string name="nd_label_min">МИН</string>
+    <string name="nd_label_avg">СРЕДНЕЕ</string>
+    <string name="nd_label_max">МАКС</string>
+    <string name="nd_label_samples">ЗАМЕРОВ</string>
+    <string name="nd_collecting_first_probes">Сбор первых контрольных проб задержки...</string>
+    <string name="nd_sample_success">Замер #%1$d: %2$d мс</string>
+    <string name="nd_sample_fail">Замер #%1$d: Сбой / Таймаут</string>
+    <string name="nd_ready_chats_title">Чаты и стикеры</string>
+    <string name="nd_ready_media_title">Фото и голосовые</string>
+    <string name="nd_ready_files_title">Файлы и 4K видео</string>
+    <string name="nd_ready_calls_title">Звонки и видео HD</string>
+    <string name="nd_ready_instant">Мгновенно (&lt;80 мс)</string>
+    <string name="nd_ready_fast_norm">Быстро (норма)</string>
+    <string name="nd_ready_delayed">С задержкой</string>
+    <string name="nd_ready_zero_delay">0% задержка</string>
+    <string name="nd_ready_high_speed">Высокая скорость</string>
+    <string name="nd_ready_stable_download">Стабильная загрузка</string>
+    <string name="nd_ready_lossless">Без потерь</string>
+    <string name="nd_ready_buffering">Буферизация</string>
+    <string name="nd_ready_turbo_stream">Turbo поток (standby/слот: %1$d)</string>
+    <string name="nd_ready_standard_stream">Стандартный поток</string>
+    <string name="nd_ready_queue_limit">Ограничение очередей</string>
+    <string name="nd_ready_2mb_buffer">2 МБ буфер</string>
+    <string name="nd_ready_good_clarity">Хорошая разборчивость</string>
+    <string name="nd_ready_acceptable_audio">Приемлемое аудио</string>
+    <string name="nd_ready_not_recommended">Не рекомендуется</string>
+    <string name="nd_ready_sd_call">SD звонок</string>
+    <string name="nd_services_readiness_title">ГОТОВНОСТЬ СЕРВИСОВ TELEGRAM</string>
+    <string name="nd_bn_dpi">Узкое место: DPI фильтрация оператора</string>
+    <string name="nd_bn_tls">Узкое место: Сбой TLS рукопожатия узла</string>
+    <string name="nd_bn_429">Узкое место: Лимит запросов воркера (429)</string>
+    <string name="nd_bn_radio">Узкое место: Радиоканал (LTE Jitter: ±%1$dмс)</string>
+    <string name="nd_bn_bufferbloat">Узкое место: Раздувание буфера роутера (+%1$dмс)</string>
+    <string name="nd_bn_rtt">Узкое место: Магистральная задержка (%1$dмс)</string>
+    <string name="nd_bn_loss">Узкое место: Потери пакетов на маршруте</string>
+    <string name="nd_bn_clean">Узких мест нет • Тракт чист и стабилен</string>
+    <string name="nd_radar_title">РАДАР УЗКИХ МЕСТ (HOP-BY-HOP)</string>
+    <string name="nd_radar_route_ok">Тракт OK</string>
+    <string name="nd_radar_diagnose">Диагноз</string>
+    <string name="nd_hop_client">Клиент</string>
+    <string name="nd_hop_tower_wifi">Вышка/Wi-Fi</string>
+    <string name="nd_hop_radio">Радио</string>
+    <string name="nd_hop_operator">Оператор</string>
+    <string name="nd_insight_title">ИНСАЙТ ДВИЖКА</string>
+    <string name="nd_insight_waiting_title">Ожидание</string>
+    <string name="nd_insight_waiting_desc">Служба прокси остановлена. Запустите прокси для непрерывного математического анализа параметров соединения.</string>
+    <string name="nd_insight_quota_title">Квота Worker</string>
+    <string name="nd_insight_quota_desc">Превышен суточный лимит запросов публичного воркера (HTTP 429). Рекомендуется настроить собственный Cloudflare Worker в настройках.</string>
+    <string name="nd_insight_dpi_title">DPI Фильтрация</string>
+    <string name="nd_insight_dpi_desc">Провайдер связи блокирует прямые сокеты. WSS-туннель Mirrly маскирует трафик под защищенный веб-трафик для обхода фильтрации.</string>
+    <string name="nd_insight_jitter_title">LTE Джиттер</string>
+    <string name="nd_insight_jitter_desc">Высокая вариация задержки радиоканала (джиттер ±%1$dмс). Для стабильных голосовых и видеозвонков без прерываний рекомендуется подключиться к сети Wi-Fi.</string>
+    <string name="nd_insight_bufferbloat_title">Bufferbloat</string>
+    <string name="nd_insight_bufferbloat_desc">Обнаружено раздувание очереди буфера (+%1$dмс). Локальный роутер перегружен параллельными загрузками. Ядро автоматически включило режим сбережения очередей.</string>
+    <string name="nd_insight_rtt_title">Высокий RTT</string>
+    <string name="nd_insight_rtt_desc">Повышенная магистральная задержка (%1$dмс). Если вы используете мобильную сеть, переключитесь на Wi-Fi для более быстрого отклика.</string>
+    <string name="nd_insight_loss_title">Потери пакетов</string>
+    <string name="nd_insight_loss_desc">Зафиксированы потери %1$d%% контрольных пакетов. Рекомендуется переподключиться к стабильной Wi-Fi сети с надежным приемом.</string>
+    <string name="nd_insight_calls_title">Звонки HD</string>
+    <string name="nd_insight_calls_desc">Качество аудиосвязи снижено (%1$s MOS). Для идеальных звонков высокой четкости рекомендуется использовать Wi-Fi.</string>
+    <string name="nd_insight_ideal_title">Идеально</string>
+    <string name="nd_insight_ideal_desc">Параметры соединения в норме (SQI %1$d%%). Сетевой тракт на 100%% готов к мгновенным чатам, 4K видео и кристально чистым звонкам.</string>
+    <string name="unit_plus_minus_ms_val">±%1$s мс</string>
+
+    <!-- Task 05: Notifications, Service, Toasts & Background Tasks -->
+    <string name="notif_channel_proxy_name">Служба прокси Mirrly TG</string>
+    <string name="notif_channel_proxy_desc">Отображает статус работы прокси и скорость трафика</string>
+    <string name="notif_channel_update_name">Обновления Mirrly TG Proxy</string>
+    <string name="notif_channel_update_desc">Уведомления о доступных обновлениях приложения</string>
+    <string name="notif_channel_timer_name">Таймер автоотключения Mirrly</string>
+    <string name="notif_channel_timer_desc">Предупреждения об автоотключении прокси по таймеру сна</string>
+    <string name="notif_channel_failover_name">События переключения аплинка (Failover)</string>
+    <string name="notif_channel_failover_desc">Уведомления о переходе на резервные каналы туннелирования (AmneziaWG / Worker WSS)</string>
+    <string name="notif_channel_battery_guard_name">Защита аккумулятора Mirrly</string>
+    <string name="notif_channel_battery_guard_desc">Предупреждения об автоотключении прокси при разряде аккумулятора</string>
+    <string name="notif_action_stop">Остановить</string>
+    <string name="notif_action_download_apk">Скачать APK</string>
+    <string name="notif_action_whats_new">Что нового</string>
+    <string name="notif_action_extend_15m">+15 минут</string>
+    <string name="notif_action_cancel">Отменить</string>
+    <string name="notif_action_restart">Включить снова</string>
+    <string name="notif_action_stop_now">Отключить сейчас</string>
+    <string name="notif_update_title">Доступно новое обновление v%1$s</string>
+    <string name="notif_update_preview_default">Нажмите, чтобы открыть приложение и установить новую версию v%1$s.</string>
+    <string name="notif_summary_title">Прокси остановлен</string>
+    <string name="notif_summary_body">Передано за сессию: %1$s | Время работы: %2$s | Пиковая скорость: %3$s</string>
+    <string name="notif_timer_warning_title">Таймер автоотключения</string>
+    <string name="notif_timer_warning_body">До автоматического отключения прокси осталось %1$d мин.</string>
+    <string name="notif_timer_expired_title">Прокси отключен по таймеру</string>
+    <string name="notif_timer_expired_body">Прокси-сервер автоматически отключен по таймеру сна.</string>
+    <string name="notif_battery_guard_warning_title">Защита аккумулятора</string>
+    <string name="notif_battery_guard_warning_content">До автоотключения: %1$s (Заряд: %2$d%%)</string>
+    <string name="notif_battery_guard_warning_detail">%1$s.\nПрокси будет автоматически остановлен через %2$s для сохранения заряда аккумулятора.\nНажмите «Отменить», чтобы продолжить работу.</string>
+    <string name="notif_battery_guard_stopped_title">Прокси отключен для сохранения заряда</string>
+    <string name="notif_battery_guard_stopped_detail">%1$s.\nСлужба прокси остановлена для предотвращения полного разряда аккумулятора.</string>
+    <string name="notif_unit_minutes">%1$d мин.</string>
+    <string name="notif_unit_seconds">%1$d сек.</string>
+    <string name="notif_service_socks5_active">SOCKS5 прокси активен</string>
+    <string name="notif_service_tg_active">Обход Telegram активен</string>
+    <string name="notif_service_initializing">Порт: %1$d | Инициализация...</string>
+    <string name="toast_switched_to_mobile_with_bytes">Переключено на мобильную сеть. Прокси активен (%1$s за сессию)</string>
+    <string name="toast_switched_to_mobile">Переключено на мобильную сеть. Прокси активен</string>
+    <string name="toast_timer_extended">Таймер продлен на +%1$d мин</string>
+    <string name="toast_timer_cancelled">Таймер автоотключения отменен</string>
+    <string name="toast_battery_guard_cancelled">Автоотключение отменено. Прокси продолжает работу</string>
+    <string name="toast_speed_preset_changed">Режим скорости: %1$s</string>
+    <string name="toast_link_copied">Ссылка %1$s скопирована!</string>
+    <string name="toast_link_copy_failed">Ошибка копирования ссылки</string>
+    <string name="preset_ultra">Ультра</string>
+    <string name="preset_turbo">Турбо</string>
+    <string name="preset_balanced">Баланс</string>
+    <string name="preset_eco">Эко</string>
+    <string name="preset_auto">Авто</string>
+    <string name="notif_failover_masque_to_awg">WARP MASQUE недоступен у вашего оператора, активирован AmneziaWG</string>
+    <string name="notif_failover_awg_to_masque">WARP AmneziaWG недоступен у вашего оператора, активирован MASQUE</string>
+    <string name="notif_ping_ms">%1$dмс</string>
+    <string name="notif_ping_jitter_ms">%1$dмс (±%2$dмс)</string>
+    <string name="notif_net_cellular">Мобильная сеть</string>
+    <string name="notif_net_none">Нет сети</string>
+    <string name="notif_net_active">Сеть активна</string>
+    <string name="notif_timer_suffix"> | Таймер: %1$s</string>
+    <string name="notif_title_template">Mirrly TG Proxy [%1$s] • %2$s</string>
+    <string name="notif_status_active">Активен</string>
+    <string name="notif_status_public_relay">Публичный резерв</string>
+    <string name="notif_status_no_net">Нет сети</string>
+    <string name="notif_body_no_net">Сеть: Отключена | ↓ 0 Б/с  ↑ 0 Б/с | Нет сети</string>
+    <string name="notif_body_format">%1$s: %2$s | ↓ %3$s/с  ↑ %4$s/с | %5$s%6$s</string>
+    <string name="notif_status_tunnel_active">Туннель активен</string>
+    <string name="notif_status_waiting_traffic">Ожидание трафика</string>
+    <string name="notif_route_fallback_awg">AmneziaWG (Фоллбэк)</string>
+    <string name="notif_route_fallback_masque">MASQUE (Фоллбэк)</string>
+    <string name="notif_trust_public_relay"> [Публичный релей]</string>
+    <string name="battery_guard_reason_threshold">Заряд батареи упал до %1$d%% (порог: %2$d%%)</string>
+    <string name="battery_guard_reason_powersave">Активирован системный режим энергосбережения Android</string>
+    <string name="battery_guard_stop_reason">Защита аккумулятора: %1$s</string>
+    <string name="schedule_mode_every_day">Каждый день</string>
+    <string name="schedule_mode_weekdays">Будни (Пн-Пт)</string>
+    <string name="schedule_mode_weekends">Выходные (Сб-Вс)</string>
+    <string name="schedule_mode_custom">Выбранные дни</string>
+    <string name="schedule_disabled">Расписание выключено</string>
+    <string name="update_err_http">Ошибка загрузки HTTP %1$d</string>
+    <string name="update_err_empty_response">Пустой ответ сервера</string>
+    <string name="update_err_size_limit">Превышен допустимый размер файла обновления (макс. 100 МБ)</string>
+    <string name="update_err_size_limit_stopped">Превышен лимит размера файла (>100 МБ). Загрузка остановлена.</string>
+    <string name="update_err_sha_mismatch">Ошибка целостности файла: SHA-256 не совпадает с официальным релизом!</string>
+    <string name="update_err_corrupt_apk">Повреждённый файл: архив не является корректным Android APK</string>
+    <string name="update_err_signature_mismatch">Ошибка безопасности: цифровая подпись APK не совпадает с официальным ключом разработчика!</string>
+    <string name="update_err_dns_blocked">Сбой DNS (блокировка провайдера): Сервер CDN GitHub (release-assets.githubusercontent.com) заблокирован или недоступен. Включите прокси/VPN или используйте скачивание через браузер.</string>
+    <string name="update_err_network">Ошибка сети: %1$s</string>
+    <string name="update_err_unknown">Неизвестная ошибка</string>
+    <string name="pref_worker_default_name">Mirrly Основной</string>
+    <string name="pref_worker_alpha_name">Mirrly Альфа</string>
+    <string name="pref_worker_beta_name">Mirrly Бета</string>
+    <string name="pref_worker_gamma_name">Mirrly Гамма</string>
+    <string name="pref_worker_delta_name">Mirrly Дельта</string>
+    <string name="pref_worker_custom_default_name">Личный воркер</string>
+    <string name="pref_worker_custom_indexed_name">Личный воркер #%1$d</string>
+    <string name="pref_worker_err_invalid_domain">Укажите корректный домен воркера (например: my-proxy.username.workers.dev)</string>
+    <string name="pref_worker_err_already_exists">Этот воркер уже добавлен в ваш список</string>
+
+    <!-- Onboarding Screen Strings -->
+    <string name="onboarding_greeting_word">Привет</string>
+    <string name="onboarding_header_title">НАСТРОЙКА ПЕРВОГО ЗАПУСКА</string>
+    <string name="onboarding_timer_paused">Пауза таймера (удержание)</string>
+    <string name="onboarding_timer_auto_countdown">Автопереход через %1$d с</string>
+    <string name="onboarding_timer_hold_hint">Удерживайте экран для паузы</string>
+    <string name="onboarding_btn_back">Назад</string>
+    <string name="onboarding_step1_title">ВЫБОР ЯЗЫКА</string>
+    <string name="onboarding_lang_badge_selected">ВЫБРАН</string>
+    <string name="onboarding_lang_badge_active">АКТИВЕН</string>
+    <string name="onboarding_step2_title">АРХИТЕКТУРА И НАЗНАЧЕНИЕ</string>
+    <string name="onboarding_step2_relay_title">Локальный прозрачный TCP-релей</string>
+    <string name="onboarding_step2_relay_desc">Mirrly TG Proxy туннелирует трафик мессенджера через зашифрованные протоколы MTProto Fake-TLS и SOCKS5 с аплинком в Anycast-сеть Cloudflare (Worker WSS / WARP MASQUE / VLESS) для прямого обхода блокировок ТСПУ без создания системного VPN-интерфейса.</string>
+    <string name="onboarding_feature_faketls_title">Fake-TLS &amp; SOCKS5 (RFC 1928)</string>
+    <string name="onboarding_feature_faketls_desc">Прямой обход блокировок ТСПУ</string>
+    <string name="onboarding_feature_warp_title">Cloudflare WARP &amp; MASQUE</string>
+    <string name="onboarding_feature_warp_desc">Низкая задержка для звонков и медиа</string>
+    <string name="onboarding_feature_rust_title">Zero Battery Overhead</string>
+    <string name="onboarding_feature_rust_desc">Энергоэффективный нативный релей Rust</string>
+
+    <!-- Share App Strings -->
+    <string name="share_app_text">Попробуй Mirrly TG Proxy для Android — быстрый обход замедлений Telegram без системного VPN!\nСкачать бесплатно с GitHub: https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy</string>
+    <string name="share_app_chooser_title">Рассказать друзьям о Mirrly TG Proxy</string>
+
+    <!-- Telegram Channel Screen & Button Strings -->
+    <string name="tg_channel_btn_title">Telegram канал — MirrlyDev</string>
+    <string name="tg_channel_btn_sub">Новости, инсайды и розыгрыши</string>
+    <string name="tg_channel_topbar_title">Telegram канал</string>
+    <string name="tg_channel_card_title">Telegram канал — MirrlyDev</string>
+    <string name="tg_channel_badge_official">ОФИЦИАЛЬНЫЙ КАНАЛ РАЗРАБОТЧИКА</string>
+    <string name="tg_channel_hero_desc">Авторский канал разработчика экосистемы Mirrly (R1Xern). Здесь публикуется живой процесс разработки, технические инсайды, тесты новых сетевых ядер, будущие возможности и всё самое интересное вокруг проекта.</string>
+    <string name="tg_channel_tag_handle">@WhyOKyHb</string>
+
+    <string name="tg_giveaway_section_title">ЕЖЕМЕСЯЧНЫЕ РОЗЫГРЫШИ</string>
+    <string name="tg_giveaway_card_title">Призы для подписчиков канала</string>
+    <string name="tg_giveaway_frequency">1–2 розыгрыша каждый месяц</string>
+    <string name="tg_giveaway_prize_stars_val">500 Stars</string>
+    <string name="tg_giveaway_prize_stars_sub">В Telegram</string>
+    <string name="tg_giveaway_prize_premium_val">Telegram Premium</string>
+    <string name="tg_giveaway_prize_premium_sub">На 3 месяца</string>
+    <string name="tg_giveaway_rule_desc">Розыгрыши проводятся автоматически прямо в Telegram-канале с помощью встроенного рандомайзера. Для участия достаточно быть подписчиком канала MirrlyDev.</string>
+
+    <string name="tg_features_section_title">ЧТО ПУБЛИКУЕТСЯ В КАНАЛЕ</string>
+    <string name="tg_feature_early_access_title">Ранний доступ</string>
+    <string name="tg_feature_early_access_desc">Свежие тестовые сборки APK публикуются в канале раньше официальных релизов на GitHub.</string>
+    <string name="tg_feature_insider_title">Закулисье разработки</string>
+    <string name="tg_feature_insider_desc">Архитектура ядра C++/Rust, алгоритмы пула сокетов, методы обхода ТСПУ и технические заметки.</string>
+    <string name="tg_feature_voting_title">Голосования за функции</string>
+    <string name="tg_feature_voting_desc">Участвуйте в опросах сообщества и напрямую влияйте на добавление нового функционала.</string>
+    <string name="tg_feature_direct_contact_title">Прямая связь с автором</string>
+    <string name="tg_feature_direct_contact_desc">Оперативная помощь при сбоях, обсуждение предложений и разбор сложных сетевых кейсов.</string>
+
+    <string name="tg_action_open_channel">Перейти в канал MirrlyDev</string>
+    <string name="tg_action_copy_link">Скопировать ссылку</string>
+    <string name="tg_toast_link_copied">Ссылка на канал скопирована в буфер обмена</string>
+
+    <!-- Task 03: Simple vs Advanced Settings UX & Expert Mode -->
+    <string name="settings_advanced_mode_title">Режим опытного пользователя</string>
+    <string name="settings_advanced_mode_desc">Открывает доступ к низкоуровневым инженерным параметрам сокетов, пулу WebSocket, алгоритму Happy Eyeballs и маршрутизации Anycast.</string>
+    <string name="settings_advanced_mode_warning">Внимание: ручная корректировка сетевых параметров предназначена исключительно для опытных специалистов. Разработчик не несёт ответственности за нестабильность связи, разрывы соединений или падение скорости при некорректных значениях.</string>
+    <string name="settings_advanced_mode_rollback_notice">Автоматический откат: при выключении режима опытного пользователя все параметры возвращаются к стандартным проверенным значениям по умолчанию.</string>
+    <string name="settings_advanced_section_title">ИНЖЕНЕРНЫЕ ПАРАМЕТРЫ</string>
+    <string name="settings_advanced_btn_reset_defaults">Сбросить параметры к стандартным</string>
+    <string name="toast_advanced_mode_reset">Режим опытного пользователя отключён. Настройки возвращены к стандартным.</string>
+    <string name="toast_advanced_settings_reverted">Инженерные параметры успешно сброшены к стандартным значениям.</string>
+
+    <string name="settings_happy_eyeballs_title">Интервал Happy Eyeballs</string>
+    <string name="settings_happy_eyeballs_desc">Таймаут ожидания ответа IPv6 перед параллельным запуском IPv4. По стандарту 200 мс гарантирует отсутствие зависаний при деградации IPv6.</string>
+    <string name="settings_ip_family_title">Стек сетевых протоколов</string>
+    <string name="settings_ip_family_desc">Выбор используемых версий IP. Dual-Stack обеспечивает максимальную стабильность, IPv4-only исключает сбои на сетях без поддержки IPv6.</string>
+    <string name="settings_ip_family_dual">Dual-Stack (IPv4/IPv6)</string>
+    <string name="settings_ip_family_v4">Только IPv4</string>
+    <string name="settings_ip_family_v6">Приоритет IPv6</string>
+    <string name="settings_warp_anycast_title">Кастомный Anycast эндпоинт WARP</string>
+    <string name="settings_warp_anycast_desc">Ручной IP и порт шлюза Cloudflare для обхода целевых блокировок стандартных адресов WireGuard/UDP вашим провайдером.</string>
+    <string name="settings_socket_buffer_title">Размер буфера сокетов</string>
+    <string name="settings_socket_buffer_desc">Объём памяти сокетов TCP (SO_SNDBUF/SO_RCVBUF). 256–512 КБ обеспечивают стабильный пинг и высокую скорость передачи медиафайлов.</string>
+    <string name="settings_ws_keepalive_title">Удержание соединения (Keep-Alive)</string>
+    <string name="settings_ws_keepalive_desc">Интервал отправки контрольных пинг-пакетов через WebSocket-туннель. Предотвращает разрыв сессии таймаутами NAT мобильных операторов.</string>
+
+    <!-- Info Dialogs for Advanced Settings -->
+    <string name="info_advanced_mode_title">Режим опытного пользователя</string>
+    <string name="info_advanced_mode_body">Режим разблокирует доступ к глубоким инженерным настройкам сетевого ядра: алгоритму Happy Eyeballs (RFC 8305), стеку IPv4/IPv6, ручным Anycast-узлам, размерам буферов TCP и частоте удержания WebSocket-сессий.\n\nВнимание: разработчик приложения не несёт ответственности за возможные неполадки, задержки или сбои соединений, вызванные некорректным изменением этих параметров. Если у вас нет необходимого опыта сетевой инженерии — не изменяйте их.\n\nОткат настроек: при выключении этого режима абсолютно все параметры автоматически откатываются до стандартных заводских значений, настроенных при установке.</string>
+    <string name="info_happy_eyeballs_title">Алгоритм Happy Eyeballs (RFC 8305)</string>
+    <string name="info_happy_eyeballs_body">Алгоритм Happy Eyeballs обеспечивает надежное и быстрое подключение в сетях с поддержкой двух стеков адресов (IPv6 и IPv4).\n\n• Как это работает: клиент сначала пробует подключиться по современному протоколу IPv6. Если в течение заданного интервала (по умолчанию 200 мс) соединение не успевает завершить handshake, параллельно отправляется запрос по IPv4. Соединение, ответившее первым, становится активным, а второе мягко закрывается.\n• Выбор задержки: 100 мс ускоряет переключение на быстрых сетях; 200 мс является мировым эталоном RFC 8305; 300 мс рекомендуется при медленном сотовом интернете с высоким джиттером.</string>
+    <string name="info_ip_family_title">Стек сетевых протоколов</string>
+    <string name="info_ip_family_body">Определяет, как резолвер и ядро прокси работают с версиями интернет-протокола:\n\n• Dual-Stack (IPv4/IPv6) — стандартный режим: система запрашивает и IPv4, и IPv6, выбирая оптимальный маршрут через алгоритм Happy Eyeballs.\n• Только IPv4 — отключает запросы IPv6 (AAAA-записи). Рекомендуется включить, если мобильный оператор выдаёт неработающий локальный IPv6, вызывающий задержки и таймауты открытий чатов.\n• Приоритет IPv6 — отдаёт строгое предпочтение адресам IPv6 при маршрутизации пакетов к серверам Telegram и шлюзам Cloudflare.</string>
+    <string name="info_warp_anycast_title">Кастомный Anycast эндпоинт WARP</string>
+    <string name="info_warp_anycast_body">Позволяет вручную указать конкретный IP-адрес и порт узла Cloudflare Anycast (например: 162.159.193.1:2408 или 188.114.96.1:8095):\n\n• Зачем это нужно: в некоторых регионах и у отдельных провайдеров стандартные IP-адреса Cloudflare WARP заблокированы фильтрами ТСПУ/DPI. Указание чистого незаблокированного Anycast IP позволяет полностью восстановить соединение.\n• Как вернуть стандартный: очистите текстовое поле или нажмите кнопку «Сброс» рядом с полем ввода.</string>
+    <string name="info_socket_buffer_title">Размер буфера сокетов TCP</string>
+    <string name="info_socket_buffer_body">Задаёт системный размер буферов приёма (SO_RCVBUF) и отправки (SO_SNDBUF) сетевых пакетов ядра:\n\n• 128 КБ — минимальный объём, экономит оперативную память на слабых устройствах и в медленных сетях 2G/3G.\n• 256 КБ — стандартный сбалансированный буфер по умолчанию. Обеспечивает минимальный сетевой лаг (bufferbloat) и стабильную отправку сообщений.\n• 512 КБ – 1 МБ — увеличенный буфер. Рекомендуется для быстрого скачивания тяжёлых видеофайлов и медиа в сетях 4G/5G и Wi-Fi.\n• 2 МБ — максимальный буфер для высокоскоростных гигабитных оптических каналов.</string>
+    <string name="info_ws_keepalive_title">Удержание WebSocket (Keep-Alive)</string>
+    <string name="info_ws_keepalive_body">Задаёт интервал отправки служебных Ping-фреймов по WebSocket-каналу к Cloudflare Edge:\n\n• Зачем это нужно: промежуточные сетевые шлюзы операторов связи и домашние Wi-Fi роутеры сбрасывают неактивные NAT-трансляции через 30–60 секунд отсутствия трафика. Регулярный пинг не даёт каналу «заснуть».\n• 15 сек — максимальная живучесть на агрессивных мобильных сетях, предотвращает разрывы при блокировках неактивных соединений.\n• 30 сек — стандартный проверенный интервал, минимальный расход батареи и гарантированная доставка уведомлений.\n• 60 сек — энергосберегающий режим для стабильных проводных Wi-Fi сетей.</string>
+
+    <!-- Task 06: Error Taxonomy & Failure Descriptions -->
+    <string name="failure_worker_quota_exceeded">Превышен суточный лимит запросов воркера (429)</string>
+    <string name="failure_dns_resolution_unavailable">Нет связи с DNS-сервером</string>
+    <string name="failure_socks5_auth_rejected">Отказ авторизации SOCKS5</string>
+    <string name="failure_cloudflare_edge_blocked">Блокировка провайдером (DPI / сброс TCP)</string>
+    <string name="failure_warp_handshake_timeout">Блокировка WireGuard/UDP или таймаут</string>
+    <string name="failure_network_interface_down">Мобильный интернет и Wi-Fi отключены</string>
+    <string name="failure_connect_timeout">Превышено время ожидания ответа (>2500 мс)</string>
+    <string name="failure_host_unreachable">Узел или воркер недоступен</string>
+    <string name="failure_tls_handshake_failed">Сбой защищенного соединения TLS</string>
+    <string name="failure_relay_ack_failed">Сбой подтверждения релея</string>
+    <string name="failure_predictive_degradation">Деградация канала (рост задержки)</string>
+    <string name="failure_unknown">Сетевой сбой</string>
+
+    <!-- Task 04: WARP Pipeline Profiling -->
+    <string name="warp_profile_summary">WARP запущен за %1$d мс (Конфиг: %2$d мс, DNS: %3$d мс, Handshake: %4$d мс, Туннель: %5$d мс)</string>
+    <string name="warp_profile_summary_5">WARP запущен за %1$d мс (Конфиг: %2$d мс, DNS: %3$d мс, Обфускация: %4$d мс, Handshake: %5$d мс, Туннель: %6$d мс)</string>
+    <string name="warp_phase_config">Конфигурация</string>
+    <string name="warp_phase_dns">DNS Anycast</string>
+    <string name="warp_phase_obfuscation">Обфускация</string>
+    <string name="warp_phase_handshake">Рукопожатие</string>
+    <string name="warp_phase_tunnel">Туннель</string>
+
+    <!-- AWG Obfuscation Strategies -->
+    <string name="awg_strategy_title">Стратегия обфускации AmneziaWG</string>
+    <string name="awg_strategy_desc">Параметры защиты от глубокого анализа пакетов ТСПУ DPI</string>
+    <string name="awg_strategy_fast">Быстрая</string>
+    <string name="awg_strategy_fast_desc">Минимальная задержка (Jc=2, Jmin=40, Jmax=70). Без I1 маскировки.</string>
+    <string name="awg_strategy_balanced">Баланс (Госуслуги)</string>
+    <string name="awg_strategy_balanced_desc">Рекомендуемый режим. Имитация QUIC Initial с SNI gosuslugi.ru (Jc=4, Jmin=40, Jmax=70).</string>
+    <string name="awg_strategy_deep">Скрытная</string>
+    <string name="awg_strategy_deep_desc">Глубокая защита (Jc=5, Jmin=64, Jmax=128) с имитацией TLS/QUIC пакетов.</string>
+    <string name="awg_strategy_custom">Свой профиль</string>
+    <string name="awg_strategy_custom_desc">Использование пользовательской конфигурации INI с произвольными параметрами.</string>
+    <string name="awg_custom_ini_title">Пользовательский конфиг AmneziaWG (INI)</string>
+    <string name="awg_custom_ini_hint">Вставьте секции [Interface] и [Peer] из Amnezia...</string>
+    <string name="awg_custom_ini_reset">Сбросить на автогенерацию</string>
+
+    <!-- Task 05: Diagnostic Report Screen & Safe Export -->
+    <string name="diagnostic_report_title">Диагностический отчёт</string>
+    <string name="diagnostic_report_subtitle">Безопасный технический отчёт</string>
+    <string name="diagnostic_report_sanitized_notice">Конфиденциальные данные (ключи, пароли, персональные токены) очищены и заменены на [REDACTED].</string>
+    <string name="diagnostic_report_btn_copy">Копировать отчёт</string>
+    <string name="diagnostic_report_btn_share">Поделиться</string>
+    <string name="diagnostic_report_btn_issue">Создать Issue на GitHub</string>
+    <string name="diagnostic_report_toast_copied">Диагностический отчёт скопирован в буфер обмена</string>
+    <string name="diagnostic_report_share_subject">Mirrly TG Proxy — Диагностический отчёт</string>
+    <string name="settings_tile_diagnostic_report_title">Диагностический отчёт</string>
+    <string name="settings_tile_diagnostic_report_desc">Формирование анонимизированного технического отчёта для разбора проблем и GitHub Issues</string>
+    <string name="diag_btn_view_report">Диагностический отчёт</string>
+    <string name="diagnostic_report_issue_title">[Bug Report] Диагностический отчёт</string>
+    <string name="diagnostic_report_issue_body">### Описание проблемы\n\n### Диагностический отчёт:\n```markdown\n%1$s\n```</string>
+
+    <!-- Full UI and Components Localization Audit -->
+    <string name="tile_proxy_on">Mirrly Proxy: ВКЛ</string>
+    <string name="tile_proxy_off">Mirrly Proxy: ВЫКЛ</string>
+    <string name="badge_top">ТОП</string>
+    <string name="badge_beta">БЕТА</string>
+    <string name="badge_expert">ЭКСПЕРТ</string>
+    <string name="badge_new">НОВОЕ</string>
+    <string name="settings_vpn_mode_desc">Tun2Socks + прямой аплинк Cloudflare WARP MASQUE / AmneziaWG</string>
+    <string name="vless_preset_default_region">Глобальный Anycast CDN</string>
+    <string name="settings_doh_section_header">DNS-OVER-HTTPS (DOH)</string>
+    <string name="license_gnu_gpl_title">Лицензия GNU GPLv3</string>
+    <string name="tg_connect_proto_mtproto">MTProto Прокси</string>
+    <string name="tg_connect_proto_socks5">SOCKS5 Прокси</string>
+    <string name="nd_badge_hd_voice">HD Голос</string>
+    <string name="warp_label_client_pubkey">Публичный ключ WireGuard</string>
+    <string name="wa_badge_failover">Отказоустойчивость</string>
+    <string name="wa_badge_burn_rate">Расход</string>
+    <string name="wa_cache_hit_rate">Эффективность кэша</string>
+    <string name="wa_100_online">100% Онлайн</string>
+    <string name="wa_pool_sleep_mode">Спящий режим</string>
+    <string name="wa_dpi_resistant">Устойчив к DPI (0xdd)</string>
+    <string name="wa_proto_intermediate_title">INTERMEDIATE</string>
+    <string name="wa_proto_padded_title">PADDED</string>
+    <string name="wa_proto_abridged_title">ABRIDGED</string>
+    <string name="wa_proto_intermediate_name">Транспорт Intermediate</string>
+    <string name="wa_proto_padded_name">Padded Intermediate (Анти-DPI)</string>
+    <string name="wa_proto_abridged_name">Компактный транспорт Abridged</string>
+    <string name="wa_zero_cost_badge">99.8% Экономия квоты</string>
+    <string name="wa_zero_cost_val">Бесплатно</string>
+    <string name="wa_pielou_evenness">Индекс Пилу</string>
+    <string name="wm_limit_rate_limit_title">Лимит запросов Cloudflare</string>
+    <string name="wm_btn_qr">QR</string>
+</resources>

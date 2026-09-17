@@ -17,8 +17,11 @@ import android.os.Looper
 import android.os.PowerManager
 import android.widget.Toast
 import com.mirrly.tgproxy.MirrlyApplication
+import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.ConnectionQuality
+import com.mirrly.tgproxy.core.ProxyDisplayLabels
+import com.mirrly.tgproxy.core.ProxyNotificationPolicy
 import com.mirrly.tgproxy.core.SpeedPreset
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +38,7 @@ class ProxyForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var updateJob: Job? = null
+    private var restartJob: Job? = null
     private var wakeLockJob: Job? = null
     private var networkObserver: NetworkChangeObserver? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -48,10 +52,9 @@ class ProxyForegroundService : Service() {
     private var batteryGuardDismissedForThreshold = false
 
     @Volatile
-    private var isReconnectingNetwork = false
-
-    @Volatile
     private var isScreenOn = true
+    @Volatile
+    private var isPowerSaveMode = false
 
     // Защита от параллельного запуска авторегистрации WARP при повторных onStartCommand
     // (возникает из-за START_REDELIVER_INTENT при убийстве сервиса во время регистрации)
@@ -86,7 +89,7 @@ class ProxyForegroundService : Service() {
                         context.startService(serviceIntent)
                     }
                 } catch (e: Exception) {
-                    AppLogger.e(TAG, "Не удалось перезапустить службу прокси: ${e.message}")
+                    AppLogger.e(TAG, "Failed to restart proxy service: ${e.message}")
                 }
             }
         }
@@ -100,50 +103,79 @@ class ProxyForegroundService : Service() {
         PredictivePreWarmManager.start(this)
         initBatteryAndThermalMonitoring()
 
-        networkObserver = NetworkChangeObserver(this) { newType, oldType ->
-            val app = MirrlyApplication.instance
+        networkObserver = NetworkChangeObserver(
+            context = this,
+            onNetworkChanged = networkChanged@{ newType, oldType, isInitial ->
+                val app = MirrlyApplication.instance
+                val server = app.proxyServer
 
-            if (newType == "DISCONNECTED") {
-                AppLogger.i(TAG, "Связь с сетью потеряна (DISCONNECTED). Перевод в спящий режим ожидания сети...")
-                app.proxyServer.setNetworkDormancy(true)
-                WorkerFailoverManager.stopRecoveryWatchdog()
-                return@NetworkChangeObserver
-            }
-
-            if (app.proxyServer.isRunning) {
-                val isMobile = newType.contains("Mobile", ignoreCase = true) || newType.contains("Cellular", ignoreCase = true)
-                app.proxyServer.setNetworkInterface(isMobile, isScreenOn = isScreenOn)
-
-                // Выход из спящего режима, сброс DoH и мгновенный прогрев сокетов
-                app.proxyServer.setNetworkDormancy(false)
-
-                if (app.config.tcpNoDelayMode == com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO) {
-                    val eval = NetworkConditionEvaluator.evaluate(
-                        context = this@ProxyForegroundService,
-                        capabilities = networkObserver?.getCurrentCapabilities(),
-                        currentPingMs = app.proxyServer.currentPingMs,
-                        currentThroughputBps = 0L
-                    )
-                    app.proxyServer.applyTcpNoDelay(eval.isInstantSendRecommended)
+                if (newType == "DISCONNECTED") {
+                    AppLogger.i(TAG, "Network connection lost (DISCONNECTED). Entering dormant network standby mode...")
+                    if (server.isRunning) {
+                        server.setNetworkDormancy(true)
+                    }
+                    WorkerFailoverManager.stopRecoveryWatchdog()
+                    return@networkChanged
                 }
 
-                if (oldType == "Wi-Fi" && (newType.contains("Mobile") || newType.contains("Cellular"))) {
-                    val stats = app.proxyServer.stats
-                    val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
-                    if (totalBytes > 100_000L) {
-                        showToastOnMainThread("Переключено на мобильную сеть. Прокси активен (${humanBytes(totalBytes)} за сессию)")
+                if (server.isRunning) {
+                    val isMobile = newType.contains("Mobile", ignoreCase = true) ||
+                        newType.contains("Cellular", ignoreCase = true)
+
+                    if (isInitial) {
+                        // Initial default-network delivery only configures the
+                        // already-started engine. It is not a handover and must
+                        // not advance generation or reset live sockets.
+                        server.setNetworkInterface(isMobile, isScreenOn = isScreenOn)
                     } else {
-                        showToastOnMainThread("Переключено на мобильную сеть. Прокси активен")
+                        server.handleNetworkChanged(
+                            newType = newType,
+                            oldType = oldType,
+                            isMobile = isMobile,
+                            isScreenOn = isScreenOn
+                        )
                     }
-                }
 
-                if (app.config.isMasqueUplink || app.config.isHybridUplink) {
-                    serviceScope.launch(Dispatchers.IO) {
-                        checkAndTuneWarpEndpoint()
+                    if (oldType == "Wi-Fi" && (newType.contains("Mobile") || newType.contains("Cellular"))) {
+                        val stats = server.stats
+                        val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
+                        if (totalBytes > 100_000L) {
+                            showToastOnMainThread(getString(R.string.toast_switched_to_mobile_with_bytes, humanBytes(totalBytes)))
+                        } else {
+                            showToastOnMainThread(getString(R.string.toast_switched_to_mobile))
+                        }
+                    }
+
+                    if (!isInitial && (app.config.isMasqueUplink || app.config.isHybridUplink)) {
+                        tuneWarpJob?.cancel()
+                        tuneWarpJob = serviceScope.launch(Dispatchers.IO) {
+                            checkAndTuneWarpEndpoint()
+                        }
                     }
                 }
+            },
+            onNetworkSuspended = {
+                val server = MirrlyApplication.instance.proxyServer
+                if (server.isRunning) {
+                    server.handleNetworkSuspended()
+                }
+            },
+            onNetworkResumed = { networkType ->
+                val server = MirrlyApplication.instance.proxyServer
+                if (server.isRunning) {
+                    val isMobile = networkType.contains("Mobile", ignoreCase = true) ||
+                        networkType.contains("Cellular", ignoreCase = true)
+                    server.handleNetworkResumed(isMobile, isScreenOn = isScreenOn)
+                }
+            },
+            onNetworkProfileChanged = { environment ->
+                MirrlyApplication.instance.proxyServer.updateNetworkEnvironment(
+                    environment = environment,
+                    screenOn = isScreenOn,
+                    powerSaveMode = isPowerSaveMode
+                )
             }
-        }
+        )
         networkObserver?.start()
     }
 
@@ -156,13 +188,15 @@ class ProxyForegroundService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_RESTART -> {
-                isReconnectingNetwork = true
-                serviceScope.launch {
+                if (isStopping) return START_NOT_STICKY
+                restartJob?.cancel()
+                restartJob = serviceScope.launch {
                     try {
                         val server = app.proxyServer
                         server.stop()
                         delay(350)
-                        val started = server.start(cacheDir)
+                        val needsWarp = app.config.isMasqueUplink || app.config.isHybridUplink || app.config.isAwgUplink || app.config.isWarpCascadeUplink
+                        val started = startServerWithProfiling(server, cacheDir, needsWarp)
                         if (started) {
                             withContext(Dispatchers.Main) {
                                 ProxyTileService.requestSync(this@ProxyForegroundService)
@@ -171,10 +205,7 @@ class ProxyForegroundService : Service() {
                             }
                         }
                     } catch (e: Exception) {
-                        AppLogger.e(TAG, "Ошибка при перезапуске прокси: ${e.message}")
-                    } finally {
-                        delay(1000)
-                        isReconnectingNetwork = false
+                        AppLogger.e(TAG, "Error while restarting proxy: ${e.message}")
                     }
                 }
                 return START_REDELIVER_INTENT
@@ -190,19 +221,19 @@ class ProxyForegroundService : Service() {
             ACTION_EXTEND_TIMER -> {
                 val extraMin = intent.getIntExtra("extra_minutes", 15)
                 SleepTimerManager.extendTimer(this, extraMin)
-                showToastOnMainThread("Таймер продлен на +$extraMin мин")
+                showToastOnMainThread(getString(R.string.toast_timer_extended, extraMin))
                 updateNotificationImmediately()
                 return START_REDELIVER_INTENT
             }
             ACTION_CANCEL_TIMER -> {
                 SleepTimerManager.cancelTimer(this)
-                showToastOnMainThread("Таймер автоотключения отменен")
+                showToastOnMainThread(getString(R.string.toast_timer_cancelled))
                 updateNotificationImmediately()
                 return START_REDELIVER_INTENT
             }
             ACTION_CANCEL_BATTERY_GUARD -> {
                 cancelBatteryGuardCountdown(userDismissed = true)
-                showToastOnMainThread("Автоотключение отменено. Прокси продолжает работу")
+                showToastOnMainThread(getString(R.string.toast_battery_guard_cancelled))
                 return START_REDELIVER_INTENT
             }
         }
@@ -211,9 +242,9 @@ class ProxyForegroundService : Service() {
 
         val notification = NotificationHelper.buildNotification(
             context = this,
-            statusText = if (app.config.isSocks5Mode) "SOCKS5 прокси активен" else "Обход Telegram активен",
-            speedText = "Порт: ${app.config.activePort} | Инициализация...",
-            statusIndicator = ProxyStatusIndicator.GREEN
+            statusText = if (app.config.isSocks5Mode) getString(R.string.notif_service_socks5_active) else getString(R.string.notif_service_tg_active),
+            speedText = getString(R.string.status_optimizing_route),
+            statusIndicator = ProxyStatusIndicator.YELLOW
         )
 
         try {
@@ -227,7 +258,7 @@ class ProxyForegroundService : Service() {
                 startForeground(NotificationHelper.NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            AppLogger.e("ProxyForegroundService", "Не удалось запустить ForegroundService: ${e.message}")
+            AppLogger.e("ProxyForegroundService", "Failed to start ForegroundService: ${e.message}")
         }
 
 
@@ -249,7 +280,7 @@ class ProxyForegroundService : Service() {
                     app.config.warpPrivateKey == com.mirrly.tgproxy.core.WarpAccountManager.BOOTSTRAP_PROFILE.privateKeyBase64
                 if (needsWarp && hasInvalidWarpCredentials && !warpRegistrationInProgress) {
                     warpRegistrationInProgress = true
-                    AppLogger.i(TAG, "WARP активен, профиль не обнаружен или содержит заглушку. Регистрация живого аккаунта...")
+                    AppLogger.i(TAG, "WARP active, profile not found or placeholder. Registering live account...")
                     try {
                         val regResult = com.mirrly.tgproxy.core.WarpAccountManager.registerAndActivate(
                             fallbackToBootstrap = false
@@ -258,15 +289,36 @@ class ProxyForegroundService : Service() {
                             app.prefsManager.saveWarpProfile(profile)
                             app.config.applyWarpProfile(profile)
                             app.prefsManager.saveConfig(app.config)
-                            AppLogger.i(TAG, "WARP профиль успешно создан: ${profile.getSummary()}")
+                            AppLogger.i(TAG, "WARP profile created successfully: ${profile.getSummary()}")
+                            val awgIni = app.config.getAmneziaWgConfig(cleanEndpoint = app.config.warpPeerEndpoint)
+                            com.mirrly.tgproxy.core.NativeProxy.setAwgConfig(awgIni)
                         }.onFailure { err ->
-                            AppLogger.w(TAG, "Авторегистрация WARP не удалась: ${err.message}")
+                            AppLogger.w(TAG, "WARP auto-registration failed: ${err.message}")
                         }
                     } finally {
                         warpRegistrationInProgress = false
                     }
                 }
-                val started = server.start(cacheDir)
+                // Предстартовая диагностика и экспресс-анализ («Подключение в один клик»)
+                try {
+                    val preflightResult = PreflightDiagnosticsEngine.runPreflight(
+                        context = this@ProxyForegroundService,
+                        config = app.config,
+                        prefsManager = app.prefsManager,
+                        isDegraded = false
+                    )
+                    AppLogger.i(TAG, "Pre-flight analysis completed: ${preflightResult.selectedRouteSummary}")
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Pre-flight analysis exception: ${e.message}")
+                }
+
+                val initialNetworkType = networkObserver?.getCurrentNetworkTypeName().orEmpty()
+                server.setNetworkInterface(
+                    isMobile = initialNetworkType.contains("Mobile", ignoreCase = true) ||
+                        initialNetworkType.contains("Cellular", ignoreCase = true),
+                    isScreenOn = isScreenOn
+                )
+                val started = startServerWithProfiling(server, cacheDir, needsWarp)
                 if (started) {
                     SessionHistoryManager.onSessionStarted(
                         presetName = getPresetShortName(app.config.speedPreset),
@@ -276,7 +328,8 @@ class ProxyForegroundService : Service() {
                     DonationManager.recordSuccessfulConnection(this@ProxyForegroundService)
 
                     if (app.config.isMasqueUplink || app.config.isHybridUplink) {
-                        serviceScope.launch(Dispatchers.IO) {
+                        tuneWarpJob?.cancel()
+                        tuneWarpJob = serviceScope.launch(Dispatchers.IO) {
                             checkAndTuneWarpEndpoint()
                         }
                     } else if (app.config.isVlessUplink) {
@@ -289,7 +342,7 @@ class ProxyForegroundService : Service() {
 
                     if (app.prefsManager.isAutoStopOnStartEnabled() && !SleepTimerManager.timerState.value.isActive) {
                         val autoStopMin = app.prefsManager.getAutoStopMinutes()
-                        AppLogger.i(TAG, "Автоотключение при запуске активно: запуск таймера на $autoStopMin мин")
+                        AppLogger.i(TAG, "Auto-stop on launch enabled: starting timer for $autoStopMin min")
                         SleepTimerManager.startTimer(this@ProxyForegroundService, autoStopMin)
                     }
                 }
@@ -321,10 +374,10 @@ class ProxyForegroundService : Service() {
         }
 
         app.config.applyPreset(nextPreset)
-        app.proxyServer.applyPoolSize(nextPreset.defaultPoolSize)
+        app.proxyServer.applyMtprotoStandbyPerActiveSlot(nextPreset.defaultMtprotoStandbyPerActiveSlot)
         app.prefsManager.saveConfig(app.config)
 
-        showToastOnMainThread("Режим скорости: ${getPresetShortName(nextPreset)}")
+        showToastOnMainThread(getString(R.string.toast_speed_preset_changed, getPresetShortName(nextPreset)))
         updateNotificationImmediately()
     }
 
@@ -344,9 +397,9 @@ class ProxyForegroundService : Service() {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = ClipData.newPlainText("Telegram Proxy Link", tgUrl)
             clipboard.setPrimaryClip(clip)
-            showToastOnMainThread("Ссылка $label скопирована!")
+            showToastOnMainThread(getString(R.string.toast_link_copied, label))
         } catch (_: Exception) {
-            showToastOnMainThread("Ошибка копирования ссылки")
+            showToastOnMainThread(getString(R.string.toast_link_copy_failed))
         }
     }
 
@@ -358,11 +411,11 @@ class ProxyForegroundService : Service() {
 
     private fun getPresetShortName(preset: SpeedPreset): String {
         return when (preset) {
-            SpeedPreset.ULTRA -> "Ультра"
-            SpeedPreset.TURBO -> "Турбо"
-            SpeedPreset.BALANCED -> "Баланс"
-            SpeedPreset.ECO -> "Эко"
-            SpeedPreset.AUTO -> "Авто"
+            SpeedPreset.ULTRA -> getString(R.string.preset_ultra)
+            SpeedPreset.TURBO -> getString(R.string.preset_turbo)
+            SpeedPreset.BALANCED -> getString(R.string.preset_balanced)
+            SpeedPreset.ECO -> getString(R.string.preset_eco)
+            SpeedPreset.AUTO -> getString(R.string.preset_auto)
         }
     }
 
@@ -447,16 +500,6 @@ class ProxyForegroundService : Service() {
 
                 val activeConns = stats.activeConnections.get()
 
-                if (app.config.tcpNoDelayMode == com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO) {
-                    val eval = NetworkConditionEvaluator.evaluate(
-                        context = this@ProxyForegroundService,
-                        capabilities = networkObserver?.getCurrentCapabilities(),
-                        currentPingMs = server.currentPingMs,
-                        currentThroughputBps = stats.downloadSpeedBps + stats.uploadSpeedBps
-                    )
-                    server.applyTcpNoDelay(eval.isInstantSendRecommended)
-                }
-
                 SessionHistoryManager.onSessionUpdate(
                     bytesReceived = stats.totalBytesReceived.get(),
                     bytesSent = stats.totalBytesSent.get(),
@@ -503,20 +546,12 @@ class ProxyForegroundService : Service() {
             val previousStage = lastNotifiedCascadeStageCode
             lastNotifiedCascadeStageCode = stageCode
 
-            if (app.config.isMasqueUplink) {
-                if (stageCode == 2) {
+            if (app.config.isWarpCascadeUplink) {
+                if (ProxyNotificationPolicy.isConfirmedFailover(previousStage, stageCode, configuredPrimaryStage = 1)) {
                     NotificationHelper.showFailoverNotification(
                         context = this@ProxyForegroundService,
-                        title = "Mirrly TG Proxy",
-                        message = "WARP MASQUE недоступен у вашего оператора, активирован AmneziaWG"
-                    )
-                }
-            } else if (app.config.isAwgUplink) {
-                if (stageCode == 1) {
-                    NotificationHelper.showFailoverNotification(
-                        context = this@ProxyForegroundService,
-                        title = "Mirrly TG Proxy",
-                        message = "WARP AmneziaWG недоступен у вашего оператора, активирован MASQUE"
+                        title = getString(R.string.app_name),
+                        message = getString(R.string.notif_failover_masque_to_awg)
                     )
                 }
             }
@@ -529,24 +564,33 @@ class ProxyForegroundService : Service() {
         val jitterMs = server.jitterMs
         val quality = server.connectionQuality
         val pingDisplay = if (pingMs > 0) {
-            if (jitterMs > 0) "${pingMs}мс (±${jitterMs}мс)" else "${pingMs}мс"
+            if (jitterMs > 0) getString(R.string.notif_ping_jitter_ms, pingMs, jitterMs) else getString(R.string.notif_ping_ms, pingMs)
         } else {
             ""
         }
 
         val netTypeName = networkObserver?.getCurrentNetworkTypeName() ?: "UNKNOWN"
-        val isNetworkLost = netTypeName == "DISCONNECTED"
+        val pingSnapshot = server.pingEngine.currentSnapshot
+        val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
+        val isNetworkLost = ProxyNotificationPolicy.isConfirmedOffline(
+            serverRunning = server.isRunning,
+            observerDisconnected = netTypeName == "DISCONNECTED",
+            totalBytes = totalBytes,
+            lastActivityTimestamp = stats.lastActivityTimestamp.get(),
+            lastProbeTimestamp = pingSnapshot.lastProbeTimestamp,
+            probeSucceeded = pingSnapshot.smoothedPingMs > 0L && pingSnapshot.consecutiveFailures == 0
+        )
 
         val netName = when (netTypeName) {
             "Wi-Fi" -> "Wi-Fi"
-            "Mobile LTE/5G", "Cellular" -> "Мобильная сеть"
+            "Mobile LTE/5G", "Cellular" -> getString(R.string.notif_net_cellular)
             "Ethernet" -> "Ethernet"
-            "DISCONNECTED" -> "Нет сети"
-            else -> "Сеть активна"
+            "DISCONNECTED" -> if (isNetworkLost) getString(R.string.notif_net_none) else getString(R.string.notif_net_active)
+            else -> getString(R.string.notif_net_active)
         }
 
         val timerState = SleepTimerManager.timerState.value
-        val timerSuffix = if (timerState.isActive) " | Таймер: ${timerState.formatRemainingTime()}" else ""
+        val timerSuffix = if (timerState.isActive) getString(R.string.notif_timer_suffix, timerState.formatRemainingTime()) else ""
 
         val effectiveDomain = if (app.config.isSocks5Mode) app.config.getEffectiveCfDomain() else ""
         val isWorker = app.config.isSocks5Mode && app.config.cfProxyEnabled && effectiveDomain.isNotBlank()
@@ -556,49 +600,72 @@ class ProxyForegroundService : Service() {
             !server.isRunning || isNetworkLost -> {
                 Triple(
                     ProxyStatusIndicator.RED,
-                    "Mirrly TG Proxy [$protoLabel] • Нет сети",
-                    "Сеть: Отключена | ↓ 0 Б/с  ↑ 0 Б/с | Нет сети"
-                )
-            }
-            isReconnectingNetwork -> {
-                Triple(
-                    ProxyStatusIndicator.YELLOW,
-                    "Mirrly TG Proxy [$protoLabel] • Переподключение...",
-                    "Восстановление связи... | $netName"
+                    getString(R.string.notif_title_template, protoLabel, getString(R.string.notif_status_no_net)),
+                    getString(R.string.notif_body_no_net)
                 )
             }
             app.config.isSocks5Mode -> {
                 val currentStage = stats.activeCascadeStageCode
                 val uplinkLabel = when {
-                    app.config.isMasqueUplink && currentStage == 2 -> "AmneziaWG (Фоллбэк)"
-                    app.config.isAwgUplink && currentStage == 1 -> "MASQUE (Фоллбэк)"
+                    stats.activeEffectiveRoute.isNotBlank() -> stats.activeEffectiveRoute
+                    app.config.isWarpCascadeUplink && currentStage == 2 -> getString(R.string.notif_route_fallback_awg)
                     currentStage == 1 -> "WARP MASQUE"
                     currentStage == 2 -> "WARP AmneziaWG"
-                    app.config.isLivenessProbeEnabled && stats.activeCascadeStage.isNotBlank() -> stats.activeCascadeStage
+                    currentStage == 7 -> "VLESS (Opera Hop)"
+                    stats.activeCascadeStage.isNotBlank() -> stats.activeCascadeStage
                     app.config.isVlessUplink -> "VLESS"
                     app.config.isMasqueUplink -> "WARP MASQUE"
                     app.config.isAwgUplink -> "WARP AmneziaWG"
                     isWorker -> "Worker"
                     else -> "SOCKS5"
                 }
-                if (pingMs > 0) {
-                    val indicator = if (quality == ConnectionQuality.POOR || pingMs > 600L) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
+                val isCloudflareWorkerRoute = ProxyDisplayLabels.isCloudflareWorkerRoute(
+                    effectiveRoute = stats.activeEffectiveRoute,
+                    operator = stats.activeOperator,
+                    configuredWorker = app.config.uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WORKER
+                )
+                val trustWarning = if (!stats.isTrustBoundaryMaintained && !isCloudflareWorkerRoute) getString(R.string.notif_trust_public_relay) else ""
+                val detailedLabel = if (stats.activeOperator.isNotBlank() && stats.activeEffectiveRoute.isNotBlank()) {
+                    "$uplinkLabel (${stats.activeOperator})$trustWarning"
+                } else {
+                    "$uplinkLabel$trustWarning"
+                }
+                val fullLabel = ProxyDisplayLabels.notificationRouteLabel(
+                    effectiveRoute = stats.activeEffectiveRoute,
+                    operator = stats.activeOperator,
+                    fallbackLabel = detailedLabel,
+                    configuredWorker = app.config.uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WORKER
+                )
+                val trustDegraded = !stats.isTrustBoundaryMaintained && !isCloudflareWorkerRoute
+                val statusTitleText = if (trustDegraded) getString(R.string.notif_status_public_relay) else getString(R.string.notif_status_active)
+
+                val failure = stats.lastFailureType
+                if (failure != com.mirrly.tgproxy.core.FailureType.NONE && (quality == ConnectionQuality.OFFLINE || stats.healthScore < 20)) {
+                    val userFailureMsg = com.mirrly.tgproxy.ui.ConnectionHealthFormatter.formatFailureForUser(this@ProxyForegroundService, failure)
+                    Triple(
+                        ProxyStatusIndicator.YELLOW,
+                        getString(R.string.notif_title_template, protoLabel, getString(R.string.notif_status_active)),
+                        getString(R.string.notif_body_format, fullLabel, userFailureMsg, dlSpeed, ulSpeed, netName, timerSuffix)
+                    )
+                } else if (pingMs > 0) {
+                    val indicator = if (quality == ConnectionQuality.POOR || pingMs > 600L || trustDegraded) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
                     Triple(
                         indicator,
-                        "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "$uplinkLabel: $pingDisplay | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        getString(R.string.notif_title_template, protoLabel, statusTitleText),
+                        getString(R.string.notif_body_format, fullLabel, pingDisplay, dlSpeed, ulSpeed, netName, timerSuffix)
                     )
                 } else if (activeConns > 0) {
+                    val indicator = if (trustDegraded) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
                     Triple(
-                        ProxyStatusIndicator.GREEN,
-                        "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "$uplinkLabel: Туннель активен | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        indicator,
+                        getString(R.string.notif_title_template, protoLabel, statusTitleText),
+                        getString(R.string.notif_body_format, fullLabel, getString(R.string.notif_status_tunnel_active), dlSpeed, ulSpeed, netName, timerSuffix)
                     )
                 } else {
                     Triple(
-                        ProxyStatusIndicator.YELLOW,
-                        "Mirrly TG Proxy [$protoLabel] • $uplinkLabel подключается",
-                        "Проверка шлюза... | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        if (trustDegraded) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN,
+                        getString(R.string.notif_title_template, protoLabel, statusTitleText),
+                        getString(R.string.notif_body_format, fullLabel, getString(R.string.notif_status_waiting_traffic), dlSpeed, ulSpeed, netName, timerSuffix)
                     )
                 }
             }
@@ -607,14 +674,14 @@ class ProxyForegroundService : Service() {
                     val indicator = if (quality == ConnectionQuality.POOR || pingMs > 600L) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
                     Triple(
                         indicator,
-                        "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "CDN: $pingDisplay | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        getString(R.string.notif_title_template, protoLabel, getString(R.string.notif_status_active)),
+                        getString(R.string.notif_body_format, "CDN", pingDisplay, dlSpeed, ulSpeed, netName, timerSuffix)
                     )
                 } else {
                     Triple(
                         ProxyStatusIndicator.GREEN,
-                        "Mirrly TG Proxy [$protoLabel] • Активен",
-                        "CDN: Туннель активен | ↓ $dlSpeed/с  ↑ $ulSpeed/с | $netName$timerSuffix"
+                        getString(R.string.notif_title_template, protoLabel, getString(R.string.notif_status_active)),
+                        getString(R.string.notif_body_format, "CDN", getString(R.string.notif_status_tunnel_active), dlSpeed, ulSpeed, netName, timerSuffix)
                     )
                 }
             }
@@ -651,9 +718,16 @@ class ProxyForegroundService : Service() {
     @Volatile
     private var isStopping = false
 
+    private var tuneWarpJob: Job? = null
+
     private fun stopProxyService() {
         if (isStopping) return
         isStopping = true
+
+        tuneWarpJob?.cancel()
+        tuneWarpJob = null
+        restartJob?.cancel()
+        restartJob = null
 
         stopNotificationUpdates()
         lastNotifiedIndicator = null
@@ -662,6 +736,7 @@ class ProxyForegroundService : Service() {
         lastNotifiedTimestamp = 0L
         lastNotifiedCascadeStageCode = 0
 
+        PreflightDiagnosticsEngine.reset()
         SleepTimerManager.cancelTimer(this)
         cancelBatteryGuardCountdown(userDismissed = false)
         batteryGuardDismissedForThreshold = false
@@ -707,7 +782,7 @@ class ProxyForegroundService : Service() {
                     stopSelf()
                 }
             } catch (e: Exception) {
-                AppLogger.e(TAG, "Ошибка при остановке службы: ${e.message}")
+                AppLogger.e(TAG, "Error while stopping service: ${e.message}")
                 withContext(Dispatchers.Main) {
                     NotificationHelper.cancelProxyNotifications(this@ProxyForegroundService)
                     stopSelf()
@@ -728,14 +803,14 @@ class ProxyForegroundService : Service() {
         // 1. Android 10+ Thermal Status Listener
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
             val listener = PowerManager.OnThermalStatusChangedListener { status ->
-                AppLogger.d(TAG, "Thermal статус изменился: $status")
+                AppLogger.d(TAG, "Thermal status changed: $status")
                 updateDeviceQoSState(status)
             }
             try {
                 powerManager.addThermalStatusListener(listener)
                 thermalListener = listener
             } catch (t: Throwable) {
-                AppLogger.w(TAG, "Не удалось зарегистрировать OnThermalStatusChangedListener: ${t.message}")
+                AppLogger.w(TAG, "Failed to register OnThermalStatusChangedListener: ${t.message}")
             }
         }
 
@@ -745,20 +820,20 @@ class ProxyForegroundService : Service() {
                 when (intent?.action) {
                     Intent.ACTION_SCREEN_OFF -> {
                         isScreenOn = false
-                        val isMobile = networkObserver?.getCurrentNetworkTypeName()?.let {
-                            it.contains("Mobile", ignoreCase = true) || it.contains("Cellular", ignoreCase = true)
-                        } ?: false
-                        MirrlyApplication.instance.proxyServer.setNetworkInterface(isMobile, isScreenOn = false)
+                        MirrlyApplication.instance.proxyServer.updateScreenPowerMode(
+                            screenOn = false,
+                            powerSaveMode = isPowerSaveMode
+                        )
                         stopNotificationUpdates()
-                        AppLogger.d(TAG, "Экран выключен: пауза фонового обновления уведомлений")
+                        AppLogger.d(TAG, "Screen off: pausing background notification updates")
                     }
                     Intent.ACTION_SCREEN_ON -> {
                         isScreenOn = true
-                        val isMobile = networkObserver?.getCurrentNetworkTypeName()?.let {
-                            it.contains("Mobile", ignoreCase = true) || it.contains("Cellular", ignoreCase = true)
-                        } ?: false
-                        MirrlyApplication.instance.proxyServer.setNetworkInterface(isMobile, isScreenOn = true)
-                        AppLogger.d(TAG, "Экран включен: возобновление обновления уведомлений")
+                        MirrlyApplication.instance.proxyServer.updateScreenPowerMode(
+                            screenOn = true,
+                            powerSaveMode = isPowerSaveMode
+                        )
+                        AppLogger.d(TAG, "Screen on: resuming notification updates")
                         updateNotificationImmediately()
                         startNotificationUpdates()
                     }
@@ -780,7 +855,7 @@ class ProxyForegroundService : Service() {
             registerReceiver(bReceiver, filter)
             batteryReceiver = bReceiver
         } catch (t: Throwable) {
-            AppLogger.w(TAG, "Не удалось зарегистрировать battery/screen receiver: ${t.message}")
+            AppLogger.w(TAG, "Failed to register battery/screen receiver: ${t.message}")
         }
 
         updateDeviceQoSState()
@@ -791,6 +866,7 @@ class ProxyForegroundService : Service() {
             val app = MirrlyApplication.instance
             val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
             val isPowerSave = powerManager?.isPowerSaveMode == true
+            isPowerSaveMode = isPowerSave
             val thermal = thermalStatusOverride ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
                 powerManager.currentThermalStatus
             } else {
@@ -804,6 +880,10 @@ class ProxyForegroundService : Service() {
                 isCharging = isCharging,
                 isPowerSaveMode = isPowerSave,
                 thermalStatus = thermal
+            )
+            app.proxyServer.updateScreenPowerMode(
+                screenOn = isScreenOn,
+                powerSaveMode = isPowerSave
             )
 
             checkBatteryGuard(
@@ -827,7 +907,7 @@ class ProxyForegroundService : Service() {
 
         if (isCharging) {
             if (isBatteryGuardCountdownActive) {
-                AppLogger.i(TAG, "Подключено зарядное устройство: обратный отсчет защиты аккумулятора отменен")
+                AppLogger.i(TAG, "Charger connected: battery guard countdown cancelled")
                 cancelBatteryGuardCountdown(userDismissed = false)
             }
             batteryGuardDismissedForThreshold = false
@@ -854,9 +934,9 @@ class ProxyForegroundService : Service() {
         }
 
         val reason = if (isLowBattery) {
-            "Заряд батареи упал до $batteryPct% (порог: ${config.batteryGuardThreshold}%)"
+            getString(R.string.battery_guard_reason_threshold, batteryPct, config.batteryGuardThreshold)
         } else {
-            "Активирован системный режим энергосбережения Android"
+            getString(R.string.battery_guard_reason_powersave)
         }
 
         startBatteryGuardCountdown(reason = reason, initialBatteryPct = batteryPct)
@@ -869,7 +949,7 @@ class ProxyForegroundService : Service() {
         val totalSeconds = 300 // 5 минут
         val targetTimeMs = System.currentTimeMillis() + totalSeconds * 1000L
 
-        AppLogger.w(TAG, "Защита аккумулятора: $reason. Запуск 5-минутного таймера предупреждения перед остановкой.")
+        AppLogger.w(TAG, "Battery guard: $reason. Starting 5-minute warning timer before shutdown.")
 
         NotificationHelper.showBatteryGuardWarningNotification(
             context = this,
@@ -897,7 +977,7 @@ class ProxyForegroundService : Service() {
 
                     val (currentPct, isCharging) = getBatteryInfo()
                     if (isCharging) {
-                        AppLogger.i(TAG, "Зарядное устройство подключено: отмена обратного отсчета защиты аккумулятора")
+                        AppLogger.i(TAG, "Charger connected: battery guard countdown cancelled")
                         withContext(Dispatchers.Main) {
                             cancelBatteryGuardCountdown(userDismissed = false)
                         }
@@ -920,11 +1000,11 @@ class ProxyForegroundService : Service() {
                 }
 
                 if (isActive && isBatteryGuardCountdownActive) {
-                    AppLogger.w(TAG, "5-минутный таймер защиты аккумулятора истек. Остановка прокси.")
+                    AppLogger.w(TAG, "5-minute battery guard timer expired. Stopping proxy.")
                     withContext(Dispatchers.Main) {
                         isBatteryGuardCountdownActive = false
                         NotificationHelper.cancelBatteryGuardNotification(this@ProxyForegroundService)
-                        stopProxyWithReason("Защита аккумулятора: $reason")
+                        stopProxyWithReason(getString(R.string.battery_guard_stop_reason, reason))
                         NotificationHelper.showBatteryGuardStoppedNotification(
                             context = this@ProxyForegroundService,
                             reason = reason
@@ -943,7 +1023,7 @@ class ProxyForegroundService : Service() {
         isBatteryGuardCountdownActive = false
         if (userDismissed) {
             batteryGuardDismissedForThreshold = true
-            AppLogger.i(TAG, "Пользователь отменил автоотключение прокси по защите батареи")
+            AppLogger.i(TAG, "User cancelled battery guard proxy auto-shutdown")
         }
         NotificationHelper.cancelBatteryGuardNotification(this)
     }
@@ -964,30 +1044,44 @@ class ProxyForegroundService : Service() {
 
     private suspend fun checkAndTuneWarpEndpoint() {
         val app = MirrlyApplication.instance
+        val targetGen = app.proxyServer.currentProfileGeneration.get()
+        val targetMode = app.config.uplinkMode
         val currentEp = app.config.warpPeerEndpoint
         val (_, port) = com.mirrly.tgproxy.core.WarpEndpointScanner.parseEndpoint(currentEp)
+
+        if (!app.proxyServer.isRunning || (!app.config.isMasqueUplink && !app.config.isHybridUplink)) {
+            return
+        }
 
         // Порт 2408 и пустые порты известны 100% блокировками ТСПУ в РФ
         val isSuspectPort = port == 2408 || port <= 0
         if (!isSuspectPort) {
             val probe = com.mirrly.tgproxy.core.WarpEndpointScanner.probeEndpoint(currentEp, timeoutMs = 650, useFragmentation = true)
             if (probe.isAlive) {
-                AppLogger.d(TAG, "Текущий Anycast-эндпоинт WARP активен: $currentEp (RTT=${probe.rttMs}мс)")
+                AppLogger.d(TAG, "Current WARP Anycast endpoint is active: $currentEp (RTT=${probe.rttMs}ms)")
                 return
             }
         }
 
-        AppLogger.i(TAG, "Эндпоинт $currentEp недоступен (блокировка ТСПУ). Запуск автоподбора живых Anycast-портов...")
+        if (app.proxyServer.currentProfileGeneration.get() != targetGen || !app.proxyServer.isRunning || app.config.uplinkMode != targetMode) {
+            return
+        }
+
+        AppLogger.i(TAG, "Endpoint $currentEp unavailable (DPI blocking). Starting Anycast port auto-tuning (gen=$targetGen)...")
         try {
             val best = com.mirrly.tgproxy.core.WarpEndpointScanner.findBestEndpoint(useFragmentation = true, maxCandidatesToProbe = 18)
+            if (app.proxyServer.currentProfileGeneration.get() != targetGen || !app.proxyServer.isRunning || app.config.uplinkMode != targetMode) {
+                AppLogger.w(TAG, "WARP Anycast port auto-tuning ignored: profile state changed during scan")
+                return
+            }
             if (best != null && best.endpoint != currentEp) {
-                AppLogger.i(TAG, "Автоматически подобран рабочий Anycast-порт WARP: ${best.endpoint} (${best.rttMs}мс)")
+                AppLogger.i(TAG, "Selected working WARP Anycast port: ${best.endpoint} (${best.rttMs}ms)")
                 app.config.warpPeerEndpoint = best.endpoint
                 app.prefsManager.saveConfig(app.config)
-                app.proxyServer.applyWarpEndpoint(best.endpoint)
+                app.proxyServer.applyWarpEndpoint(best.endpoint, expectedGeneration = targetGen, expectedMode = targetMode)
             }
         } catch (e: Exception) {
-            AppLogger.w(TAG, "Ошибка автоматического подбора портов WARP: ${e.message}")
+            AppLogger.w(TAG, "Failed to auto-tune WARP ports: ${e.message}")
         }
     }
 
@@ -1000,9 +1094,132 @@ class ProxyForegroundService : Service() {
                 }
                 startService(stopIntent)
             } catch (e: Exception) {
-                AppLogger.e(TAG, "Ошибка автоматической остановки прокси: ${e.message}")
+                AppLogger.e(TAG, "Failed to automatically stop proxy: ${e.message}")
             }
         }
+    }
+
+    private suspend fun startServerWithProfiling(
+        server: com.mirrly.tgproxy.core.LocalProxyServer,
+        cacheDir: java.io.File,
+        needsWarp: Boolean
+    ): Boolean {
+        if (!needsWarp) {
+            return server.start(cacheDir)
+        }
+
+        // Если предстартовая диагностика уже проверила пайплайн менее 10 секунд назад, не дублируем сетевые пробы
+        val cached = com.mirrly.tgproxy.core.WarpPipelineProfiler.getLatestMetrics()
+        if (cached != null && (System.currentTimeMillis() - cached.timestampMs) < 10_000L && cached.isSuccess) {
+            val pStart = System.nanoTime()
+            val s = server.start(cacheDir)
+            val tTunnelMs = (System.nanoTime() - pStart) / 1_000_000L
+            val updated = cached.copy(
+                tTunnelMs = tTunnelMs,
+                tTotalMs = cached.tConfigMs + cached.tDnsMs + cached.tObfuscationMs + cached.tHandshakeMs + tTunnelMs,
+                isSuccess = s,
+                failurePhase = if (!s) com.mirrly.tgproxy.core.WarpPhase.TUNNEL_ESTABLISHMENT else null,
+                timestampMs = System.currentTimeMillis()
+            )
+            com.mirrly.tgproxy.core.WarpPipelineProfiler.recordMetrics(updated)
+            return s
+        }
+
+        val app = MirrlyApplication.instance
+        var failurePhase: com.mirrly.tgproxy.core.WarpPhase? = null
+        var isSuccess = true
+        var errorDetail: String? = null
+
+        // Phase 1: CONFIG_ACQUISITION
+        val p1Start = System.nanoTime()
+        try {
+            val privKey = app.config.warpPrivateKey
+            val token = app.config.warpToken
+            if (privKey.isBlank() || token.isBlank()) {
+                AppLogger.d(TAG, "WARP Profiler: Config key/token empty")
+            }
+        } catch (e: Exception) {
+            failurePhase = com.mirrly.tgproxy.core.WarpPhase.CONFIG_ACQUISITION
+            isSuccess = false
+            errorDetail = e.message
+        }
+        val tConfigMs = (System.nanoTime() - p1Start) / 1_000_000L
+
+        // Phase 2: DNS_RESOLUTION
+        val p2Start = System.nanoTime()
+        try {
+            com.mirrly.tgproxy.core.DohResolver.resolve("engage.cloudflareclient.com", com.mirrly.tgproxy.core.DnsScope.BOOTSTRAP)
+        } catch (e: Exception) {
+            if (isSuccess) {
+                failurePhase = com.mirrly.tgproxy.core.WarpPhase.DNS_RESOLUTION
+                errorDetail = e.message
+            }
+        }
+        val tDnsMs = (System.nanoTime() - p2Start) / 1_000_000L
+
+        // Phase 3: OBFUSCATION_PREPARATION
+        val p3Start = System.nanoTime()
+        try {
+            val awgIni = app.config.getAmneziaWgConfig(cleanEndpoint = app.config.warpPeerEndpoint)
+            if (awgIni.isBlank()) {
+                failurePhase = com.mirrly.tgproxy.core.WarpPhase.OBFUSCATION_PREPARATION
+                errorDetail = "Empty obfuscation config"
+            }
+        } catch (e: Exception) {
+            if (isSuccess) {
+                failurePhase = com.mirrly.tgproxy.core.WarpPhase.OBFUSCATION_PREPARATION
+                errorDetail = e.message
+            }
+        }
+        val tObfuscationMs = (System.nanoTime() - p3Start) / 1_000_000L
+
+        // Phase 4: HANDSHAKE_EXCHANGE
+        val p4Start = System.nanoTime()
+        try {
+            val ep = app.config.warpPeerEndpoint
+            val probeProto = if (app.config.isAwgUplink) com.mirrly.tgproxy.core.WarpProbeProtocol.WIREGUARD else com.mirrly.tgproxy.core.WarpProbeProtocol.MASQUE_QUIC
+            val probe = com.mirrly.tgproxy.core.WarpEndpointScanner.probeEndpoint(
+                endpoint = ep,
+                timeoutMs = 400,
+                protocol = probeProto,
+                useFragmentation = true
+            )
+            if (!probe.isAlive && isSuccess) {
+                failurePhase = com.mirrly.tgproxy.core.WarpPhase.HANDSHAKE_EXCHANGE
+                errorDetail = "Endpoint probe unconfirmed"
+            }
+        } catch (e: Exception) {
+            if (isSuccess) {
+                failurePhase = com.mirrly.tgproxy.core.WarpPhase.HANDSHAKE_EXCHANGE
+                errorDetail = e.message
+            }
+        }
+        val tHandshakeMs = (System.nanoTime() - p4Start) / 1_000_000L
+
+        // Phase 5: TUNNEL_ESTABLISHMENT
+        val p5Start = System.nanoTime()
+        val s = server.start(cacheDir)
+        val tTunnelMs = (System.nanoTime() - p5Start) / 1_000_000L
+        if (!s) {
+            failurePhase = com.mirrly.tgproxy.core.WarpPhase.TUNNEL_ESTABLISHMENT
+            isSuccess = false
+            errorDetail = "Native tunnel start returned false"
+        }
+        val tTotalMs = tConfigMs + tDnsMs + tObfuscationMs + tHandshakeMs + tTunnelMs
+
+        val metrics = com.mirrly.tgproxy.core.WarpProfileMetrics(
+            tConfigMs = tConfigMs,
+            tDnsMs = tDnsMs,
+            tObfuscationMs = tObfuscationMs,
+            tHandshakeMs = tHandshakeMs,
+            tTunnelMs = tTunnelMs,
+            tTotalMs = tTotalMs,
+            failurePhase = failurePhase,
+            isSuccess = isSuccess && s,
+            errorDetail = errorDetail
+        )
+        com.mirrly.tgproxy.core.WarpPipelineProfiler.recordMetrics(metrics)
+        return s
     }
 
     override fun onDestroy() {

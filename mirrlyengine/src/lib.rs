@@ -1,13 +1,23 @@
 pub mod awg;
 pub mod balancer;
+pub mod budget;
+pub mod bridge;
 pub mod cfproxy;
 pub mod config;
 pub mod crypto;
+pub mod dns;
 pub mod faketls;
+pub mod generation_guard;
 pub mod masque;
+pub mod network_profile;
+pub mod node_independence;
 pub mod proxy;
+pub mod recovery;
 pub mod reality;
 pub mod socks5;
+pub mod supervisor;
+pub mod timeline;
+pub mod tls_observability;
 pub mod vision;
 pub mod vless;
 pub mod ws;
@@ -90,6 +100,8 @@ pub unsafe extern "C" fn StartProxy(
         return -1;
     }
 
+    generation_guard::change_config(|| {});
+
     let host = cstr_to_string(c_host);
     let go_port = port as u16;
     let dc_ips_str = cstr_to_string(c_dc_ips);
@@ -97,9 +109,11 @@ pub unsafe extern "C" fn StartProxy(
     let is_verbose = verbose != 0;
 
     init_logging(is_verbose);
-    cfproxy::clear_cfproxy_429_cooldowns();
     cfproxy::clear_doh_cache();
+    recovery::reset();
     balancer::BALANCER.write().reset_ranking();
+    node_independence::NODE_INDEPENDENCE_TRACKER.write().reset();
+    tls_observability::TLS_TRACKER.write().reset();
 
     if secret_str.len() == 32 {
         if hex::decode(&secret_str).is_ok() {
@@ -188,17 +202,19 @@ pub unsafe extern "C" fn StartSocks5Proxy(
         return -1;
     }
 
+    generation_guard::change_config(|| {});
+
     let host = cstr_to_string(c_host);
     let go_port = port as u16;
     let is_verbose = verbose != 0;
 
     init_logging(is_verbose);
-    cfproxy::clear_cfproxy_429_cooldowns();
     cfproxy::clear_doh_cache();
-    balancer::BALANCER.write().reset_ranking();
+    recovery::reset();
     *LAST_SOCKS5_WORKER.write() = String::new();
     vless::reset_vless_scorer();
-    cfproxy::init_cfproxy_domains();
+    node_independence::NODE_INDEPENDENCE_TRACKER.write().reset();
+    tls_observability::TLS_TRACKER.write().reset();
 
     let rt = runtime();
     let cancel_tasks = CancellationToken::new();
@@ -241,11 +257,6 @@ pub unsafe extern "C" fn StartSocks5Proxy(
         }
     }
 
-    let cancel_balancer = cancel_tasks.clone();
-    rt.spawn(async move {
-        cfproxy::start_background_balancer_loop(cancel_balancer).await;
-    });
-
     *guard = Some(ProxyState {
         pool: None,
         handle,
@@ -266,25 +277,47 @@ pub extern "C" fn StopProxy() -> c_int {
         None => return 0,
     };
 
+    generation_guard::change_config(|| {});
+
     crate::linfo!("StopProxy: cancelling all tasks");
     state.cancel_tasks.cancel();
 
+    // Keep STATE locked until the old listener and pool finish shutting down.
+    // Detached cleanup allowed a new proxy to start over the old instance.
     let rt = runtime();
     let pool_opt = state.pool;
-    let handle = state.handle;
+    let mut handle = state.handle;
+    let (cleanup_tx, cleanup_rx) = std::sync::mpsc::sync_channel::<()>(1);
     rt.spawn(async move {
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+        if tokio::time::timeout(std::time::Duration::from_secs(3), &mut handle)
+            .await
+            .is_err()
+        {
+            crate::lwarn!("StopProxy: listener shutdown timed out; aborting task");
+            handle.abort();
+            let _ = handle.await;
+        }
         if let Some(pool) = pool_opt {
             pool.close_all().await;
         }
+        let _ = cleanup_tx.send(());
     });
+
+    if cleanup_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .is_err()
+    {
+        crate::lwarn!("StopProxy: cleanup completion timed out");
+    }
 
     STATS.reset();
     WS_BLACKLIST.write().clear();
     DC_FAIL_UNTIL.write().clear();
-    cfproxy::clear_cfproxy_429_cooldowns();
     cfproxy::clear_doh_cache();
+    recovery::reset();
     balancer::BALANCER.write().reset_ranking();
+    node_independence::NODE_INDEPENDENCE_TRACKER.write().reset();
+    tls_observability::TLS_TRACKER.write().reset();
     *LAST_SOCKS5_WORKER.write() = String::new();
     vless::reset_vless_scorer();
     masque::reset_active_cascade_stage();
@@ -295,10 +328,39 @@ pub extern "C" fn StopProxy() -> c_int {
 
 #[no_mangle]
 pub extern "C" fn ResetNetworkSockets() {
+    reset_network_sockets_for_reason("external/network-generation reset");
+}
+
+#[no_mangle]
+pub extern "C" fn EmergencyKillAllSockets() {
+    reset_network_sockets_for_reason("emergency kill all sockets");
+}
+
+pub(crate) fn reset_network_sockets_for_reason(reason: &str) {
     let cell = state_cell();
     let guard = cell.lock();
-    if let Some(state) = guard.as_ref() {
-        crate::linfo!("ResetNetworkSockets: resetting active sessions, 429 limits, and balancer ranking (preserving DoH cache & active worker)");
+    generation_guard::invalidate_profile();
+    reset_network_sockets_for_reason_locked(guard.as_ref(), reason);
+}
+
+pub(crate) fn reset_network_sockets_for_reason_if_current(
+    expected: generation_guard::GenerationStamp,
+    reason: &str,
+) -> bool {
+    let cell = state_cell();
+    let guard = cell.lock();
+    generation_guard::invalidate_profile_if_current(expected, || {
+        reset_network_sockets_for_reason_locked(guard.as_ref(), reason);
+    })
+    .is_some()
+}
+
+fn reset_network_sockets_for_reason_locked(state: Option<&ProxyState>, reason: &str) {
+    if let Some(state) = state {
+        crate::linfo!(
+            "ResetNetworkSockets: last-level reset reason={} (preserving DoH cache, active worker, and 429 backoff)",
+            reason
+        );
 
         // 1. Atomically rotate the sessions token and cancel the old token (cancels all active bridge sessions)
         let old_token = {
@@ -309,21 +371,29 @@ pub extern "C" fn ResetNetworkSockets() {
         };
         old_token.cancel();
 
-        // 2. Clear failure cooldowns, 429 limits, and reset balancer ranking so the new network interface gets a fresh start.
+        // 2. Clear interface-specific failures and reset ranking for the new network.
         // NOTE: DOH_CACHE and LAST_SOCKS5_WORKER are deliberately preserved across network handovers (Wi-Fi <-> LTE).
         // Cloudflare Anycast edge IPs and working workers are identical globally; preserving them eliminates 2.2–3.5s cold-start reconnect delays.
-        cfproxy::clear_cfproxy_429_cooldowns();
+        // HTTP 429 backoff is deliberately preserved: a radio handover does not make
+        // a rate-limited Worker healthy and clearing it creates a reconnect storm.
         DC_FAIL_UNTIL.write().clear();
         WS_BLACKLIST.write().clear();
         balancer::BALANCER.write().reset_ranking();
+        node_independence::NODE_INDEPENDENCE_TRACKER.write().reset();
         vless::reset_vless_scorer();
-        masque::reset_active_cascade_stage();
+        supervisor::ROUTE_SUPERVISOR.transition_to_unchecked(
+            supervisor::RouteKind::None,
+            "masque_reset_stage",
+        );
 
-        // 3. Trigger immediate Fast Anycast Race in the background to rank domains on the new network interface
-        let rt = runtime();
-        rt.spawn(async move {
-            cfproxy::race_all_primary_dcs().await;
-        });
+        // 3. Wi-Fi can afford eager re-ranking. On cellular, the first real
+        // MTProto request ranks its winner and must not compete with probes.
+        if !MOBILE_NETWORK.load(Ordering::Relaxed) {
+            let rt = runtime();
+            rt.spawn(async move {
+                cfproxy::race_all_primary_dcs().await;
+            });
+        }
 
         // 4. If pool exists (MTProto mode), cleanly reset pool epoch, close all idle sockets and warmup on the new network interface
         if let Some(ref pool) = state.pool {
@@ -337,19 +407,166 @@ pub extern "C" fn ResetNetworkSockets() {
 
         // 5. Reset QUIC MASQUE endpoint to force clean handshake on the new network interface
         masque::reset_quic_endpoint();
+        recovery::reset();
+    }
+}
+
+/// Enter offline dormancy without launching DNS, CDN races or pool warmup.
+/// A later ResetNetworkSockets performs the single recovery cycle.
+#[no_mangle]
+pub extern "C" fn SuspendNetworkSockets() {
+    let cell = state_cell();
+    let guard = cell.lock();
+    if let Some(state) = guard.as_ref() {
+        crate::linfo!("SuspendNetworkSockets: cancelling sessions without reconnect work");
+        let old_token = {
+            let mut lock = state.cancel_sessions.write();
+            let old = lock.clone();
+            *lock = state.cancel_tasks.child_token();
+            old
+        };
+        old_token.cancel();
+
+        if let Some(ref pool) = state.pool {
+            let pool = pool.clone();
+            runtime().spawn(async move {
+                pool.reset().await;
+            });
+        }
+        masque::reset_quic_endpoint();
+    }
+}
+
+/// Add missing idle MTProto sockets without rotating the session token or
+/// closing established bridges. SOCKS5 intentionally has no persistent pool.
+#[no_mangle]
+pub extern "C" fn WarmupWsPool() {
+    let cell = state_cell();
+    let guard = cell.lock();
+    if let Some(pool) = guard.as_ref().and_then(|state| state.pool.clone()) {
+        runtime().spawn(async move {
+            let map = DC_OPT.read().clone();
+            pool.prewarm(&map).await;
+        });
     }
 }
 
 #[no_mangle]
-pub extern "C" fn SetPoolSize(size: c_int) {
-    let mut n = size;
-    if n < 2 {
-        n = 2;
+pub extern "C" fn SetMtprotoStandbyPerActiveSlot(size: c_int) -> c_int {
+    let requested = size.clamp(config::MTPROTO_MIN_STANDBY, config::MTPROTO_MAX_STANDBY);
+    MTPROTO_STANDBY_PER_ACTIVE_SLOT_REQUESTED.store(requested, Ordering::Relaxed);
+    let effective = config::effective_mtproto_standby(
+        requested,
+        config::MOBILE_NETWORK.load(Ordering::Relaxed),
+    ) as c_int;
+    crate::linfo!(
+        "SetMtprotoStandbyPerActiveSlot: requested={} effective={} is_mobile={}",
+        requested,
+        effective,
+        config::MOBILE_NETWORK.load(Ordering::Relaxed)
+    );
+    effective
+}
+
+#[no_mangle]
+pub extern "C" fn SetIpv6OnlyNetwork(is_ipv6_only: c_int) {
+    let flag = is_ipv6_only != 0;
+    crate::recovery::set_ipv6_only_network(flag);
+    crate::linfo!("SetIpv6OnlyNetwork: ipv6_only={}", flag);
+}
+
+#[no_mangle]
+pub extern "C" fn GetTransportPoolStatusJson() -> *mut c_char {
+    let cell = state_cell();
+    let guard = cell.lock();
+    let transport = match guard.as_ref() {
+        Some(state) => {
+            if state.pool.is_some() {
+                "mtproto"
+            } else {
+                "socks5"
+            }
+        }
+        None => "idle",
+    };
+    let status = config::get_transport_pool_status(transport);
+    let json = serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string());
+    CString::new(json).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn SetSocketBufferSizes(recv_size: c_int, send_size: c_int) -> c_int {
+    let requested_recv = recv_size.max(0);
+    let requested_send = send_size.max(0);
+    let recv = if requested_recv == 0 {
+        0
+    } else {
+        requested_recv.clamp(config::MIN_SOCKET_BUFFER, config::MAX_SOCKET_BUFFER)
+    };
+    let send = if requested_send == 0 {
+        0
+    } else {
+        requested_send.clamp(config::MIN_SOCKET_BUFFER, config::MAX_SOCKET_BUFFER)
+    };
+    REQUESTED_RECV_BUF.store(requested_recv, Ordering::Relaxed);
+    REQUESTED_SEND_BUF.store(requested_send, Ordering::Relaxed);
+    RECV_BUF.store(recv, Ordering::Relaxed);
+    SEND_BUF.store(send, Ordering::Relaxed);
+    crate::linfo!(
+        "SetSocketBufferSizes: requested_recv={} requested_send={} effective_recv={} effective_send={} autotune_baseline={}",
+        requested_recv,
+        requested_send,
+        recv,
+        send,
+        recv == 0 && send == 0
+    );
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn GetSocketBufferStatusJson() -> *mut c_char {
+    let status = config::get_socket_buffer_status();
+    let json = serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string());
+    CString::new(json).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn GetLastOsSocketBufferSizes(
+    recv_out: *mut c_int,
+    send_out: *mut c_int,
+) -> c_int {
+    if recv_out.is_null() || send_out.is_null() {
+        return -1;
     }
-    if n > 16 {
-        n = 16;
+    unsafe {
+        *recv_out = config::LAST_OS_RECV_BUF.load(Ordering::Relaxed);
+        *send_out = config::LAST_OS_SEND_BUF.load(Ordering::Relaxed);
     }
-    POOL_SIZE.store(n, Ordering::Relaxed);
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn SetNetworkProfile(is_mobile: c_int) {
+    network_profile::update_legacy_transport(is_mobile != 0);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SetNetworkProfileJson(c_json: *const c_char) -> c_int {
+    let json = cstr_to_string(c_json);
+    match network_profile::set_profile_json(&json) {
+        Ok(_) => 0,
+        Err(error) => {
+            crate::lerror!("SetNetworkProfileJson error: {}", error);
+            -1
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn GetNetworkProfileJson() -> *mut c_char {
+    CString::new(network_profile::get_profile_json())
+        .unwrap_or_default()
+        .into_raw()
 }
 
 pub static BATTERY_QOS_LEVEL: AtomicU8 = AtomicU8::new(0);
@@ -376,19 +593,22 @@ pub extern "C" fn SetTcpNoDelay(enabled: c_int) {
 #[no_mangle]
 pub unsafe extern "C" fn SetCfProxyCacheDir(c_cache_dir: *const c_char) {
     let dir = cstr_to_string(c_cache_dir);
-    CFPROXY.write().cache_dir = dir.trim().to_string();
+    generation_guard::change_config(|| {
+        CFPROXY.write().cache_dir = dir.trim().to_string();
+    });
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn SetCfProxyConfig(enabled: c_int, c_user_domain: *const c_char) {
-    CFPROXY_ENABLED.store(enabled != 0, Ordering::Relaxed);
     let user_domain = cstr_to_string(c_user_domain);
-    *LAST_SOCKS5_WORKER.write() = String::new();
-    vless::reset_vless_scorer();
-    cfproxy::clear_cfproxy_429_cooldowns();
-    let mut cfg = CFPROXY.write();
-    cfg.user_domain = user_domain.clone();
-    cfg.active = user_domain;
+    generation_guard::change_config(|| {
+        CFPROXY_ENABLED.store(enabled != 0, Ordering::Relaxed);
+        *LAST_SOCKS5_WORKER.write() = String::new();
+        vless::reset_vless_scorer();
+        let mut cfg = CFPROXY.write();
+        cfg.user_domain = user_domain.clone();
+        cfg.active = user_domain;
+    });
 }
 
 #[no_mangle]
@@ -412,12 +632,23 @@ pub unsafe extern "C" fn SetSocks5Auth(c_username: *const c_char, c_password: *c
 #[no_mangle]
 pub unsafe extern "C" fn SetDohEndpoints(c_endpoints: *const c_char) {
     let endpoints_str = cstr_to_string(c_endpoints);
-    cfproxy::set_doh_endpoints(&endpoints_str);
+    generation_guard::change_config(|| {
+        cfproxy::set_doh_endpoints(&endpoints_str);
+        dns::set_doh_endpoints(&endpoints_str);
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn SetDnsPolicy(policy: c_int) {
+    dns::set_dns_policy(policy);
 }
 
 #[no_mangle]
 pub extern "C" fn SetUplinkMode(mode: c_int) {
-    masque::set_uplink_mode(mode);
+    generation_guard::change_config(|| {
+        masque::set_uplink_mode(mode);
+        supervisor::ROUTE_SUPERVISOR.set_intent(mode, 1, true);
+    });
 }
 
 #[no_mangle]
@@ -433,7 +664,7 @@ pub unsafe extern "C" fn SetWarpConfig(
     let auth_token = cstr_to_string(c_auth_token);
     let client_ipv4 = cstr_to_string(c_client_ipv4);
     let client_ipv6 = cstr_to_string(c_client_ipv6);
-    masque::set_warp_config(&endpoint, &sni, &auth_token, &client_ipv4, &client_ipv6);
+    generation_guard::change_config(|| masque::set_warp_config(&endpoint, &sni, &auth_token, &client_ipv4, &client_ipv6));
 }
 
 #[no_mangle]
@@ -445,13 +676,13 @@ pub unsafe extern "C" fn SetWarpCrypto(
     let p256_priv = cstr_to_string(c_p256_priv);
     let client_cert = cstr_to_string(c_client_cert);
     let peer_pub = cstr_to_string(c_peer_pub);
-    masque::set_warp_crypto(&p256_priv, &client_cert, &peer_pub);
+    generation_guard::change_config(|| masque::set_warp_crypto(&p256_priv, &client_cert, &peer_pub));
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn SetWarpUriTemplate(c_uri_template: *const c_char) {
     let uri_template = cstr_to_string(c_uri_template);
-    masque::set_warp_uri_template(&uri_template);
+    generation_guard::change_config(|| masque::set_warp_uri_template(&uri_template));
 }
 
 #[no_mangle]
@@ -475,7 +706,7 @@ pub unsafe extern "C" fn SetWarpFullConfig(
     let client_cert = cstr_to_string(c_client_cert);
     let peer_pub = cstr_to_string(c_peer_pub);
     let uri_template = cstr_to_string(c_uri_template);
-    masque::set_warp_full_config(
+    generation_guard::change_config(|| masque::set_warp_full_config(
         &endpoint,
         &sni,
         &auth_token,
@@ -485,12 +716,12 @@ pub unsafe extern "C" fn SetWarpFullConfig(
         &client_cert,
         &peer_pub,
         &uri_template,
-    );
+    ));
 }
 
 #[no_mangle]
 pub extern "C" fn ClearWarpCrypto() {
-    masque::clear_warp_crypto();
+    generation_guard::change_config(|| masque::clear_warp_crypto());
 }
 
 #[no_mangle]
@@ -539,12 +770,12 @@ pub extern "C" fn GetWarpStickyEndpoint() -> *mut c_char {
 #[no_mangle]
 pub unsafe extern "C" fn SetWarpStickyEndpoint(c_endpoint: *const c_char) {
     let endpoint = cstr_to_string(c_endpoint);
-    masque::set_sticky_endpoint(&endpoint);
+    generation_guard::change_config(|| masque::set_sticky_endpoint(&endpoint));
 }
 
 #[no_mangle]
 pub extern "C" fn ClearWarpStickyProfile() {
-    masque::clear_sticky_endpoint();
+    generation_guard::change_config(|| masque::clear_sticky_endpoint());
 }
 
 #[no_mangle]
@@ -568,7 +799,9 @@ pub unsafe extern "C" fn SetVlessConfig(
     let uuid_str = cstr_to_string(c_uuid);
     let path = cstr_to_string(c_path);
     let domain = cstr_to_string(c_domain);
-    vless::set_vless_config(&uuid_str, &path, &domain);
+    generation_guard::change_config(|| {
+        vless::set_vless_config(&uuid_str, &path, &domain);
+    });
 }
 
 #[no_mangle]
@@ -604,7 +837,7 @@ pub unsafe extern "C" fn SetVlessExtendedConfig(
     let flow = cstr_to_string(c_flow);
     let header_type = cstr_to_string(c_header_type);
 
-    vless::set_vless_extended_config(
+    generation_guard::change_config(|| vless::set_vless_extended_config(
         &uuid_str,
         &path,
         &domain,
@@ -624,7 +857,7 @@ pub unsafe extern "C" fn SetVlessExtendedConfig(
         &spider_x,
         &flow,
         &header_type,
-    );
+    ));
 }
 
 #[no_mangle]
@@ -643,7 +876,7 @@ pub unsafe extern "C" fn SetVlessNetworkConfig(
     let server_address = cstr_to_string(c_server_address);
     let tls_sni = cstr_to_string(c_tls_sni);
     let host_header = cstr_to_string(c_host_header);
-    vless::set_vless_network_config(
+    generation_guard::change_config(|| vless::set_vless_network_config(
         &uuid_str,
         &path,
         &domain,
@@ -655,13 +888,13 @@ pub unsafe extern "C" fn SetVlessNetworkConfig(
         },
         &tls_sni,
         &host_header,
-    );
+    ));
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn SetVlessFallbackPool(c_domains: *const c_char) {
     let domains = cstr_to_string(c_domains);
-    vless::set_vless_fallback_pool(&domains);
+    generation_guard::change_config(|| vless::set_vless_fallback_pool(&domains));
 }
 
 #[no_mangle]
@@ -670,7 +903,7 @@ pub unsafe extern "C" fn SetVlessFallbackProfilesJson(c_json: *const c_char) -> 
     if json_str.is_empty() {
         return -1;
     }
-    match vless::set_vless_fallback_profiles_json(&json_str) {
+    match generation_guard::change_config(|| vless::set_vless_fallback_profiles_json(&json_str)) {
         Ok(count) => count as c_int,
         Err(e) => {
             crate::lerror!("SetVlessFallbackProfilesJson error: {}", e);
@@ -691,7 +924,7 @@ pub unsafe extern "C" fn SetVlessConfigJson(c_json: *const c_char) -> c_int {
     if json_str.is_empty() {
         return -1;
     }
-    match vless::set_vless_config_json(&json_str) {
+    match generation_guard::change_config(|| vless::set_vless_config_json(&json_str)) {
         Ok(()) => 0,
         Err(e) => {
             crate::lerror!("SetVlessConfigJson error: {}", e);
@@ -713,7 +946,7 @@ pub unsafe extern "C" fn SetOperaVpnConfig(
     c_endpoint: *const c_char,
 ) {
     let endpoint = cstr_to_string(c_endpoint);
-    config::set_opera_vpn_config(vless_enabled != 0, warp_enabled != 0, &endpoint);
+    generation_guard::change_config(|| config::set_opera_vpn_config(vless_enabled != 0, warp_enabled != 0, &endpoint));
 }
 
 #[no_mangle]
@@ -752,7 +985,7 @@ pub unsafe extern "C" fn SetAwgConfigParams(
     let public_key_b64 = cstr_to_string(c_public_key_b64);
     let peer_pub_b64 = cstr_to_string(c_peer_pub_b64);
     let client_ipv4 = cstr_to_string(c_client_ipv4);
-    awg::set_awg_config(
+    generation_guard::change_config(|| awg::set_awg_config(
         &endpoint,
         &private_key_b64,
         &public_key_b64,
@@ -767,7 +1000,7 @@ pub unsafe extern "C" fn SetAwgConfigParams(
         h2.max(0) as u32,
         h3.max(0) as u32,
         h4.max(0) as u32,
-    );
+    ));
 }
 
 /// Kotlin interface: SetAwgConfig(ini: String): Int
@@ -779,7 +1012,7 @@ pub unsafe extern "C" fn SetAwgConfig(c_ini: *const c_char) -> c_int {
     if ini_str.is_empty() {
         return -1;
     }
-    match awg::set_awg_config_ini(&ini_str) {
+    match generation_guard::change_config(|| awg::set_awg_config_ini(&ini_str)) {
         Ok(()) => 0,
         Err(e) => {
             crate::lerror!("SetAwgConfig (INI) error: {}", e);
@@ -790,6 +1023,7 @@ pub unsafe extern "C" fn SetAwgConfig(c_ini: *const c_char) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn SetAwgWarpMode() {
+    generation_guard::change_config(|| {
     let mut cfg = awg::AWG_CONFIG.write();
     cfg.awg_params = awg::AwgParams::warp_recommended();
     cfg.profile_name = "Cloudflare WARP".to_string();
@@ -807,6 +1041,7 @@ pub extern "C" fn SetAwgWarpMode() {
     );
     drop(cfg);
     awg::invalidate_active_peer();
+    });
     awg::reset_awg_circuit_breaker();
 }
 
@@ -824,7 +1059,53 @@ pub extern "C" fn GetAwgStatus() -> *mut c_char {
 
 #[no_mangle]
 pub extern "C" fn GetActiveCascadeStage() -> c_int {
-    masque::get_active_cascade_stage()
+    supervisor::get_active_cascade_stage()
+}
+
+#[no_mangle]
+pub extern "C" fn GetRouteGeneration() -> i64 {
+    supervisor::get_route_generation() as i64
+}
+
+#[no_mangle]
+pub extern "C" fn GetRouteStateJson() -> *mut c_char {
+    let s = supervisor::ROUTE_SUPERVISOR.get_route_state_json();
+    CString::new(s).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ReportRouteFailure(c_reason: *const c_char) -> c_int {
+    let reason = cstr_to_string(c_reason);
+    supervisor::ROUTE_SUPERVISOR.report_route_failure(&reason)
+}
+
+#[no_mangle]
+pub extern "C" fn SetRoutingIntent(mode: c_int, generation: i64, fallback_enabled: c_int) {
+    generation_guard::change_config(|| supervisor::ROUTE_SUPERVISOR.set_intent(
+        mode as i32,
+        if generation > 0 { generation as u64 } else { 1 },
+        fallback_enabled != 0,
+    ));
+}
+
+#[no_mangle]
+pub extern "C" fn ResetRouteSupervisor() {
+    supervisor::ROUTE_SUPERVISOR.reset();
+}
+
+#[no_mangle]
+pub extern "C" fn SetTrustPolicy(
+    is_private_node: c_int,
+    allow_public_relay_fallback: c_int,
+    allow_opera_direct_exit: c_int,
+    allow_opera_transport_hop: c_int,
+) {
+    generation_guard::change_config(|| supervisor::ROUTE_SUPERVISOR.set_trust_policy(
+        is_private_node != 0,
+        allow_public_relay_fallback != 0,
+        allow_opera_direct_exit != 0,
+        allow_opera_transport_hop != 0,
+    ));
 }
 
 #[no_mangle]
@@ -847,9 +1128,11 @@ pub unsafe extern "C" fn StartAwgSocks5Proxy(
     let is_verbose = verbose != 0;
 
     init_logging(is_verbose);
-    cfproxy::clear_cfproxy_429_cooldowns();
     cfproxy::clear_doh_cache();
+    recovery::reset();
     balancer::BALANCER.write().reset_ranking();
+    node_independence::NODE_INDEPENDENCE_TRACKER.write().reset();
+    tls_observability::TLS_TRACKER.write().reset();
 
     let rt = runtime();
     let cancel_tasks = CancellationToken::new();
@@ -994,9 +1277,54 @@ async fn awg_socks5_handshake(stream: &mut tokio::net::TcpStream) -> Result<Stri
 }
 
 #[no_mangle]
+pub extern "C" fn GetStageTimelineJson() -> *mut c_char {
+    let s = timeline::TIMELINE_TRACKER.get_timeline_json();
+    CString::new(s).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn GetUsefulRxSliJson() -> *mut c_char {
+    let s = serde_json::to_string(&timeline::TIMELINE_TRACKER.get_sli_summary())
+        .unwrap_or_else(|_| "{}".to_string());
+    CString::new(s).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn SetNetworkGeneration(gen: i64) {
+    if gen > 0 {
+        network_profile::update_generation(gen as u64);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn GetDomainBalancerStatusJson() -> *mut c_char {
+    let s = balancer::BALANCER.read().get_status_json();
+    CString::new(s).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn GetDialBudgetStatsJson() -> *mut c_char {
+    let rt = runtime();
+    let stats = rt.block_on(async { budget::DIAL_BUDGET.stats().await });
+    let s = serde_json::to_string(&stats).unwrap_or_else(|_| "{}".to_string());
+    CString::new(s).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn GetNodeIndependenceStatusJson() -> *mut c_char {
+    let s = node_independence::NODE_INDEPENDENCE_TRACKER.read().get_all_telemetry_json();
+    CString::new(s).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn GetTlsObservabilityStatusJson() -> *mut c_char {
+    let s = tls_observability::TLS_TRACKER.read().get_status_json();
+    CString::new(s).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn FreeString(p: *mut c_char) {
     if !p.is_null() {
         let _ = CString::from_raw(p);
     }
 }
-

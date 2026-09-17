@@ -240,7 +240,7 @@ class TelegramDCAffinityEngine {
 
         val activeCount = allocation.values.count { it > 0 }
         val primaryName = if (primaryDcId != null) getDcInfo(primaryDcId).name else "Авто"
-        val summary = "Доминантный DC: $primaryName | Активных DC: $activeCount | Пул: $poolBudget"
+        val summary = "Доминантный DC: $primaryName | Активных DC: $activeCount | MTProto standby budget: $poolBudget"
 
         return DcAffinityDistribution(
             primaryDcId = primaryDcId,

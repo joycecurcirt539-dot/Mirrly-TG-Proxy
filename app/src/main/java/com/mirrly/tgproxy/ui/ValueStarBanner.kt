@@ -1,4 +1,5 @@
 package com.mirrly.tgproxy.ui
+import androidx.compose.ui.res.stringResource
 
 import android.content.Intent
 import android.net.Uri
@@ -42,8 +43,8 @@ fun ValueStarBanner(
     if (showConfirmDialog) {
         ExternalLinkConfirmDialog(
             url = githubUrl,
-            title = "Оценить проект звёздочкой на GitHub",
-            description = "Ссылка ведет на официальную страницу открытого репозитория Mirrly TG Proxy на GitHub. Оценка звёздочкой (Star) — это совершенно бесплатный способ поддержать автора R1Xern и помочь продвижению проекта!",
+            title = stringResource(R.string.github_star_dialog_title),
+            description = stringResource(R.string.github_star_dialog_desc),
             onDismiss = { showConfirmDialog = false },
             onConfirmed = { onStarClicked() }
         )
@@ -53,18 +54,17 @@ fun ValueStarBanner(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(Color.Transparent)
-            .border(
-                width = 1.dp,
-                brush = Brush.horizontalGradient(
+            .frostedVignetteCard(
+                shape = RoundedCornerShape(22.dp),
+                accentColor = ActiveGreenLed,
+                vignetteStrength = 0.65f,
+                borderBrush = Brush.horizontalGradient(
                     colors = listOf(
                         ActiveGreenLed.copy(alpha = 0.55f),
                         ActiveGreenLed.copy(alpha = 0.30f),
-                        ActiveGreenLed.copy(alpha = 0.35f)
+                        ActiveGreenLed.copy(alpha = 0.40f)
                     )
-                ),
-                shape = RoundedCornerShape(22.dp)
+                )
             )
             .lightSweep(
                 isEnabled = true,
@@ -99,14 +99,14 @@ fun ValueStarBanner(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Mirrly защищает ваш Telegram уже 1 час!",
+                        text = stringResource(R.string.value_star_banner_title),
                         fontSize = 14.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextWhite
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Если вам нравится скорость — поддержите проект звездочкой на GitHub.",
+                        text = stringResource(R.string.value_star_banner_desc),
                         fontSize = 12.sp,
                         color = TextMuted,
                         lineHeight = 16.sp
@@ -143,7 +143,7 @@ fun ValueStarBanner(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "Поставить звезду",
+                            text = stringResource(R.string.action_star_github),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
@@ -158,7 +158,7 @@ fun ValueStarBanner(
                     modifier = Modifier.height(40.dp)
                 ) {
                     Text(
-                        text = "Закрыть",
+                        text = stringResource(R.string.action_close),
                         color = TextMuted,
                         fontWeight = FontWeight.Medium,
                         fontSize = 13.sp

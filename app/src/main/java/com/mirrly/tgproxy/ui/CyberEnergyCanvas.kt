@@ -21,6 +21,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.mirrly.tgproxy.ui.theme.ActiveGreenLed
 import com.mirrly.tgproxy.ui.theme.rememberAnimatedProtocolColors
+import com.mirrly.tgproxy.ui.theme.ProtocolColors
+import com.mirrly.tgproxy.ui.theme.VpnThemeManager
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
@@ -78,6 +80,8 @@ private class CanvasMetrics(
 fun CyberEnergyCanvas(
     state: ProxyUiState,
     isSocks5: Boolean = com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.isSocks5Flow.collectAsState().value,
+    isVpnMode: Boolean = false,
+    vpnColors: ProtocolColors? = null,
     externalTouchPoint: Offset? = null,
     isConstellationPaused: Boolean = false,
     modifier: Modifier = Modifier
@@ -166,28 +170,35 @@ fun CyberEnergyCanvas(
         }
     }
 
-    // Dynamic Protocol Colors (MTProto = Emerald/Cyan, SOCKS5 = Violet/Purple)
-    val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+    // Dynamic Protocol Colors (MTProto = Emerald/Cyan, SOCKS5 = Violet/Purple, VPN = System Neon Palette)
+    val vpnPalette = vpnColors ?: remember { VpnThemeManager.getSystemVpnPalette(context) }
+    val animatedProtoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+    val protoColors = if (isVpnMode) vpnPalette else animatedProtoColors
 
     // Animated colors for glowing spheres across all 3 states:
-    // 1. Disconnected: Barely visible (еле заметные), subtle dark graphite
+    // 1. Disconnected: Barely visible (barely visible), subtle dark graphite
     // 2. Connected MTProto: Vivid Emerald / Cyan
     // 3. Connected SOCKS5: Vivid Violet / Purple
-    val targetOrb1 = if (isConnected) protoColors.orb1.copy(alpha = 0.28f) else Color(0xFF222B38).copy(alpha = 0.16f)
-    val targetOrb2 = if (isConnected) protoColors.orb2.copy(alpha = 0.24f) else Color(0xFF1E2634).copy(alpha = 0.14f)
-    val targetOrb3 = if (isConnected) protoColors.orb3.copy(alpha = 0.20f) else Color(0xFF18202C).copy(alpha = 0.11f)
-    val targetOrb4 = if (isConnected) protoColors.orb4.copy(alpha = 0.22f) else Color(0xFF202836).copy(alpha = 0.13f)
+    val targetOrb1 = if (isConnected || isVpnMode) protoColors.orb1.copy(alpha = 0.28f) else Color(0xFF222B38).copy(alpha = 0.16f)
+    val targetOrb2 = if (isConnected || isVpnMode) protoColors.orb2.copy(alpha = 0.24f) else Color(0xFF1E2634).copy(alpha = 0.14f)
+    val targetOrb3 = if (isConnected || isVpnMode) protoColors.orb3.copy(alpha = 0.20f) else Color(0xFF18202C).copy(alpha = 0.11f)
+    val targetOrb4 = if (isConnected || isVpnMode) protoColors.orb4.copy(alpha = 0.22f) else Color(0xFF202836).copy(alpha = 0.13f)
 
     val orb1CenterColor by animateColorAsState(targetOrb1, tween(750, easing = FastOutSlowInEasing), label = "orb1Center")
     val orb2CenterColor by animateColorAsState(targetOrb2, tween(750, easing = FastOutSlowInEasing), label = "orb2Center")
     val orb3CenterColor by animateColorAsState(targetOrb3, tween(750, easing = FastOutSlowInEasing), label = "orb3Center")
     val orb4CenterColor by animateColorAsState(targetOrb4, tween(750, easing = FastOutSlowInEasing), label = "orb4Center")
 
-    // Target resting particle color across all 3 states:
-    // 1. Disconnected: Delicate starry white dots
-    // 2. Connected MTProto: Pure Emerald dots
-    // 3. Connected SOCKS5: Pure Violet dots
-    val targetParticleColor = if (isConnected) protoColors.primary else Color(0xFFF1F5F9)
+    // Target resting particle color:
+    // When VPN: System-selected Neon Accent
+    // When Connected: Primary protocol color
+    // When Disconnected: Tinted star points with luminescent core
+    val targetParticleColor = when {
+        isVpnMode -> protoColors.primary
+        isConnected -> protoColors.primary
+        isSocks5 -> Color(0xFFC084FC).copy(alpha = 0.75f)
+        else -> Color(0xFF00F5D4).copy(alpha = 0.75f)
+    }
     val particleColor by animateColorAsState(
         targetValue = targetParticleColor,
         animationSpec = tween(750, easing = FastOutSlowInEasing),
@@ -280,10 +291,10 @@ fun CyberEnergyCanvas(
         }
     }
 
-    val maxConnDistPx = remember(density) { with(density) { 56.dp.toPx() } }
+    val maxConnDistPx = remember(density) { with(density) { 82.dp.toPx() } }
     val maxConnDistSq = remember(maxConnDistPx) { maxConnDistPx * maxConnDistPx }
     val touchRadiusPx = remember(density) { with(density) { 150.dp.toPx() } }
-    val connStrokeWidth = remember(density) { with(density) { 0.85.dp.toPx() } }
+    val connStrokeWidth = remember(density) { with(density) { 0.95.dp.toPx() } }
 
     // Reusable paint and gradient buffers to eliminate heap allocations in onDraw
     val orbPaint = remember {
@@ -461,10 +472,10 @@ fun CyberEnergyCanvas(
                 }
             }
 
-            // Twinkle alpha: crisp and visible in all 3 states
+            // Twinkle alpha: crisp and visible in all 3 states (even disconnected)
             val flicker = 0.82f + 0.18f * sin(t * 2.2f + p.phase)
-            val stateAlphaMultiplier = if (isConnected) (0.65f + 0.35f * animatedEnergy) else 0.75f
-            val normalAlpha = (p.baseAlpha * flicker * stateAlphaMultiplier).coerceIn(0.20f, 0.90f)
+            val stateAlphaMultiplier = if (isConnected || isVpnMode) (0.80f + 0.20f * animatedEnergy) else 0.76f
+            val normalAlpha = (p.baseAlpha * flicker * stateAlphaMultiplier).coerceIn(0.24f, 0.95f)
 
             particleCoords[i * 3] = px
             particleCoords[i * 3 + 1] = py
@@ -474,6 +485,7 @@ fun CyberEnergyCanvas(
         // Pass 2: Constellation Neural Mesh (Skipped when secondary tab / background blurred to save O(N^2) CPU overhead)
         if (!isConstellationPaused) {
             val particleCount = preparedParticles.size
+            val baseMeshAlpha = if (isVpnMode) 0.44f else if (isConnected) 0.38f else 0.28f
             for (i in 0 until particleCount) {
                 val p1x = particleCoords[i * 3]
                 val p1y = particleCoords[i * 3 + 1]
@@ -492,8 +504,8 @@ fun CyberEnergyCanvas(
 
                     if (distSq < maxConnDistSq) {
                         val dist = kotlin.math.sqrt(distSq)
-                        val connAlpha = (1f - dist / maxConnDistPx) * 0.32f * kotlin.math.min(p1Alpha, p2Alpha)
-                        if (connAlpha > 0.012f) {
+                        val connAlpha = (1f - dist / maxConnDistPx) * baseMeshAlpha * kotlin.math.min(p1Alpha, p2Alpha)
+                        if (connAlpha > 0.008f) {
                             drawLine(
                                 color = particleColor.copy(alpha = connAlpha),
                                 start = Offset(p1x, p1y),
@@ -557,9 +569,9 @@ fun CyberEnergyCanvas(
 }
 
 /**
- * Легковесный оверлей микро-частиц и созвездий для отображения поверх других экранов и диалогов.
- * Не перехватывает клики и жесты, автоматически адаптирует цвета под активный протокол (MTProto/SOCKS5).
- * Автоматически замораживает такты анимации (timeState), когда оверлей скрыт (alphaMultiplier <= 0f или isVisible = false).
+ * Lightweight overlay micro-particles and constellations for rendering over other screens and dialogs.
+ * Does not intercept clicks and gestures, automatically adapts colors for active protocol (MTProto/SOCKS5).
+ * note freezes ticks animations (timeState), when overlay hidden (alphaMultiplier <= 0f or isVisible = false).
  */
 @Composable
 fun CyberParticlesOverlay(

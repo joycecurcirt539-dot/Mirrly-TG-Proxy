@@ -51,6 +51,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -66,9 +67,11 @@ import com.mirrly.tgproxy.ui.theme.*
 fun NetworkDiagnosticScreen(
     onBack: () -> Unit,
     onOpenAnalytics: (() -> Unit)? = null,
-    onOpenSpeedTest: (() -> Unit)? = null
+    onOpenSpeedTest: (() -> Unit)? = null,
+    onOpenDiagnosticReport: (() -> Unit)? = null
 ) {
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     val app = MirrlyApplication.instance
     val server = app.proxyServer
 
@@ -81,20 +84,23 @@ fun NetworkDiagnosticScreen(
     var jitterMs by remember { mutableLongStateOf(if (server.isRunning) server.stats.jitterMs else 0L) }
     var healthScore by remember { mutableIntStateOf(if (server.isRunning) server.stats.healthScore else 0) }
     var chatScore by remember { mutableIntStateOf(if (server.isRunning) server.stats.chatScore else 0) }
-    var chatVerdict by remember { mutableStateOf(if (server.isRunning) server.stats.chatVerdict else "Прокси остановлен") }
+    val stoppedText = stringResource(R.string.nd_proxy_stopped)
+    val initialDetail = stringResource(R.string.nd_initial_health_detail)
+    val noConnText = stringResource(R.string.nd_no_connection)
+    var chatVerdict by remember { mutableStateOf(if (server.isRunning) ConnectionHealthFormatter.formatChatVerdict(context, server.stats.chatVerdict) else stoppedText) }
     var callScore by remember { mutableIntStateOf(if (server.isRunning) server.stats.callScore else 0) }
-    var verdict by remember { mutableStateOf(if (server.isRunning) server.stats.healthVerdict else "Прокси остановлен") }
-    var verdictDetail by remember { mutableStateOf(if (server.isRunning) server.stats.healthDetail else "Запустите службу для автоматической оценки качества") }
+    var verdict by remember { mutableStateOf(if (server.isRunning) ConnectionHealthFormatter.formatVerdict(context, server.stats.healthVerdict) else stoppedText) }
+    var verdictDetail by remember { mutableStateOf(if (server.isRunning) ConnectionHealthFormatter.formatDetail(context, server.stats.healthDetail) else initialDetail) }
     var successRate by remember { mutableIntStateOf(if (server.isRunning) server.stats.healthSuccessRate else 100) }
     var mosScore by remember { mutableDoubleStateOf(if (server.isRunning) server.stats.mosScore else 1.0) }
-    var mosGrade by remember { mutableStateOf(if (server.isRunning) server.stats.mosGrade else "Нет связи") }
+    var mosGrade by remember { mutableStateOf(if (server.isRunning) ConnectionHealthFormatter.formatMosGrade(context, server.stats.mosGrade) else noConnText) }
     var isCallRecommended by remember { mutableStateOf(if (server.isRunning) server.stats.isCallRecommended else false) }
     var minRttMs by remember { mutableLongStateOf(if (server.isRunning) server.stats.minRttMs else -1L) }
     var bufferbloatMs by remember { mutableLongStateOf(if (server.isRunning) server.stats.bufferbloatMs else 0L) }
     var bufferbloatGrade by remember { mutableStateOf(if (server.isRunning) server.stats.bufferbloatGrade else "—") }
     var currentAlpha by remember { mutableDoubleStateOf(if (server.isRunning) server.stats.currentAlpha else 0.25) }
     var rttHistory by remember { mutableStateOf<List<PingHistoryPoint>>(if (server.isRunning) server.stats.rttHistory else emptyList()) }
-    var poolSize by remember { mutableIntStateOf(if (server.isRunning) server.config.poolSize else 2) }
+    var poolSize by remember { mutableIntStateOf(if (server.isRunning) server.config.mtprotoStandbyPerActiveSlot else 1) }
     var lastFailureType by remember { mutableStateOf(if (server.isRunning) server.stats.lastFailureType else FailureType.NONE) }
 
     LaunchedEffect(isProxyActive) {
@@ -104,37 +110,37 @@ fun NetworkDiagnosticScreen(
                 jitterMs = server.stats.jitterMs
                 healthScore = server.stats.healthScore
                 chatScore = server.stats.chatScore
-                chatVerdict = server.stats.chatVerdict
+                chatVerdict = ConnectionHealthFormatter.formatChatVerdict(context, server.stats.chatVerdict)
                 callScore = server.stats.callScore
-                verdict = server.stats.healthVerdict
-                verdictDetail = server.stats.healthDetail
+                verdict = ConnectionHealthFormatter.formatVerdict(context, server.stats.healthVerdict)
+                verdictDetail = ConnectionHealthFormatter.formatDetail(context, server.stats.healthDetail)
                 successRate = server.stats.healthSuccessRate
                 mosScore = server.stats.mosScore
-                mosGrade = server.stats.mosGrade
+                mosGrade = ConnectionHealthFormatter.formatMosGrade(context, server.stats.mosGrade)
                 isCallRecommended = server.stats.isCallRecommended
                 minRttMs = server.stats.minRttMs
                 bufferbloatMs = server.stats.bufferbloatMs
                 bufferbloatGrade = server.stats.bufferbloatGrade
                 currentAlpha = server.stats.currentAlpha
                 rttHistory = server.stats.rttHistory
-                poolSize = server.config.poolSize
+                poolSize = server.config.mtprotoStandbyPerActiveSlot
                 lastFailureType = server.stats.lastFailureType
             } else {
                 healthScore = 0
                 chatScore = 0
-                chatVerdict = "Прокси остановлен"
+                chatVerdict = stoppedText
                 callScore = 0
-                verdict = "Прокси остановлен"
-                verdictDetail = "Запустите службу для автоматической оценки качества"
+                verdict = stoppedText
+                verdictDetail = initialDetail
                 mosScore = 1.0
-                mosGrade = "Прокси остановлен"
+                mosGrade = stoppedText
                 isCallRecommended = false
                 minRttMs = -1L
                 bufferbloatMs = 0L
                 bufferbloatGrade = "—"
                 currentAlpha = 0.25
                 rttHistory = emptyList()
-                poolSize = 2
+                poolSize = 1
                 lastFailureType = FailureType.NONE
             }
             kotlinx.coroutines.delay(500)
@@ -145,338 +151,33 @@ fun NetworkDiagnosticScreen(
 
     val infoData = remember {
         mapOf(
-            "sqi" to Pair(
-                "Индекс качества сети (SQI)",
-                """
-                КАК РАБОТАЕТ:
-                • Комплексный интегральный скоринг стабильности сетевого туннеля (от 0 до 100%), рассчитываемый в реальном времени.
-                • Объединяет оценку качества для чатов/медиафайлов (55%) и аудио/видеозвонков (45%).
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Позволяет моментально определить пригодность соединения для всех сервисов Telegram.
-
-                ОРИЕНТИРЫ И НОРМЫ:
-                • 90–100%: идеальный прямой канал без задержек.
-                • 75–89%: стабильное рабочее соединение.
-                • 50–74%: задержки на стороне оператора связи.
-                • Ниже 50%: деградация канала или потеря пакетов.
-                """.trimIndent()
-            ),
-            "chats_sqi" to Pair(
-                "Качество для чатов и медиа (TCP)",
-                """
-                КАК РАБОТАЕТ:
-                • Оценивает надежность и скорость передачи текстовых сообщений, стикеров, фото и видеофайлов по защищенному протоколу TCP/TLS.
-                • Алгоритм отдает 50% приоритета надежности доставки пакетов, 30% времени отклика (RTT) и 20% стабильности очередей.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Для чатов и медиа задержка до 200 мс не ощущается, но критически важно отсутствие потерь пакетов и раздувания буферов оборудования.
-
-                ОРИЕНТИРЫ И НОРМЫ:
-                • 90–100%: идеальная мгновенная отправка и быстрая загрузка медиа.
-                • 75–89%: стабильный комфортный обмен сообщениями.
-                • 50–74%: умеренная скорость передачи тяжелых файлов.
-                • Ниже 50%: задержки и сбои загрузки.
-                """.trimIndent()
-            ),
-            "latency_sparkline" to Pair(
-                "Динамика задержки (Sparkline 60 сек)",
-                """
-                КАК РАБОТАЕТ ГРАФИК:
-                • Отображает историю каждого замера времени отклика (RTT) туннеля за последнюю минуту в реальном времени.
-                • Зеленые точки — идеальный отклик (< 80 мс), синие — стандартный (80–180 мс), желтые — повышенный, красные — сетевой сбой или таймаут.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Позволяет визуально выявить микро-скачки (Jitter Spikes), переключение сотовых вышек (Cell Handover) и нестабильность Wi-Fi.
-                • Вы можете коснуться любой точки на графике пальцем для просмотра точного времени и задержки конкретного замера.
-                """.trimIndent()
-            ),
-            "readiness_grid" to Pair(
-                "Готовность сервисов Telegram",
-                """
-                КАК РАБОТАЕТ МАТРИЦА:
-                • Анализирует физические сетевые метрики (задержку, джиттер, потери, размер буферов и пула сокетов) и оценивает готовность 4 ключевых типов сервисов Telegram в реальном времени.
-
-                ТИПЫ СЕРВИСОВ:
-                • Чаты и стикеры: готовность к мгновенной отправке сообщений без буферных задержек (< 80 мс).
-                • Фото и голосовые: высокая скорость передачи медиапотока без потерь (>= 95%).
-                • Файлы и 4K видео: пропускная способность пула сокетов и буфера (до 2 МБ).
-                • Звонки и видео HD: качество аудиокодека Opus и отсутствие лагов видеосвязи.
-                """.trimIndent()
-            ),
-            "readiness_text" to Pair(
-                "Текстовые чаты и стикеры",
-                """
-                ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ:
-                • Текстовый трафик передается короткими TCP/TLS пакетами (50–300 байт).
-                • При задержке RTT < 80 мс отправка сообщений происходит мгновенно («одна галочка» появляется за доли секунды).
-                • Включенный режим TCP_NODELAY исключает буферную паузу алгоритма Нагла.
-                """.trimIndent()
-            ),
-            "readiness_media" to Pair(
-                "Фото и голосовые сообщения",
-                """
-                ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ:
-                • Требует стабильного потока со скоростью от 150 КБ/с и надежности доставки пакетов >= 95%.
-                • Голосовые сообщения кэшируются фрагментами: при отсутствии джиттера воспроизведение начинается без пауз.
-                """.trimIndent()
-            ),
-            "readiness_files" to Pair(
-                "Тяжелые файлы и 4K видео",
-                """
-                ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ:
-                • Для скачивания файлов гигабайтами и 4K-стриминга ядро автоматически масштабирует пул сокетов до 16 потоков и буфер до 2 МБ.
-                • Контроль Bufferbloat предотвращает зависание оборудования при максимальной нагрузке канала.
-                """.trimIndent()
-            ),
-            "readiness_calls" to Pair(
-                "Голосовые и видеозвонки HD",
-                """
-                ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ:
-                • Голосовой трафик кодируется широкополосным кодеком Opus (частота дискретизации 48 кГц).
-                • Для идеального разговора без роботизации звука джиттер не должен превышать 15–25 мс, а потери пакетов — не более 2%.
-                """.trimIndent()
-            ),
-            "network_path" to Pair(
-                "Сетевой тракт и задержка",
-                """
-                КАК РАБОТАЕТ:
-                • Диагностический модуль измеряет три ключевые метрики сетевого пути: задержку кругового прохождения сигнала (RTT), стабильность интервалов (джиттер) и процент успешно доставленных TCP/WSS сегментов.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Низкая задержка обеспечивает мгновенный отклик приложения, а отсутствие джиттера исключает прерывания в звонках Telegram.
-                """.trimIndent()
-            ),
-            "rtt" to Pair(
-                "Задержка туннеля (EWMA RTT)",
-                """
-                КАК РАБОТАЕТ:
-                • Экспоненциально сглаженное время кругового прохождения сигнала (Round-Trip Time) от смартфона до узла Cloudflare Edge по алгоритму RFC 6298.
-                • Исключает случайные одиночные всплески и отражает реальную скорость отклика.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Влияет на мгновенность появления статуса отправки сообщений, скорость загрузки профилей и списков диалогов.
-
-                ОРИЕНТИРЫ И НОРМЫ:
-                • До 80 мс: превосходный отклик.
-                • 80–180 мс: стабильная работа в мобильных сетях.
-                • Свыше 250 мс: возможны задержки при интерактивном общении.
-                """.trimIndent()
-            ),
-            "jitter" to Pair(
-                "Вариация задержки (LTE Jitter)",
-                """
-                КАК РАБОТАЕТ:
-                • Разброс и колебание задержки между последовательными контрольными пакетами данных.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Высокий джиттер возникает из-за нестабильности радиосигнала сотовой вышки (переключение вышек в движении, помехи, загрузка базовой станции).
-                • Приводит к задержкам и прерываниям в аудио- и видеозвонках.
-
-                ОРИЕНТИРЫ И НОРМЫ:
-                • До 15 мс: стабильный радиоканал.
-                • 15–40 мс: допустимая вариация мобильной сети.
-                • Выше 50 мс: сильная нестабильность радиоканала.
-                """.trimIndent()
-            ),
-            "delivery" to Pair(
-                "Доставка контрольных пакетов",
-                """
-                КАК РАБОТАЕТ:
-                • Процент успешно доставленных тестовых сетевых зондов до воркера за последние 10 циклов измерений.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Потеря даже 5% пакетов заставляет сетевой стек TCP повторно отправлять сегменты (Retransmission), из-за чего скорость загрузки медиафайлов может падать в несколько раз.
-
-                ОРИЕНТИРЫ И НОРМЫ:
-                • 100%: идеальная доставка без потерь.
-                • 90–99%: допустимо в мобильных сетях.
-                • Ниже 80%: потеря пакетов на стороне провайдера связи.
-                """.trimIndent()
-            ),
-            "localization" to Pair(
-                "Локализация узких мест",
-                """
-                КАК РАБОТАЕТ:
-                • Разделяет сетевой маршрут на два независимых участка: от смартфона до базовой станции (Last-Mile) и от базовой станции до Cloudflare Edge (Core).
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Помогает точно определить источник неполадок: вызван ли сбой слабым сигналом сотовой связи или недоступностью облачного узла.
-                """.trimIndent()
-            ),
-            "bottleneck_radar" to Pair(
-                "Радар узких мест (Hop-by-Hop)",
-                """
-                КАК РАБОТАЕТ ЦЕПОЧКА:
-                • Отслеживает прохождение трафика Telegram через 5 ключевых узлов:
-                  1. Устройство (:10808) — локальный native-прокси на Android.
-                  2. Вышка / Wi-Fi — радиоканал последней мили.
-                  3. Провайдер / DPI — магистраль оператора и системы ТСПУ/DPI.
-                  4. Cloudflare Edge — облачный воркер и WSS-туннель.
-                  5. Telegram DC — целевые дата-центры мессенджера (DC 1–5).
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • При возникновении задержки система подсвечивает конкретный проблемный узел (желтым или красным), избавляя от гаданий.
-                """.trimIndent()
-            ),
-            "smart_insights" to Pair(
-                "Интеллектуальные рекомендации движка",
-                """
-                КАК РАБОТАЕТ СИСТЕМА СОВЕТОВ:
-                • Аналитический модуль оценивает текущие параметры задержки, джиттера, раздувания буферов и потерь пакетов, формируя контекстные советы по улучшению качества связи в реальном времени.
-
-                ОСНОВНЫЕ СЦЕНАРИИ:
-                • Высокий джиттер мобильной сети: рекомендация переключиться на стабильный Wi-Fi для исключения прерываний в звонках.
-                • Раздувание буфера (Bufferbloat): рекомендация разгрузить локальный роутер от фоновых скачиваний.
-                • Магистральные задержки: предложение проверить узел Cloudflare Worker.
-                """.trimIndent()
-            ),
-            "hop_device" to Pair(
-                "Устройство (Локальный прокси)",
-                """
-                УЗЕЛ #1:
-                • Приложение Mirrly TG Proxy запускает локальный прокси-сервер на порту 10808 (127.0.0.1).
-                • Клиент Telegram перенаправляет весь свой трафик в этот сокет.
-                """.trimIndent()
-            ),
-            "hop_isp" to Pair(
-                "Провайдер связи и DPI",
-                """
-                УЗЕЛ #3:
-                • Сегмент оператора связи (МТС, Билайн, Мегафон, Ростелеком и др.).
-                • Прокси использует маскировку WSS и защищенный SNI, предотвращая блокировку ТСПУ/DPI middlebox-системами.
-                """.trimIndent()
-            ),
-            "hop_tg_dc" to Pair(
-                "Дата-центры Telegram",
-                """
-                УЗЕЛ #5:
-                • Конечные серверы Telegram (DC 1 — Майами, DC 2/4 — Амстердам, DC 5 — Сингапур).
-                • Модуль DC Affinity поддерживает выделенные сокеты для каждого дата-центра.
-                """.trimIndent()
-            ),
-            "last_mile" to Pair(
-                "Сегмент оператора связи (Last-Mile)",
-                """
-                КАК РАБОТАЕТ:
-                • Участок сетевого тракта от радиомодуля вашего смартфона до ближайшей вышки сотовой связи или Wi-Fi роутера.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Если у вас высокий джиттер, но воркер работает исправно — причина сбоев кроется в слабом сигнале сети смартфона, а не в прокси-сервере.
-
-                ОРИЕНТИРЫ И НОРМЫ:
-                • Статус «Норма» означает отсутствие помех и потерь пакетов на радиоканале.
-                """.trimIndent()
-            ),
-            "cf_edge" to Pair(
-                "Сегмент Cloudflare Worker (Core)",
-                """
-                КАК РАБОТАЕТ:
-                • Состояние пограничного сервера Cloudflare Edge, обрабатывающего WebSocket туннелирование трафика и DNS-over-HTTPS.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Показывает, не превышен ли суточный лимит запросов на воркере (HTTP 429) и не замедлен ли отклик инфраструктуры Cloudflare.
-
-                ОРИЕНТИРЫ И НОРМЫ:
-                • Статус «Доступен» подтверждает корректную передачу данных через защищенный сокет.
-                """.trimIndent()
-            ),
-            "config" to Pair(
-                "Конфигурация туннеля",
-                """
-                КАК РАБОТАЕТ:
-                • Отображает текущие параметры активного туннеля: выбранный Cloudflare Worker, локальный порт прослушивания и криптографический режим.
-                """.trimIndent()
-            ),
-            "active_worker" to Pair(
-                "Активный узел туннелирования (Predictive Failover)",
-                """
-                КАК РАБОТАЕТ:
-                • Конкретный узел Cloudflare Worker, через который в данный момент ретранслируется трафик Telegram.
-                • Система непрерывно отслеживает тренд задержки и Bufferbloat. При монотонном росте RTT или деградации узла предиктивный триггер упреждающе переключает связь на здоровый резервный узел до полного обрыва.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Защищает голосовые звонки и загрузку медиа от зависаний без необходимости перезапускать сокеты или ожидать жестких таймаутов.
-
-                ОРИЕНТИРЫ И НОРМЫ:
-                • Личный домен воркера имеет наивысший приоритет и не подвержен публичным нагрузкам.
-                """.trimIndent()
-            ),
-            "protocol_mode" to Pair(
-                "Протокол туннелирования",
-                """
-                КАК РАБОТАЕТ:
-                • Режим работы локального прокси-сервера на устройстве.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • SOCKS5 (порт 10808) передает весь трафик Telegram (чаты, медиафайлы, голосовые и видеозвонки) с поддержкой гибких аплинков (Cloudflare Worker, WARP MASQUE, VLESS over WSS, Гибрид).
-                • MTProto (порт 1080) использует криптографический протокол Telegram FakeTLS и маршрутизируется через нативный Anycast CDN Flowseal.
-
-                ОРИЕНТИРЫ И НОРМЫ:
-                • Все протоколы инкапсулируются в защищенный WebSocket/QUIC канал с шифрованием TLS 1.3 на порту 443.
-                """.trimIndent()
-            ),
-            "mos" to Pair(
-                "Качество голосовой связи (ITU-T MOS)",
-                """
-                КАК РАБОТАЕТ:
-                • Стандартизированная оценка качества речи (Mean Opinion Score) по математической модели ITU-T G.107 E-Model в диапазоне от 1.00 до 4.50.
-                • Учитывает эффективную одностороннюю задержку d = RTT/2 + 2*Jitter, фактор искажений широкополосного кодека Opus (Ie) и процент потери пакетов.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Показывает, насколько комфортно будут проходить аудио- и видеозвонки в Telegram без эффекта эха, задержек и обрывов речи.
-
-                ОРИЕНТИРЫ И НОРМЫ:
-                • 4.20–4.50: HD Voice — идеальное студийное качество без задержек.
-                • 3.80–4.19: Хорошее качество — комфортный естественный разговор.
-                • 3.10–3.79: Приемлемо — минимальные задержки, голос разборчив.
-                • 2.40–3.09: С помехами — возможны заикания и проглатывание слогов.
-                • Ниже 2.40: Непригодно для звонков.
-                """.trimIndent()
-            ),
-            "bufferbloat" to Pair(
-                "Буферизация и Min-RTT (Bufferbloat)",
-                """
-                КАК РАБОТАЕТ:
-                • Алгоритм скользящего окна Min-RTT (60 секунд, как в Google BBR) определяет чистую физическую задержку кабельного/радиоканала без очередей.
-                • Индекс Bufferbloat (ΔRTT = SRTT - Min-RTT) вычисляет скрытое накопление сетевых пакетов в буферах оборудования оператора при активной передаче данных.
-                • Динамический фильтр (адаптивный α от 0.125 до 0.50) подстраивает скорость сглаживания под текущую стабильность канала.
-
-                ПОЧЕМУ ЭТО ВАЖНО:
-                • Показывает, не раздуваются ли буферы сотовой вышки во время скачивания медиафайлов, что вызывает задержки и «залипание» отправки сообщений.
-
-                ОРИЕНТИРЫ И НОРМЫ:
-                • A+ (до 10 мс): идеальный канал без очередей.
-                • A (10–30 мс): незначительное накопление буфера.
-                • B (30–75 мс): умеренное раздувание буферов.
-                • C (75–150 мс): повышенные задержки в очередях.
-                • D (свыше 150 мс): тяжелый Bufferbloat.
-                """.trimIndent()
-            ),
-            "math_model" to Pair(
-                "Математическая модель SQI и ITU-T MOS",
-                """
-                ИНДЕКС СТАБИЛЬНОСТИ SQI (0–100%):
-                • Нелинейная сигмоидальная функция полезности:
-                  - 45% вес RTT (плавный спад свыше 60 мс).
-                  - 25% вес LTE/Wi-Fi Jitter (штраф за вариацию свыше 10 мс).
-                  - 30% вес надежности доставки зондов с степенным фактором потерь.
-                • Вычитаются штрафы за блокировки DPI, сбои TLS и лимиты Cloudflare 429.
-
-                ГОЛОСОВОЙ РЕЙТИНГ ITU-T G.107 (MOS 1.00–4.50):
-                • Расчет фактора передачи R = 93.2 - Id(задержка) - Ie(потери Opus).
-                • Полиномиальное преобразование R в шкалу восприятия речи MOS.
-                """.trimIndent()
-            ),
-            "cf_quota" to Pair(
-                "Расход квоты Cloudflare Workers",
-                """
-                ЛИМИТЫ БЕСПЛАТНОГО ТАРИФА:
-                • Cloudflare предоставляет 100 000 бесплатных запросов в сутки.
-                • WSS-туннель списывает 1 запрос только при старте, после чего трафик передается бесплатно.
-                • В приложении доступен интерактивный график аналитики за сессию, 1ч, 5ч, 12ч, 24ч, 7д и 30д.
-                """.trimIndent()
-            )
+            "sqi" to Pair(R.string.nd_info_sqi_title, R.string.nd_info_sqi_desc),
+            "chats_sqi" to Pair(R.string.nd_info_chats_sqi_title, R.string.nd_info_chats_sqi_desc),
+            "latency_sparkline" to Pair(R.string.nd_info_latency_sparkline_title, R.string.nd_info_latency_sparkline_desc),
+            "readiness_grid" to Pair(R.string.nd_info_readiness_grid_title, R.string.nd_info_readiness_grid_desc),
+            "readiness_text" to Pair(R.string.nd_info_readiness_text_title, R.string.nd_info_readiness_text_desc),
+            "readiness_media" to Pair(R.string.nd_info_readiness_media_title, R.string.nd_info_readiness_media_desc),
+            "readiness_files" to Pair(R.string.nd_info_readiness_files_title, R.string.nd_info_readiness_files_desc),
+            "readiness_calls" to Pair(R.string.nd_info_readiness_calls_title, R.string.nd_info_readiness_calls_desc),
+            "network_path" to Pair(R.string.nd_info_network_path_title, R.string.nd_info_network_path_desc),
+            "rtt" to Pair(R.string.nd_info_rtt_title, R.string.nd_info_rtt_desc),
+            "jitter" to Pair(R.string.nd_info_jitter_title, R.string.nd_info_jitter_desc),
+            "delivery" to Pair(R.string.nd_info_delivery_title, R.string.nd_info_delivery_desc),
+            "localization" to Pair(R.string.nd_info_localization_title, R.string.nd_info_localization_desc),
+            "bottleneck_radar" to Pair(R.string.nd_info_bottleneck_radar_title, R.string.nd_info_bottleneck_radar_desc),
+            "smart_insights" to Pair(R.string.nd_info_smart_insights_title, R.string.nd_info_smart_insights_desc),
+            "hop_device" to Pair(R.string.nd_info_hop_device_title, R.string.nd_info_hop_device_desc),
+            "hop_isp" to Pair(R.string.nd_info_hop_isp_title, R.string.nd_info_hop_isp_desc),
+            "hop_tg_dc" to Pair(R.string.nd_info_hop_tg_dc_title, R.string.nd_info_hop_tg_dc_desc),
+            "last_mile" to Pair(R.string.nd_info_last_mile_title, R.string.nd_info_last_mile_desc),
+            "cf_edge" to Pair(R.string.nd_info_cf_edge_title, R.string.nd_info_cf_edge_desc),
+            "config" to Pair(R.string.nd_info_config_title, R.string.nd_info_config_desc),
+            "active_worker" to Pair(R.string.nd_info_active_worker_title, R.string.nd_info_active_worker_desc),
+            "protocol_mode" to Pair(R.string.nd_info_protocol_mode_title, R.string.nd_info_protocol_mode_desc),
+            "mos" to Pair(R.string.nd_info_mos_title, R.string.nd_info_mos_desc),
+            "bufferbloat" to Pair(R.string.nd_info_bufferbloat_title, R.string.nd_info_bufferbloat_desc),
+            "math_model" to Pair(R.string.nd_info_math_model_title, R.string.nd_info_math_model_desc),
+            "cf_quota" to Pair(R.string.nd_info_cf_quota_title, R.string.nd_info_cf_quota_desc)
         )
     }
 
@@ -504,7 +205,7 @@ fun NetworkDiagnosticScreen(
                     .staggeredEntrance(index = 0),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // 1. LEFT HERO CARD: ЧАТЫ И МЕДИА
+                // 1. LEFT HERO CARD: CHATS & MEDIA
                 val chatColor = when {
                     chatScore >= 90 -> Color(0xFF00FF87)
                     chatScore >= 75 -> Color(0xFF00E676)
@@ -535,7 +236,7 @@ fun NetworkDiagnosticScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "ЧАТЫ И МЕДИА",
+                                text = stringResource(R.string.nd_chats_media_title),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 1.1.sp,
@@ -564,7 +265,7 @@ fun NetworkDiagnosticScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isProxyActive) chatVerdict else "Остановлен",
+                                text = if (isProxyActive) chatVerdict else stringResource(R.string.nd_stopped),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = chatColor,
@@ -574,7 +275,7 @@ fun NetworkDiagnosticScreen(
                     }
                 }
 
-                // 2. RIGHT HERO CARD: ЗВОНКИ И ВИДЕО
+                // 2. RIGHT HERO CARD: CALLS & VIDEO
                 val mosColor = when {
                     mosScore >= 4.20 -> Color(0xFF00FF87)
                     mosScore >= 3.80 -> Color(0xFF38BDF8)
@@ -606,7 +307,7 @@ fun NetworkDiagnosticScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "ЗВОНКИ И ВИДЕО",
+                                text = stringResource(R.string.nd_calls_video_title),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 1.1.sp,
@@ -635,7 +336,7 @@ fun NetworkDiagnosticScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isProxyActive) mosGrade else "Остановлен",
+                                text = if (isProxyActive) mosGrade else stringResource(R.string.nd_stopped),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = mosColor,
@@ -689,13 +390,13 @@ fun NetworkDiagnosticScreen(
 
                             Column {
                                 Text(
-                                    text = "Тест скорости туннеля",
+                                    text = stringResource(R.string.nd_speedtest_title),
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = TextWhite
                                 )
                                 Text(
-                                    text = "Замер Download, Upload, Ping и Jitter через Cloudflare",
+                                    text = stringResource(R.string.nd_speedtest_desc),
                                     fontSize = 11.5.sp,
                                     color = TextMuted
                                 )
@@ -708,7 +409,7 @@ fun NetworkDiagnosticScreen(
                             border = BorderStroke(1.dp, speedTestAccent.copy(alpha = 0.5f))
                         ) {
                             Text(
-                                text = "СТАРТ",
+                                text = stringResource(R.string.nd_speedtest_in_dev),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Black,
                                 color = speedTestAccent,
@@ -762,7 +463,7 @@ fun NetworkDiagnosticScreen(
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
-            // ── SECTION 1: СЕТЕВОЙ ТРАКТ И ЗАДЕРЖКА ──
+            // ── SECTION 1: NETWORK PATH & LATENCY ──
             Column(
                 modifier = Modifier.staggeredEntrance(index = 3),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -772,7 +473,7 @@ fun NetworkDiagnosticScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "СЕТЕВОЙ ТРАКТ И ЗАДЕРЖКА",
+                        text = stringResource(R.string.nd_network_path_title),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.3.sp,
@@ -792,9 +493,9 @@ fun NetworkDiagnosticScreen(
                         DiagnosticMetricRow(
                             iconRes = R.drawable.ic_diag_rtt,
                             iconColor = Color(0xFF38BDF8),
-                            title = "Задержка туннеля (EWMA RTT)",
-                            value = if (pingMs > 0) "$pingMs мс" else "—",
-                            badgeText = if (pingMs in 1..100) "Отлично" else if (pingMs <= 200) "В норме" else "Повышен",
+                            title = stringResource(R.string.nd_rtt_title),
+                            value = if (pingMs > 0) stringResource(R.string.unit_ms_val, pingMs) else "—",
+                            badgeText = if (pingMs in 1..100) stringResource(R.string.nd_badge_excellent) else if (pingMs <= 200) stringResource(R.string.nd_badge_normal) else stringResource(R.string.nd_badge_elevated),
                             badgeColor = if (pingMs in 1..100) Color(0xFF00FF87) else if (pingMs <= 200) Color(0xFF00E676) else Color(0xFFFFB703),
                             onInfoClick = { infoKey = "rtt" }
                         )
@@ -804,9 +505,9 @@ fun NetworkDiagnosticScreen(
                         DiagnosticMetricRow(
                             iconRes = R.drawable.ic_diag_jitter,
                             iconColor = Color(0xFFB388FF),
-                            title = "Вариация задержки (LTE Jitter)",
-                            value = "±$jitterMs мс",
-                            badgeText = if (jitterMs <= 15) "Стабильно" else if (jitterMs <= 35) "Умеренно" else "Нестабильно",
+                            title = stringResource(R.string.nd_jitter_title),
+                            value = stringResource(R.string.unit_plus_minus_ms_val, jitterMs),
+                            badgeText = if (jitterMs <= 15) stringResource(R.string.nd_badge_stable) else if (jitterMs <= 35) stringResource(R.string.nd_badge_moderate) else stringResource(R.string.nd_badge_unstable),
                             badgeColor = if (jitterMs <= 15) Color(0xFF00FF87) else if (jitterMs <= 35) Color(0xFF00E676) else Color(0xFFFFB703),
                             onInfoClick = { infoKey = "jitter" }
                         )
@@ -816,9 +517,9 @@ fun NetworkDiagnosticScreen(
                         DiagnosticMetricRow(
                             iconRes = R.drawable.ic_diag_delivery,
                             iconColor = Color(0xFF00FF87),
-                            title = "Доставка контрольных пакетов",
+                            title = stringResource(R.string.nd_delivery_title),
                             value = "$successRate%",
-                            badgeText = if (successRate >= 95) "100% норма" else if (successRate >= 75) "Потери пакетов" else "Сбои",
+                            badgeText = if (successRate >= 95) stringResource(R.string.nd_badge_100_norm) else if (successRate >= 75) stringResource(R.string.nd_badge_packet_loss) else stringResource(R.string.nd_badge_failures),
                             badgeColor = if (successRate >= 95) Color(0xFF00FF87) else if (successRate >= 75) Color(0xFFFFB703) else Color(0xFFFF0055),
                             onInfoClick = { infoKey = "delivery" }
                         )
@@ -835,9 +536,9 @@ fun NetworkDiagnosticScreen(
                         DiagnosticMetricRow(
                             iconRes = R.drawable.ic_diag_voip,
                             iconColor = Color(0xFF38BDF8),
-                            title = "Качество звонков (ITU-T MOS)",
+                            title = stringResource(R.string.nd_calls_quality_title),
                             value = if (isProxyActive && pingMs > 0) "${String.format(java.util.Locale.US, "%.2f", mosScore)} / 4.50 (${mosGrade})" else "—",
-                            badgeText = if (isProxyActive && pingMs > 0) (if (isCallRecommended) "HD Voice" else "Помехи") else "Ожидание",
+                            badgeText = if (isProxyActive && pingMs > 0) (if (isCallRecommended) stringResource(R.string.nd_badge_hd_voice) else stringResource(R.string.nd_badge_noise)) else stringResource(R.string.nd_badge_waiting),
                             badgeColor = if (isProxyActive && pingMs > 0) mosBadgeColor else Color(0xFF38BDF8),
                             onInfoClick = { infoKey = "mos" }
                         )
@@ -847,7 +548,7 @@ fun NetworkDiagnosticScreen(
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
-            // ── SECTION 2: ЛОКАЛИЗАЦИЯ УЗКИХ МЕСТ (HOP-BY-HOP RADAR) ──
+            // ── SECTION 2: BOTTLENECK LOCALIZATION (HOP-BY-HOP RADAR) ──
             Column(
                 modifier = Modifier.staggeredEntrance(index = 4),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -875,9 +576,9 @@ fun NetworkDiagnosticScreen(
                         DiagnosticMetricRow(
                             iconRes = R.drawable.ic_diag_antenna,
                             iconColor = Color(0xFF00E676),
-                            title = "Сегмент оператора / Wi-Fi",
-                            value = if (jitterMs <= 25) "Радиоканал стабилен" else "Помехи вышки / Wi-Fi",
-                            badgeText = if (jitterMs <= 25) "Норма" else "Внимание",
+                            title = stringResource(R.string.nd_isp_wifi_title),
+                            value = if (jitterMs <= 25) stringResource(R.string.nd_radio_stable) else stringResource(R.string.nd_radio_noise),
+                            badgeText = if (jitterMs <= 25) stringResource(R.string.nd_badge_norm) else stringResource(R.string.nd_badge_attention),
                             badgeColor = if (jitterMs <= 25) Color(0xFF00FF87) else Color(0xFFFFB703),
                             onInfoClick = { infoKey = "last_mile" }
                         )
@@ -887,9 +588,9 @@ fun NetworkDiagnosticScreen(
                         DiagnosticMetricRow(
                             iconRes = R.drawable.ic_diag_cloudflare,
                             iconColor = Color(0xFF38BDF8),
-                            title = "Сегмент Cloudflare Worker",
-                            value = if (pingMs > 0) "Туннель WSS активен" else "Ожидание пробы",
-                            badgeText = if (pingMs in 1..250) "Доступен" else if (pingMs > 250) "Задержка" else "Сбой",
+                            title = stringResource(R.string.nd_cf_segment_title),
+                            value = if (pingMs > 0) stringResource(R.string.nd_wss_tunnel_active) else stringResource(R.string.nd_waiting_probe),
+                            badgeText = if (pingMs in 1..250) stringResource(R.string.nd_badge_available) else if (pingMs > 250) stringResource(R.string.nd_badge_lag) else stringResource(R.string.nd_badge_fail),
                             badgeColor = if (pingMs in 1..250) Color(0xFF00FF87) else Color(0xFFFFB703),
                             onInfoClick = { infoKey = "cf_edge" }
                         )
@@ -907,9 +608,9 @@ fun NetworkDiagnosticScreen(
                         DiagnosticMetricRow(
                             iconRes = R.drawable.ic_diag_bufferbloat,
                             iconColor = Color(0xFFFFB703),
-                            title = "Буферизация (Bufferbloat)",
-                            value = if (isProxyActive && minRttMs > 0) "+${bufferbloatMs} мс (Min: ${minRttMs} мс, α=${String.format(java.util.Locale.US, "%.2f", currentAlpha)})" else "—",
-                            badgeText = if (isProxyActive && minRttMs > 0) bufferbloatGrade else "Ожидание",
+                            title = stringResource(R.string.nd_bufferbloat_title),
+                            value = if (isProxyActive && minRttMs > 0) stringResource(R.string.nd_bufferbloat_val, bufferbloatMs, minRttMs, String.format(java.util.Locale.US, "%.2f", currentAlpha)) else "—",
+                            badgeText = if (isProxyActive && minRttMs > 0) bufferbloatGrade else stringResource(R.string.nd_badge_waiting),
                             badgeColor = if (isProxyActive && minRttMs > 0) bloatBadgeColor else Color(0xFFFFB703),
                             onInfoClick = { infoKey = "bufferbloat" }
                         )
@@ -919,7 +620,7 @@ fun NetworkDiagnosticScreen(
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
-            // ── SECTION 3: КОНФИГУРАЦИЯ ТУННЕЛЯ ──
+            // ── SECTION 3: TUNNEL CONFIGURATION ──
             Column(
                 modifier = Modifier.staggeredEntrance(index = 3),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -929,7 +630,7 @@ fun NetworkDiagnosticScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "КОНФИГУРАЦИЯ ТУННЕЛЯ",
+                        text = stringResource(R.string.nd_config_title),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.3.sp,
@@ -956,9 +657,9 @@ fun NetworkDiagnosticScreen(
                         DiagnosticMetricRow(
                             iconRes = R.drawable.ic_diag_worker,
                             iconColor = Color(0xFFB388FF),
-                            title = "Активный узел туннелирования",
+                            title = stringResource(R.string.nd_active_worker_title),
                             value = workerDisplayValue,
-                            badgeText = if (activeWorker.isDeveloperWorker) "Встроенный" else "Личный",
+                            badgeText = if (activeWorker.isDeveloperWorker) stringResource(R.string.nd_badge_builtin) else stringResource(R.string.nd_badge_custom),
                             badgeColor = Color(0xFF38BDF8),
                             onInfoClick = { infoKey = "active_worker" }
                         )
@@ -968,7 +669,7 @@ fun NetworkDiagnosticScreen(
                         DiagnosticMetricRow(
                             iconRes = R.drawable.ic_diag_protocol,
                             iconColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
-                            title = "Протокол и локальный порт",
+                            title = stringResource(R.string.nd_protocol_port_title),
                             value = if (isSocks5) "SOCKS5 TCP Relay (:10808)" else "MTProto TLS Relay (:1080)",
                             badgeText = "WSS TLS 1.3",
                             badgeColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
@@ -980,9 +681,9 @@ fun NetworkDiagnosticScreen(
                         DiagnosticMetricRow(
                             iconRes = R.drawable.ic_diag_formula,
                             iconColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
-                            title = "Расход квоты Cloudflare",
-                            value = "График и аналитика запросов",
-                            badgeText = "100k / день",
+                            title = stringResource(R.string.nd_cf_quota_title),
+                            value = stringResource(R.string.nd_cf_quota_val),
+                            badgeText = stringResource(R.string.nd_chart_100k_day),
                             badgeColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
                             onInfoClick = {
                                 if (onOpenAnalytics != null) {
@@ -998,7 +699,7 @@ fun NetworkDiagnosticScreen(
 
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
 
-            // ── SECTION 4: МАТЕМАТИЧЕСКАЯ МОДЕЛЬ SQI ──
+            // ── SECTION 4: MATHEMATICAL MODEL SQI ──
             Column(
                 modifier = Modifier.staggeredEntrance(index = 4),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1008,7 +709,7 @@ fun NetworkDiagnosticScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "МАТЕМАТИЧЕСКАЯ МОДЕЛЬ SQI & ITU-T MOS",
+                        text = stringResource(R.string.nd_math_model_title),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.3.sp,
@@ -1044,7 +745,7 @@ fun NetworkDiagnosticScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = "Нелинейная модель SQI и E-Model",
+                                text = stringResource(R.string.nd_nonlinear_title),
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextWhite
@@ -1052,7 +753,7 @@ fun NetworkDiagnosticScreen(
                         }
 
                         Text(
-                            text = "Индекс SQI (0–100%) рассчитывается непрерывной нелинейной функцией восприятия задержки (RTT 45% + Jitter 25% + Доставка 30%). Оценка качества звонков вычисляется по стандарту ITU-T G.107 (шкала MOS 1.00–4.50 для широкополосного кодека Opus).",
+                            text = stringResource(R.string.nd_nonlinear_desc),
                             color = TextMuted,
                             fontSize = 12.sp,
                             lineHeight = 16.5.sp
@@ -1067,7 +768,8 @@ fun NetworkDiagnosticScreen(
         // Top Bar
         NetworkDiagnosticTopBar(
             isSocks5 = isSocks5,
-            onBack = onBack
+            onBack = onBack,
+            onOpenDiagnosticReport = onOpenDiagnosticReport
         )
 
         // Floating Cyber Particles Overlay
@@ -1082,8 +784,8 @@ fun NetworkDiagnosticScreen(
             val info = infoData[key]
             if (info != null) {
                 InfoDialog(
-                    title = info.first,
-                    body = info.second,
+                    title = stringResource(info.first),
+                    body = stringResource(info.second),
                     onDismiss = { infoKey = null }
                 )
             }
@@ -1095,7 +797,8 @@ fun NetworkDiagnosticScreen(
 @Composable
 private fun NetworkDiagnosticTopBar(
     isSocks5: Boolean,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenDiagnosticReport: (() -> Unit)? = null
 ) {
     val haptic = LocalHapticFeedback.current
     Box(
@@ -1115,7 +818,7 @@ private fun NetworkDiagnosticTopBar(
         TopAppBar(
             title = {
                 Text(
-                    text = "Качество сети",
+                    text = stringResource(R.string.nd_screen_title),
                     color = TextWhite,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
@@ -1129,13 +832,29 @@ private fun NetworkDiagnosticTopBar(
                 }) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_arrow_left),
-                        contentDescription = "Назад",
+                        contentDescription = stringResource(R.string.action_back),
                         tint = TextWhite,
                         modifier = Modifier.size(22.dp)
                     )
                 }
             },
             actions = {
+                if (onOpenDiagnosticReport != null) {
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenDiagnosticReport()
+                        },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_bug),
+                            contentDescription = stringResource(R.string.diagnostic_report_title),
+                            tint = TextWhite,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .padding(end = 12.dp)
@@ -1283,7 +1002,7 @@ fun LiveLatencySparklineCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "ДИНАМИКА ЗАДЕРЖКИ (60 СЕК)",
+                    text = stringResource(R.string.nd_sparkline_title),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -1301,7 +1020,7 @@ fun LiveLatencySparklineCard(
                         .padding(horizontal = 7.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "Live: ${if (currentPingMs > 0) "$currentPingMs мс" else "—"}",
+                        text = stringResource(R.string.nd_live_ping, if (currentPingMs > 0) "$currentPingMs ms" else "—"),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = primaryColor
@@ -1326,22 +1045,22 @@ fun LiveLatencySparklineCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     SparklineStatPill(
-                        label = "МИН",
-                        value = if (isProxyActive && minRtt > 0) "$minRtt мс" else "—",
+                        label = stringResource(R.string.nd_label_min),
+                        value = if (isProxyActive && minRtt > 0) stringResource(R.string.unit_ms_val, minRtt) else "—",
                         color = Color(0xFF00FF87)
                     )
                     SparklineStatPill(
-                        label = "СРЕДНЕЕ",
-                        value = if (isProxyActive && avgRtt > 0) "$avgRtt мс" else "—",
+                        label = stringResource(R.string.nd_label_avg),
+                        value = if (isProxyActive && avgRtt > 0) stringResource(R.string.unit_ms_val, avgRtt) else "—",
                         color = Color(0xFF38BDF8)
                     )
                     SparklineStatPill(
-                        label = "МАКС",
-                        value = if (isProxyActive && maxRtt > 0) "$maxRtt мс" else "—",
+                        label = stringResource(R.string.nd_label_max),
+                        value = if (isProxyActive && maxRtt > 0) stringResource(R.string.unit_ms_val, maxRtt) else "—",
                         color = if (maxRtt > 200) Color(0xFFFF0055) else if (maxRtt > 120) Color(0xFFFFB703) else Color(0xFF00FF87)
                     )
                     SparklineStatPill(
-                        label = "ЗАМЕРОВ",
+                        label = stringResource(R.string.nd_label_samples),
                         value = if (isProxyActive) "${rttHistory.size}" else "0",
                         color = TextMuted
                     )
@@ -1359,7 +1078,7 @@ fun LiveLatencySparklineCard(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = if (!isProxyActive) "Прокси остановлен" else "Сбор первых контрольных проб задержки...",
+                                text = if (!isProxyActive) stringResource(R.string.nd_proxy_stopped) else stringResource(R.string.nd_collecting_first_probes),
                                 fontSize = 12.sp,
                                 color = TextMuted,
                                 fontWeight = FontWeight.Medium
@@ -1538,7 +1257,7 @@ fun LiveLatencySparklineCard(
                                         .padding(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
                                     Text(
-                                        text = if (pt.isSuccess) "Замер #${idx + 1}: ${pt.rttMs} мс" else "Замер #${idx + 1}: Сбой / Таймаут",
+                                        text = if (pt.isSuccess) stringResource(R.string.nd_sample_success, idx + 1, pt.rttMs) else stringResource(R.string.nd_sample_fail, idx + 1),
                                         color = if (pt.isSuccess) TextWhite else Color(0xFFFF0055),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
@@ -1596,19 +1315,19 @@ fun ContentReadinessGrid(
     onInfoClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 1. Текстовые чаты
+    // 1. Text chats
     val textStatus = when {
-        !isProxyActive -> "Прокси остановлен"
-        pingMs in 1..80 -> "Мгновенно (<80 мс)"
-        pingMs in 81..180 -> "Быстро (норма)"
-        pingMs > 180 -> "С задержкой"
-        else -> "Ожидание"
+        !isProxyActive -> stringResource(R.string.nd_proxy_stopped)
+        pingMs in 1..80 -> stringResource(R.string.nd_ready_instant)
+        pingMs in 81..180 -> stringResource(R.string.nd_ready_fast_norm)
+        pingMs > 180 -> stringResource(R.string.nd_ready_delayed)
+        else -> stringResource(R.string.nd_badge_waiting)
     }
     val textBadge = when {
-        !isProxyActive -> "Остановлен"
-        pingMs in 1..80 -> "0% задержка"
-        pingMs in 81..180 -> "Норма"
-        else -> "Задержка"
+        !isProxyActive -> stringResource(R.string.nd_stopped)
+        pingMs in 1..80 -> stringResource(R.string.nd_ready_zero_delay)
+        pingMs in 81..180 -> stringResource(R.string.nd_badge_norm)
+        else -> stringResource(R.string.nd_badge_lag)
     }
     val textBadgeColor = when {
         !isProxyActive -> TextMuted
@@ -1617,18 +1336,18 @@ fun ContentReadinessGrid(
         else -> Color(0xFFFFB703)
     }
 
-    // 2. Фото и медиа
+    // 2. Photos and media
     val mediaStatus = when {
-        !isProxyActive -> "Прокси остановлен"
-        successRate >= 95 && jitterMs <= 25 -> "Высокая скорость"
-        successRate >= 75 -> "Стабильная загрузка"
-        else -> "Потери пакетов"
+        !isProxyActive -> stringResource(R.string.nd_proxy_stopped)
+        successRate >= 95 && jitterMs <= 25 -> stringResource(R.string.nd_ready_high_speed)
+        successRate >= 75 -> stringResource(R.string.nd_ready_stable_download)
+        else -> stringResource(R.string.nd_badge_packet_loss)
     }
     val mediaBadge = when {
-        !isProxyActive -> "Остановлен"
-        successRate >= 95 -> "Без потерь"
-        successRate >= 75 -> "Буферизация"
-        else -> "Сбои"
+        !isProxyActive -> stringResource(R.string.nd_stopped)
+        successRate >= 95 -> stringResource(R.string.nd_ready_lossless)
+        successRate >= 75 -> stringResource(R.string.nd_ready_buffering)
+        else -> stringResource(R.string.nd_badge_failures)
     }
     val mediaBadgeColor = when {
         !isProxyActive -> TextMuted
@@ -1637,16 +1356,16 @@ fun ContentReadinessGrid(
         else -> Color(0xFFFF0055)
     }
 
-    // 3. Тяжелые файлы и 4K
+    // 3. Heavy files and 4K
     val filesStatus = when {
-        !isProxyActive -> "Прокси остановлен"
-        bufferbloatMs <= 25 && poolSize >= 4 -> "Turbo поток (Пул: $poolSize)"
-        bufferbloatMs <= 75 -> "Стандартный поток"
-        else -> "Ограничение очередей"
+        !isProxyActive -> stringResource(R.string.nd_proxy_stopped)
+        bufferbloatMs <= 25 && poolSize >= 4 -> stringResource(R.string.nd_ready_turbo_stream, poolSize)
+        bufferbloatMs <= 75 -> stringResource(R.string.nd_ready_standard_stream)
+        else -> stringResource(R.string.nd_ready_queue_limit)
     }
     val filesBadge = when {
-        !isProxyActive -> "Остановлен"
-        bufferbloatMs <= 25 -> "2 МБ буфер"
+        !isProxyActive -> stringResource(R.string.nd_stopped)
+        bufferbloatMs <= 25 -> stringResource(R.string.nd_ready_2mb_buffer)
         bufferbloatMs <= 75 -> "Balanced"
         else -> "Bufferbloat"
     }
@@ -1657,20 +1376,20 @@ fun ContentReadinessGrid(
         else -> Color(0xFFFFB703)
     }
 
-    // 4. Звонки и видео
+    // 4. Calls and video
     val callsStatus = when {
-        !isProxyActive -> "Прокси остановлен"
+        !isProxyActive -> stringResource(R.string.nd_proxy_stopped)
         mosScore >= 4.20 -> "HD Voice (Opus 48k)"
-        mosScore >= 3.80 -> "Хорошая разборчивость"
-        mosScore >= 3.10 -> "Приемлемое аудио"
-        else -> "Не рекомендуется"
+        mosScore >= 3.80 -> stringResource(R.string.nd_ready_good_clarity)
+        mosScore >= 3.10 -> stringResource(R.string.nd_ready_acceptable_audio)
+        else -> stringResource(R.string.nd_ready_not_recommended)
     }
     val callsBadge = when {
-        !isProxyActive -> "Остановлен"
+        !isProxyActive -> stringResource(R.string.nd_stopped)
         mosScore >= 4.20 -> "HD 1080p"
         mosScore >= 3.80 -> "HD 720p"
-        mosScore >= 3.10 -> "SD звонок"
-        else -> "Помехи"
+        mosScore >= 3.10 -> stringResource(R.string.nd_ready_sd_call)
+        else -> stringResource(R.string.nd_badge_noise)
     }
     val callsBadgeColor = when {
         !isProxyActive -> TextMuted
@@ -1694,7 +1413,7 @@ fun ContentReadinessGrid(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "ГОТОВНОСТЬ СЕРВИСОВ TELEGRAM",
+                    text = stringResource(R.string.nd_services_readiness_title),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -1712,7 +1431,7 @@ fun ContentReadinessGrid(
                 ContentReadinessItem(
                     iconRes = R.drawable.ic_send,
                     iconColor = Color(0xFF38BDF8),
-                    title = "Чаты и стикеры",
+                    title = stringResource(R.string.nd_ready_chats_title),
                     statusText = textStatus,
                     badgeText = textBadge,
                     badgeColor = textBadgeColor,
@@ -1723,7 +1442,7 @@ fun ContentReadinessGrid(
                 ContentReadinessItem(
                     iconRes = R.drawable.ic_diag_media,
                     iconColor = Color(0xFF00FF87),
-                    title = "Фото и голосовые",
+                    title = stringResource(R.string.nd_ready_media_title),
                     statusText = mediaStatus,
                     badgeText = mediaBadge,
                     badgeColor = mediaBadgeColor,
@@ -1739,7 +1458,7 @@ fun ContentReadinessGrid(
                 ContentReadinessItem(
                     iconRes = R.drawable.ic_diag_files,
                     iconColor = Color(0xFFB388FF),
-                    title = "Файлы и 4K видео",
+                    title = stringResource(R.string.nd_ready_files_title),
                     statusText = filesStatus,
                     badgeText = filesBadge,
                     badgeColor = filesBadgeColor,
@@ -1750,7 +1469,7 @@ fun ContentReadinessGrid(
                 ContentReadinessItem(
                     iconRes = R.drawable.ic_diag_voip,
                     iconColor = Color(0xFF818CF8),
-                    title = "Звонки и видео HD",
+                    title = stringResource(R.string.nd_ready_calls_title),
                     statusText = callsStatus,
                     badgeText = callsBadge,
                     badgeColor = callsBadgeColor,
@@ -1889,15 +1608,15 @@ fun HopByHopBottleneckRadar(
     }
 
     val (bottleneckTitle, bottleneckColor) = when {
-        !isProxyActive -> Pair("Прокси остановлен", TextMuted)
-        lastFailureType == FailureType.DPI_BLOCKED -> Pair("Узкое место: DPI фильтрация оператора", Color(0xFFFF0055))
-        lastFailureType == FailureType.TLS_HANDSHAKE_FAILED -> Pair("Узкое место: Сбой TLS рукопожатия узла", Color(0xFFFF0055))
-        lastFailureType == FailureType.RATE_LIMITED_429 -> Pair("Узкое место: Лимит запросов воркера (429)", Color(0xFFFF0055))
-        jitterMs > 40L -> Pair("Узкое место: Радиоканал (LTE Jitter: ±${jitterMs}мс)", Color(0xFFFFB703))
-        bufferbloatMs >= 100L -> Pair("Узкое место: Раздувание буфера роутера (+${bufferbloatMs}мс)", Color(0xFFFFB703))
-        pingMs > 250L -> Pair("Узкое место: Магистральная задержка (${pingMs}мс)", Color(0xFFFFB703))
-        successRate < 85 -> Pair("Узкое место: Потери пакетов на маршруте", Color(0xFFFFB703))
-        else -> Pair("Узких мест нет • Тракт чист и стабилен", Color(0xFF00FF87))
+        !isProxyActive -> Pair(stringResource(R.string.nd_proxy_stopped), TextMuted)
+        lastFailureType == FailureType.DPI_BLOCKED -> Pair(stringResource(R.string.nd_bn_dpi), Color(0xFFFF0055))
+        lastFailureType == FailureType.TLS_HANDSHAKE_FAILED -> Pair(stringResource(R.string.nd_bn_tls), Color(0xFFFF0055))
+        lastFailureType == FailureType.RATE_LIMITED_429 -> Pair(stringResource(R.string.nd_bn_429), Color(0xFFFF0055))
+        jitterMs > 40L -> Pair(stringResource(R.string.nd_bn_radio, jitterMs), Color(0xFFFFB703))
+        bufferbloatMs >= 100L -> Pair(stringResource(R.string.nd_bn_bufferbloat, bufferbloatMs), Color(0xFFFFB703))
+        pingMs > 250L -> Pair(stringResource(R.string.nd_bn_rtt, pingMs), Color(0xFFFFB703))
+        successRate < 85 -> Pair(stringResource(R.string.nd_bn_loss), Color(0xFFFFB703))
+        else -> Pair(stringResource(R.string.nd_bn_clean), Color(0xFF00FF87))
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1911,7 +1630,7 @@ fun HopByHopBottleneckRadar(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "РАДАР УЗКИХ МЕСТ (HOP-BY-HOP)",
+                    text = stringResource(R.string.nd_radar_title),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -1928,7 +1647,7 @@ fun HopByHopBottleneckRadar(
                     .padding(horizontal = 7.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = if (isProxyActive) (if (bottleneckColor == Color(0xFF00FF87)) "Тракт OK" else "Диагноз") else "Остановлен",
+                    text = if (isProxyActive) (if (bottleneckColor == Color(0xFF00FF87)) stringResource(R.string.nd_radar_route_ok) else stringResource(R.string.nd_radar_diagnose)) else stringResource(R.string.nd_stopped),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = bottleneckColor
@@ -1952,7 +1671,7 @@ fun HopByHopBottleneckRadar(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     HopNode(
-                        label = "Клиент",
+                        label = stringResource(R.string.nd_hop_client),
                         subLabel = ":10808",
                         state = hop1State,
                         primaryColor = primaryColor,
@@ -1960,15 +1679,15 @@ fun HopByHopBottleneckRadar(
                     )
                     HopLink(isActive = isProxyActive, isAlert = hop2State >= 2)
                     HopNode(
-                        label = "Вышка/Wi-Fi",
-                        subLabel = if (isProxyActive && jitterMs > 0) "±${jitterMs}мс" else "Радио",
+                        label = stringResource(R.string.nd_hop_tower_wifi),
+                        subLabel = if (isProxyActive && jitterMs > 0) "±${jitterMs}ms" else stringResource(R.string.nd_hop_radio),
                         state = hop2State,
                         primaryColor = primaryColor,
                         onClick = { onHopClick("last_mile") }
                     )
                     HopLink(isActive = isProxyActive, isAlert = hop3State >= 2)
                     HopNode(
-                        label = "Оператор",
+                        label = stringResource(R.string.nd_hop_operator),
                         subLabel = if (hop3State == 3) "DPI" else "ISP",
                         state = hop3State,
                         primaryColor = primaryColor,
@@ -1977,7 +1696,7 @@ fun HopByHopBottleneckRadar(
                     HopLink(isActive = isProxyActive, isAlert = hop4State >= 2)
                     HopNode(
                         label = "Cloudflare",
-                        subLabel = if (isProxyActive && pingMs > 0) "${pingMs}мс" else "WSS",
+                        subLabel = if (isProxyActive && pingMs > 0) "${pingMs}ms" else "WSS",
                         state = hop4State,
                         primaryColor = primaryColor,
                         onClick = { onHopClick("cf_edge") }
@@ -2115,48 +1834,48 @@ fun SmartNetworkInsightsCard(
 
     val (badgeText, insightText, accentColor) = when {
         !isProxyActive -> Triple(
-            "Ожидание",
-            "Служба прокси остановлена. Запустите прокси для непрерывного математического анализа параметров соединения.",
+            stringResource(R.string.nd_insight_waiting_title),
+            stringResource(R.string.nd_insight_waiting_desc),
             TextMuted
         )
         lastFailureType == FailureType.RATE_LIMITED_429 -> Triple(
-            "Квота Worker",
-            "Превышен суточный лимит запросов публичного воркера (HTTP 429). Рекомендуется настроить собственный Cloudflare Worker в настройках.",
+            stringResource(R.string.nd_insight_quota_title),
+            stringResource(R.string.nd_insight_quota_desc),
             Color(0xFFFF0055)
         )
         lastFailureType == FailureType.DPI_BLOCKED -> Triple(
-            "DPI Фильтрация",
-            "Провайдер связи блокирует прямые сокеты. WSS-туннель Mirrly маскирует трафик под защищенный веб-трафик для обхода фильтрации.",
+            stringResource(R.string.nd_insight_dpi_title),
+            stringResource(R.string.nd_insight_dpi_desc),
             Color(0xFFFF0055)
         )
         jitterMs > 35L -> Triple(
-            "LTE Jitter",
-            "Высокая вариация задержки радиоканала (джиттер ±${jitterMs}мс). Для стабильных голосовых и видеозвонков без прерываний рекомендуется подключиться к сети Wi-Fi.",
+            stringResource(R.string.nd_insight_jitter_title),
+            stringResource(R.string.nd_insight_jitter_desc, jitterMs),
             Color(0xFFFFB703)
         )
         bufferbloatMs >= 100L -> Triple(
-            "Bufferbloat",
-            "Обнаружено раздувание очереди буфера (+${bufferbloatMs}мс). Локальный роутер перегружен параллельными загрузками. Ядро автоматически включило режим сбережения очередей.",
+            stringResource(R.string.nd_insight_bufferbloat_title),
+            stringResource(R.string.nd_insight_bufferbloat_desc, bufferbloatMs),
             Color(0xFFFFB703)
         )
         pingMs > 250L -> Triple(
-            "Высокий RTT",
-            "Повышенная магистральная задержка (${pingMs}мс). Если вы используете мобильную сеть, переключитесь на Wi-Fi для более быстрого отклика.",
+            stringResource(R.string.nd_insight_rtt_title),
+            stringResource(R.string.nd_insight_rtt_desc, pingMs),
             Color(0xFFFFB703)
         )
         successRate < 85 -> Triple(
-            "Потери пакетов",
-            "Зафиксированы потери ${100 - successRate}% контрольных пакетов. Рекомендуется переподключиться к стабильной Wi-Fi сети с надежным приемом.",
+            stringResource(R.string.nd_insight_loss_title),
+            stringResource(R.string.nd_insight_loss_desc, 100 - successRate),
             Color(0xFFFF0055)
         )
         mosScore < 3.80 -> Triple(
-            "Звонки HD",
-            "Качество аудиосвязи снижено (${String.format(java.util.Locale.US, "%.2f", mosScore)} MOS). Для идеальных звонков высокой четкости рекомендуется использовать Wi-Fi.",
+            stringResource(R.string.nd_insight_calls_title),
+            stringResource(R.string.nd_insight_calls_desc, String.format(java.util.Locale.US, "%.2f", mosScore)),
             Color(0xFFFFB703)
         )
         else -> Triple(
-            "Идеально",
-            "Параметры соединения в норме (SQI ${healthScore}%). Сетевой тракт на 100% готов к мгновенным чатам, 4K видео и кристально чистым звонкам.",
+            stringResource(R.string.nd_insight_ideal_title),
+            stringResource(R.string.nd_insight_ideal_desc, healthScore),
             Color(0xFF00FF87)
         )
     }
@@ -2204,7 +1923,7 @@ fun SmartNetworkInsightsCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "ИНСАЙТ ДВИЖКА",
+                        text = stringResource(R.string.nd_insight_title),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp,
@@ -2238,4 +1957,5 @@ fun SmartNetworkInsightsCard(
         }
     }
 }
+
 

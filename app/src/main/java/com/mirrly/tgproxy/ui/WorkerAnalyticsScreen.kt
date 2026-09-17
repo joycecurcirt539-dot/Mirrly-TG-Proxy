@@ -48,6 +48,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -99,7 +100,7 @@ fun WorkerAnalyticsScreen(
     var mtprotoSnapshot by remember {
         mutableStateOf(
             app.proxyServer.stats.dcAffinityEngine.getMtprotoSnapshot(
-                totalPoolSize = app.proxyServer.config.poolSize,
+                totalPoolSize = app.proxyServer.config.mtprotoStandbyPerActiveSlot,
                 totalWsConnections = app.proxyServer.stats.totalWsConnections.get()
             )
         )
@@ -109,7 +110,7 @@ fun WorkerAnalyticsScreen(
         while (isActive) {
             summary = WorkerRequestTracker.getAnalytics(selectedPeriod)
             mtprotoSnapshot = app.proxyServer.stats.dcAffinityEngine.getMtprotoSnapshot(
-                totalPoolSize = app.proxyServer.config.poolSize,
+                totalPoolSize = app.proxyServer.config.mtprotoStandbyPerActiveSlot,
                 totalWsConnections = app.proxyServer.stats.totalWsConnections.get()
             )
             delay(1000)
@@ -124,134 +125,18 @@ fun WorkerAnalyticsScreen(
 
     val infoData = remember {
         mapOf(
-            "cf_limits" to Pair(
-                "Лимиты Cloudflare Workers Free",
-                """
-                КАК РАБОТАЕТ ТАРИФИКАЦИЯ:
-                • На бесплатном тарифе Cloudflare Workers Free каждому аккаунту выделяется квота 100 000 запросов в сутки.
-                • Сброс счетчика квоты происходит ежедневно в 00:00 по всемирному координированному времени (UTC).
-                
-                ПОЧЕМУ WSS ЭКОНОМИТ ЗАПРОСЫ:
-                • 1 WebSocket-подключение = ровно 1 запрос Cloudflare на этапе открытия туннеля (HTTP Upgrade: websocket).
-                • После открытия туннеля весь обмен данными Telegram (сообщения, фото, видео гигабайтами, голосовые звонки) передается внутри открытого сокета и НЕ СОЗДАЕТ новых запросов.
-                
-                ОРИЕНТИРЫ НАГРУЗКИ:
-                • 1 активный пользователь расходует всего 200–800 запросов в сутки (менее 1% от квоты 100 000).
-                • Даже группа из 10–20 человек на одном личном воркере использует не более 10–15% суточного лимита.
-                """.trimIndent()
-            ),
-            "zero_cost" to Pair(
-                "Локальный подсчёт запросов (Zero Cost)",
-                """
-                КАК РАБОТАЕТ СЧЁТЧИК:
-                • Аналитический модуль Mirrly TG Proxy считает запросы исключительно ЛОКАЛЬНО на вашем устройстве.
-                • Фиксируются события открытия WSS-сессий ядром прокси и результаты локальных проверок доступности.
-                
-                ПОЛНОЕ ОТСУТСТВИЕ СЕТЕВЫХ ЗАТРАТ:
-                • Сам счётчик не делает никаких внешних запросов к API Cloudflare или сторонним серверам.
-                • Статистика сохраняется в зашифрованном локальном кэше устройства и не потребляет интернет-трафик.
-                """.trimIndent()
-            ),
-            "wss_traffic" to Pair(
-                "WSS Туннелирование данных",
-                """
-                НАЗНАЧЕНИЕ:
-                • Количество установленных защищенных WebSocket-сессий между прокси и воркером Cloudflare.
-                
-                ОСОБЕННОСТИ РАБОТЫ:
-                • Каждая WSS-сессия инкапсулирует трафик дата-центров Telegram (DC1–DC5) в защищенный TLS 1.3 поток.
-                • При непрерывном общении сокет остается открытым часами, расходуя лишь 1 первоначальный запрос.
-                """.trimIndent()
-            ),
-            "probes" to Pair(
-                "Служебные пробы доступности",
-                """
-                НАЗНАЧЕНИЕ:
-                • Запросы проверки работоспособности воркера и автоматического переключения при авариях (Multi-Worker Circuit Breaker).
-                
-                КОГДА ОТПРАВЛЯЮТСЯ:
-                • При ручной проверке доступности по кнопке «Тест» в Менеджере воркеров.
-                • При автоматическом подтверждении восстановления узла после сбоя сети.
-                """.trimIndent()
-            ),
-            "burn_rate" to Pair(
-                "Темп расхода запросов",
-                """
-                КАК РАССЧИТЫВАЕТСЯ:
-                • Среднее количество создаваемых запросов в час за выбранный интервал времени.
-                
-                ПРОГНОЗИРОВАНИЕ:
-                • Позволяет оценить суточную нагрузку на квоту при текущей интенсивности использования Telegram.
-                """.trimIndent()
-            ),
-            "reset_timer" to Pair(
-                "Ежедневный сброс квоты",
-                """
-                ПРАВИЛА CLOUDFLARE:
-                • Все суточные счетчики бесплатных воркеров Cloudflare обнуляются ровно в 00:00:00 UTC.
-                
-                ТАЙМЕР:
-                • Отображает точное время в часах и минутах, оставшееся до следующего обнуления квоты Cloudflare.
-                """.trimIndent()
-            ),
-            "mtproto_dc_traffic" to Pair(
-                "Распределение трафика по Дата-Центрам Telegram",
-                """
-                КАК РАБОТАЕТ МАРШРУТИЗАЦИЯ:
-                • Telegram разделяет трафик между 5 основными кластерами дата-центров (DC1–DC5) и сетью распределенных кэш-узлов FlowSeal CDN.
-                • DC 2 (Амстердам): чаты, синхронизация сообщений, авторизация и контакты.
-                • DC 4 (Амстердам): личные медиафайлы, голосовые и видеосообщения.
-                • CDN FlowSeal: 20 гео-распределенных кэш-серверов для быстрой доставки тяжелого публичного контента каналов.
-                """.trimIndent()
-            ),
-            "mtproto_cdn" to Pair(
-                "Сеть CDN FlowSeal (20 узлов кэширования)",
-                """
-                НАЗНАЧЕНИЕ КЭШ-НОД:
-                • Публичные видеофайлы и медиа из крупных каналов кэшируются на 20 CDN-нодах Telegram.
-                • Это снижает задержку загрузки видео и разгружает центральный дата-центр DC 4.
-                """.trimIndent()
-            ),
-            "mtproto_affinity" to Pair(
-                "Балансировщик пула сокетов (DC-Affinity)",
-                """
-                АДАПТИВНАЯ КОНЦЕНТРАЦИЯ РЕСУРСОВ:
-                • Движок динамически выделяет сокеты WSS-пула под тот дата-центр, с которым прямо сейчас идет наиболее интенсивный обмен данными.
-                • При паузах в активности сокеты переводятся в режим энергосбережения по закону экспоненциального затухания.
-                """.trimIndent()
-            ),
-            "mtproto_dialects" to Pair(
-                "Протокольные транспорты MTProto (Dialects)",
-                """
-                ТИПЫ ТРАНСПОРТА TELEGRAM:
-                • Intermediate (0xee): основной скоростной транспорт обмена сообщениями.
-                • Padded Intermediate (0xdd): рандомизированный транспорт с плавающим паддингом для защиты от DPI-блокировок.
-                • Abridged (0xef): ультра-компактный транспорт для служебных синхронизаций.
-                """.trimIndent()
-            ),
-            "mtproto_multiplexing" to Pair(
-                "Эффективность WSS-мультиплексирования",
-                """
-                КАК ЭКОНОМИТСЯ КВОТА:
-                • Коэффициент показывает, сколько сотен пакетов и сообщений MTProto было передано внутри одной открытой WSS-сессии.
-                • Позволяет обслуживать активное общение без лишних затрат суточных запросов к Cloudflare.
-                """.trimIndent()
-            ),
-            "mtproto_entropy" to Pair(
-                "Математическая модель энтропии пула и затухания",
-                """
-                1. ШЕННОНОВСКАЯ ЭНТРОПИЯ ПУЛА (H):
-                • Формула: H = -∑ p_i * ln(p_i), где p_i — доля нагрузки i-го дата-центра.
-                • H < 0.60: Высокая концентрация (Single-DC Affinity). Вся емкость сосредоточена на одном DC (например, чтение текстового чата в DC2). Максимальная экономия батареи и сокетов.
-                • 0.60 ≤ H ≤ 1.30: Сбалансированный режим (Dual Affinity). Параллельный обмен с DC2 (сообщения) и DC4 (медиа) или FlowSeal CDN.
-                • H > 1.30: Высокодисперсный режим (Multi-Cluster Burst). Одновременная синхронизация, звонки и скачивание контента по всей географии Telegram.
-
-                2. ЭКСПОНЕНЦИАЛЬНОЕ ЗАТУХАНИЕ АКТИВНОСТИ:
-                • Формула: Weight(DC) = (sqrt(Bytes) / 100 + Conns * 25 + 1.0) * exp(-Δt / 60).
-                • Период полураспада T½ = 60 секунд. Каждую минуту бездействия вес активности DC уменьшается вдвое.
-                • При достижении порога неактивности (>180с) сокет автоматически закрывается или переводится в режим ожидания (Sleep Mode).
-                """.trimIndent()
-            )
+            "cf_limits" to Pair(R.string.wa_info_cf_limits_title, R.string.wa_info_cf_limits_desc),
+            "zero_cost" to Pair(R.string.wa_info_zero_cost_title, R.string.wa_info_zero_cost_desc),
+            "wss_traffic" to Pair(R.string.wa_info_wss_traffic_title, R.string.wa_info_wss_traffic_desc),
+            "probes" to Pair(R.string.wa_info_probes_title, R.string.wa_info_probes_desc),
+            "burn_rate" to Pair(R.string.wa_info_burn_rate_title, R.string.wa_info_burn_rate_desc),
+            "reset_timer" to Pair(R.string.wa_info_reset_timer_title, R.string.wa_info_reset_timer_desc),
+            "mtproto_dc_traffic" to Pair(R.string.wa_info_mtproto_dc_traffic_title, R.string.wa_info_mtproto_dc_traffic_desc),
+            "mtproto_cdn" to Pair(R.string.wa_info_mtproto_cdn_title, R.string.wa_info_mtproto_cdn_desc),
+            "mtproto_affinity" to Pair(R.string.wa_info_mtproto_affinity_title, R.string.wa_info_mtproto_affinity_desc),
+            "mtproto_dialects" to Pair(R.string.wa_info_mtproto_dialects_title, R.string.wa_info_mtproto_dialects_desc),
+            "mtproto_multiplexing" to Pair(R.string.wa_info_mtproto_multiplexing_title, R.string.wa_info_mtproto_multiplexing_desc),
+            "mtproto_entropy" to Pair(R.string.wa_info_mtproto_entropy_title, R.string.wa_info_mtproto_entropy_desc)
         )
     }
 
@@ -338,7 +223,7 @@ fun WorkerAnalyticsScreen(
                         ) {
                             Column {
                                 Text(
-                                    text = "РАСХОД КВОТЫ CLOUDFLARE",
+                                    text = stringResource(R.string.wa_quota_title),
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Black,
                                     letterSpacing = 1.1.sp,
@@ -354,7 +239,7 @@ fun WorkerAnalyticsScreen(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "запросов",
+                                        text = stringResource(R.string.wa_unit_requests),
                                         color = activeProtoColor,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
@@ -371,7 +256,7 @@ fun WorkerAnalyticsScreen(
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    text = "${String.format(Locale.US, "%.1f", summary.dailyQuotaPercentage)}% лимита",
+                                    text = stringResource(R.string.wa_quota_percent_limit, String.format(Locale.US, "%.1f", summary.dailyQuotaPercentage)),
                                     color = activeProtoColor,
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold
@@ -415,12 +300,12 @@ fun WorkerAnalyticsScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "0 запр.",
+                                    text = stringResource(R.string.wa_stat_0_req),
                                     fontSize = 9.5.sp,
                                     color = TextMuted
                                 )
                                 Text(
-                                    text = "Лимит: 100 000 / день",
+                                    text = stringResource(R.string.wa_quota_limit_day),
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextMuted
@@ -468,7 +353,7 @@ fun WorkerAnalyticsScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "ПЕРИОД АНАЛИТИКИ",
+                        text = stringResource(R.string.wa_period_title),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp,
@@ -513,7 +398,7 @@ fun WorkerAnalyticsScreen(
                                         .padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Text(
-                                        text = period.label,
+                                        text = stringResource(period.labelRes),
                                         color = chipText,
                                         fontSize = 11.5.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
@@ -535,7 +420,7 @@ fun WorkerAnalyticsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "ДИНАМИКА ЗАПРОСОВ ПО ВРЕМЕНИ",
+                            text = stringResource(R.string.wa_timeline_title),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.sp,
@@ -568,7 +453,7 @@ fun WorkerAnalyticsScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "ДЕТАЛИЗАЦИЯ И СТАТИСТИКА",
+                        text = stringResource(R.string.wa_details_title),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp,
@@ -586,9 +471,9 @@ fun WorkerAnalyticsScreen(
                             DiagnosticMetricRow(
                                 iconRes = R.drawable.ic_diag_protocol,
                                 iconColor = activeProtoColor,
-                                title = "WSS Туннелирование данных",
-                                value = "${summary.wssRequests} сессий",
-                                badgeText = "1 WSS = 1 запр.",
+                                title = stringResource(R.string.wa_stat_wss_title),
+                                value = stringResource(R.string.wa_stat_wss_sessions, summary.wssRequests),
+                                badgeText = stringResource(R.string.wa_badge_wss_ratio),
                                 badgeColor = activeProtoColor,
                                 onInfoClick = { infoKey = "wss_traffic" }
                             )
@@ -598,9 +483,9 @@ fun WorkerAnalyticsScreen(
                             DiagnosticMetricRow(
                                 iconRes = R.drawable.ic_diag_rtt,
                                 iconColor = secondaryProtoColor,
-                                title = "Служебные пробы доступности",
-                                value = "${summary.probeRequests} проверок",
-                                badgeText = "Failover",
+                                title = stringResource(R.string.wa_stat_probes_title),
+                                value = stringResource(R.string.wa_stat_probes_checks, summary.probeRequests),
+                                badgeText = stringResource(R.string.wa_badge_failover),
                                 badgeColor = secondaryProtoColor,
                                 onInfoClick = { infoKey = "probes" }
                             )
@@ -610,9 +495,9 @@ fun WorkerAnalyticsScreen(
                             DiagnosticMetricRow(
                                 iconRes = R.drawable.ic_diag_jitter,
                                 iconColor = activeProtoColor,
-                                title = "Средний темп расхода",
-                                value = "~${String.format(Locale.US, "%.1f", summary.burnRatePerHour)} запр/час",
-                                badgeText = "Burn Rate",
+                                title = stringResource(R.string.wa_stat_burn_rate_title),
+                                value = stringResource(R.string.wa_stat_burn_rate_val, String.format(Locale.US, "%.1f", summary.burnRatePerHour)),
+                                badgeText = stringResource(R.string.wa_badge_burn_rate),
                                 badgeColor = activeProtoColor,
                                 onInfoClick = { infoKey = "burn_rate" }
                             )
@@ -622,8 +507,8 @@ fun WorkerAnalyticsScreen(
                             DiagnosticMetricRow(
                                 iconRes = R.drawable.ic_diag_delivery,
                                 iconColor = secondaryProtoColor,
-                                title = "Сброс суточной квоты",
-                                value = "Через ${summary.hoursUntilReset}ч ${summary.minutesUntilReset}мин",
+                                title = stringResource(R.string.wa_stat_reset_title),
+                                value = stringResource(R.string.wa_stat_reset_val, summary.hoursUntilReset, summary.minutesUntilReset),
                                 badgeText = "00:00 UTC",
                                 badgeColor = secondaryProtoColor,
                                 onInfoClick = { infoKey = "reset_timer" }
@@ -698,8 +583,8 @@ fun WorkerAnalyticsScreen(
             val info = infoData[key]
             if (info != null) {
                 InfoDialog(
-                    title = info.first,
-                    body = info.second,
+                    title = stringResource(info.first),
+                    body = stringResource(info.second),
                     onDismiss = { infoKey = null }
                 )
             }
@@ -708,7 +593,7 @@ fun WorkerAnalyticsScreen(
 }
 
 /**
- * Интерактивный Canvas-график с гладкой интерполяцией Безье и скраббером при касании.
+ * Interactive Canvas chart with smooth Bezier interpolation and touch scrubber.
  */
 @Composable
 private fun RequestTimelineChart(
@@ -879,7 +764,7 @@ private fun RequestTimelineChart(
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = "${pt.timeLabel} • ${pt.totalCount} запр. (WSS: ${pt.wssCount}, Пробы: ${pt.probeCount})",
+                        text = stringResource(R.string.wa_chart_tooltip, pt.timeLabel, pt.totalCount, pt.wssCount, pt.probeCount),
                         color = TextWhite,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
@@ -921,7 +806,7 @@ private fun AnalyticsTopBar(
         TopAppBar(
             title = {
                 Text(
-                    text = "Аналитика запросов",
+                    text = stringResource(R.string.wa_title),
                     color = TextWhite,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
@@ -935,7 +820,7 @@ private fun AnalyticsTopBar(
                 }) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_arrow_left),
-                        contentDescription = "Назад",
+                        contentDescription = stringResource(R.string.action_back),
                         tint = TextWhite,
                         modifier = Modifier.size(22.dp)
                     )
@@ -955,7 +840,7 @@ private fun AnalyticsTopBar(
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "100k / день",
+                        text = stringResource(R.string.wa_chart_100k_day),
                         color = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
@@ -967,16 +852,17 @@ private fun AnalyticsTopBar(
     }
 }
 
+@Composable
 private fun formatTrafficBytes(bytes: Long): String {
-    if (bytes <= 0) return "0 Б"
+    if (bytes <= 0) return stringResource(R.string.wa_traffic_b, 0)
     val kb = bytes / 1024.0
     val mb = kb / 1024.0
     val gb = mb / 1024.0
     return when {
-        gb >= 1.0 -> String.format(Locale.US, "%.2f ГБ", gb)
-        mb >= 1.0 -> String.format(Locale.US, "%.1f МБ", mb)
-        kb >= 1.0 -> String.format(Locale.US, "%.1f КБ", kb)
-        else -> "$bytes Б"
+        gb >= 1.0 -> stringResource(R.string.wa_traffic_gb, String.format(Locale.US, "%.2f", gb))
+        mb >= 1.0 -> stringResource(R.string.wa_traffic_mb, String.format(Locale.US, "%.1f", mb))
+        kb >= 1.0 -> stringResource(R.string.wa_traffic_kb, String.format(Locale.US, "%.1f", kb))
+        else -> stringResource(R.string.wa_traffic_b, bytes)
     }
 }
 
@@ -993,12 +879,12 @@ fun DcTrafficDonutChart(
     val haptic = LocalHapticFeedback.current
     val dcColors = remember(primaryColor, secondaryColor) {
         mapOf(
-            2 to primaryColor,                      // DC2 Основные чаты
-            4 to secondaryColor,                    // DC4 Медиа
+            2 to primaryColor,                      // DC2 Main chats
+            4 to secondaryColor,                    // DC4 Media
             100 to Color(0xFF00B4D8),               // CDN FlowSeal (Deep Teal)
-            1 to Color.White.copy(alpha = 0.85f),  // DC1 Майами
-            3 to Color.White.copy(alpha = 0.60f),  // DC3 Майами
-            5 to Color.White.copy(alpha = 0.40f)   // DC5 Сингапур
+            1 to Color.White.copy(alpha = 0.85f),  // DC1 Miami
+            3 to Color.White.copy(alpha = 0.60f),  // DC3 Miami
+            5 to Color.White.copy(alpha = 0.40f)   // DC5 Singapore
         )
     }
 
@@ -1131,7 +1017,7 @@ fun DcTrafficDonutChart(
                 )
             } else {
                 Text(
-                    text = "ВСЕ DC",
+                    text = stringResource(R.string.wa_dc_all),
                     fontSize = 9.5.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp,
@@ -1218,7 +1104,7 @@ fun SelectedDcInspectorBanner(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "${String.format(Locale.US, "%.1f", pct)}% от общего",
+                        text = stringResource(R.string.wa_dc_pct_total, String.format(Locale.US, "%.1f", pct)),
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = col
@@ -1227,7 +1113,7 @@ fun SelectedDcInspectorBanner(
             }
 
             Text(
-                text = "${metric.info.role} • Узел: ${metric.info.defaultIp}:443",
+                text = stringResource(R.string.wa_dc_role_node, metric.info.role, metric.info.defaultIp),
                 fontSize = 10.sp,
                 color = TextMuted
             )
@@ -1260,13 +1146,13 @@ fun SelectedDcInspectorBanner(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Вход (RX): ${formatTrafficBytes(metric.bytesReceived)} (${String.format(Locale.US, "%.0f", rxPct)}%)",
+                        text = stringResource(R.string.wa_dc_rx, formatTrafficBytes(metric.bytesReceived), String.format(Locale.US, "%.0f", rxPct)),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = col
                     )
                     Text(
-                        text = "Исход (TX): ${formatTrafficBytes(metric.bytesSent)} (${String.format(Locale.US, "%.0f", txPct)}%)",
+                        text = stringResource(R.string.wa_dc_tx, formatTrafficBytes(metric.bytesSent), String.format(Locale.US, "%.0f", txPct)),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = secondaryColor
@@ -1281,12 +1167,12 @@ fun SelectedDcInspectorBanner(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Сокетов: ${metric.allocatedSockets} • Вес: ${metric.weight}",
+                    text = stringResource(R.string.wa_dc_sockets_weight, metric.allocatedSockets, String.format(Locale.US, "%.2f", metric.weight)),
                     fontSize = 9.5.sp,
                     color = TextMuted
                 )
                 Text(
-                    text = "Снять выбор",
+                    text = stringResource(R.string.wa_dc_deselect),
                     fontSize = 9.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextMuted,
@@ -1312,12 +1198,12 @@ fun MtprotoDcTrafficDistributionCard(
 
     val dcColors = remember(primaryColor, secondaryColor) {
         mapOf(
-            2 to primaryColor,                      // DC2 Чаты
-            4 to secondaryColor,                    // DC4 Медиа
+            2 to primaryColor,                      // DC2 Chats
+            4 to secondaryColor,                    // DC4 Media
             100 to Color(0xFF00B4D8),               // CDN FlowSeal
-            1 to Color.White.copy(alpha = 0.85f),  // DC1 Майами
-            3 to Color.White.copy(alpha = 0.60f),  // DC3 Майами
-            5 to Color.White.copy(alpha = 0.40f)   // DC5 Сингапур
+            1 to Color.White.copy(alpha = 0.85f),  // DC1 Miami
+            3 to Color.White.copy(alpha = 0.60f),  // DC3 Miami
+            5 to Color.White.copy(alpha = 0.40f)   // DC5 Singapore
         )
     }
 
@@ -1350,7 +1236,7 @@ fun MtprotoDcTrafficDistributionCard(
             ) {
                 Column {
                     Text(
-                        text = "КАРТА РАСПРЕДЕЛЕНИЯ ТРАФИКА DC",
+                        text = stringResource(R.string.wa_dc_traffic_map_title),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.1.sp,
@@ -1366,7 +1252,7 @@ fun MtprotoDcTrafficDistributionCard(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "всего",
+                            text = stringResource(R.string.wa_dc_total_label),
                             color = primaryColor,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
@@ -1420,10 +1306,10 @@ fun MtprotoDcTrafficDistributionCard(
                 val americasPct = if (snapshot.totalBytes > 0) (americasBytes.toFloat() / total) * 100f else 8f
                 val asiaPct = if (snapshot.totalBytes > 0) (asiaBytes.toFloat() / total) * 100f else 2f
 
-                RegionalChip(title = "Европа", pct = europePct, color = primaryColor, modifier = Modifier.weight(1f))
+                RegionalChip(title = stringResource(R.string.wa_region_europe), pct = europePct, color = primaryColor, modifier = Modifier.weight(1f))
                 RegionalChip(title = "CDN", pct = cdnPct, color = Color(0xFF00B4D8), modifier = Modifier.weight(1f))
-                RegionalChip(title = "Америка", pct = americasPct, color = Color.White.copy(alpha = 0.85f), modifier = Modifier.weight(1f))
-                RegionalChip(title = "Азия", pct = asiaPct, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.weight(1f))
+                RegionalChip(title = stringResource(R.string.wa_region_americas), pct = americasPct, color = Color.White.copy(alpha = 0.85f), modifier = Modifier.weight(1f))
+                RegionalChip(title = stringResource(R.string.wa_region_asia), pct = asiaPct, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.weight(1f))
             }
 
             Box(modifier = Modifier.fillMaxWidth().height(0.6.dp).background(Color.White.copy(alpha = 0.05f)))
@@ -1431,7 +1317,7 @@ fun MtprotoDcTrafficDistributionCard(
             // All DCs Interactive List
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "ДАТА-ЦЕНТРЫ И СЕТЕВЫЕ КЛАСТЕРЫ",
+                    text = stringResource(R.string.wa_dc_clusters_title),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp,
@@ -1530,7 +1416,7 @@ fun MtprotoDcTrafficDistributionCard(
                                     fontFamily = FontFamily.Monospace
                                 )
                                 Text(
-                                    text = "Сокетов: ${m.allocatedSockets} • Вес: ${m.weight}",
+                                    text = stringResource(R.string.wa_dc_sockets_weight, m.allocatedSockets, String.format(Locale.US, "%.2f", m.weight)),
                                     fontSize = 9.sp,
                                     color = TextMuted
                                 )
@@ -1624,14 +1510,14 @@ fun MtprotoCdnFlowSealCard(
                     }
                     Column {
                         Text(
-                            text = "СЕТЬ CDN FLOWSEAL",
+                            text = stringResource(R.string.wa_cdn_title),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.1.sp,
                             color = TextMuted
                         )
                         Text(
-                            text = "20 кэш-узлов публичных каналов",
+                            text = stringResource(R.string.wa_cdn_subtitle),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
@@ -1654,7 +1540,7 @@ fun MtprotoCdnFlowSealCard(
                 ) {
                     Column {
                         Text(
-                            text = "ЭФФЕКТИВНОСТЬ КЭШИРОВАНИЯ",
+                            text = stringResource(R.string.wa_cdn_cache_efficiency),
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextMuted
@@ -1669,7 +1555,7 @@ fun MtprotoCdnFlowSealCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Cache Hit Rate",
+                                text = stringResource(R.string.wa_cache_hit_rate),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextMuted,
@@ -1686,7 +1572,7 @@ fun MtprotoCdnFlowSealCard(
                             .padding(horizontal = 6.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = "Разгрузка DC4",
+                            text = stringResource(R.string.wa_cdn_dc4_offload),
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor
@@ -1748,16 +1634,16 @@ fun MtprotoCdnFlowSealCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     CdnMetricBox(
-                        title = "СЭКОНОМЛЕНО DC4",
+                        title = stringResource(R.string.wa_cdn_dc4_saved_title),
                         value = formatTrafficBytes(snapshot.savedDc4Bytes),
-                        subtext = "Трафик Амстердама",
+                        subtext = stringResource(R.string.wa_cdn_amsterdam_traffic),
                         color = secondaryColor,
                         modifier = Modifier.weight(1f)
                     )
                     CdnMetricBox(
-                        title = "УСКОРЕНИЕ МЕДИА",
-                        value = "+45% к скорости",
-                        subtext = "Прямая Edge-отдача",
+                        title = stringResource(R.string.wa_cdn_media_accel_title),
+                        value = stringResource(R.string.wa_cdn_speed_boost),
+                        subtext = stringResource(R.string.wa_cdn_edge_delivery),
                         color = primaryColor,
                         modifier = Modifier.weight(1f)
                     )
@@ -1768,16 +1654,16 @@ fun MtprotoCdnFlowSealCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     CdnMetricBox(
-                        title = "EDGE-КЛАСТЕР",
-                        value = "20 из 20 узлов",
-                        subtext = "Сеть FlowSeal",
+                        title = stringResource(R.string.wa_cdn_edge_cluster_title),
+                        value = stringResource(R.string.wa_cdn_nodes_count),
+                        subtext = stringResource(R.string.wa_cdn_flowseal_network),
                         color = primaryColor,
                         modifier = Modifier.weight(1f)
                     )
                     CdnMetricBox(
-                        title = "ЭКОНОМИЯ КВОТЫ",
+                        title = stringResource(R.string.wa_cdn_quota_saving_title),
                         value = "Zero-Cost WSS",
-                        subtext = "1 WSS на гигабайты",
+                        subtext = stringResource(R.string.wa_cdn_quota_subtext),
                         color = secondaryColor,
                         modifier = Modifier.weight(1f)
                     )
@@ -1794,14 +1680,14 @@ fun MtprotoCdnFlowSealCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "ТОПОЛОГИЯ 20 КЭШ-УЗЛОВ FLOWSEAL",
+                        text = stringResource(R.string.wa_cdn_topology_title),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp,
                         color = TextMuted
                     )
                     Text(
-                        text = "100% Online",
+                        text = stringResource(R.string.wa_100_online),
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = primaryColor
@@ -1879,19 +1765,19 @@ fun MtprotoCdnFlowSealCard(
                         ) {
                             Column {
                                 Text(
-                                    text = "Кэш-узел FlowSeal CDN #${String.format(Locale.US, "%02d", idx)}",
+                                    text = stringResource(R.string.wa_cdn_node_item, String.format(Locale.US, "%02d", idx)),
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = primaryColor
                                 )
                                 Text(
-                                    text = "Статус: Активен • Кэш: Видео H.265 / Аудио • Шлюз: WSS",
+                                    text = stringResource(R.string.wa_cdn_node_item_details),
                                     fontSize = 9.sp,
                                     color = TextMuted
                                 )
                             }
                             Text(
-                                text = "Закрыть",
+                                text = stringResource(R.string.wa_close),
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextMuted,
@@ -1909,7 +1795,7 @@ fun MtprotoCdnFlowSealCard(
             // Content Cache Breakdown
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "КАТЕГОРИИ КЭШИРУЕМОГО КОНТЕНТА",
+                    text = stringResource(R.string.wa_cdn_categories_title),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp,
@@ -1917,20 +1803,20 @@ fun MtprotoCdnFlowSealCard(
                 )
 
                 CdnContentRow(
-                    title = "4K Видео и медиапотоки каналов",
-                    shareText = "65% объема",
+                    title = stringResource(R.string.wa_cdn_cat_video_title),
+                    shareText = stringResource(R.string.wa_cdn_cat_video_share),
                     pct = 0.65f,
                     color = primaryColor
                 )
                 CdnContentRow(
-                    title = "Голосовые заметки и подкасты",
-                    shareText = "20% объема",
+                    title = stringResource(R.string.wa_cdn_cat_audio_title),
+                    shareText = stringResource(R.string.wa_cdn_cat_audio_share),
                     pct = 0.20f,
                     color = secondaryColor
                 )
                 CdnContentRow(
-                    title = "Крупные документы и архивы",
-                    shareText = "15% объема",
+                    title = stringResource(R.string.wa_cdn_cat_docs_title),
+                    shareText = stringResource(R.string.wa_cdn_cat_docs_share),
                     pct = 0.15f,
                     color = Color.White.copy(alpha = 0.60f)
                 )
@@ -2032,12 +1918,12 @@ fun MtprotoDcAffinityMatrixCard(
 ) {
     val dcColors = remember(primaryColor, secondaryColor) {
         mapOf(
-            2 to primaryColor,                      // DC2 Чаты
-            4 to secondaryColor,                    // DC4 Медиа
+            2 to primaryColor,                      // DC2 Chats
+            4 to secondaryColor,                    // DC4 Media
             100 to Color(0xFF00B4D8),               // CDN FlowSeal
-            1 to Color.White.copy(alpha = 0.85f),  // DC1 Майами
-            3 to Color.White.copy(alpha = 0.60f),  // DC3 Майами
-            5 to Color.White.copy(alpha = 0.40f)   // DC5 Сингапур
+            1 to Color.White.copy(alpha = 0.85f),  // DC1 Miami
+            3 to Color.White.copy(alpha = 0.60f),  // DC3 Miami
+            5 to Color.White.copy(alpha = 0.40f)   // DC5 Singapore
         )
     }
 
@@ -2080,7 +1966,7 @@ fun MtprotoDcAffinityMatrixCard(
                     }
                     Column {
                         Text(
-                            text = "БАЛАНСИРОВЩИК ПУЛА СОКЕТОВ",
+                            text = stringResource(R.string.wa_pool_balancer_title),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.1.sp,
@@ -2107,7 +1993,7 @@ fun MtprotoDcAffinityMatrixCard(
                 ) {
                     Column {
                         Text(
-                            text = "РАСПРЕДЕЛЕНИЕ WSS-ПУЛА",
+                            text = stringResource(R.string.wa_pool_distribution_title),
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextMuted
@@ -2122,7 +2008,7 @@ fun MtprotoDcAffinityMatrixCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "сокетов активно",
+                                text = stringResource(R.string.wa_pool_sockets_active),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextMuted,
@@ -2139,7 +2025,7 @@ fun MtprotoDcAffinityMatrixCard(
                             .padding(horizontal = 6.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = "H = ${String.format(Locale.US, "%.2f", snapshot.dcAffinityEntropy)} нат",
+                            text = stringResource(R.string.wa_pool_entropy_val, String.format(Locale.US, "%.2f", snapshot.dcAffinityEntropy)),
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor
@@ -2182,13 +2068,13 @@ fun MtprotoDcAffinityMatrixCard(
                 ) {
                     val activeCount = snapshot.dcMetrics.count { it.allocatedSockets > 0 }
                     Text(
-                        text = "Активных DC: $activeCount",
+                        text = stringResource(R.string.wa_pool_active_dcs, activeCount),
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = TextMuted
                     )
                     Text(
-                        text = if (snapshot.dcAffinityEntropy < 0.6) "Фокус: ${snapshot.primaryDcName}" else "Сбалансированная нагрузка",
+                        text = if (snapshot.dcAffinityEntropy < 0.6) stringResource(R.string.wa_pool_focus, snapshot.primaryDcName) else stringResource(R.string.wa_pool_balanced_load),
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = primaryColor
@@ -2204,23 +2090,23 @@ fun MtprotoDcAffinityMatrixCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 AffinityParamBox(
-                    title = "ФОКУС НАГРУЗКИ",
+                    title = stringResource(R.string.wa_pool_load_focus_title),
                     value = snapshot.primaryDcName,
-                    subtext = "Доминантный DC",
+                    subtext = stringResource(R.string.wa_pool_dominant_dc),
                     color = primaryColor,
                     modifier = Modifier.weight(1f)
                 )
                 AffinityParamBox(
-                    title = "ПОЛУРАСПАД ВЕСА",
-                    value = "T½ = 60с",
+                    title = stringResource(R.string.wa_pool_half_life_title),
+                    value = stringResource(R.string.wa_pool_half_life_60s),
                     subtext = "exp(-Δt / 60)",
                     color = secondaryColor,
                     modifier = Modifier.weight(1f)
                 )
                 AffinityParamBox(
-                    title = "ЭНЕРГОСБЕРЕЖЕНИЕ",
-                    value = "Sleep Mode",
-                    subtext = "Авто-усыпление",
+                    title = stringResource(R.string.wa_pool_energy_save_title),
+                    value = stringResource(R.string.wa_pool_sleep_mode),
+                    subtext = stringResource(R.string.wa_pool_auto_sleep),
                     color = TextWhite.copy(alpha = 0.85f),
                     modifier = Modifier.weight(1f)
                 )
@@ -2231,7 +2117,7 @@ fun MtprotoDcAffinityMatrixCard(
             // All DCs Socket Allocations Grid
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "РАСПРЕДЕЛЕНИЕ ЕМКОСТИ ПО ДАТА-ЦЕНТРАМ",
+                    text = stringResource(R.string.wa_pool_dc_capacity_title),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp,
@@ -2293,7 +2179,7 @@ fun MtprotoDcAffinityMatrixCard(
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = if (isAllocated) "${m.allocatedSockets} сок." else "Standby (0)",
+                                        text = if (isAllocated) stringResource(R.string.wa_pool_sockets_count, m.allocatedSockets) else stringResource(R.string.wa_pool_standby_zero),
                                         fontSize = 9.5.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = if (isAllocated) col else TextMuted
@@ -2308,12 +2194,12 @@ fun MtprotoDcAffinityMatrixCard(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
-                                        text = "Вес: ${m.weight}",
+                                        text = stringResource(R.string.wa_pool_weight_val, String.format(Locale.US, "%.2f", m.weight)),
                                         fontSize = 9.sp,
                                         color = TextMuted
                                     )
                                     Text(
-                                        text = if (isAllocated) "Горячий пул" else "Standby",
+                                        text = if (isAllocated) stringResource(R.string.wa_pool_hot) else stringResource(R.string.wa_pool_standby),
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = if (isAllocated) col else TextMuted
@@ -2353,14 +2239,14 @@ fun MtprotoDcAffinityMatrixCard(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
-                        text = "ПРИНЦИПЫ ЭНЕРГОСБЕРЕЖЕНИЯ DC-AFFINITY:",
+                        text = stringResource(R.string.wa_pool_principles_title),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 0.8.sp,
                         color = primaryColor
                     )
                     Text(
-                        text = "• Чтение чатов: 100% емкости WSS концентрируется на DC2 (Амстердам).\n• Просмотр медиа: мгновенный переход на DC4 и FlowSeal CDN.\n• Фоновый режим: сокеты неактивных DC усыпляются за 60 секунд.",
+                        text = stringResource(R.string.wa_pool_principles_text),
                         fontSize = 9.5.sp,
                         color = TextMuted,
                         lineHeight = 13.5.sp
@@ -2463,14 +2349,14 @@ fun MtprotoTransportDialectsSplitCard(
                     }
                     Column {
                         Text(
-                            text = "ПРОТОКОЛЬНЫЙ СПЛИТ ТРАНСПОРТА",
+                            text = stringResource(R.string.wa_proto_split_title),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.1.sp,
                             color = TextMuted
                         )
                         Text(
-                            text = "Диалекты MTProto 2.0 и защита от DPI",
+                            text = stringResource(R.string.wa_proto_split_sub),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
@@ -2490,7 +2376,7 @@ fun MtprotoTransportDialectsSplitCard(
                 ) {
                     Column {
                         Text(
-                            text = "РАСПРЕДЕЛЕНИЕ ТРАНСПОРТОВ",
+                            text = stringResource(R.string.wa_proto_distribution_title),
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextMuted
@@ -2505,7 +2391,7 @@ fun MtprotoTransportDialectsSplitCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "пакетов",
+                                text = stringResource(R.string.wa_unit_packets),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextMuted,
@@ -2522,7 +2408,7 @@ fun MtprotoTransportDialectsSplitCard(
                             .padding(horizontal = 6.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = "DPI-Resistant (0xdd)",
+                            text = stringResource(R.string.wa_dpi_resistant),
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = secondaryColor
@@ -2591,23 +2477,23 @@ fun MtprotoTransportDialectsSplitCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 DialectSummaryBox(
-                    title = "INTERMEDIATE",
+                    title = stringResource(R.string.wa_proto_intermediate_title),
                     value = "${snapshot.intermediatePackets}",
-                    subtext = "0xee скоростной",
+                    subtext = stringResource(R.string.wa_proto_0xee_sub),
                     color = primaryColor,
                     modifier = Modifier.weight(1f)
                 )
                 DialectSummaryBox(
-                    title = "PADDED",
+                    title = stringResource(R.string.wa_proto_padded_title),
                     value = "${snapshot.paddedPackets}",
-                    subtext = "0xdd анти-DPI",
+                    subtext = stringResource(R.string.wa_proto_0xdd_sub),
                     color = secondaryColor,
                     modifier = Modifier.weight(1f)
                 )
                 DialectSummaryBox(
-                    title = "ABRIDGED",
+                    title = stringResource(R.string.wa_proto_abridged_title),
                     value = "${snapshot.abridgedPackets}",
-                    subtext = "0xef служебный",
+                    subtext = stringResource(R.string.wa_proto_0xef_sub),
                     color = Color.White.copy(alpha = 0.70f),
                     modifier = Modifier.weight(1f)
                 )
@@ -2618,7 +2504,7 @@ fun MtprotoTransportDialectsSplitCard(
             // Interactive Dialect Deep Inspector Rows
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "СПЕЦИФИКАЦИЯ ТРАНСПОРТНЫХ ДИАЛЕКТОВ",
+                    text = stringResource(R.string.wa_proto_spec_title),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp,
@@ -2627,12 +2513,12 @@ fun MtprotoTransportDialectsSplitCard(
 
                 // Intermediate
                 DialectDeepRow(
-                    name = "Intermediate Transport",
+                    name = stringResource(R.string.wa_proto_intermediate_name),
                     hexHeader = "0xee ee ee ee",
                     packets = snapshot.intermediatePackets,
                     pct = interPct,
                     frameStructure = "[4B Length LE] [MTProto Payload]",
-                    description = "Основной протокол быстрой передачи сообщений и медиапотоков с 4-байтным выравниванием длины.",
+                    description = stringResource(R.string.wa_proto_intermediate_desc),
                     color = primaryColor,
                     isSelected = selectedDialect == "intermediate",
                     onClick = {
@@ -2643,12 +2529,12 @@ fun MtprotoTransportDialectsSplitCard(
 
                 // Padded Intermediate
                 DialectDeepRow(
-                    name = "Padded Intermediate (Anti-DPI)",
+                    name = stringResource(R.string.wa_proto_padded_name),
                     hexHeader = "0xdd dd dd dd",
                     packets = snapshot.paddedPackets,
                     pct = paddedPct,
                     frameStructure = "[4B Length LE] [Payload] [0-15B Pad]",
-                    description = "Каждый кадр дополняется случайным паддингом. Разрушает характерные сигнатуры длин пакетов Telegram, предотвращая блокировки ТСПУ и DPI.",
+                    description = stringResource(R.string.wa_proto_padded_desc),
                     color = secondaryColor,
                     isSelected = selectedDialect == "padded",
                     onClick = {
@@ -2659,12 +2545,12 @@ fun MtprotoTransportDialectsSplitCard(
 
                 // Abridged
                 DialectDeepRow(
-                    name = "Abridged Compact Transport",
+                    name = stringResource(R.string.wa_proto_abridged_name),
                     hexHeader = "0xef",
                     packets = snapshot.abridgedPackets,
                     pct = abridgedPct,
                     frameStructure = "[1B Length (<127)] [MTProto Payload]",
-                    description = "Ультра-компактный транспорт с 1-байтным заголовком. Используется для служебных квитанций и синхронизаций с минимальным оверхедом.",
+                    description = stringResource(R.string.wa_proto_abridged_desc),
                     color = Color.White.copy(alpha = 0.75f),
                     isSelected = selectedDialect == "abridged",
                     onClick = {
@@ -2721,14 +2607,14 @@ fun MtprotoWssMultiplexingCard(
                     }
                     Column {
                         Text(
-                            text = "МУЛЬТИПЛЕКСИРОВАНИЕ WSS",
+                            text = stringResource(R.string.wa_mux_title),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.1.sp,
                             color = TextMuted
                         )
                         Text(
-                            text = "Эффективность туннеля Cloudflare",
+                            text = stringResource(R.string.wa_mux_sub),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
@@ -2748,7 +2634,7 @@ fun MtprotoWssMultiplexingCard(
                 ) {
                     Column {
                         Text(
-                            text = "КОЭФФИЦИЕНТ МУЛЬТИПЛЕКСИРОВАНИЯ",
+                            text = stringResource(R.string.wa_mux_ratio_title),
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextMuted
@@ -2763,7 +2649,7 @@ fun MtprotoWssMultiplexingCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "пакетов",
+                                text = stringResource(R.string.wa_unit_packets),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextMuted,
@@ -2780,7 +2666,7 @@ fun MtprotoWssMultiplexingCard(
                             .padding(horizontal = 6.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = "99.8% Zero Cost",
+                            text = stringResource(R.string.wa_zero_cost_badge),
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor
@@ -2798,16 +2684,16 @@ fun MtprotoWssMultiplexingCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     TransportMetricBox(
-                        title = "ОБРАБОТАНО ПАКЕТОВ",
+                        title = stringResource(R.string.wa_mux_packets_processed_title),
                         value = "${snapshot.totalPackets}",
-                        subtext = "Транспорт MTProto",
+                        subtext = stringResource(R.string.wa_mux_mtproto_transport),
                         color = primaryColor,
                         modifier = Modifier.weight(1f)
                     )
                     TransportMetricBox(
-                        title = "ЗАЩИТА ОТ DPI",
+                        title = stringResource(R.string.wa_mux_dpi_protection_title),
                         value = "Padded 0xdd",
-                        subtext = "Рандомизация паддинга",
+                        subtext = stringResource(R.string.wa_mux_padding_random),
                         color = secondaryColor,
                         modifier = Modifier.weight(1f)
                     )
@@ -2818,16 +2704,16 @@ fun MtprotoWssMultiplexingCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     TransportMetricBox(
-                        title = "РЕЖИМ ТУННЕЛЯ",
+                        title = stringResource(R.string.wa_mux_tunnel_mode_title),
                         value = "WSS TLS 1.3",
                         subtext = "Cloudflare Worker",
                         color = primaryColor,
                         modifier = Modifier.weight(1f)
                     )
                     TransportMetricBox(
-                        title = "ЭКОНОМИЯ КВОТЫ",
-                        value = "Zero-Cost",
-                        subtext = "1 WSS на сессию",
+                        title = stringResource(R.string.wa_cdn_quota_saving_title),
+                        value = stringResource(R.string.wa_zero_cost_val),
+                        subtext = stringResource(R.string.wa_mux_wss_per_session),
                         color = secondaryColor,
                         modifier = Modifier.weight(1f)
                     )
@@ -2847,14 +2733,14 @@ fun MtprotoWssMultiplexingCard(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
-                        text = "АРХИТЕКТУРА WSS-МУЛЬТИПЛЕКСИРОВАНИЯ:",
+                        text = stringResource(R.string.wa_mux_arch_title),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 0.8.sp,
                         color = primaryColor
                     )
                     Text(
-                        text = "• 1 WSS сессия открывается по защищенному WebSocket туннелю (1 запрос Cloudflare Free).\n• Все пакеты MTProto инкапсулируются в бинарные фреймы без повторных HTTP рукопожатий.\n• Это обеспечивает 99.8% экономию суточной квоты даже при многогигабайтном трафике.",
+                        text = stringResource(R.string.wa_mux_arch_text),
                         fontSize = 9.5.sp,
                         color = TextMuted,
                         lineHeight = 13.5.sp
@@ -3005,7 +2891,7 @@ private fun DialectDeepRow(
 
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "$packets пак.",
+                        text = stringResource(R.string.wa_packets_val, packets),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextWhite
@@ -3035,7 +2921,7 @@ private fun DialectDeepRow(
                         .padding(horizontal = 6.dp, vertical = 3.dp)
                 ) {
                     Text(
-                        text = "Структура кадра: $frameStructure",
+                        text = stringResource(R.string.wa_frame_structure_val, frameStructure),
                         fontSize = 8.5.sp,
                         fontFamily = FontFamily.Monospace,
                         color = color
@@ -3119,7 +3005,7 @@ fun ShannonEntropyRadialGauge(
                 color = gaugeColor
             )
             Text(
-                text = "нат",
+                text = stringResource(R.string.wa_unit_nat),
                 fontSize = 8.5.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextMuted
@@ -3166,14 +3052,14 @@ fun DecayCurveTimelineChart(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "КРИВАЯ ЗАТУХАНИЯ e^(-Δt/60)",
+                    text = stringResource(R.string.wa_decay_curve_title),
                     fontSize = 9.5.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 0.8.sp,
                     color = primaryColor
                 )
                 Text(
-                    text = "T½ = 60 сек",
+                    text = stringResource(R.string.wa_decay_half_life),
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                     color = primaryColor
@@ -3263,10 +3149,10 @@ fun DecayCurveTimelineChart(
                         .align(Alignment.BottomCenter),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "0с (100%)", fontSize = 8.sp, color = TextMuted)
-                    Text(text = "60с (50%)", fontSize = 8.sp, color = primaryColor)
-                    Text(text = "120с (25%)", fontSize = 8.sp, color = TextMuted)
-                    Text(text = "180с (Сон)", fontSize = 8.sp, color = Color.White.copy(alpha = 0.50f))
+                    Text(text = stringResource(R.string.wa_decay_pt_0), fontSize = 8.sp, color = TextMuted)
+                    Text(text = stringResource(R.string.wa_decay_pt_60), fontSize = 8.sp, color = primaryColor)
+                    Text(text = stringResource(R.string.wa_decay_pt_120), fontSize = 8.sp, color = TextMuted)
+                    Text(text = stringResource(R.string.wa_decay_pt_180), fontSize = 8.sp, color = Color.White.copy(alpha = 0.50f))
                 }
             }
 
@@ -3327,30 +3213,30 @@ fun MtprotoPoolEntropyAndDecayCard(
 
     val (modeTitle, modeColor, modeDesc) = when {
         entropy < 0.60 -> Triple(
-            "Фокусированный (Single DC)",
+            stringResource(R.string.wa_entropy_mode_single_title),
             primaryColor,
-            "100% емкости на одном дата-центре. Максимальная энергоэффективность."
+            stringResource(R.string.wa_entropy_mode_single_desc)
         )
         entropy <= 1.30 -> Triple(
-            "Сбалансированный (Dual DC)",
+            stringResource(R.string.wa_entropy_mode_dual_title),
             secondaryColor,
-            "Равномерный параллельный обмен: чаты (DC2) + медиа (DC4 / CDN)."
+            stringResource(R.string.wa_entropy_mode_dual_desc)
         )
         else -> Triple(
-            "Мульти-кластерный (Multi DC)",
+            stringResource(R.string.wa_entropy_mode_multi_title),
             TextWhite,
-            "Многопоточная нагрузка: одновременные звонки, медиа и синхронизация."
+            stringResource(R.string.wa_entropy_mode_multi_desc)
         )
     }
 
     val dcColors = remember(primaryColor, secondaryColor) {
         mapOf(
-            2 to primaryColor,                      // DC2 Чаты
-            4 to secondaryColor,                    // DC4 Медиа
+            2 to primaryColor,                      // DC2 Chats
+            4 to secondaryColor,                    // DC4 Media
             100 to Color(0xFF00B4D8),               // CDN FlowSeal
-            1 to Color.White.copy(alpha = 0.85f),  // DC1 Майами
-            3 to Color.White.copy(alpha = 0.60f),  // DC3 Майами
-            5 to Color.White.copy(alpha = 0.40f)   // DC5 Сингапур
+            1 to Color.White.copy(alpha = 0.85f),  // DC1 Miami
+            3 to Color.White.copy(alpha = 0.60f),  // DC3 Miami
+            5 to Color.White.copy(alpha = 0.40f)   // DC5 Singapore
         )
     }
 
@@ -3390,14 +3276,14 @@ fun MtprotoPoolEntropyAndDecayCard(
                     }
                     Column {
                         Text(
-                            text = "ИНДЕКС ЭНТРОПИИ И ЗАТУХАНИЯ",
+                            text = stringResource(R.string.wa_entropy_decay_title),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.1.sp,
                             color = TextMuted
                         )
                         Text(
-                            text = "Шенноновская модель концентрации",
+                            text = stringResource(R.string.wa_shannon_model_sub),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
@@ -3456,22 +3342,22 @@ fun MtprotoPoolEntropyAndDecayCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 MathParamBox(
-                    title = "ЭНТРОПИЯ H",
-                    value = String.format(Locale.US, "%.2f нат", entropy),
+                    title = stringResource(R.string.wa_entropy_h_title),
+                    value = stringResource(R.string.wa_entropy_val, String.format(Locale.US, "%.2f", entropy)),
                     subtext = "H = -∑ p·ln(p)",
                     color = modeColor,
                     modifier = Modifier.weight(1f)
                 )
                 MathParamBox(
-                    title = "РАВНОМЕРНОСТЬ",
+                    title = stringResource(R.string.wa_uniformity_title),
                     value = "${String.format(Locale.US, "%.0f", pielouEvenness)}%",
-                    subtext = "Pielou Evenness",
+                    subtext = stringResource(R.string.wa_pielou_evenness),
                     color = secondaryColor,
                     modifier = Modifier.weight(1f)
                 )
                 MathParamBox(
-                    title = "ПОЛУРАСПАД T½",
-                    value = "60 сек",
+                    title = stringResource(R.string.wa_half_life_title),
+                    value = stringResource(R.string.wa_half_life_val),
                     subtext = "exp(-Δt / 60)",
                     color = primaryColor,
                     modifier = Modifier.weight(1f)
@@ -3502,7 +3388,7 @@ fun MtprotoPoolEntropyAndDecayCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "ДИНАМИКА ЗАТУХАНИЯ АКТИВНОСТИ",
+                        text = stringResource(R.string.wa_decay_dynamics_title),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp,
@@ -3525,9 +3411,9 @@ fun MtprotoPoolEntropyAndDecayCard(
                     val isSelected = selectedDcId == m.dcId
 
                     val statusText = when {
-                        decayPct >= 70f -> "Горячий"
-                        decayPct >= 25f -> "Остывание"
-                        else -> "Спящий (Standby)"
+                        decayPct >= 70f -> stringResource(R.string.wa_decay_status_hot)
+                        decayPct >= 25f -> stringResource(R.string.wa_decay_status_cooling)
+                        else -> stringResource(R.string.wa_decay_status_standby)
                     }
 
                     Column(
@@ -3603,12 +3489,12 @@ fun MtprotoPoolEntropyAndDecayCard(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "Простой: ${String.format(Locale.US, "%.1f", idleSeconds)} сек",
+                                    text = stringResource(R.string.wa_decay_idle_val, String.format(Locale.US, "%.1f", idleSeconds)),
                                     fontSize = 9.sp,
                                     color = TextMuted
                                 )
                                 Text(
-                                    text = "Вес активности: ${String.format(Locale.US, "%.2f", m.weight)}",
+                                    text = stringResource(R.string.wa_decay_weight_val, String.format(Locale.US, "%.2f", m.weight)),
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = col
@@ -3632,14 +3518,14 @@ fun MtprotoPoolEntropyAndDecayCard(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
-                        text = "МАТЕМАТИЧЕСКИЙ АППАРАТ ДВИЖКА:",
+                        text = stringResource(R.string.wa_math_engine_title),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 0.8.sp,
                         color = primaryColor
                     )
                     Text(
-                        text = "• Энтропия Шеннона: H(X) = -∑ pᵢ ln(pᵢ) [мера распределенности нагрузки]\n• Коэффициент свежести: e^(-Δt/60) [закон полураспада неактивных сокетов]",
+                        text = stringResource(R.string.wa_math_engine_text),
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         color = TextWhite.copy(alpha = 0.85f),
@@ -3690,4 +3576,3 @@ private fun MathParamBox(
         }
     }
 }
-

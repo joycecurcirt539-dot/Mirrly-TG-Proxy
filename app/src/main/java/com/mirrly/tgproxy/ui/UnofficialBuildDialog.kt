@@ -1,4 +1,5 @@
 package com.mirrly.tgproxy.ui
+import androidx.compose.ui.res.stringResource
 
 import android.content.Intent
 import android.net.Uri
@@ -99,7 +100,7 @@ fun UnofficialBuildDialog(
                     border = BorderStroke(1.dp, warningAmber.copy(alpha = 0.40f))
                 ) {
                     Text(
-                        text = "ПРЕДУПРЕЖДЕНИЕ БЕЗОПАСНОСТИ",
+                        text = stringResource(R.string.unofficial_dialog_category),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = warningAmber,
@@ -110,7 +111,7 @@ fun UnofficialBuildDialog(
 
                 // Title
                 Text(
-                    text = "Неофициальная или измененная сборка",
+                    text = stringResource(R.string.unofficial_dialog_title),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,
@@ -126,7 +127,7 @@ fun UnofficialBuildDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Данная версия приложения была пересобрана или изменена сторонними лицами. Разработчики Mirrly TG Proxy не несут ответственности за безопасность и сохранность данных в сторонних сборках. Настоятельно рекомендуем установить оригинальную версию из репозитория GitHub.",
+                        text = stringResource(R.string.unofficial_dialog_desc),
                         fontSize = 13.sp,
                         color = TextWhite.copy(alpha = 0.90f),
                         textAlign = TextAlign.Start,
@@ -163,7 +164,7 @@ fun UnofficialBuildDialog(
                         .height(48.dp)
                         .springPress()
                 ) {
-                    Text("Скачать с официального GitHub", fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.unofficial_dialog_btn_download), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                 }
 
                 OutlinedButton(
@@ -181,7 +182,7 @@ fun UnofficialBuildDialog(
                         .height(44.dp)
                         .springPress()
                 ) {
-                    Text("Я понимаю риск", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.unofficial_dialog_btn_dismiss), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }

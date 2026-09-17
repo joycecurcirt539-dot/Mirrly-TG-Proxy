@@ -39,58 +39,70 @@ object NotificationHelper {
     const val BATTERY_GUARD_WARNING_NOTIFICATION_ID = 6006
     const val BATTERY_GUARD_STOPPED_NOTIFICATION_ID = 6007
 
+    const val VPN_CHANNEL_ID = "mirrly_vpn_channel"
+    const val VPN_NOTIFICATION_ID = 7007
+
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
             val proxyChannel = NotificationChannel(
                 CHANNEL_ID,
-                "Служба прокси Mirrly TG",
+                context.getString(R.string.notif_channel_proxy_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Отображает статус работы прокси и скорость трафика"
+                description = context.getString(R.string.notif_channel_proxy_desc)
             }
             manager.createNotificationChannel(proxyChannel)
 
             val updateChannel = NotificationChannel(
                 UPDATE_CHANNEL_ID,
-                "Обновления Mirrly TG Proxy",
+                context.getString(R.string.notif_channel_update_name),
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Уведомления о доступных обновлениях приложения"
+                description = context.getString(R.string.notif_channel_update_desc)
                 enableVibration(true)
             }
             manager.createNotificationChannel(updateChannel)
 
             val timerChannel = NotificationChannel(
                 TIMER_CHANNEL_ID,
-                "Таймер автоотключения Mirrly",
+                context.getString(R.string.notif_channel_timer_name),
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Предупреждения об автоотключении прокси по таймеру сна"
+                description = context.getString(R.string.notif_channel_timer_desc)
                 enableVibration(true)
             }
             manager.createNotificationChannel(timerChannel)
 
             val failoverChannel = NotificationChannel(
                 FAILOVER_CHANNEL_ID,
-                "События переключения аплинка (Failover)",
+                context.getString(R.string.notif_channel_failover_name),
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Уведомления о переходе на резервные каналы туннелирования (AmneziaWG / Worker WSS)"
+                description = context.getString(R.string.notif_channel_failover_desc)
                 enableVibration(true)
             }
             manager.createNotificationChannel(failoverChannel)
 
             val batteryGuardChannel = NotificationChannel(
                 BATTERY_GUARD_CHANNEL_ID,
-                "Защита аккумулятора Mirrly",
+                context.getString(R.string.notif_channel_battery_guard_name),
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Предупреждения об автоотключении прокси при разряде аккумулятора"
+                description = context.getString(R.string.notif_channel_battery_guard_desc)
                 enableVibration(true)
             }
             manager.createNotificationChannel(batteryGuardChannel)
+
+            val vpnChannel = NotificationChannel(
+                VPN_CHANNEL_ID,
+                context.getString(R.string.vpn_tunnel_title),
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = context.getString(R.string.status_vpn_system_connected_desc)
+            }
+            manager.createNotificationChannel(vpnChannel)
         }
     }
 
@@ -152,7 +164,7 @@ object NotificationHelper {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
-        builder.addAction(R.drawable.ic_notif_stop, "Остановить", stopPendingIntent)
+        builder.addAction(R.drawable.ic_notif_stop, context.getString(R.string.notif_action_stop), stopPendingIntent)
 
         return builder.build()
     }
@@ -192,18 +204,18 @@ object NotificationHelper {
         )
 
         val previewText = releaseInfo.changelogPreview.ifBlank {
-            "Нажмите, чтобы открыть приложение и установить новую версию v${releaseInfo.versionName}."
+            context.getString(R.string.notif_update_preview_default, releaseInfo.versionName)
         }
 
         val notification = NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
-            .setContentTitle("Доступно новое обновление v${releaseInfo.versionName}")
+            .setContentTitle(context.getString(R.string.notif_update_title, releaseInfo.versionName))
             .setContentText(previewText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(previewText))
             .setSmallIcon(R.drawable.ic_stat_update)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .addAction(R.drawable.ic_stat_update, "Скачать APK", downloadPendingIntent)
-            .addAction(R.drawable.ic_eye, "Что нового", notesPendingIntent)
+            .addAction(R.drawable.ic_stat_update, context.getString(R.string.notif_action_download_apk), downloadPendingIntent)
+            .addAction(R.drawable.ic_eye, context.getString(R.string.notif_action_whats_new), notesPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
@@ -239,10 +251,15 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val summaryText = "Передано за сессию: $transferredStr | Время работы: $durationStr | Пиковая скорость: $peakSpeedStr"
+        val summaryText = context.getString(
+            R.string.notif_summary_body,
+            transferredStr,
+            durationStr,
+            peakSpeedStr
+        )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setContentTitle("Прокси остановлен")
+            .setContentTitle(context.getString(R.string.notif_summary_title))
             .setContentText(summaryText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(summaryText))
             .setSmallIcon(R.drawable.ic_stat_proxy_connected)
@@ -307,18 +324,18 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val text = "До автоматического отключения прокси осталось $remainingMinutes мин."
+        val text = context.getString(R.string.notif_timer_warning_body, remainingMinutes)
 
         val notification = NotificationCompat.Builder(context, TIMER_CHANNEL_ID)
-            .setContentTitle("Таймер автоотключения")
+            .setContentTitle(context.getString(R.string.notif_timer_warning_title))
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setSmallIcon(R.drawable.ic_stat_timer)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .addAction(R.drawable.ic_stat_timer, "+15 минут", extendPendingIntent)
-            .addAction(R.drawable.ic_notif_stop, "Отменить", cancelTimerPendingIntent)
+            .addAction(R.drawable.ic_stat_timer, context.getString(R.string.notif_action_extend_15m), extendPendingIntent)
+            .addAction(R.drawable.ic_notif_stop, context.getString(R.string.notif_action_cancel), cancelTimerPendingIntent)
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -359,17 +376,17 @@ object NotificationHelper {
             )
         }
 
-        val text = "Прокси-сервер автоматически отключен по таймеру сна."
+        val text = context.getString(R.string.notif_timer_expired_body)
 
         val notification = NotificationCompat.Builder(context, TIMER_CHANNEL_ID)
-            .setContentTitle("Прокси отключен по таймеру")
+            .setContentTitle(context.getString(R.string.notif_timer_expired_title))
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setSmallIcon(R.drawable.ic_stat_timer)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .addAction(R.drawable.ic_power, "Включить снова", restartPendingIntent)
+            .addAction(R.drawable.ic_power, context.getString(R.string.notif_action_restart), restartPendingIntent)
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -425,13 +442,17 @@ object NotificationHelper {
         )
 
         val remainingMinutes = ((remainingSeconds + 59) / 60).coerceAtLeast(1)
-        val timeRemainingStr = if (remainingSeconds > 60) "$remainingMinutes мин." else "$remainingSeconds сек."
+        val timeRemainingStr = if (remainingSeconds > 60) {
+            context.getString(R.string.notif_unit_minutes, remainingMinutes)
+        } else {
+            context.getString(R.string.notif_unit_seconds, remainingSeconds)
+        }
 
-        val contentText = "До автоотключения: $timeRemainingStr (Заряд: $batteryPct%)"
-        val detailedText = "$reason.\nПрокси будет автоматически остановлен через $timeRemainingStr для сохранения заряда аккумулятора.\nНажмите «Отменить», чтобы продолжить работу."
+        val contentText = context.getString(R.string.notif_battery_guard_warning_content, timeRemainingStr, batteryPct)
+        val detailedText = context.getString(R.string.notif_battery_guard_warning_detail, reason, timeRemainingStr)
 
         val builder = NotificationCompat.Builder(context, BATTERY_GUARD_CHANNEL_ID)
-            .setContentTitle("Защита аккумулятора")
+            .setContentTitle(context.getString(R.string.notif_battery_guard_warning_title))
             .setContentText(contentText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(detailedText))
             .setSmallIcon(R.drawable.ic_stat_proxy_warning)
@@ -441,8 +462,8 @@ object NotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setContentIntent(contentPendingIntent)
-            .addAction(R.drawable.ic_check, "Отменить", cancelPendingIntent)
-            .addAction(R.drawable.ic_notif_stop, "Отключить сейчас", stopPendingIntent)
+            .addAction(R.drawable.ic_check, context.getString(R.string.notif_action_cancel), cancelPendingIntent)
+            .addAction(R.drawable.ic_notif_stop, context.getString(R.string.notif_action_stop_now), stopPendingIntent)
 
         if (targetTimeMs > System.currentTimeMillis()) {
             builder.setWhen(targetTimeMs)
@@ -490,10 +511,10 @@ object NotificationHelper {
             )
         }
 
-        val detailedText = "$reason.\nСлужба прокси остановлена для предотвращения полного разряда аккумулятора."
+        val detailedText = context.getString(R.string.notif_battery_guard_stopped_detail, reason)
 
         val notification = NotificationCompat.Builder(context, BATTERY_GUARD_CHANNEL_ID)
-            .setContentTitle("Прокси отключен для сохранения заряда")
+            .setContentTitle(context.getString(R.string.notif_battery_guard_stopped_title))
             .setContentText(reason)
             .setStyle(NotificationCompat.BigTextStyle().bigText(detailedText))
             .setSmallIcon(R.drawable.ic_stat_proxy_warning)
@@ -501,7 +522,7 @@ object NotificationHelper {
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .addAction(R.drawable.ic_power, "Включить снова", restartPendingIntent)
+            .addAction(R.drawable.ic_power, context.getString(R.string.notif_action_restart), restartPendingIntent)
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

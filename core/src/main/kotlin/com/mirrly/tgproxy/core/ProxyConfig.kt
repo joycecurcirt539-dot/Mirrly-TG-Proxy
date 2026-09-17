@@ -1,11 +1,15 @@
 package com.mirrly.tgproxy.core
 
-enum class SpeedPreset(val displayName: String, val defaultPoolSize: Int, val defaultBufferSizeBytes: Int) {
-    ECO("Эко (2 сокета)", 2, 131072),
-    BALANCED("Баланс (4 сокета)", 4, 262144),
-    TURBO("Турбо (8 сокетов)", 8, 1048576),
-    ULTRA("Ультра (16 сокетов)", 16, 2097152),
-    AUTO("Авто (динамический)", 4, 262144)
+enum class SpeedPreset(
+    val displayName: String,
+    val defaultMtprotoStandbyPerActiveSlot: Int,
+    val defaultBufferSizeBytes: Int
+) {
+    ECO("Эко (1 резерв/слот)", 1, 131072),
+    BALANCED("Баланс (2 резерва/слот)", 2, 262144),
+    TURBO("Турбо (3 резерва/слот)", 3, 1048576),
+    ULTRA("Ультра (4 резерва/слот)", 4, 2097152),
+    AUTO("Авто (динамический)", 2, 262144)
 }
 
 /**
@@ -51,9 +55,9 @@ data class ProxyConfig(
     var secretHex: String = "dd00000000000000000000000000000000",
     var cfProxyEnabled: Boolean = true,
     var customCfDomain: String = "",
-    var poolSize: Int = 4, // 4 pre-warmed sockets per DC for fast response with low battery impact
+    var mtprotoStandbyPerActiveSlotValue: Int = 2,
     var isDcAuto: Boolean = true,
-    var autostartOnBoot: Boolean = true,
+    var autostartOnBoot: Boolean = false,
     var verboseLogs: Boolean = true,
     var isTestEnvironment: Boolean = false,
     var speedPresetName: String = SpeedPreset.AUTO.name,
@@ -121,10 +125,6 @@ data class ProxyConfig(
     var vlessServerPort: Int = 443,
     var vlessTlsSni: String = "",
     var vlessHostHeader: String = "",
-    // Настройки Active Liveness Probe для проверки каналов
-    var isLivenessProbeEnabled: Boolean = true,
-    var livenessProbeTimeoutMs: Int = 800,
-    var livenessProbeFailoverThreshold: Int = 2,
     // Настройки Opera VPN как прокси для VLESS и WARP
     var useOperaVpnForVless: Boolean = false,
     var useOperaVpnForWarp: Boolean = false,
@@ -135,44 +135,65 @@ data class ProxyConfig(
     // Настройки WARP Cascade (UPLINK_WARP_CASCADE): автоматический каскадный failover
     // true — разрешает автоматический откат MASQUE -> AWG -> аварийный WSS
     var awgCascadeFallbackEnabled: Boolean = true,
+    // Стратегия обфускации AmneziaWG (FAST, BALANCED, DEEP_STEALTH, CUSTOM)
+    var awgStrategyName: String = AwgObfuscationStrategy.BALANCED.name,
     // Кастомная INI-конфигурация AWG (если задана, используется вместо встроенного WARP-профиля)
-    var awgCustomIni: String = ""
+    var awgCustomIni: String = "",
+    // Явная политика доверия для fallback (O02)
+    var allowPublicRelayFallbackForPrivateVps: Boolean = false,
+    var allowOperaDirectExit: Boolean = false,
+    var isLivenessProbeEnabled: Boolean = false,
+    var livenessProbeTimeoutMs: Int = 1500,
+    var livenessProbeFailoverThreshold: Int = 2
 ) {
+    val awgStrategy: AwgObfuscationStrategy
+        get() = AwgObfuscationStrategy.fromName(awgStrategyName)
+
+    val isDedicatedVps: Boolean
+        get() = awgStrategy == AwgObfuscationStrategy.CUSTOM && awgCustomIni.isNotBlank()
+
     /**
      * Генерирует валидную конфигурацию AmneziaWG (AWG) на основе профиля WARP
-     * с поддержкой защитных параметров обфускации рукопожатия и I1 для QUIC Initial.
+     * в соответствии с выбранной стратегией обфускации.
      */
     fun getAmneziaWgConfig(
-        cleanEndpoint: String = "188.114.96.1:500",
-        sniCamouflage: String = "www.gosuslugi.ru"
+        cleanEndpoint: String = warpPeerEndpoint.ifBlank { "188.114.96.1:8095" },
+        strategy: AwgObfuscationStrategy = awgStrategy
     ): String {
+        if (strategy == AwgObfuscationStrategy.CUSTOM && awgCustomIni.isNotBlank()) {
+            return awgCustomIni.trim()
+        }
         val peerKey = if (warpPeerPublicKey.isNotBlank()) warpPeerPublicKey else "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
         val ipv4 = if (warpClientIpv4.isNotBlank()) warpClientIpv4 else "172.16.0.2"
         val addressStr = if (warpClientIpv6.isNotBlank()) "$ipv4/32, $warpClientIpv6/128" else "$ipv4/32"
         val privKey = if (warpPrivateKey.isNotBlank()) warpPrivateKey else WarpAccountManager.BOOTSTRAP_PROFILE.privateKeyBase64
-        val i1Val = ProtonQuicInitial.buildI1(sniCamouflage)
-        val i1Line = if (i1Val.isNotBlank()) "I1 = $i1Val\n" else ""
         return """
             [Interface]
             PrivateKey = $privKey
             Address = $addressStr
             DNS = 1.1.1.1, 1.0.0.1
             MTU = 1280
-            Jc = 4
-            Jmin = 40
-            Jmax = 70
+            Jc = ${strategy.defaultJc}
+            Jmin = ${strategy.defaultJmin}
+            Jmax = ${strategy.defaultJmax}
             S1 = 0
             S2 = 0
             H1 = 1
             H2 = 2
             H3 = 3
             H4 = 4
-            ${i1Line}[Peer]
+            [Peer]
             PublicKey = $peerKey
             AllowedIPs = 0.0.0.0/0, ::/0
             Endpoint = $cleanEndpoint
         """.trimIndent()
     }
+
+    fun getAmneziaWgConfig(
+        cleanEndpoint: String,
+        @Suppress("UNUSED_PARAMETER") sniCamouflage: String,
+        strategy: AwgObfuscationStrategy = awgStrategy
+    ): String = getAmneziaWgConfig(cleanEndpoint, strategy)
 
     val speedPreset: SpeedPreset
         get() = try { SpeedPreset.valueOf(speedPresetName) } catch (_: Exception) { SpeedPreset.AUTO }
@@ -214,7 +235,7 @@ data class ProxyConfig(
             warpMeasuredWgEndpoint.isNotBlank() -> warpMeasuredWgEndpoint
             warpApiEndpoint.isNotBlank() -> warpApiEndpoint
             warpPeerEndpoint.isNotBlank() -> warpPeerEndpoint
-            else -> "162.159.193.10:1701"
+            else -> "188.114.96.1:8095"
         }
 
     val effectiveMasquePeerEndpoint: String
@@ -245,6 +266,15 @@ data class ProxyConfig(
 
     val isVlessVision: Boolean
         get() = vlessFlow.contains("vision", ignoreCase = true)
+
+    val isPrivateVpsNode: Boolean
+        get() {
+            if (!isVlessUplink && !isHybridUplink) return false
+            if (isVlessReality) return true
+            val ep = getEffectiveVlessServerAddress().trim()
+            if (ep.isEmpty()) return false
+            return !DohResolver.isCloudflareTargetDomain(ep)
+        }
 
     fun getEffectiveVlessDomain(): String {
         return vlessDomain.trim().ifEmpty {
@@ -323,8 +353,9 @@ data class ProxyConfig(
     val isAutoSpeedPreset: Boolean
         get() = speedPreset == SpeedPreset.AUTO
 
-    val tcpNoDelayMode: TcpNoDelayMode
+    var tcpNoDelayMode: TcpNoDelayMode
         get() = try { TcpNoDelayMode.valueOf(tcpNoDelayModeName) } catch (_: Exception) { TcpNoDelayMode.AUTO }
+        set(value) { tcpNoDelayModeName = value.name }
 
     /** Текущий режим прокси. Единый источник истины. */
     val proxyMode: ProxyMode
@@ -342,10 +373,61 @@ data class ProxyConfig(
     val activePort: Int
         get() = if (isSocks5Mode) socks5Port else bindPort
 
+    /**
+     * Запрошенное количество сокетов ожидания (standby) на активный слот MTProto.
+     * Диапазон запроса и native storage: 1..4.
+     * На мобильной сети effective фиксируется в 1, а requested остаётся видимым в telemetry.
+     */
+    var mtprotoStandbyPerActiveSlot: Int
+        get() = mtprotoStandbyPerActiveSlotValue.coerceIn(1, 4)
+        set(value) { mtprotoStandbyPerActiveSlotValue = value.coerceIn(1, 4) }
+
+    var poolSize: Int
+        get() = mtprotoStandbyPerActiveSlot
+        set(value) { mtprotoStandbyPerActiveSlot = value }
+
+    /**
+     * Вычисляет эффективное число сокетов ожидания MTProto на слот без скрытых clamp.
+     * Мобильная сеть: ровно 1 сокет ожидания (снижение нагрузки на радиомодуль и батарею).
+     * Wi-Fi: запрошенное значение, ограниченное аппаратным максимумом движка 1..4.
+     */
+    fun getEffectiveMtprotoStandby(isMobile: Boolean): Int {
+        return if (isMobile) 1 else mtprotoStandbyPerActiveSlot.coerceIn(1, 4)
+    }
+
+    /**
+     * Глобальный бюджет одновременных установок соединений (Dial Budget).
+     * Мобильная сеть: 2 активных установления.
+     * Wi-Fi: 4 активных установления.
+     */
+    fun getGlobalEstablishmentBudget(isMobile: Boolean): Int {
+        return if (isMobile) 2 else 4
+    }
+
+    /**
+     * Снимок состояния пула и параллельных потоков транспорта.
+     */
+    fun getTransportPoolStatus(
+        isMobile: Boolean,
+        isRunning: Boolean,
+        activeConnections: Int = 0
+    ): TransportPoolStatus {
+        val transport = if (!isRunning) "idle" else if (isSocks5Mode) "socks5" else "mtproto"
+        val requested = mtprotoStandbyPerActiveSlot.coerceIn(1, 4)
+        return TransportPoolStatus(
+            transport = transport,
+            isMobile = isMobile,
+            mtprotoStandbyPerActiveSlotRequested = requested,
+            mtprotoStandbyPerActiveSlotEffective = getEffectiveMtprotoStandby(isMobile),
+            globalEstablishmentBudget = getGlobalEstablishmentBudget(isMobile),
+            socksConcurrentFlows = if (isSocks5Mode) activeConnections.toLong() else 0L
+        )
+    }
+
     fun applyPreset(preset: SpeedPreset) {
         speedPresetName = preset.name
         if (preset != SpeedPreset.AUTO) {
-            poolSize = preset.defaultPoolSize
+            mtprotoStandbyPerActiveSlot = preset.defaultMtprotoStandbyPerActiveSlot
             bufferSizeBytes = preset.defaultBufferSizeBytes
         }
     }
@@ -467,5 +549,27 @@ data class ProxyConfig(
         }
 
         fun generateVlessUuid(): String = java.util.UUID.randomUUID().toString()
+    }
+}
+
+/**
+ * Стратегии обфускации протокола AmneziaWG (AWG).
+ */
+enum class AwgObfuscationStrategy(
+    val displayName: String,
+    val defaultJc: Int,
+    val defaultJmin: Int,
+    val defaultJmax: Int,
+    val usesI1: Boolean = false
+) {
+    FAST("Быстрая", defaultJc = 2, defaultJmin = 40, defaultJmax = 70, usesI1 = false),
+    BALANCED("Сбалансированная", defaultJc = 4, defaultJmin = 40, defaultJmax = 80, usesI1 = false),
+    DEEP_STEALTH("Скрытная", defaultJc = 5, defaultJmin = 64, defaultJmax = 128, usesI1 = false),
+    CUSTOM("Свой профиль", defaultJc = 4, defaultJmin = 40, defaultJmax = 70, usesI1 = false);
+
+    companion object {
+        fun fromName(name: String?): AwgObfuscationStrategy {
+            return entries.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: BALANCED
+        }
     }
 }

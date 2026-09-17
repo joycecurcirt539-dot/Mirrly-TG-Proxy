@@ -24,7 +24,7 @@ data class SessionRecord(
     val bytesSent: Long = 0L,
     val peakSpeedBps: Long = 0L,
     val maxConnections: Int = 0,
-    val presetName: String = "Баланс",
+    val presetName: String = "Balanced",
     val status: SessionStatus = SessionStatus.ACTIVE,
     val proxyMode: String = "MTPROTO"
 ) {
@@ -72,7 +72,7 @@ data class SessionRecord(
                 bytesSent = json.optLong("bytesSent", 0L),
                 peakSpeedBps = json.optLong("peakSpeedBps", 0L),
                 maxConnections = json.optInt("maxConnections", 0),
-                presetName = json.optString("presetName", "Баланс"),
+                presetName = json.optString("presetName", "Balanced"),
                 status = statusEnum,
                 proxyMode = json.optString("proxyMode", "MTPROTO")
             )
@@ -110,7 +110,7 @@ object SessionHistoryManager {
                 historyList.add(SessionRecord.fromJsonObject(json))
             }
         } catch (e: Exception) {
-            AppLogger.e("SessionHistoryManager", "Ошибка загрузки истории сессий: ${e.message}")
+            AppLogger.e("SessionHistoryManager", "Failed to load session history: ${e.message}")
         }
         _historyFlow.value = historyList.toList()
     }
@@ -124,7 +124,7 @@ object SessionHistoryManager {
             }
             prefs?.edit()?.putString(KEY_HISTORY, array.toString())?.apply()
         } catch (e: Exception) {
-            AppLogger.e("SessionHistoryManager", "Ошибка сохранения истории сессий: ${e.message}")
+            AppLogger.e("SessionHistoryManager", "Failed to save session history: ${e.message}")
         }
         _historyFlow.value = historyList.toList()
     }
@@ -175,7 +175,7 @@ object SessionHistoryManager {
         }
 
         saveToPrefs()
-        AppLogger.i("SessionHistoryManager", "Сессия запущена [${newRecord.id}] ($presetName, $proxyMode)")
+        AppLogger.i("SessionHistoryManager", "Session started [${newRecord.id}] ($presetName, $proxyMode)")
         return newRecord
     }
 
@@ -222,7 +222,7 @@ object SessionHistoryManager {
                 status = SessionStatus.COMPLETED
             )
             saveToPrefs()
-            AppLogger.i("SessionHistoryManager", "Сессия завершена [${current.id}]")
+            AppLogger.i("SessionHistoryManager", "Session ended [${current.id}]")
         } else {
             // Save state if flow changed
             saveToPrefs()
@@ -233,6 +233,6 @@ object SessionHistoryManager {
     fun clearHistory() {
         historyList.clear()
         saveToPrefs()
-        AppLogger.i("SessionHistoryManager", "История сессий очищена")
+        AppLogger.i("SessionHistoryManager", "Session history cleared")
     }
 }

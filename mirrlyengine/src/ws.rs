@@ -8,15 +8,16 @@ use rustls::{ClientConfig, RootCertStore};
 use rustls_pki_types::ServerName;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
+use tokio_util::sync::CancellationToken;
 
 // ---------------------------------------------------------------------------
 // WS opcodes
@@ -36,6 +37,11 @@ pub const MAX_WS_OUTGOING_FRAME: usize = 32 * 1024;
 // ---------------------------------------------------------------------------
 
 use once_cell::sync::Lazy;
+
+/// Physical TCP/TLS attempts, not logical domain races. Two simultaneous
+/// sockets preserve IPv4/IPv6 Happy Eyeballs without flooding a cellular radio.
+static MOBILE_FULL_DIAL_SEM: Lazy<tokio::sync::Semaphore> =
+    Lazy::new(|| tokio::sync::Semaphore::new(2));
 
 fn order_cipher_suites_for_profile(
     suites: &[rustls::SupportedCipherSuite],
@@ -171,7 +177,10 @@ pub fn get_tls_config_for_fingerprint(fp: &str) -> Arc<ClientConfig> {
         }
         "chrome" | "" => TLS_CONFIG_CHROME.clone(),
         "edge" | "360" | "qq" | "android" => {
-            crate::ldebug!("TLS fingerprint '{}' mapped to rustls Chrome cipher suites", lower);
+            crate::ldebug!(
+                "TLS fingerprint '{}' mapped to rustls Chrome cipher suites",
+                lower
+            );
             TLS_CONFIG_CHROME.clone()
         }
         unsupported => {
@@ -327,9 +336,199 @@ pub struct RawWebSocket {
     pub closed: AtomicBool,
     buffered_payload: tokio::sync::Mutex<Option<Vec<u8>>>,
     pub early_data_sent: bool,
+    heartbeat: parking_lot::Mutex<HeartbeatState>,
+    heartbeat_nonce: AtomicU64,
+    recovery_scope: String,
+    pub peer_ip: parking_lot::RwLock<Option<std::net::IpAddr>>,
+    pub colo: String,
+    pub asn: String,
+}
+
+#[derive(Debug)]
+struct HeartbeatState {
+    last_frame_activity: Instant,
+    awaiting_pong: Option<(u64, Instant)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeartbeatPolicy {
+    pub idle_before_ping: Duration,
+    pub pong_deadline: Duration,
+}
+
+impl HeartbeatPolicy {
+    pub fn effective() -> Self {
+        let profile = crate::network_profile::get_profile();
+        match (profile.power_save_mode, profile.screen_on, profile.cellular) {
+            (true, _, _) => Self {
+                idle_before_ping: Duration::from_secs(60),
+                pong_deadline: Duration::from_secs(15),
+            },
+            (false, false, _) => Self {
+                idle_before_ping: Duration::from_secs(45),
+                pong_deadline: Duration::from_secs(12),
+            },
+            (false, true, true) => Self {
+                idle_before_ping: Duration::from_secs(20),
+                pong_deadline: Duration::from_secs(8),
+            },
+            (false, true, false) => Self {
+                idle_before_ping: Duration::from_secs(45),
+                pong_deadline: Duration::from_secs(10),
+            },
+        }
+    }
 }
 
 impl RawWebSocket {
+    pub fn colo(&self) -> &str {
+        &self.colo
+    }
+
+    pub fn set_peer_ip(&self, ip: std::net::IpAddr) {
+        *self.peer_ip.write() = Some(ip);
+    }
+
+    pub fn peer_ip(&self) -> Option<std::net::IpAddr> {
+        *self.peer_ip.read()
+    }
+
+    pub fn recovery_scope(&self) -> &str {
+        &self.recovery_scope
+    }
+
+    fn record_frame_activity(&self) {
+        self.heartbeat.lock().last_frame_activity = Instant::now();
+    }
+
+    fn record_pong(&self, payload: &[u8]) {
+        let mut state = self.heartbeat.lock();
+        state.last_frame_activity = Instant::now();
+        if payload.len() == 8 {
+            let nonce = u64::from_be_bytes(payload.try_into().expect("checked pong nonce length"));
+            if state.awaiting_pong.map(|pending| pending.0) == Some(nonce) {
+                state.awaiting_pong = None;
+            }
+        }
+    }
+
+    pub fn heartbeat_is_waiting_for_pong(&self) -> bool {
+        self.heartbeat.lock().awaiting_pong.is_some()
+    }
+
+    pub fn heartbeat_idle_for(&self) -> Duration {
+        self.heartbeat.lock().last_frame_activity.elapsed()
+    }
+
+    /// Runs the sole heartbeat policy for this physical WebSocket connection.
+    /// The receive loop observes PONG frames; this task only schedules PING and
+    /// enforces its deadline, so heartbeat always uses the connection's 5-tuple.
+    pub async fn run_heartbeat(&self, cancel: CancellationToken) -> Result<(), WsError> {
+        self.run_heartbeat_loop(cancel, None, WS_HEARTBEAT_CHECK_INTERVAL, true)
+            .await
+    }
+
+    async fn run_heartbeat_loop(
+        &self,
+        cancel: CancellationToken,
+        policy_override: Option<HeartbeatPolicy>,
+        check_interval: Duration,
+        jitter: bool,
+    ) -> Result<(), WsError> {
+        loop {
+            let delay = if jitter {
+                let base_ms = check_interval.as_millis().max(1) as u64;
+                let spread_ms = (base_ms / 5).max(1);
+                let offset = rand::random::<u64>() % (spread_ms * 2 + 1);
+                Duration::from_millis(base_ms + offset - spread_ms)
+            } else {
+                check_interval
+            };
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                _ = tokio::time::sleep(delay) => {}
+            }
+
+            if self.is_closed() {
+                return Err(WsError::Other("WebSocket closed".to_string()));
+            }
+
+            let policy = policy_override.unwrap_or_else(HeartbeatPolicy::effective);
+            let now = Instant::now();
+            let action = {
+                let state = self.heartbeat.lock();
+                match state.awaiting_pong {
+                    Some((_, sent_at)) if now.duration_since(sent_at) >= policy.pong_deadline => 2,
+                    Some(_) => 0,
+                    None if now.duration_since(state.last_frame_activity)
+                        >= policy.idle_before_ping =>
+                    {
+                        1
+                    }
+                    None => 0,
+                }
+            };
+
+            match action {
+                1 => self.send_heartbeat_ping().await?,
+                2 => {
+                    crate::recovery::record(
+                        &self.recovery_scope,
+                        crate::recovery::RecoveryCause::EstablishedStall,
+                    );
+                    self.closed.store(true, Ordering::Relaxed);
+                    return Err(WsError::Other(
+                        "WebSocket heartbeat pong deadline exceeded".to_string(),
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[cfg(feature = "heartbeat-test-utils")]
+    #[doc(hidden)]
+    pub fn from_plain_stream_for_heartbeat_test(stream: TcpStream) -> Self {
+        let (read_half, write_half) = tokio::io::split(WsStream::Plain(stream));
+        Self {
+            reader: tokio::sync::Mutex::new(BufReader::new(read_half)),
+            writer: tokio::sync::Mutex::new(write_half),
+            closed: AtomicBool::new(false),
+            buffered_payload: tokio::sync::Mutex::new(None),
+            early_data_sent: false,
+            heartbeat: parking_lot::Mutex::new(HeartbeatState {
+                last_frame_activity: Instant::now(),
+                awaiting_pong: None,
+            }),
+            heartbeat_nonce: AtomicU64::new(0),
+            recovery_scope: "heartbeat-test".to_string(),
+            peer_ip: parking_lot::RwLock::new(None),
+            colo: String::new(),
+            asn: String::new(),
+        }
+    }
+
+    #[cfg(feature = "heartbeat-test-utils")]
+    #[doc(hidden)]
+    pub async fn run_heartbeat_for_test(
+        &self,
+        cancel: CancellationToken,
+        idle_before_ping: Duration,
+        pong_deadline: Duration,
+        check_interval: Duration,
+    ) -> Result<(), WsError> {
+        self.run_heartbeat_loop(
+            cancel,
+            Some(HeartbeatPolicy {
+                idle_before_ping,
+                pong_deadline,
+            }),
+            check_interval,
+            false,
+        )
+        .await
+    }
+
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Relaxed)
     }
@@ -341,6 +540,7 @@ impl RawWebSocket {
     pub async fn inject_initial_payload(&self, data: Vec<u8>) {
         if !data.is_empty() {
             *self.buffered_payload.lock().await = Some(data);
+            self.record_frame_activity();
         }
     }
 
@@ -350,7 +550,9 @@ impl RawWebSocket {
         }
         if data.len() <= MAX_FRAME_PAYLOAD as usize {
             let frame = build_frame(OP_BINARY, data, true);
-            self.write_frame(&frame, WS_WRITE_TIMEOUT).await
+            self.write_frame(&frame, WS_WRITE_TIMEOUT).await?;
+            self.record_frame_activity();
+            Ok(())
         } else {
             // RFC 6455 Fragmented message if payload exceeds max frame limit
             let chunks: Vec<&[u8]> = data.chunks(MAX_FRAME_PAYLOAD as usize).collect();
@@ -372,6 +574,7 @@ impl RawWebSocket {
                     }
                 }
             }
+            self.record_frame_activity();
             Ok(())
         }
     }
@@ -416,15 +619,33 @@ impl RawWebSocket {
                 }
             }
         }
+        if !parts.is_empty() {
+            self.record_frame_activity();
+        }
         Ok(())
     }
 
-    pub async fn send_ping(&self) -> Result<(), WsError> {
+    async fn send_heartbeat_ping(&self) -> Result<(), WsError> {
         if self.is_closed() {
             return Err(WsError::Other("WebSocket closed".to_string()));
         }
-        let frame = build_frame(OP_PING, &[], true);
-        self.write_frame(&frame, WS_CONTROL_TIMEOUT).await
+        let nonce = self
+            .heartbeat_nonce
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1);
+        {
+            let mut state = self.heartbeat.lock();
+            if state.awaiting_pong.is_some() {
+                return Ok(());
+            }
+            state.awaiting_pong = Some((nonce, Instant::now()));
+        }
+        let frame = build_frame(OP_PING, &nonce.to_be_bytes(), true);
+        if let Err(error) = self.write_frame(&frame, WS_CONTROL_TIMEOUT).await {
+            self.heartbeat.lock().awaiting_pong = None;
+            return Err(error);
+        }
+        Ok(())
     }
 
     async fn write_frame(&self, frame: &[u8], timeout: Duration) -> Result<(), WsError> {
@@ -449,6 +670,7 @@ impl RawWebSocket {
 
     pub async fn recv(&self) -> Result<Vec<u8>, WsError> {
         if let Some(buf) = self.buffered_payload.lock().await.take() {
+            self.record_frame_activity();
             return Ok(buf);
         }
         let mut assembling_buf: Option<Vec<u8>> = None;
@@ -475,12 +697,17 @@ impl RawWebSocket {
                     )));
                 }
                 OP_PING => {
+                    self.record_frame_activity();
                     let pong = build_frame(OP_PONG, &payload, true);
                     let _ = self.write_frame(&pong, WS_CONTROL_TIMEOUT).await;
                     continue;
                 }
-                OP_PONG => continue,
+                OP_PONG => {
+                    self.record_pong(&payload);
+                    continue;
+                }
                 OP_TEXT | OP_BINARY => {
+                    self.record_frame_activity();
                     if fin {
                         return Ok(payload);
                     } else {
@@ -488,6 +715,7 @@ impl RawWebSocket {
                     }
                 }
                 OP_CONTINUATION => {
+                    self.record_frame_activity();
                     if let Some(mut buf) = assembling_buf.take() {
                         if (buf.len() as u64) + (payload.len() as u64) > MAX_FRAME_PAYLOAD {
                             self.closed.store(true, Ordering::Relaxed);
@@ -559,12 +787,17 @@ impl RawWebSocket {
                     )));
                 }
                 OP_PING => {
+                    self.record_frame_activity();
                     let pong = build_frame(OP_PONG, &payload, true);
                     let _ = self.write_frame(&pong, WS_CONTROL_TIMEOUT).await;
                     continue;
                 }
-                OP_PONG => continue,
+                OP_PONG => {
+                    self.record_pong(&payload);
+                    continue;
+                }
                 OP_TEXT | OP_BINARY => {
+                    self.record_frame_activity();
                     if fin {
                         return Ok(payload);
                     } else {
@@ -572,6 +805,7 @@ impl RawWebSocket {
                     }
                 }
                 OP_CONTINUATION => {
+                    self.record_frame_activity();
                     if let Some(mut buf) = assembling_buf.take() {
                         if (buf.len() as u64) + (payload.len() as u64) > MAX_FRAME_PAYLOAD {
                             self.closed.store(true, Ordering::Relaxed);
@@ -729,6 +963,35 @@ pub fn set_sock_opts(stream: &TcpStream) {
     let nodelay = TCP_NODELAY.load(Ordering::Relaxed);
     let _ = stream.set_nodelay(nodelay);
     let sock = socket2::SockRef::from(stream);
+
+    let target_recv = RECV_BUF.load(Ordering::Relaxed);
+    let target_send = SEND_BUF.load(Ordering::Relaxed);
+
+    if target_recv > 0 {
+        let recv_size = target_recv.clamp(MIN_SOCKET_BUFFER, MAX_SOCKET_BUFFER) as usize;
+        let _ = sock.set_recv_buffer_size(recv_size);
+    }
+    if target_send > 0 {
+        let send_size = target_send.clamp(MIN_SOCKET_BUFFER, MAX_SOCKET_BUFFER) as usize;
+        let _ = sock.set_send_buffer_size(send_size);
+    }
+
+    let actual_recv = sock.recv_buffer_size().unwrap_or(0) as i32;
+    let actual_send = sock.send_buffer_size().unwrap_or(0) as i32;
+    LAST_OS_RECV_BUF.store(actual_recv, Ordering::Relaxed);
+    LAST_OS_SEND_BUF.store(actual_send, Ordering::Relaxed);
+    SOCKETS_CONFIGURED_TOTAL.fetch_add(1, Ordering::Relaxed);
+    let actual_pair = ((actual_recv as u32 as u64) << 32) | actual_send as u32 as u64;
+    if LAST_LOGGED_OS_BUFFER_PAIR.swap(actual_pair, Ordering::Relaxed) != actual_pair {
+        crate::linfo!(
+            "Socket buffers applied to new socket: target_recv={} target_send={} os_recv={} os_send={}",
+            target_recv,
+            target_send,
+            actual_recv,
+            actual_send
+        );
+    }
+
     #[allow(unused_mut)]
     let mut ka = socket2::TcpKeepalive::new()
         .with_time(Duration::from_secs(30))
@@ -791,7 +1054,28 @@ pub fn server_name(domain: &str) -> ServerName<'static> {
         .unwrap_or_else(|_| ServerName::IpAddress("127.0.0.1".parse::<IpAddr>().unwrap().into()))
 }
 
+pub const HAPPY_EYEBALLS_DEFAULT_DELAY: Duration = Duration::from_millis(200);
 pub const HAPPY_EYEBALLS_DELAY: Duration = Duration::from_millis(200);
+
+/// Connection Attempt Delay for Happy Eyeballs (RFC 8305 Section 5).
+/// Uses the committed FSM profile, so RTT samples cannot bypass its dwell/cooldown.
+pub fn compute_happy_eyeballs_delay() -> Duration {
+    committed_happy_eyeballs_delay(
+        crate::network_profile::get_profile().happy_eyeballs_delay_ms,
+        MOBILE_NETWORK.load(Ordering::Relaxed),
+    )
+}
+
+fn committed_happy_eyeballs_delay(committed_ms: u64, is_mobile: bool) -> Duration {
+    let delay = if committed_ms == 0 {
+        if is_mobile { 350 } else { 200 }
+    } else {
+        // Bounds are independent of the live transport: a handover cannot
+        // silently change a committed timer while the policy is cooling down.
+        ((committed_ms.clamp(100, 2000) + 25) / 50) * 50
+    };
+    Duration::from_millis(delay)
+}
 
 pub async fn happy_eyeballs_tcp_connect(
     addrs: &[SocketAddr],
@@ -814,7 +1098,7 @@ pub async fn happy_eyeballs_tcp_connect(
     }
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(TcpStream, SocketAddr)>(1);
-    let cancel_token = tokio_util::sync::CancellationToken::new();
+    let cancel_token = CancellationToken::new();
     let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::with_capacity(addrs.len());
 
     let mut next_idx = 0;
@@ -823,7 +1107,7 @@ pub async fn happy_eyeballs_tcp_connect(
     let deadline = tokio::time::sleep(total_timeout);
     tokio::pin!(deadline);
 
-    let mut stagger_timer = tokio::time::interval(HAPPY_EYEBALLS_DELAY);
+    let mut stagger_timer = tokio::time::interval(compute_happy_eyeballs_delay());
     let mut remaining_active: usize = 0;
 
     let (err_tx, mut err_rx) = tokio::sync::mpsc::channel::<std::io::Error>(num_addrs);
@@ -1130,12 +1414,22 @@ pub async fn ws_upgrade_stream(
             }));
         }
 
+        let colo = crate::node_independence::extract_cf_colo(&headers);
         return Ok(RawWebSocket {
             reader: tokio::sync::Mutex::new(bufreader),
             writer: tokio::sync::Mutex::new(write_half),
             closed: AtomicBool::new(false),
             buffered_payload: tokio::sync::Mutex::new(None),
             early_data_sent: early_data_applied,
+            heartbeat: parking_lot::Mutex::new(HeartbeatState {
+                last_frame_activity: Instant::now(),
+                awaiting_pong: None,
+            }),
+            heartbeat_nonce: AtomicU64::new(0),
+            recovery_scope: host_header.to_string(),
+            peer_ip: parking_lot::RwLock::new(None),
+            colo,
+            asn: "UNKNOWN".to_string(),
         });
     }
 
@@ -1165,16 +1459,42 @@ pub async fn ws_handshake_split_host_ext(
     let sni = server_name(tls_sni);
 
     let handshake_timeout = ws_handshake_timeout(timeout);
+    let net_gen = crate::network_profile::current_generation();
+    let tls_start = std::time::Instant::now();
     let tls_conn =
         match tokio::time::timeout(handshake_timeout, connector.connect(sni, raw_conn)).await {
-            Ok(Ok(c)) => c,
+            Ok(Ok(c)) => {
+                let duration_ms = tls_start.elapsed().as_millis() as u64;
+                let kind = c.get_ref().1.handshake_kind();
+                crate::tls_observability::TLS_TRACKER.write().record_success(
+                    host_header,
+                    net_gen,
+                    kind,
+                    duration_ms,
+                );
+                c
+            }
             Ok(Err(e)) => {
+                let duration_ms = tls_start.elapsed().as_millis() as u64;
+                crate::tls_observability::TLS_TRACKER.write().record_failure(
+                    host_header,
+                    net_gen,
+                    duration_ms,
+                    &e.to_string(),
+                );
                 if e.kind() != std::io::ErrorKind::ConnectionReset {
                     ldebug!(" ws tls fail {} via {}: {}", tls_sni, dial_ip, e);
                 }
                 return Err(WsError::Io(e));
             }
             Err(_) => {
+                let duration_ms = tls_start.elapsed().as_millis() as u64;
+                crate::tls_observability::TLS_TRACKER.write().record_failure(
+                    host_header,
+                    net_gen,
+                    duration_ms,
+                    "handshake_timeout",
+                );
                 ldebug!(" ws tls fail {} via {}: timeout", tls_sni, dial_ip);
                 return Err(WsError::Timeout);
             }
@@ -1208,6 +1528,484 @@ pub async fn ws_handshake_plain_ext(
     .await
 }
 
+pub async fn ws_connect_happy_eyeballs_split_ext(
+    tls_sni: &str,
+    host_header: &str,
+    path: &str,
+    early_data: Option<&[u8]>,
+    addrs: &[SocketAddr],
+    timeout: Duration,
+) -> Result<(RawWebSocket, SocketAddr), WsError> {
+    let expected = crate::generation_guard::snapshot();
+    if addrs.is_empty() {
+        return Err(WsError::Other(
+            "no candidate addresses provided".to_string(),
+        ));
+    }
+
+    let ordered_addrs = crate::recovery::order_socket_addrs_for_host(
+        expected.network,
+        &host_header,
+        addrs,
+    );
+    let addrs = ordered_addrs.as_slice();
+
+    let stagger_delay = compute_happy_eyeballs_delay();
+    let num_addrs = addrs.len();
+
+    let (winner_tx, mut winner_rx) = tokio::sync::mpsc::channel::<(RawWebSocket, SocketAddr)>(1);
+    let (err_tx, mut err_rx) = tokio::sync::mpsc::channel::<(usize, WsError)>(num_addrs);
+    let cancel_token = CancellationToken::new();
+    let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::with_capacity(num_addrs);
+
+    let start_time = Instant::now();
+    let deadline = tokio::time::sleep(timeout);
+    tokio::pin!(deadline);
+
+    let mut stagger_timer = tokio::time::interval(stagger_delay);
+    // In Tokio, interval ticks immediately on the first call, so consume it for Candidate 0
+    stagger_timer.tick().await;
+
+    let early_data_holder = early_data.map(|d| Arc::new(tokio::sync::Mutex::new(Some(d.to_vec()))));
+    let mut next_idx = 0;
+    let mut remaining_active: usize = 0;
+    let mut last_error = WsError::Other("all connection candidates failed".to_string());
+
+    let spawn_candidate = |idx: usize,
+                           addr: SocketAddr,
+                           winner_tx: tokio::sync::mpsc::Sender<(RawWebSocket, SocketAddr)>,
+                           err_tx: tokio::sync::mpsc::Sender<(usize, WsError)>,
+                           cancel: CancellationToken,
+                           early_data_holder: Option<Arc<tokio::sync::Mutex<Option<Vec<u8>>>>>,
+                           tls_sni: String,
+                           host_header: String,
+                           path: String|
+     -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            if cancel.is_cancelled() {
+                return;
+            }
+
+            let elapsed = start_time.elapsed();
+            let mut remaining = timeout.saturating_sub(elapsed);
+            if remaining.is_zero() {
+                crate::recovery::record_if_current(
+                    expected,
+                    &host_header,
+                    crate::recovery::RecoveryCause::TcpTimeout,
+                );
+                let _ = err_tx.send((idx, WsError::Timeout)).await;
+                return;
+            }
+
+            let candidate_res = async {
+                // Throttle parallel candidate dials on cellular to prevent radio bufferbloat
+                let _mobile_dial_permit = if MOBILE_NETWORK.load(Ordering::Relaxed) {
+                    Some(
+                        MOBILE_FULL_DIAL_SEM
+                            .acquire()
+                            .await
+                            .map_err(|_| WsError::Other("mobile dial budget closed".to_string()))?,
+                    )
+                } else {
+                    None
+                };
+
+                // 1. TCP Connect
+                let tcp_budget = remaining
+                    .saturating_sub(Duration::from_millis(50))
+                    .min(Duration::from_millis(1800));
+                let tcp_start = Instant::now();
+                let stream = tokio::select! {
+                    _ = cancel.cancelled() => return Err(WsError::Canceled),
+                    res = tokio::time::timeout(tcp_budget, TcpStream::connect(addr)) => match res {
+                        Ok(Ok(stream)) => {
+                            let tcp_rtt = tcp_start.elapsed().as_millis().max(1) as u64;
+                            crate::recovery::record_stage_success(
+                                expected.network,
+                                &host_header,
+                                addr.ip(),
+                                crate::recovery::EstablishmentStage::Tcp,
+                                tcp_rtt,
+                            );
+                            stream
+                        }
+                        Ok(Err(error)) => {
+                            crate::recovery::record_stage_failure(
+                                expected.network,
+                                &host_header,
+                                addr.ip(),
+                                crate::recovery::EstablishmentStage::Tcp,
+                            );
+                            crate::recovery::record_if_current(
+                                expected,
+                                &host_header,
+                                crate::recovery::RecoveryCause::TcpTimeout,
+                            );
+                            return Err(WsError::Io(error));
+                        }
+                        Err(_) => {
+                            crate::recovery::record_stage_failure(
+                                expected.network,
+                                &host_header,
+                                addr.ip(),
+                                crate::recovery::EstablishmentStage::Tcp,
+                            );
+                            crate::recovery::record_if_current(
+                                expected,
+                                &host_header,
+                                crate::recovery::RecoveryCause::TcpTimeout,
+                            );
+                            return Err(WsError::Timeout);
+                        }
+                    },
+                };
+                set_sock_opts(&stream);
+
+                if cancel.is_cancelled() {
+                    return Err(WsError::Canceled);
+                }
+
+                // 2. TLS Handshake
+                remaining = timeout.saturating_sub(start_time.elapsed());
+                let dial_ip = addr.ip().to_string();
+                let tls_config =
+                    get_tls_config_for_fingerprint(crate::recovery::effective_tls_fingerprint());
+                let connector = TlsConnector::from(tls_config);
+                let sni = server_name(&tls_sni);
+                let handshake_timeout = ws_handshake_timeout(
+                    remaining.saturating_sub(Duration::from_millis(50)),
+                );
+
+                let tls_start = Instant::now();
+                let tls_stream = tokio::select! {
+                    _ = cancel.cancelled() => return Err(WsError::Canceled),
+                    res = tokio::time::timeout(handshake_timeout, connector.connect(sni, stream)) => {
+                        match res {
+                            Ok(Ok(c)) => {
+                                let duration_ms = tls_start.elapsed().as_millis() as u64;
+                                let kind = c.get_ref().1.handshake_kind();
+                                crate::tls_observability::TLS_TRACKER.write().record_success(
+                                    &host_header,
+                                    expected.network,
+                                    kind,
+                                    duration_ms,
+                                );
+                                c
+                            }
+                            Ok(Err(e)) => {
+                                let duration_ms = tls_start.elapsed().as_millis() as u64;
+                                crate::tls_observability::TLS_TRACKER.write().record_failure(
+                                    &host_header,
+                                    expected.network,
+                                    duration_ms,
+                                    &e.to_string(),
+                                );
+                                crate::recovery::record_stage_failure(
+                                    expected.network,
+                                    &host_header,
+                                    addr.ip(),
+                                    crate::recovery::EstablishmentStage::Tls,
+                                );
+                                crate::recovery::record_if_current(
+                                    expected,
+                                    &host_header,
+                                    crate::recovery::RecoveryCause::TlsReset,
+                                );
+                                if e.kind() != std::io::ErrorKind::ConnectionReset {
+                                    ldebug!("HE cand {} via {} tls fail: {}", tls_sni, dial_ip, e);
+                                }
+                                return Err(WsError::Io(e));
+                            }
+                            Err(_) => {
+                                let duration_ms = tls_start.elapsed().as_millis() as u64;
+                                crate::tls_observability::TLS_TRACKER.write().record_failure(
+                                    &host_header,
+                                    expected.network,
+                                    duration_ms,
+                                    "handshake_timeout",
+                                );
+                                crate::recovery::record_stage_failure(
+                                    expected.network,
+                                    &host_header,
+                                    addr.ip(),
+                                    crate::recovery::EstablishmentStage::Tls,
+                                );
+                                crate::recovery::record_if_current(
+                                    expected,
+                                    &host_header,
+                                    crate::recovery::RecoveryCause::TlsReset,
+                                );
+                                ldebug!("HE cand {} via {} tls fail: timeout", tls_sni, dial_ip);
+                                return Err(WsError::Timeout);
+                            }
+                        }
+                    }
+                };
+
+                if cancel.is_cancelled() {
+                    return Err(WsError::Canceled);
+                }
+
+                // 3. Early Data check & WebSocket Upgrade (HTTP 101)
+                remaining = timeout.saturating_sub(start_time.elapsed());
+                let maybe_ed = if let Some(ref holder) = early_data_holder {
+                    let mut guard = holder.lock().await;
+                    guard.take()
+                } else {
+                    None
+                };
+
+                let upgrade_res = tokio::select! {
+                    _ = cancel.cancelled() => {
+                        if let (Some(ref holder), Some(ed)) = (&early_data_holder, maybe_ed) {
+                            *holder.lock().await = Some(ed);
+                        }
+                        return Err(WsError::Canceled);
+                    }
+                    res = ws_upgrade_stream(
+                        WsStream::Tls(tls_stream),
+                        &host_header,
+                        &path,
+                        maybe_ed.as_deref(),
+                        remaining.saturating_sub(Duration::from_millis(50)),
+                    ) => res,
+                };
+
+                let ws = match upgrade_res {
+                    Ok(w) => {
+                        w.set_peer_ip(addr.ip());
+                        let colo = w.colo().to_string();
+                        crate::node_independence::NODE_INDEPENDENCE_TRACKER
+                            .write()
+                            .record_node_handshake_success(&host_header, addr.ip(), &colo);
+                        w
+                    }
+                    Err(e) => {
+                        crate::node_independence::NODE_INDEPENDENCE_TRACKER
+                            .write()
+                            .record_node_failure(&host_header, Some(addr.ip()), None);
+                        crate::recovery::record_stage_failure(
+                            expected.network,
+                            &host_header,
+                            addr.ip(),
+                            crate::recovery::EstablishmentStage::Wss,
+                        );
+                        let cause = if is_http_status_error(&e, 429) {
+                            crate::recovery::RecoveryCause::RateLimited429
+                        } else {
+                            crate::recovery::RecoveryCause::HttpUpgradeRejected
+                        };
+                        crate::recovery::record_if_current(expected, &host_header, cause);
+                        if let (Some(ref holder), Some(ed)) = (&early_data_holder, maybe_ed) {
+                            *holder.lock().await = Some(ed);
+                        }
+                        return Err(e);
+                    }
+                };
+
+                if cancel.is_cancelled() {
+                    let _ = ws.close().await;
+                    return Err(WsError::Canceled);
+                }
+
+                // 4. Relay ACK verification for Worker /tcp-v2
+                if path.starts_with("/tcp-v2") {
+                    remaining = timeout.saturating_sub(start_time.elapsed());
+                    let ack_timeout = Duration::from_millis(2500)
+                        .min(remaining.saturating_sub(Duration::from_millis(50)));
+                    let ack_fut = ws.recv();
+                    let ack_res = tokio::select! {
+                        _ = cancel.cancelled() => {
+                            let _ = ws.close().await;
+                            return Err(WsError::Canceled);
+                        }
+                        r = tokio::time::timeout(ack_timeout, ack_fut) => r,
+                    };
+
+                    match ack_res {
+                        Ok(Ok(ack_data)) if ack_data.len() >= 4 && ack_data[0] == 0x56 && ack_data[1] == 0x02 && ack_data[2] == 0x00 => {
+                            ws.inject_initial_payload(ack_data).await;
+                        }
+                        Ok(Ok(other)) => {
+                            crate::recovery::record_stage_failure(
+                                expected.network,
+                                &host_header,
+                                addr.ip(),
+                                crate::recovery::EstablishmentStage::Wss,
+                            );
+                            crate::recovery::record_if_current(
+                                expected,
+                                &host_header,
+                                crate::recovery::RecoveryCause::RelayAckFailure,
+                            );
+                            let _ = ws.close().await;
+                            return Err(WsError::Other(format!("invalid /tcp-v2 relay ack (len={})", other.len())));
+                        }
+                        Ok(Err(e)) => {
+                            crate::recovery::record_stage_failure(
+                                expected.network,
+                                &host_header,
+                                addr.ip(),
+                                crate::recovery::EstablishmentStage::Wss,
+                            );
+                            crate::recovery::record_if_current(
+                                expected,
+                                &host_header,
+                                crate::recovery::RecoveryCause::RelayAckFailure,
+                            );
+                            let _ = ws.close().await;
+                            return Err(e);
+                        }
+                        Err(_) => {
+                            crate::recovery::record_stage_failure(
+                                expected.network,
+                                &host_header,
+                                addr.ip(),
+                                crate::recovery::EstablishmentStage::Wss,
+                            );
+                            crate::recovery::record_if_current(
+                                expected,
+                                &host_header,
+                                crate::recovery::RecoveryCause::RelayAckFailure,
+                            );
+                            let _ = ws.close().await;
+                            return Err(WsError::Timeout);
+                        }
+                    }
+                }
+
+                if cancel.is_cancelled() {
+                    let _ = ws.close().await;
+                    return Err(WsError::Canceled);
+                }
+
+                let total_rtt = start_time.elapsed().as_millis().max(1) as u64;
+                crate::recovery::record_stage_success(
+                    expected.network,
+                    &host_header,
+                    addr.ip(),
+                    crate::recovery::EstablishmentStage::Ready,
+                    total_rtt,
+                );
+
+                if !crate::recovery::mark_success_if_current(expected, &host_header) {
+                    let _ = ws.close().await;
+                    return Err(WsError::Canceled);
+                }
+                Ok((ws, addr))
+            }.await;
+
+            match candidate_res {
+                Ok((ws, addr)) => {
+                    let _ = winner_tx.send((ws, addr)).await;
+                }
+                Err(WsError::Canceled) => {}
+                Err(e) => {
+                    let _ = err_tx.send((idx, e)).await;
+                }
+            }
+        })
+    };
+
+    // Launch Candidate 0 immediately at t = 0
+    let target_addr = addrs[next_idx];
+    let cand_idx = next_idx;
+    next_idx += 1;
+    remaining_active += 1;
+    tasks.push(spawn_candidate(
+        cand_idx,
+        target_addr,
+        winner_tx.clone(),
+        err_tx.clone(),
+        cancel_token.clone(),
+        early_data_holder.clone(),
+        tls_sni.to_string(),
+        host_header.to_string(),
+        path.to_string(),
+    ));
+
+    let mut winner: Option<(RawWebSocket, SocketAddr)> = None;
+
+    loop {
+        tokio::select! {
+            _ = &mut deadline => {
+                last_error = WsError::Timeout;
+                break;
+            }
+            res = winner_rx.recv() => {
+                if let Some((ws, winning_addr)) = res {
+                    winner = Some((ws, winning_addr));
+                    break;
+                }
+            }
+            err_msg = err_rx.recv() => {
+                if let Some((_idx, e)) = err_msg {
+                    last_error = e;
+                    remaining_active = remaining_active.saturating_sub(1);
+
+                    // Fast Failover: immediately launch next candidate if available
+                    if next_idx < num_addrs {
+                        let target_addr = addrs[next_idx];
+                        let cand_idx = next_idx;
+                        next_idx += 1;
+                        remaining_active += 1;
+
+                        tasks.push(spawn_candidate(
+                            cand_idx,
+                            target_addr,
+                            winner_tx.clone(),
+                            err_tx.clone(),
+                            cancel_token.clone(),
+                            early_data_holder.clone(),
+                            tls_sni.to_string(),
+                            host_header.to_string(),
+                            path.to_string(),
+                        ));
+                    } else if remaining_active == 0 {
+                        // All launched candidates failed and no more queued
+                        break;
+                    }
+                }
+            }
+            _ = stagger_timer.tick(), if next_idx < num_addrs => {
+                let target_addr = addrs[next_idx];
+                let cand_idx = next_idx;
+                next_idx += 1;
+                remaining_active += 1;
+
+                tasks.push(spawn_candidate(
+                    cand_idx,
+                    target_addr,
+                    winner_tx.clone(),
+                    err_tx.clone(),
+                    cancel_token.clone(),
+                    early_data_holder.clone(),
+                    tls_sni.to_string(),
+                    host_header.to_string(),
+                    path.to_string(),
+                ));
+            }
+        }
+    }
+
+    // Deterministic Loser Cancellation (Structured Concurrency)
+    cancel_token.cancel();
+    for t in &tasks {
+        t.abort();
+    }
+    for t in tasks {
+        let _ = tokio::time::timeout(Duration::from_millis(500), t).await;
+    }
+
+    // Drain and close any runner-up websockets that completed around the same time
+    while let Ok((extra_ws, _)) = winner_rx.try_recv() {
+        let _ = extra_ws.close().await;
+    }
+
+    winner.ok_or(last_error)
+}
+
 pub async fn ws_connect_happy_eyeballs_ext(
     domain: &str,
     path: &str,
@@ -1215,13 +2013,7 @@ pub async fn ws_connect_happy_eyeballs_ext(
     addrs: &[SocketAddr],
     timeout: Duration,
 ) -> Result<(RawWebSocket, SocketAddr), WsError> {
-    let (stream, winner_addr) = happy_eyeballs_tcp_connect(addrs, timeout).await?;
-    let dial_ip = winner_addr.ip().to_string();
-    let ws = ws_handshake_split_host_ext(
-        stream, &dial_ip, domain, domain, path, "chrome", early_data, timeout,
-    )
-    .await?;
-    Ok((ws, winner_addr))
+    ws_connect_happy_eyeballs_split_ext(domain, domain, path, early_data, addrs, timeout).await
 }
 
 pub async fn ws_connect_happy_eyeballs(
@@ -1505,20 +2297,56 @@ mod tests {
 
     #[test]
     fn test_fingerprint_classification_and_capability_matrix() {
-        assert_eq!(classify_fingerprint("chrome"), ("chrome", FingerprintCapability::Supported));
-        assert_eq!(classify_fingerprint("firefox"), ("firefox", FingerprintCapability::Supported));
-        assert_eq!(classify_fingerprint("safari"), ("safari", FingerprintCapability::Supported));
-        assert_eq!(classify_fingerprint("ios"), ("ios", FingerprintCapability::Supported));
-        assert_eq!(classify_fingerprint("randomized"), ("randomized", FingerprintCapability::Supported));
-        assert_eq!(classify_fingerprint(""), ("chrome", FingerprintCapability::Supported));
+        assert_eq!(
+            classify_fingerprint("chrome"),
+            ("chrome", FingerprintCapability::Supported)
+        );
+        assert_eq!(
+            classify_fingerprint("firefox"),
+            ("firefox", FingerprintCapability::Supported)
+        );
+        assert_eq!(
+            classify_fingerprint("safari"),
+            ("safari", FingerprintCapability::Supported)
+        );
+        assert_eq!(
+            classify_fingerprint("ios"),
+            ("ios", FingerprintCapability::Supported)
+        );
+        assert_eq!(
+            classify_fingerprint("randomized"),
+            ("randomized", FingerprintCapability::Supported)
+        );
+        assert_eq!(
+            classify_fingerprint(""),
+            ("chrome", FingerprintCapability::Supported)
+        );
 
-        assert_eq!(classify_fingerprint("edge"), ("chrome", FingerprintCapability::Mapped));
-        assert_eq!(classify_fingerprint("360"), ("chrome", FingerprintCapability::Mapped));
-        assert_eq!(classify_fingerprint("qq"), ("chrome", FingerprintCapability::Mapped));
-        assert_eq!(classify_fingerprint("android"), ("chrome", FingerprintCapability::Mapped));
+        assert_eq!(
+            classify_fingerprint("edge"),
+            ("chrome", FingerprintCapability::Mapped)
+        );
+        assert_eq!(
+            classify_fingerprint("360"),
+            ("chrome", FingerprintCapability::Mapped)
+        );
+        assert_eq!(
+            classify_fingerprint("qq"),
+            ("chrome", FingerprintCapability::Mapped)
+        );
+        assert_eq!(
+            classify_fingerprint("android"),
+            ("chrome", FingerprintCapability::Mapped)
+        );
 
-        assert_eq!(classify_fingerprint("unknown_parrot"), ("chrome", FingerprintCapability::UnsupportedFallback));
-        assert_eq!(classify_fingerprint("bot-agent"), ("chrome", FingerprintCapability::UnsupportedFallback));
+        assert_eq!(
+            classify_fingerprint("unknown_parrot"),
+            ("chrome", FingerprintCapability::UnsupportedFallback)
+        );
+        assert_eq!(
+            classify_fingerprint("bot-agent"),
+            ("chrome", FingerprintCapability::UnsupportedFallback)
+        );
 
         // Ensure get_tls_config_for_fingerprint works reliably across all categories
         let cfg_supported = get_tls_config_for_fingerprint("firefox");
@@ -1529,5 +2357,18 @@ mod tests {
 
         let cfg_unsupported = get_tls_config_for_fingerprint("nonexistent_fp");
         assert_eq!(cfg_unsupported.alpn_protocols, vec![b"http/1.1".to_vec()]);
+    }
+
+    #[test]
+    fn test_happy_eyeballs_delay_calculation() {
+        MOBILE_NETWORK.store(false, Ordering::Relaxed);
+        let wifi_delay = compute_happy_eyeballs_delay();
+        assert!(wifi_delay >= Duration::from_millis(100));
+        assert!(wifi_delay <= Duration::from_millis(1000));
+
+        MOBILE_NETWORK.store(true, Ordering::Relaxed);
+        let mobile_delay = compute_happy_eyeballs_delay();
+        assert!(mobile_delay >= Duration::from_millis(250));
+        assert!(mobile_delay <= Duration::from_millis(2000));
     }
 }

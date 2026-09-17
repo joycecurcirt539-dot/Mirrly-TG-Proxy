@@ -18,12 +18,17 @@
 
 package com.mirrly.tgproxy.core
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -38,16 +43,124 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Запись в локальном кэше DNS-over-HTTPS.
+ * Область видимости и политика разрешения DNS.
+ */
+enum class DnsScope {
+    /**
+     * Бутстрап-резолвер для прокси-узлов и эндпоинтов (Worker, VLESS, MASQUE Anycast, DoH сервера).
+     * Разрешает системный DNS fallback и гарантированный Anycast fallback при недоступности DoH.
+     */
+    BOOTSTRAP,
+
+    /**
+     * Пользовательский резолвер внутри защищенного туннеля (SOCKS5, VPN TUN).
+     * Запрещает нешифрованный системный fallback на локальный DNS во избежание утечек DNS
+     * и рекурсивных петель в VPN-режиме.
+     */
+    USER_IN_TUNNEL
+}
+
+/**
+ * Менеджер бюджета параллельных DNS-запросов (MOB-021).
+ * Ограничивает число одновременных in-flight разрешений для предотвращения
+ * перегрузки радиомодуля (cellular: 4, Wi-Fi: 8).
+ */
+class DnsBudgetManager(private val isMobileProvider: () -> Boolean = { false }) {
+    private val active = AtomicInteger(0)
+    private val channel = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+
+    fun maxConcurrent(): Int = if (isMobileProvider()) 4 else 8
+
+    suspend fun acquire() {
+        while (true) {
+            val max = maxConcurrent()
+            val current = active.get()
+            if (current < max) {
+                if (active.compareAndSet(current, current + 1)) {
+                    return
+                }
+            } else {
+                kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                    channel.receive()
+                }
+            }
+        }
+    }
+
+    fun release() {
+        active.decrementAndGet()
+        channel.trySend(Unit)
+    }
+
+    suspend fun <T> withBudget(block: suspend () -> T): T {
+        acquire()
+        try {
+            return block()
+        } finally {
+            release()
+        }
+    }
+
+    fun activeCount(): Int = active.get()
+
+    fun reset() {
+        active.set(0)
+    }
+}
+
+/**
+ * Семейство IP-адресов DNS-записи (MOB-022).
+ */
+enum class AddressFamily {
+    IPV4,
+    IPV6,
+    DUAL_STACK,
+    NONE;
+
+    companion object {
+        fun fromAddresses(addresses: List<InetAddress>): AddressFamily {
+            if (addresses.isEmpty()) return NONE
+            var hasV4 = false
+            var hasV6 = false
+            for (addr in addresses) {
+                if (addr is java.net.Inet4Address) hasV4 = true
+                if (addr is java.net.Inet6Address) hasV6 = true
+            }
+            return when {
+                hasV4 && hasV6 -> DUAL_STACK
+                hasV4 -> IPV4
+                hasV6 -> IPV6
+                else -> NONE
+            }
+        }
+    }
+}
+
+/**
+ * Запись в локальном кэше DNS-over-HTTPS (MOB-022).
+ * Хранит positive/negative TTL, семейство адресов, источник резолвера и generation сети.
  */
 data class DohCacheEntry(
     val domain: String,
     val addresses: List<InetAddress>,
     val expiresAtTimestampMs: Long,
-    val providerName: String
+    val providerName: String,
+    val isSecure: Boolean = true,
+    val isNegative: Boolean = false,
+    val family: AddressFamily = AddressFamily.fromAddresses(addresses),
+    val resolverSource: String = providerName,
+    val networkGeneration: Long = DohResolver.currentNetworkGeneration()
 ) {
     val isExpired: Boolean
-        get() = System.currentTimeMillis() >= expiresAtTimestampMs
+        get() = DohResolver.timeProvider() >= expiresAtTimestampMs
+
+    fun isExpired(nowMs: Long = DohResolver.timeProvider()): Boolean =
+        nowMs >= expiresAtTimestampMs
+
+    fun isValidFor(
+        currentGen: Long,
+        nowMs: Long = DohResolver.timeProvider()
+    ): Boolean = !isExpired(nowMs) && networkGeneration == currentGen
 }
 
 /**
@@ -58,7 +171,10 @@ data class DohStats(
     val cacheMisses: Long,
     val dohSuccessCount: Long,
     val fallbackSystemDnsCount: Long,
-    val cachedEntriesCount: Int
+    val cachedEntriesCount: Int,
+    val dnsFailedCount: Long = 0L,
+    val fallbackPolicyAppliedCount: Long = 0L,
+    val fallbackIpFailedCount: Long = 0L
 )
 
 /**
@@ -106,14 +222,85 @@ object DohResolver {
     private const val MIN_TTL_SECONDS = 30L
     private const val MAX_TTL_SECONDS = 3600L
     private const val DEFAULT_TTL_SECONDS = 300L
+    const val DEFAULT_POSITIVE_TTL_SECONDS = 300L
+    const val DEFAULT_NEGATIVE_TTL_SECONDS = 15L
     private const val RACE_TIMEOUT_MS = 2500L
+    const val HEDGE_DELAY_MS = 180L
+
+    @Volatile
+    var timeProvider: () -> Long = { System.currentTimeMillis() }
+
+    private val networkGeneration = AtomicLong(1L)
+
+    fun currentNetworkGeneration(): Long = networkGeneration.get()
+
+    fun setNetworkGeneration(gen: Long) {
+        if (gen <= 0L) return
+        val old = networkGeneration.getAndSet(gen)
+        if (old != gen) {
+            invalidateInFlight()
+            clearInFlightResolutions()
+        }
+    }
+
+    private val inFlightResolutions = ConcurrentHashMap<String, Deferred<List<InetAddress>>>()
+
+    fun clearInFlightResolutions() {
+        inFlightResolutions.clear()
+    }
+
+    fun activeInFlightResolutionsCount(): Int = inFlightResolutions.size
 
     private val cache = ConcurrentHashMap<String, DohCacheEntry>()
+    private val generationLock = Any()
+    private val resolutionEpoch = AtomicLong(1L)
+
+    fun invalidateInFlight() {
+        synchronized(generationLock) { resolutionEpoch.incrementAndGet() }
+    }
+
+    fun cacheIfCurrent(expectedEpoch: Long, entry: DohCacheEntry): Boolean = synchronized(generationLock) {
+        if (resolutionEpoch.get() != expectedEpoch) return@synchronized false
+        cache[entry.domain] = entry
+        true
+    }
+
+    fun currentResolutionEpoch(): Long = resolutionEpoch.get()
+
+    @Volatile
+    private var isMobileNetwork: Boolean = false
+
+    fun setMobileNetwork(isMobile: Boolean) {
+        isMobileNetwork = isMobile
+    }
+
+    val dnsBudget = DnsBudgetManager { isMobileNetwork }
+
+    private val activeCalls = java.util.Collections.newSetFromMap(ConcurrentHashMap<okhttp3.Call, Boolean>())
+
+    fun cancelAllInFlight() {
+        val iterator = activeCalls.iterator()
+        while (iterator.hasNext()) {
+            try {
+                iterator.next().cancel()
+            } catch (_: Throwable) {}
+            iterator.remove()
+        }
+    }
+
+    fun activeCallsCount(): Int = activeCalls.size
 
     private val totalHits = AtomicLong(0L)
     private val totalMisses = AtomicLong(0L)
     private val totalDohSuccess = AtomicLong(0L)
     private val totalFallback = AtomicLong(0L)
+    private val totalDnsFailed = AtomicLong(0L)
+    private val totalFallbackPolicyApplied = AtomicLong(0L)
+    private val totalFallbackIpFailed = AtomicLong(0L)
+
+    fun recordFallbackIpFailure() {
+        totalFallbackIpFailed.incrementAndGet()
+    }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -121,7 +308,7 @@ object DohResolver {
         DohProvider(
             id = "adguard",
             name = "AdGuard DNS",
-            description = "Блокировка рекламы и трекеров (Anycast)",
+            description = "Ad and tracker blocking (Anycast)",
             endpointUrl = "https://94.140.14.14/resolve",
             isDefaultEnabled = true,
             isGoogleStyle = true,
@@ -130,7 +317,7 @@ object DohResolver {
         DohProvider(
             id = "dnssb",
             name = "DNS.SB (Primary)",
-            description = "Приватный DNS без логов и цензуры (Anycast)",
+            description = "Private DNS without logs or filtering (Anycast)",
             endpointUrl = "https://185.222.222.222/dns-query",
             isDefaultEnabled = true,
             acceptHeader = "application/dns-json"
@@ -138,7 +325,7 @@ object DohResolver {
         DohProvider(
             id = "dnssb_sec",
             name = "DNS.SB (Secondary)",
-            description = "Резервный европейский Anycast-узел",
+            description = "Backup European Anycast node",
             endpointUrl = "https://45.11.45.11/dns-query",
             isDefaultEnabled = true,
             acceptHeader = "application/dns-json"
@@ -146,7 +333,7 @@ object DohResolver {
         DohProvider(
             id = "nextdns",
             name = "NextDNS",
-            description = "Глобальная сверхбыстрая Anycast-сеть",
+            description = "Global ultrafast Anycast network",
             endpointUrl = "https://dns.nextdns.io/dns-query",
             isDefaultEnabled = true,
             acceptHeader = "application/dns-json"
@@ -154,7 +341,7 @@ object DohResolver {
         DohProvider(
             id = "controld",
             name = "Control D (Standard)",
-            description = "Высокоскоростной DNS без цензуры",
+            description = "High-speed uncensored DNS",
             endpointUrl = "https://freedns.controld.com/p0",
             isDefaultEnabled = true,
             acceptHeader = "application/dns-message"
@@ -162,7 +349,7 @@ object DohResolver {
         DohProvider(
             id = "controld_uncensored",
             name = "Control D (Uncensored)",
-            description = "Открытый резолвер без каких-либо фильтров",
+            description = "Open resolver without filters",
             endpointUrl = "https://freedns.controld.com/uncensored",
             isDefaultEnabled = false,
             acceptHeader = "application/dns-message"
@@ -170,7 +357,7 @@ object DohResolver {
         DohProvider(
             id = "controld_malware",
             name = "Control D (Security)",
-            description = "Фильтрация вредоносных сайтов и фишинга",
+            description = "Malware and phishing protection",
             endpointUrl = "https://freedns.controld.com/malware",
             isDefaultEnabled = false,
             acceptHeader = "application/dns-message"
@@ -178,7 +365,7 @@ object DohResolver {
         DohProvider(
             id = "quad9",
             name = "Quad9 DNS",
-            description = "Швейцарский Anycast без коммерческого трекинга",
+            description = "Swiss Anycast without commercial tracking",
             endpointUrl = "https://dns.quad9.net/dns-query",
             isDefaultEnabled = false,
             acceptHeader = "application/dns-message"
@@ -186,7 +373,7 @@ object DohResolver {
         DohProvider(
             id = "geohide",
             name = "GeoHide DNS",
-            description = "Обход региональных блокировок и цензуры",
+            description = "Bypass regional blocks and filtering",
             endpointUrl = "https://dns.geohide.ru/dns-query",
             isDefaultEnabled = false,
             acceptHeader = "application/dns-message",
@@ -195,7 +382,7 @@ object DohResolver {
         DohProvider(
             id = "xbox",
             name = "Xbox DNS",
-            description = "Smart DNS для сервисов Microsoft и игр",
+            description = "Smart DNS for Microsoft services and gaming",
             endpointUrl = "https://xbox-dns.ru/dns-query",
             isDefaultEnabled = false,
             acceptHeader = "application/dns-message",
@@ -204,7 +391,7 @@ object DohResolver {
         DohProvider(
             id = "cloudflare",
             name = "Cloudflare (1.1.1.1)",
-            description = "Глобальный Anycast (может замедляться в РФ)",
+            description = "Global Anycast (may be throttled in RU)",
             endpointUrl = "https://1.1.1.1/dns-query",
             isDefaultEnabled = false,
             acceptHeader = "application/dns-json"
@@ -212,7 +399,7 @@ object DohResolver {
         DohProvider(
             id = "cloudflare_sec",
             name = "Cloudflare (1.0.0.1)",
-            description = "Второй Anycast-адрес Cloudflare",
+            description = "Secondary Cloudflare Anycast address",
             endpointUrl = "https://1.0.0.1/dns-query",
             isDefaultEnabled = false,
             acceptHeader = "application/dns-json"
@@ -220,7 +407,7 @@ object DohResolver {
         DohProvider(
             id = "google",
             name = "Google DNS (8.8.8.8)",
-            description = "Резервный глобальный резолвер Google",
+            description = "Backup global Google resolver",
             endpointUrl = "https://8.8.8.8/resolve",
             isDefaultEnabled = false,
             isGoogleStyle = true,
@@ -229,7 +416,7 @@ object DohResolver {
         DohProvider(
             id = "google_sec",
             name = "Google DNS (8.8.4.4)",
-            description = "Второй глобальный адрес Google Public DNS",
+            description = "Secondary Google Public DNS address",
             endpointUrl = "https://8.8.4.4/resolve",
             isDefaultEnabled = false,
             isGoogleStyle = true,
@@ -258,22 +445,33 @@ object DohResolver {
             }
         }
         stream.write(0) // Root label
-        // QTYPE: 1 (A)
-        stream.write(0); stream.write(type)
+        // QTYPE: 1 (A) or 28 (AAAA)
+        stream.write(type shr 8); stream.write(type and 0xFF)
         // QCLASS: 1 (IN)
         stream.write(0); stream.write(1)
         return stream.toByteArray()
     }
 
-    fun buildDnsQueryUrl(provider: DohProvider, domain: String): String {
+    fun buildDnsQueryUrl(provider: DohProvider, domain: String, type: Int = 1): String {
+        val typeParam = if (type == 28) "AAAA" else "A"
         return if (provider.useDnsParam) {
-            val packet = buildDnsQueryPacket(domain)
+            val packet = buildDnsQueryPacket(domain, type)
             val b64 = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(packet)
             "${provider.endpointUrl}?dns=$b64"
         } else {
-            "${provider.endpointUrl}?name=$domain&type=A"
+            "${provider.endpointUrl}?name=$domain&type=$typeParam"
         }
     }
+
+    private val ipv6OnlyNetwork = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    fun setIpv6OnlyNetwork(isIpv6Only: Boolean) {
+        ipv6OnlyNetwork.set(isIpv6Only)
+        NativeProxy.setIpv6OnlyNetwork(isIpv6Only)
+        HappyEyeballsEngine.setIpv6OnlyNetwork(isIpv6Only)
+    }
+
+    fun isIpv6OnlyNetwork(): Boolean = ipv6OnlyNetwork.get()
 
     val DEFAULT_ENABLED_PROVIDER_IDS: Set<String> = ALL_PROVIDERS
         .filter { it.isDefaultEnabled }
@@ -308,7 +506,11 @@ object DohResolver {
         "172.67.73.1",
         "104.21.234.1",
         "104.26.12.1",
-        "104.26.13.1"
+        "104.26.13.1",
+        "2606:4700:4700::1111",
+        "2606:4700:4700::1001",
+        "2a06:98c1:3121::1",
+        "2a06:98c1:3120::1"
     ).mapNotNull {
         try {
             InetAddress.getByName(it)
@@ -326,14 +528,30 @@ object DohResolver {
             .build()
     }
 
+    data class HedgedResolutionWinner(
+        val addresses: List<InetAddress>,
+        val ttlSec: Long,
+        val providerName: String,
+        val isSecure: Boolean
+    )
+
     /**
-     * Асинхронное разрешение доменного имени в список IP-адресов.
+     * Асинхронное разрешение доменного имени в список IP-адресов (MOB-021: Hedged DNS, MOB-022: Singleflight & Generation Cache).
+     *
+     * @param domain Целевое доменное имя или IP-адрес.
+     * @param scope Область видимости DNS (USER_IN_TUNNEL запрещает plaintext fallback).
      */
-    suspend fun resolve(domain: String): List<InetAddress> = withContext(Dispatchers.IO) {
+    suspend fun resolve(
+        domain: String,
+        scope: DnsScope = DnsScope.USER_IN_TUNNEL
+    ): List<InetAddress> = withContext(Dispatchers.IO) {
         val cleanDomain = sanitizeHostname(domain)
         if (cleanDomain.isBlank()) return@withContext emptyList()
 
-        // Если это уже числовой IPv4/IPv6 адрес, возвращаем его напрямую
+        val expectedEpoch = currentResolutionEpoch()
+        val curGen = currentNetworkGeneration()
+
+        // 0. Если это уже числовой IPv4/IPv6 адрес, возвращаем его напрямую
         if (isNumericIpAddress(cleanDomain)) {
             return@withContext try {
                 listOf(InetAddress.getByName(cleanDomain))
@@ -342,150 +560,314 @@ object DohResolver {
             }
         }
 
-        // 1. Проверка локального TTL кэша
+        // 1. Проверка локального TTL кэша с учетом network generation и negative TTL (MOB-022)
         val cached = cache[cleanDomain]
-        if (cached != null && !cached.isExpired) {
-            totalHits.incrementAndGet()
-            return@withContext HappyEyeballsEngine.prioritizeAddresses(cached.addresses)
+        if (cached != null && cached.isValidFor(curGen)) {
+            if (cached.isNegative) {
+                totalHits.incrementAndGet()
+                return@withContext emptyList()
+            }
+            // Для USER_IN_TUNNEL запрещено использовать записи из System-Fallback / System-Resolver
+            if (scope != DnsScope.USER_IN_TUNNEL || (cached.isSecure && cached.providerName != "System-Fallback" && cached.providerName != "System-Resolver")) {
+                totalHits.incrementAndGet()
+                return@withContext HappyEyeballsEngine.prioritizeAddresses(cached.addresses)
+            }
         }
 
+        // 2. Объединение идентичных in-flight запросов (Singleflight / Coalescing, MOB-022)
+        val singleflightKey = "$curGen:$scope:$cleanDomain"
+        val deferred = inFlightResolutions.computeIfAbsent(singleflightKey) {
+            this@DohResolver.scope.async(Dispatchers.IO) {
+                try {
+                    executeResolveUncached(cleanDomain, scope, curGen, expectedEpoch)
+                } finally {
+                    inFlightResolutions.remove(singleflightKey)
+                }
+            }
+        }
+
+        try {
+            deferred.await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private suspend fun executeResolveUncached(
+        cleanDomain: String,
+        scope: DnsScope,
+        curGen: Long,
+        expectedEpoch: Long
+    ): List<InetAddress> {
         totalMisses.incrementAndGet()
 
-        // 2. Параллельный DoH Race Resolver
-        val raceResult = raceResolve(cleanDomain)
-        if (raceResult != null && raceResult.first.isNotEmpty()) {
-            val (rawAddresses, ttlSec, providerName) = raceResult
+        // Hedged Resolution с учетом общего DNS бюджета (MOB-021)
+        val hedgedResult = dnsBudget.withBudget {
+            hedgedResolve(cleanDomain, scope)
+        }
+
+        if (currentResolutionEpoch() != expectedEpoch || currentNetworkGeneration() != curGen) {
+            return emptyList()
+        }
+
+        if (hedgedResult != null && hedgedResult.addresses.isNotEmpty()) {
+            val (rawAddresses, ttlSec, providerName, isSecure) = hedgedResult
             val addresses = HappyEyeballsEngine.prioritizeAddresses(rawAddresses)
-            val effectiveTtlMs = ttlSec.coerceIn(MIN_TTL_SECONDS, MAX_TTL_SECONDS) * 1000L
+            val effectiveTtlMs = if (isSecure) {
+                ttlSec.coerceIn(MIN_TTL_SECONDS, MAX_TTL_SECONDS) * 1000L
+            } else {
+                60_000L
+            }
             val entry = DohCacheEntry(
                 domain = cleanDomain,
                 addresses = addresses,
-                expiresAtTimestampMs = System.currentTimeMillis() + effectiveTtlMs,
-                providerName = providerName
+                expiresAtTimestampMs = timeProvider() + effectiveTtlMs,
+                providerName = providerName,
+                isSecure = isSecure,
+                isNegative = false,
+                family = AddressFamily.fromAddresses(addresses),
+                resolverSource = providerName,
+                networkGeneration = curGen
             )
-            cache[cleanDomain] = entry
-            totalDohSuccess.incrementAndGet()
+            if (!cacheIfCurrent(expectedEpoch, entry)) return emptyList()
+            if (isSecure) {
+                totalDohSuccess.incrementAndGet()
+            } else {
+                totalFallback.incrementAndGet()
+            }
             AppLogger.d(
                 TAG,
-                "DoH успешно разрешил '$cleanDomain' → ${addresses.map { it.hostAddress }} (Провайдер: $providerName, TTL: ${ttlSec}с)"
+                "DNS [scope=$scope, gen=$curGen] successfully resolved '$cleanDomain' → ${addresses.map { it.hostAddress }} (${entry.family}, Provider: $providerName, TTL: ${effectiveTtlMs / 1000}s, Secure=$isSecure)"
             )
-            return@withContext addresses
+            return addresses
         }
 
-        // 3. Fallback на системный DNS
-        AppLogger.w(TAG, "DoH провайдеры не ответили для '$cleanDomain', выполняется системный Fallback...")
-        totalFallback.incrementAndGet()
-        val sysAddrs = try {
-            val rawList = InetAddress.getAllByName(cleanDomain).toList()
-            rawList.filterNot { isBogonOrLoopback(it) }
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Ошибка системного DNS для '$cleanDomain': ${e.message}")
-            emptyList()
-        }
+        totalDnsFailed.incrementAndGet()
 
-        if (sysAddrs.isNotEmpty()) {
-            // Кэшируем системный ответ на короткий промежуток (60 сек)
-            cache[cleanDomain] = DohCacheEntry(
+        // Fallback в зависимости от DnsScope
+        if (scope == DnsScope.USER_IN_TUNNEL) {
+            // STRICT PRIVACY: Никакого системного plaintext fallback для пользовательского DNS!
+            // Кэшируем отрицательный ответ (NXDOMAIN) для предотвращения шторма повторов (MOB-022)
+            val negEntry = DohCacheEntry(
                 domain = cleanDomain,
-                addresses = sysAddrs,
-                expiresAtTimestampMs = System.currentTimeMillis() + 60_000L,
-                providerName = "System-Fallback"
+                addresses = emptyList(),
+                expiresAtTimestampMs = timeProvider() + (DEFAULT_NEGATIVE_TTL_SECONDS * 1000L),
+                providerName = "NXDOMAIN-NegativeCache",
+                isSecure = true,
+                isNegative = true,
+                family = AddressFamily.NONE,
+                resolverSource = "NXDOMAIN",
+                networkGeneration = curGen
             )
-            return@withContext sysAddrs
+            cacheIfCurrent(expectedEpoch, negEntry)
+            AppLogger.w(
+                TAG,
+                "DoH [scope=USER_IN_TUNNEL, gen=$curGen] failed to resolve '$cleanDomain' (dns_failed). Plaintext system fallback disabled. Negative response cached for ${DEFAULT_NEGATIVE_TTL_SECONDS}s."
+            )
+            return emptyList()
         }
 
-        // 4. Гарантированный Anycast IP Fallback для Cloudflare Worker / CDN доменов
+        // Гарантированный Anycast IP Fallback для ПОДТВЕРЖДЕННЫХ Cloudflare доменов (только для BOOTSTRAP, MOB-023)
         if (isCloudflareTargetDomain(cleanDomain) && CF_ANYCAST_FALLBACK_IPS.isNotEmpty()) {
-            AppLogger.i(TAG, "Применен Cloudflare Anycast Fallback для '$cleanDomain'")
+            totalFallbackPolicyApplied.incrementAndGet()
+            AppLogger.w(
+                TAG,
+                "DNS failure for confirmed Cloudflare domain '$cleanDomain' (dns_failed). Applying explicit Anycast Fallback policy."
+            )
             val anycastAddrs = HappyEyeballsEngine.prioritizeAddresses(CF_ANYCAST_FALLBACK_IPS)
-            cache[cleanDomain] = DohCacheEntry(
+            val entry = DohCacheEntry(
                 domain = cleanDomain,
                 addresses = anycastAddrs,
-                expiresAtTimestampMs = System.currentTimeMillis() + (DEFAULT_TTL_SECONDS * 1000L),
-                providerName = "Cloudflare-Anycast-Fallback"
+                expiresAtTimestampMs = timeProvider() + (DEFAULT_TTL_SECONDS * 1000L),
+                providerName = "Cloudflare-Anycast-Fallback",
+                isSecure = false,
+                isNegative = false,
+                family = AddressFamily.fromAddresses(anycastAddrs),
+                resolverSource = "Cloudflare-Anycast-Fallback",
+                networkGeneration = curGen
             )
-            return@withContext anycastAddrs
+            if (!cacheIfCurrent(expectedEpoch, entry)) return emptyList()
+            return anycastAddrs
         }
 
-        emptyList()
+        // Для не-Cloudflare доменов Anycast fallback категорически запрещен (MOB-023)
+        AppLogger.w(
+            TAG,
+            "DNS failure for non-Cloudflare domain '$cleanDomain' (dns_failed). Anycast fallback strictly prohibited."
+        )
+        val negEntry = DohCacheEntry(
+            domain = cleanDomain,
+            addresses = emptyList(),
+            expiresAtTimestampMs = timeProvider() + (DEFAULT_NEGATIVE_TTL_SECONDS * 1000L),
+            providerName = "Bootstrap-Failure-NegativeCache",
+            isSecure = false,
+            isNegative = true,
+            family = AddressFamily.NONE,
+            resolverSource = "NXDOMAIN",
+            networkGeneration = curGen
+        )
+        cacheIfCurrent(expectedEpoch, negEntry)
+        return emptyList()
     }
 
     /**
      * Синхронная блокирующая версия для интеграции с библиотеками (например, OkHttp Dns).
      */
-    fun resolveSync(domain: String): List<InetAddress> {
+    fun resolveSync(
+        domain: String,
+        scope: DnsScope = DnsScope.USER_IN_TUNNEL
+    ): List<InetAddress> {
         val clean = sanitizeHostname(domain)
+        val curGen = currentNetworkGeneration()
         val cached = cache[clean]
-        if (cached != null && !cached.isExpired) {
-            totalHits.incrementAndGet()
-            return cached.addresses
+        if (cached != null && cached.isValidFor(curGen)) {
+            if (cached.isNegative) {
+                totalHits.incrementAndGet()
+                return emptyList()
+            }
+            if (scope != DnsScope.USER_IN_TUNNEL || (cached.isSecure && cached.providerName != "System-Fallback" && cached.providerName != "System-Resolver")) {
+                totalHits.incrementAndGet()
+                return cached.addresses
+            }
         }
 
         return try {
             runBlocking(Dispatchers.IO) {
-                resolve(domain)
+                resolve(domain, scope)
             }
         } catch (_: Exception) {
-            try {
-                InetAddress.getAllByName(domain).toList()
-            } catch (_: Exception) {
+            if (scope == DnsScope.BOOTSTRAP) {
+                try {
+                    InetAddress.getAllByName(domain).toList()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            } else {
                 emptyList()
             }
         }
     }
 
     /**
-     * Конкурентный опрос нескольких DoH провайдеров.
-     * Возвращает первый валидный ответ с IPv4/IPv6 адресами и отменяет остальные запросы.
+     * MOB-021: Hedged DNS Resolver вместо параллельного spray по всем серверам.
+     * Запускает system resolver (для BOOTSTRAP) и один выбранный DoH.
+     * Второй DoH запускается ТОЛЬКО после истечения hedge delay (180ms) или при ранней ошибке первого DoH.
+     * При отмене или победе закрывает все in-flight сетевые сокеты через Call.cancel().
      */
-    private suspend fun raceResolve(domain: String): Triple<List<InetAddress>, Long, String>? {
+    internal suspend fun hedgedResolve(
+        domain: String,
+        scope: DnsScope
+    ): HedgedResolutionWinner? = coroutineScope {
         val providers = getActiveProviders()
-        if (providers.isEmpty()) return null
+        if (providers.isEmpty() && scope == DnsScope.USER_IN_TUNNEL) return@coroutineScope null
 
-        return withTimeoutOrNull(RACE_TIMEOUT_MS) {
-            val deferred = CompletableDeferred<Triple<List<InetAddress>, Long, String>>()
-            val raceJob = Job()
-            val failuresCount = AtomicInteger(0)
-            val totalProviders = providers.size
+        val primaryProvider = providers.firstOrNull()
+        val secondaryProvider = providers.getOrNull(1)
 
-            for (provider in providers) {
-                scope.launch(raceJob) {
-                    val result = queryDohProvider(provider, domain)
+        val localCalls = java.util.Collections.newSetFromMap(ConcurrentHashMap<okhttp3.Call, Boolean>())
+        val deferredWinner = CompletableDeferred<HedgedResolutionWinner>()
+        val hedgeTrigger = CompletableDeferred<Unit>()
+
+        fun tryComplete(addresses: List<InetAddress>, ttlSec: Long, providerName: String, isSecure: Boolean) {
+            if (addresses.isNotEmpty()) {
+                deferredWinner.complete(HedgedResolutionWinner(addresses, ttlSec, providerName, isSecure))
+            }
+        }
+
+        // 1. Для BOOTSTRAP запускаем быстрый system DNS параллельно с primary DoH
+        if (scope == DnsScope.BOOTSTRAP) {
+            launch {
+                try {
+                    val rawList = InetAddress.getAllByName(domain).toList()
+                    val sysAddrs = rawList.filterNot { isBogonOrLoopback(it) }
+                    if (sysAddrs.isNotEmpty()) {
+                        tryComplete(sysAddrs, 60L, "System-Resolver", false)
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        // 2. Primary DoH провайдер (один выбранный DoH)
+        if (primaryProvider != null) {
+            launch {
+                val result = queryDohProvider(primaryProvider, domain, localCalls)
+                if (result != null && result.first.isNotEmpty()) {
+                    tryComplete(result.first, result.second, primaryProvider.name, true)
+                } else {
+                    hedgeTrigger.complete(Unit)
+                }
+            }
+        } else {
+            hedgeTrigger.complete(Unit)
+        }
+
+        // 3. Hedge delay таймер (180ms)
+        launch {
+            delay(HEDGE_DELAY_MS)
+            hedgeTrigger.complete(Unit)
+        }
+
+        // 4. Secondary DoH провайдер (запускается ТОЛЬКО после hedge delay или ошибки первого DoH)
+        if (secondaryProvider != null) {
+            launch {
+                hedgeTrigger.await()
+                if (!deferredWinner.isCompleted) {
+                    val result = queryDohProvider(secondaryProvider, domain, localCalls)
                     if (result != null && result.first.isNotEmpty()) {
-                        if (deferred.complete(Triple(result.first, result.second, provider.name))) {
-                            raceJob.cancelChildren()
-                        }
-                    } else {
-                        if (failuresCount.incrementAndGet() >= totalProviders) {
-                            deferred.completeExceptionally(NoSuchElementException("All DoH providers failed"))
-                        }
+                        tryComplete(result.first, result.second, secondaryProvider.name, true)
                     }
                 }
             }
+        }
 
-            try {
-                deferred.await()
-            } catch (_: Exception) {
-                null
-            } finally {
-                raceJob.cancel()
+        val winner = try {
+            withTimeoutOrNull(RACE_TIMEOUT_MS) {
+                try {
+                    deferredWinner.await()
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        } finally {
+            // Cancel closing requests: отменяем все дочерние корутины и активные вызовы OkHttp
+            coroutineContext[Job]?.cancelChildren()
+            for (call in localCalls) {
+                try { call.cancel() } catch (_: Throwable) {}
             }
         }
+
+        winner
+    }
+
+    internal suspend fun raceResolve(domain: String): Triple<List<InetAddress>, Long, String>? {
+        val winner = hedgedResolve(domain, DnsScope.USER_IN_TUNNEL) ?: return null
+        return Triple(winner.addresses, winner.ttlSec, winner.providerName)
     }
 
     /**
-     * Выполняет HTTPS запрос к указанному DoH провайдеру и парсит ответ (поддерживает JSON и RFC 8484 Wireformat).
+     * Выполняет HTTPS запрос к указанному DoH провайдеру для заданного типа DNS-записи (1 = A, 28 = AAAA).
      */
-    private fun queryDohProvider(provider: DohProvider, domain: String): Pair<List<InetAddress>, Long>? {
-        val url = "${provider.endpointUrl}?name=$domain&type=A"
+    private fun querySingleDohType(
+        provider: DohProvider,
+        domain: String,
+        type: Int,
+        trackedCalls: MutableSet<okhttp3.Call>? = null
+    ): Pair<List<InetAddress>, Long>? {
+        val url = buildDnsQueryUrl(provider, domain, type)
         val request = Request.Builder()
             .url(url)
             .header("Accept", provider.acceptHeader)
-            .header("User-Agent", "MirrlyTGProxy-DoH/1.1.8.4")
+            .header("User-Agent", "MirrlyTGProxy-DoH/2.0.0")
             .build()
 
+        val call = httpClient.newCall(request)
+        trackedCalls?.add(call)
+        activeCalls.add(call)
+
         return try {
-            httpClient.newCall(request).execute().use { response ->
+            call.execute().use { response ->
                 if (!response.isSuccessful) return null
                 val bytes = response.body?.bytes() ?: return null
                 val contentType = response.header("Content-Type") ?: ""
@@ -501,6 +883,43 @@ object DohResolver {
                 }
             }
         } catch (_: Exception) {
+            null
+        } finally {
+            trackedCalls?.remove(call)
+            activeCalls.remove(call)
+        }
+    }
+
+    /**
+     * Выполняет параллельный HTTPS запрос к указанному DoH провайдеру для записей A (IPv4) и AAAA (IPv6).
+     * Поддерживает Dual-Stack, AAAA-only и DNS64/NAT64 сценарии (MOB-025).
+     */
+    private suspend fun queryDohProvider(
+        provider: DohProvider,
+        domain: String,
+        trackedCalls: MutableSet<okhttp3.Call>? = null
+    ): Pair<List<InetAddress>, Long>? = coroutineScope {
+        val callA = async(Dispatchers.IO) { querySingleDohType(provider, domain, 1, trackedCalls) }
+        val callAaaa = async(Dispatchers.IO) { querySingleDohType(provider, domain, 28, trackedCalls) }
+
+        val resA = callA.await()
+        val resAaaa = callAaaa.await()
+
+        val allAddresses = mutableListOf<InetAddress>()
+        var minTtl = DEFAULT_TTL_SECONDS
+
+        if (resA != null && resA.first.isNotEmpty()) {
+            allAddresses.addAll(resA.first)
+            if (resA.second in 1 until minTtl) minTtl = resA.second
+        }
+        if (resAaaa != null && resAaaa.first.isNotEmpty()) {
+            allAddresses.addAll(resAaaa.first)
+            if (resAaaa.second in 1 until minTtl) minTtl = resAaaa.second
+        }
+
+        if (allAddresses.isNotEmpty()) {
+            Pair(allAddresses, minTtl)
+        } else {
             null
         }
     }
@@ -640,9 +1059,11 @@ object DohResolver {
      * Очистка локального кэша DoH (вызывается при смене сети или воркера).
      */
     fun clearCache() {
+        invalidateInFlight()
+        clearInFlightResolutions()
         val size = cache.size
         cache.clear()
-        AppLogger.i(TAG, "Локальный DoH-кэш очищен ($size записей удалено)")
+        AppLogger.i(TAG, "Local DoH cache cleared ($size entries removed)")
     }
 
     fun getStats(): DohStats {
@@ -651,25 +1072,40 @@ object DohResolver {
             cacheMisses = totalMisses.get(),
             dohSuccessCount = totalDohSuccess.get(),
             fallbackSystemDnsCount = totalFallback.get(),
-            cachedEntriesCount = cache.size
+            cachedEntriesCount = cache.size,
+            dnsFailedCount = totalDnsFailed.get(),
+            fallbackPolicyAppliedCount = totalFallbackPolicyApplied.get(),
+            fallbackIpFailedCount = totalFallbackIpFailed.get()
         )
     }
 
-    fun putInCache(domain: String, addresses: List<InetAddress>, ttlSeconds: Long, provider: String = "Manual") {
+    fun putInCache(
+        domain: String,
+        addresses: List<InetAddress>,
+        ttlSeconds: Long,
+        provider: String = "Manual",
+        isSecure: Boolean = true,
+        isNegative: Boolean = false
+    ) {
         val clean = sanitizeHostname(domain)
-        val clampedTtl = ttlSeconds.coerceIn(MIN_TTL_SECONDS, MAX_TTL_SECONDS)
+        val clampedTtl = ttlSeconds.coerceIn(if (isNegative) 1L else MIN_TTL_SECONDS, MAX_TTL_SECONDS)
         cache[clean] = DohCacheEntry(
             domain = clean,
             addresses = addresses,
-            expiresAtTimestampMs = System.currentTimeMillis() + (clampedTtl * 1000L),
-            providerName = provider
+            expiresAtTimestampMs = timeProvider() + (clampedTtl * 1000L),
+            providerName = provider,
+            isSecure = isSecure,
+            isNegative = isNegative,
+            family = AddressFamily.fromAddresses(addresses),
+            resolverSource = provider,
+            networkGeneration = currentNetworkGeneration()
         )
     }
 
     fun getFromCache(domain: String): DohCacheEntry? {
         val clean = sanitizeHostname(domain)
         val entry = cache[clean] ?: return null
-        return if (!entry.isExpired) entry else null
+        return if (entry.isValidFor(currentNetworkGeneration())) entry else null
     }
 
     private fun sanitizeHostname(input: String): String {
@@ -699,10 +1135,20 @@ object DohResolver {
 
     fun isCloudflareTargetDomain(domain: String): Boolean {
         val clean = sanitizeHostname(domain).lowercase()
-        return clean.endsWith(".workers.dev") ||
-                clean.endsWith(".pages.dev") ||
-                clean.contains("cloudflare") ||
-                TgConstants.DEFAULT_EMBEDDED_DOMAINS.any { clean.endsWith(it) } ||
-                clean.endsWith(".workers.dev")
+        if (clean.isEmpty()) return false
+        if (clean.endsWith(".workers.dev") ||
+            clean.endsWith(".pages.dev") ||
+            clean.endsWith(".cloudflare.com") ||
+            clean.endsWith(".trycloudflare.com") ||
+            clean.endsWith(".cloudflareclient.com") ||
+            clean.endsWith(".cloudflareaccess.com") ||
+            clean == "workers.dev" ||
+            clean == "pages.dev" ||
+            clean == "cloudflare.com" ||
+            clean == "cloudflare-dns.com"
+        ) {
+            return true
+        }
+        return TgConstants.DEFAULT_EMBEDDED_DOMAINS.any { clean == it || clean.endsWith(".$it") }
     }
 }

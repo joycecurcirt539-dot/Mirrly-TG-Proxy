@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import androidx.compose.ui.res.stringResource
 
 import android.Manifest
 import android.content.Context
@@ -246,9 +247,10 @@ fun QrCodeScannerDialog(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .navigationBarsPadding()
                     .padding(
                         top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 16.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                        bottom = 90.dp
                     )
                     .padding(horizontal = 20.dp),
                 contentAlignment = Alignment.Center
@@ -291,7 +293,7 @@ fun QrCodeScannerDialog(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "QR-сканер воркеров",
+                                        text = stringResource(R.string.qr_scanner_title),
                                         color = activeAccentColor,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold
@@ -325,7 +327,7 @@ fun QrCodeScannerDialog(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Text(
-                            text = "Сканирование узла Cloudflare",
+                            text = stringResource(R.string.qr_scanner_header),
                             color = TextWhite,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
@@ -335,7 +337,7 @@ fun QrCodeScannerDialog(
                         Spacer(modifier = Modifier.height(6.dp))
 
                         Text(
-                            text = "Наведите камеру на QR-код с экрана монитора или другого устройства для мгновенного импорта воркера.",
+                            text = stringResource(R.string.qr_scanner_desc),
                             color = TextMuted,
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center,
@@ -378,14 +380,14 @@ fun QrCodeScannerDialog(
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "Доступ к камере отключен",
+                                    text = stringResource(R.string.qr_scanner_no_cam_title),
                                     color = TextWhite,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "Предоставьте разрешение камеры для автоматического считывания QR-кодов.",
+                                    text = stringResource(R.string.qr_scanner_no_cam_desc),
                                     color = TextMuted,
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.Center
@@ -395,6 +397,7 @@ fun QrCodeScannerDialog(
                                     onClick = {
                                         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                             data = Uri.fromParts("package", context.packageName, null)
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                         }
                                         context.startActivity(intent)
                                     },
@@ -402,7 +405,7 @@ fun QrCodeScannerDialog(
                                     colors = ButtonDefaults.buttonColors(containerColor = activeAccentColor)
                                 ) {
                                     Text(
-                                        text = "Открыть настройки",
+                                        text = stringResource(R.string.qr_scanner_btn_open_settings),
                                         color = AmoledBackground,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp
@@ -426,12 +429,14 @@ fun QrCodeScannerDialog(
                             ) {}
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Поддерживаются ссылки mirrly://, https:// и домены .workers.dev",
+                                text = stringResource(R.string.qr_scanner_formats_hint),
                                 color = TextMuted,
                                 fontSize = 11.sp,
                                 textAlign = TextAlign.Center
                             )
                         }
+
+                        Spacer(modifier = Modifier.height(28.dp))
                     }
                 }
             }
@@ -618,7 +623,7 @@ fun CameraQrScannerView(
                         painter = painterResource(
                             id = if (isTorchOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off
                         ),
-                        contentDescription = if (isTorchOn) "Выключить подсветку" else "Включить подсветку",
+                        contentDescription = if (isTorchOn) stringResource(R.string.qr_scanner_torch_off) else stringResource(R.string.qr_scanner_torch_on),
                         tint = if (isTorchOn) Color(0xFF090D16) else TextWhite,
                         modifier = Modifier.size(19.dp)
                     )

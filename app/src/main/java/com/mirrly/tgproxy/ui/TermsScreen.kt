@@ -46,6 +46,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,73 +62,12 @@ fun TermsScreen(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
 
-    var selectedLanguage by remember { mutableStateOf("ru") }
+    val currentLang = java.util.Locale.getDefault().language.lowercase()
+    val initialLang = if (currentLang.startsWith("ru")) "ru" else "en"
+    var selectedLanguage by remember { mutableStateOf(initialLang) }
 
-    val fullTermsTextEn = remember {
-        """
-        TERMS OF USE & ADDITIONAL CONDITIONS
-
-        Project: Mirrly TG Proxy
-        Author & Copyright: R1Xern (Mirrly Dev)
-        Base License: GNU GPLv3
-
-        1. PREAMBLE
-        These Terms of Use establish additional conditions under Section 7 of GNU GPLv3. Any use, modification, or distribution of this software constitutes full acceptance of these terms.
-
-        2. BAN ON MALWARE AND FRAUD
-        It is strictly prohibited to use this source code or its binaries to build, embed, or distribute malware, viruses, trojans, hidden cryptocurrency miners, spyware, or phishing tools, or to secretly intercept user traffic.
-
-        3. APP STORES & THIRD-PARTY MIRRORS POLICY
-        Distributing, mirroring, or publishing this application or its forks on third-party app stores, tech portals, software catalogs, and Telegram channels IS ALLOWED AND ENCOURAGED for promotion, provided that:
-        (a) The original author (R1Xern / Mirrly Dev) and direct link to the GitHub repository are specified.
-        (b) The presence of GNU GPLv3 license is mentioned.
-        (c) Downloads remain 100% free with NO commercial paywalls.
-        (d) APK files contain zero malware or modifications.
-
-        4. TRADEMARK & BRAND PROTECTION
-        The names "Mirrly", "Mirrly Dev", "Mirrly TG Proxy", the author's handle "R1Xern", and official logo assets are intellectual property of the author.
-
-        5. FORK TRANSPARENCY & LABELLING
-        Any third-party fork or modified build MUST display a clear notice stating:
-        "This product is an unofficial fork based on Mirrly TG Proxy code. Original project: R1Xern (Mirrly Dev)."
-
-        6. DISCLAIMER & TERMINATION
-        The author bears zero liability for third-party modified APKs. Any breach of terms automatically terminates all permissions granted under this license.
-        """.trimIndent()
-    }
-
-    val fullTermsTextRu = remember {
-        """
-        ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ И ДОПОЛНИТЕЛЬНЫЕ УСЛОВИЯ ИСПОЛЬЗОВАНИЯ
-
-        Проект: Mirrly TG Proxy
-        Автор и правообладатель: R1Xern (Mirrly Dev)
-        Базовая лицензия: GNU GPLv3
-
-        1. ПРЕАМБУЛА И ПРАВОВОЙ СТАТУС
-        Настоящий документ устанавливает дополнительные условия в соответствии с Разделом 7 свободной лицензии GNU GPLv3. Любая форма использования, модификации или распространения данного программного обеспечения означает полное и безоговорочное согласие с настоящими условиями.
-
-        2. ЗАПРЕТ НА ВРЕДОНОСНОЕ ПО И МОШЕННИЧЕСТВО
-        Категорически запрещается использовать исходный код проекта или скомпилированные бинарные файлы для создания, внедрения или распространения вредоносного ПО (малвари), вирусов, троянов, скрытых майнеров криптовалют, шпионских модулей (spyware), фишинговых систем или кода для несанкционированного перехвата трафика пользователей.
-
-        3. РАСПРОСТРАНЕНИЕ В СТОРОННИХ МАГАЗИНАХ ПРИЛОЖЕНИЙ И КАТАЛОГАХ (APP STORES POLICY)
-        Размещение, зеркалирование и публикация оригинального приложения Mirrly TG Proxy или его форков в любых сторонних магазинах приложений (App Stores), каталогах ПО, на софт-порталах, файлообменниках и в Telegram-каналах РАЗРЕШЕНЫ И ПРИВЕТСТВУЮТСЯ для продвижения проекта при соблюдении условий:
-        (a) Указание имени оригинального автора (R1Xern / Mirrly Dev) и прямой ссылки на репозиторий GitHub.
-        (b) Явное упоминание распространения проекта под свободной лицензией GNU GPLv3.
-        (c) Полная бесплатность скачивания (запрещено требовать плату за скачивание APK).
-        (d) Чистота сборки (файлы APK не должны содержать вредоносных модулей, рекламы или иных модификаций).
-
-        4. ЗАЩИТА ТОВАРНОГО ЗНАКА И БРЕНДА
-        Наименования «Mirrly», «Mirrly Dev», «Mirrly TG Proxy», псевдоним автора «R1Xern» и официальная символика являются интеллектуальной собственностью автора.
-
-        5. ПРОЗРАЧНОСТЬ И МАРКИРОВКА ФОРКОВ
-        Любые сторонние форки или сборки с изменениями кода ОБЯЗАНЫ содержать явное уведомление:
-        «Данный продукт является сторонним форком на основе исходного кода Mirrly TG Proxy. Оригинальный проект: R1Xern (Mirrly Dev).»
-
-        6. ОТКАЗ ОТ ОТВЕТСТВЕННОСТИ И АННУЛИРОВАНИЕ ПРАВ
-        Автор не несет ответственности за сторонние модифицированные сборки. Любое нарушение настоящих условий ведет к автоматическому и немедленному аннулированию всех лицензионных прав.
-        """.trimIndent()
-    }
+    val fullTermsTextEn = stringResource(R.string.terms_full_legal_text_en)
+    val fullTermsTextRu = stringResource(R.string.terms_full_legal_text_ru)
 
     val activeTermsText = if (selectedLanguage == "ru") fullTermsTextRu else fullTermsTextEn
     var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
@@ -147,10 +87,10 @@ fun TermsScreen(
     fun copyTermsToClipboard() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val label = if (selectedLanguage == "ru") "Условия использования (Русская версия)" else "Terms of Use (English)"
+        val label = if (selectedLanguage == "ru") context.getString(R.string.terms_copy_label_ru) else context.getString(R.string.terms_copy_label_en)
         val clip = ClipData.newPlainText(label, activeTermsText)
         clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, "Текст условий скопирован!", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.terms_toast_copied), Toast.LENGTH_SHORT).show()
     }
 
     Box(
@@ -205,13 +145,13 @@ fun TermsScreen(
 
                         Column {
                             Text(
-                                text = "Условия использования",
+                                text = stringResource(R.string.terms_title),
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Black,
                                 color = TextWhite
                             )
                             Text(
-                                text = "Дополнительная защита • R1Xern (Mirrly Dev)",
+                                text = stringResource(R.string.terms_subtitle_header),
                                 fontSize = 12.5.sp,
                                 color = TextMuted
                             )
@@ -219,7 +159,7 @@ fun TermsScreen(
                     }
 
                     Text(
-                        text = "Дополнительные правила и правила добросовестного использования, действующие в дополнение к базовой лицензии GNU GPLv3 для максимальной защиты авторских прав и продвижения проекта.",
+                        text = stringResource(R.string.terms_intro_desc),
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
                         color = TextWhite.copy(alpha = 0.85f)
@@ -266,7 +206,7 @@ fun TermsScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Скопировать", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(stringResource(R.string.terms_btn_copy), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }
@@ -278,7 +218,7 @@ fun TermsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "КЛЮЧЕВЫЕ ПРАВИЛА И ЗАЩИТА",
+                    text = stringResource(R.string.terms_section_rules),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -294,13 +234,13 @@ fun TermsScreen(
                         .padding(18.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ProtectionRow(title = "Запрет малвари", desc = "Запрещено встраивание вирусов, троянов и скрытых майнеров")
-                        ProtectionRow(title = "Каталоги и магазины", desc = "Публикация в сторонних App Stores разрешена с указанием автора и бесплатностью")
-                        ProtectionRow(title = "Защита бренда", desc = "Запрещено использовать имя Mirrly и логотипы в форках")
-                        ProtectionRow(title = "Маркировка форков", desc = "Форки обязаны содержать дисклеймер об авторе R1Xern")
+                        ProtectionRow(title = stringResource(R.string.terms_rule_malware_title), desc = stringResource(R.string.terms_rule_malware_desc))
+                        ProtectionRow(title = stringResource(R.string.terms_rule_catalogs_title), desc = stringResource(R.string.terms_rule_catalogs_desc))
+                        ProtectionRow(title = stringResource(R.string.terms_rule_brand_title), desc = stringResource(R.string.terms_rule_brand_desc))
+                        ProtectionRow(title = stringResource(R.string.terms_rule_forks_title), desc = stringResource(R.string.terms_rule_forks_desc))
                         HorizontalDivider(color = Color(0xFF161A26), thickness = 1.dp, modifier = Modifier.padding(vertical = 4.dp))
                         Text(
-                            text = "Нарушение условий ведет к автоматическому аннулированию лицензионных прав на использование кода.",
+                            text = stringResource(R.string.terms_violation_notice),
                             fontSize = 12.sp,
                             lineHeight = 17.sp,
                             color = TextMuted
@@ -342,7 +282,7 @@ fun TermsScreen(
                             }
                     ) {
                         Text(
-                            text = "Русский",
+                            text = stringResource(R.string.terms_lang_russian),
                             fontSize = 12.5.sp,
                             fontWeight = if (isRu) FontWeight.Bold else FontWeight.Medium,
                             color = if (isRu) ActiveGreenLed else TextMuted
@@ -367,7 +307,7 @@ fun TermsScreen(
                             }
                     ) {
                         Text(
-                            text = "English",
+                            text = stringResource(R.string.terms_lang_english),
                             fontSize = 12.5.sp,
                             fontWeight = if (isEn) FontWeight.Bold else FontWeight.Medium,
                             color = if (isEn) ActiveGreenLed else TextMuted
@@ -418,7 +358,7 @@ fun TermsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Условия использования",
+                        text = stringResource(R.string.terms_title),
                         color = TextWhite,
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
@@ -434,7 +374,7 @@ fun TermsScreen(
                     }) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_arrow_left),
-                            contentDescription = "Назад",
+                            contentDescription = stringResource(R.string.action_back),
                             tint = TextWhite,
                             modifier = Modifier.size(22.dp)
                         )

@@ -85,7 +85,7 @@ object SleepTimerManager {
             remainingSeconds = remainingSec
         )
 
-        AppLogger.i(TAG, "Таймер автоотключения запущен на $durationMinutes мин (до $targetMs)")
+        AppLogger.i(TAG, "Sleep timer started for $durationMinutes min (until $targetMs)")
         startTickLoop(context.applicationContext)
     }
 
@@ -112,7 +112,7 @@ object SleepTimerManager {
         )
 
         NotificationHelper.cancelTimerWarningNotification(context)
-        AppLogger.i(TAG, "Таймер продлен на +$extraMinutes мин (осталось $remMinutes мин)")
+        AppLogger.i(TAG, "Timer extended by +$extraMinutes min ($remMinutes min remaining)")
     }
 
     fun cancelTimer(context: Context) {
@@ -123,7 +123,7 @@ object SleepTimerManager {
         warned10 = false
         warned5 = false
         NotificationHelper.cancelTimerWarningNotification(context)
-        AppLogger.i(TAG, "Таймер автоотключения отменен")
+        AppLogger.i(TAG, "Sleep timer cancelled")
     }
 
     private fun startTickLoop(appContext: Context) {
@@ -167,7 +167,7 @@ object SleepTimerManager {
     }
 
     private fun onTimerExpired(context: Context) {
-        AppLogger.i(TAG, "Таймер автоотключения истек! Остановка прокси-сервера...")
+        AppLogger.i(TAG, "Sleep timer expired. Stopping proxy server...")
         NotificationHelper.cancelTimerWarningNotification(context)
 
         // Stop Proxy Service via Intent

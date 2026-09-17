@@ -17,7 +17,7 @@ object SignatureVerifier {
     private const val TAG = "SignatureVerifier"
 
     // Official release key SHA-256 fingerprint (used for fallback if native library fails)
-    private const val OFFICIAL_RELEASE_SHA256 = "97:73:5C:0A:20:70:7F:D4:E4:BD:93:A2:D8:48:CA:91:9A:C5:40:45:4A:62:16:E8:CC:7D:43:4F:1F:9F:0A:96"
+    private const val OFFICIAL_RELEASE_SHA256 = "00:32:69:CB:70:12:DF:37:61:E7:D3:92:79:5C:C3:55:02:43:39:A4:B2:1B:3F:B5:75:A4:C9:2B:CC:DD:25:16"
 
     @Volatile
     private var isNativeLoaded = false
@@ -212,10 +212,10 @@ object SignatureVerifier {
             if (signatures.isNotEmpty()) {
                 hashSha256(signatures[0])
             } else {
-                "Не удалось извлечь подпись"
+                "Failed to extract signature"
             }
         } catch (e: Exception) {
-            "Ошибка: ${e.message}"
+            "Error: ${e.message}"
         }
     }
 

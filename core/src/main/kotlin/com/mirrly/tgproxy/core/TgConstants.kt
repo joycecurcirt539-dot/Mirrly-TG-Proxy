@@ -103,6 +103,182 @@ function isTelegramDestination(host) {
   return isTelegramIp(host) || isTelegramDomain(host);
 }
 
+// Bounded flow control constants (MOB-010, MOB-011)
+const MAX_WS_MESSAGE_BYTES = 256 * 1024;      // 256 KiB max incoming single WS message
+const MAX_PENDING_WRITE_BYTES = 4 * 1024 * 1024; // 4 MiB high watermark for uplink write buffer
+const UPLINK_LOW_WATERMARK = 1024 * 1024;      // 1 MiB low watermark
+const DOWNLINK_HIGH_WATERMARK = 512 * 1024;   // 512 KiB high watermark for downlink WS buffer
+const DOWNLINK_LOW_WATERMARK = 128 * 1024;    // 128 KiB low watermark
+const MAX_DOWNLINK_CHUNK = 32 * 1024;         // 32 KiB max chunk per WS frame
+const TCP_WRITE_TIMEOUT_MS = 10000;           // 10s write timeout before closing stalled socket
+const SLOW_READER_SOAK_TIMEOUT_MS = 30000;    // 30s slow-reader soak timeout
+
+/**
+ * Sequential FIFO Writer with Bounded Watermark, Timeout, and Blob/Binary compatibility (MOB-010, MOB-011).
+ * Resolves Blobs to ArrayBuffer asynchronously while preserving strict FIFO byte order.
+ */
+function createBoundedSequentialWriter(tcpWriter, serverWs, onCleanup) {
+  let pendingWriteBytes = 0;
+  let isWriting = false;
+  let isStopped = false;
+  const writeQueue = [];
+
+  const pump = async () => {
+    if (isWriting || isStopped) return;
+    isWriting = true;
+    while (writeQueue.length > 0 && !isStopped) {
+      const item = writeQueue.shift();
+      let chunk;
+      try {
+        if (typeof Blob !== 'undefined' && item.raw instanceof Blob) {
+          const buf = await item.raw.arrayBuffer();
+          chunk = new Uint8Array(buf);
+        } else if (item.raw instanceof ArrayBuffer) {
+          chunk = new Uint8Array(item.raw);
+        } else if (ArrayBuffer.isView(item.raw)) {
+          chunk = new Uint8Array(item.raw.buffer, item.raw.byteOffset, item.raw.byteLength);
+        } else {
+          chunk = new Uint8Array(item.raw);
+        }
+      } catch (err) {
+        if (!isStopped) {
+          isStopped = true;
+          try { serverWs.close(1011, "Payload decode failure"); } catch (_) {}
+          onCleanup(1011, "Payload decode failure");
+        }
+        return;
+      }
+
+      let timer;
+      try {
+        const writePromise = tcpWriter.write(chunk);
+        const timeoutPromise = new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("TCP write timeout")), TCP_WRITE_TIMEOUT_MS);
+        });
+        await Promise.race([writePromise, timeoutPromise]);
+      } catch (err) {
+        if (!isStopped) {
+          isStopped = true;
+          try { serverWs.close(1011, "TCP write failure"); } catch (_) {}
+          onCleanup(1011, "TCP write failure");
+        }
+        return;
+      } finally {
+        if (timer) clearTimeout(timer);
+        pendingWriteBytes = Math.max(0, pendingWriteBytes - item.byteLength);
+      }
+    }
+    isWriting = false;
+  };
+
+  return {
+    enqueue(data) {
+      if (isStopped) return false;
+
+      let raw = data;
+      let byteLength = 0;
+      if (typeof Blob !== 'undefined' && raw instanceof Blob) {
+        byteLength = raw.size;
+      } else if (typeof raw === 'string') {
+        raw = new TextEncoder().encode(raw);
+        byteLength = raw.byteLength;
+      } else if (raw instanceof ArrayBuffer) {
+        byteLength = raw.byteLength;
+      } else if (ArrayBuffer.isView(raw)) {
+        byteLength = raw.byteLength;
+      } else if (raw && typeof raw.byteLength === 'number') {
+        byteLength = raw.byteLength;
+      }
+
+      if (byteLength > MAX_WS_MESSAGE_BYTES) {
+        isStopped = true;
+        try { serverWs.close(1009, "Message exceeds max size (256 KB)"); } catch (_) {}
+        onCleanup(1009, "Message exceeds max size (256 KB)");
+        return false;
+      }
+      if (pendingWriteBytes + byteLength > MAX_PENDING_WRITE_BYTES ||
+          pendingWriteBytes + data.byteLength > MAX_PENDING_WRITE_BYTES) {
+        isStopped = true;
+        try { serverWs.close(1009, "Uplink write buffer overflow (4 MB)"); } catch (_) {}
+        onCleanup(1009, "Uplink write buffer overflow (4 MB)");
+        return false;
+      }
+      pendingWriteBytes += byteLength;
+      writeQueue.push({ raw, byteLength });
+      pump();
+      return true;
+    },
+    stop() {
+      isStopped = true;
+      writeQueue.length = 0;
+      pendingWriteBytes = 0;
+    },
+    getPendingBytes() {
+      return pendingWriteBytes;
+    }
+  };
+}
+
+async function pumpTcpToWebSocket(tcpReader, serverWs, isClosedCheck, onCleanup) {
+  let slowReaderSoakStart = null;
+  try {
+    while (true) {
+      if (isClosedCheck()) break;
+
+      if (typeof serverWs.bufferedAmount === 'number' && serverWs.bufferedAmount > DOWNLINK_HIGH_WATERMARK) {
+        if (slowReaderSoakStart === null) {
+          slowReaderSoakStart = Date.now();
+        } else if (Date.now() - slowReaderSoakStart > SLOW_READER_SOAK_TIMEOUT_MS) {
+          try { serverWs.close(1008, "Downlink slow reader timeout"); } catch (_) {}
+          break;
+        }
+
+        while (typeof serverWs.bufferedAmount === 'number' &&
+               serverWs.bufferedAmount > DOWNLINK_LOW_WATERMARK &&
+               !isClosedCheck()) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          if (Date.now() - slowReaderSoakStart > SLOW_READER_SOAK_TIMEOUT_MS) {
+            try { serverWs.close(1008, "Downlink slow reader timeout"); } catch (_) {}
+            return;
+          }
+        }
+      } else {
+        slowReaderSoakStart = null;
+      }
+
+      const { value, done } = await tcpReader.read();
+      if (done) {
+        if (!isClosedCheck()) {
+          onCleanup(1000, "Upstream closed");
+        }
+        break;
+      }
+      if (value && serverWs.readyState === WebSocket.OPEN) {
+        if (value.byteLength > MAX_DOWNLINK_CHUNK) {
+          for (let offset = 0; offset < value.byteLength; offset += MAX_DOWNLINK_CHUNK) {
+            if (isClosedCheck()) break;
+            const chunk = value.subarray(offset, offset + MAX_DOWNLINK_CHUNK);
+            serverWs.send(chunk);
+            if (typeof serverWs.bufferedAmount === 'number' && serverWs.bufferedAmount > DOWNLINK_HIGH_WATERMARK) {
+              while (typeof serverWs.bufferedAmount === 'number' &&
+                     serverWs.bufferedAmount > DOWNLINK_LOW_WATERMARK &&
+                     !isClosedCheck()) {
+                await new Promise((resolve) => setTimeout(resolve, 25));
+              }
+            }
+          }
+        } else {
+          serverWs.send(value);
+        }
+      }
+    }
+  } catch (_) {
+    onCleanup(1011, "Downlink read error");
+  } finally {
+    onCleanup(1000, "Downlink complete");
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -145,6 +321,11 @@ export default {
 
           if (!targetPath.startsWith('/')) {
             targetPath = '/' + targetPath;
+          }
+
+          targetPath = targetPath.replace(/^\/v0a\d+/, '');
+          if (!targetPath || targetPath === '/') {
+            targetPath = '/reg';
           }
 
           const cfUrl = 'https://api.cloudflareclient.com/v0a4471' + targetPath + url.search;
@@ -205,7 +386,7 @@ export default {
           service: "Mirrly TG Proxy Dedicated Worker",
           security: "Protected Telegram Relay (Allowlist Enforced)",
           compatible: ["Telegram MTProto", "Telegram SOCKS5", "Telegram VoIP Calls"],
-          version: "1.1.8.3",
+          version: "2.0.0",
           edge_colo: request.cf?.colo || "Global Anycast",
           timestamp: new Date().toISOString()
         }, null, 2),
@@ -264,77 +445,88 @@ export default {
       return new Response("Forbidden: Destination host not allowed", { status: 403 });
     }
 
-    const webSocketPair = new WebSocketPair();
-    const [clientWs, serverWs] = Object.values(webSocketPair);
-    serverWs.accept();
-
+    let tcpSocket;
     try {
-      const tcpSocket = connect({
+      tcpSocket = connect({
         hostname: targetHost,
         port: targetPort
       });
+      let openTimer;
+      try {
+        await Promise.race([
+          tcpSocket.opened,
+          new Promise((_, reject) => {
+            openTimer = setTimeout(() => reject(new Error("TCP connect timeout")), 2200);
+          })
+        ]);
+      } finally {
+        if (openTimer !== undefined) clearTimeout(openTimer);
+      }
+    } catch (err) {
+      try { tcpSocket?.close(); } catch (_) {}
+      return new Response("Upstream TCP connect failed", { status: 502 });
+    }
 
+    // Do not complete the WebSocket upgrade until Cloudflare has confirmed the
+    // upstream TCP connection. This makes SOCKS5 REP=success truthful end-to-end.
+    const isTcpV2 = url.pathname === '/tcp-v2' || url.pathname.startsWith('/tcp-v2');
+    const webSocketPair = new WebSocketPair();
+    const [clientWs, serverWs] = Object.values(webSocketPair);
+
+    // Explicitly set binaryType before accept (MOB-011)
+    serverWs.binaryType = "arraybuffer";
+    serverWs.accept();
+
+    if (isTcpV2) {
+      // 4-byte versioned control ACK: [0x56 ('V'), 0x02, 0x00 (OK), 0x00 (reserved)]
+      try {
+        serverWs.send(new Uint8Array([0x56, 0x02, 0x00, 0x00]));
+      } catch (_) {
+        try { serverWs.close(1011, "Failed to emit relay-ready control ACK"); } catch (_) {}
+        try { tcpSocket.close(); } catch (_) {}
+        return new Response(null, { status: 101, webSocket: clientWs });
+      }
+    }
+
+    try {
       const tcpWriter = tcpSocket.writable.getWriter();
       const tcpReader = tcpSocket.readable.getReader();
-
-      let writeQueue = Promise.resolve();
       let isClosed = false;
 
-      const cleanup = () => {
+      const cleanup = (code = 1000, reason = "Normal Closure") => {
         if (isClosed) return;
         isClosed = true;
+        writer.stop();
         try { tcpWriter.close(); } catch (_) {}
         try { tcpSocket.close(); } catch (_) {}
+        try {
+          if (serverWs.readyState === 1 || serverWs.readyState === 0) {
+            serverWs.close(code, reason);
+          }
+        } catch (_) {}
       };
+
+      const writer = createBoundedSequentialWriter(tcpWriter, serverWs, cleanup);
 
       serverWs.addEventListener('message', (event) => {
         if (isClosed) return;
         try {
-          const raw = event.data;
-          const data = typeof raw === 'string' ? new TextEncoder().encode(raw) : new Uint8Array(raw);
-          writeQueue = writeQueue.then(async () => {
-            if (isClosed) return;
-            await tcpWriter.write(data);
-          }).catch((_) => {
-            if (!isClosed) {
-              isClosed = true;
-              try { serverWs.close(1011, "TCP Write Error"); } catch (_) {}
-              cleanup();
-            }
-          });
+          writer.enqueue(event.data);
         } catch (_) {
-          if (!isClosed) {
-            isClosed = true;
-            try { serverWs.close(1011, "TCP Write Error"); } catch (_) {}
-            cleanup();
-          }
+          cleanup(1011, "TCP Write Error");
         }
       });
 
-      serverWs.addEventListener('close', cleanup);
-      serverWs.addEventListener('error', cleanup);
+      serverWs.addEventListener('close', () => cleanup(1000, "Client closed"));
+      serverWs.addEventListener('error', () => cleanup(1011, "WebSocket error"));
 
-      (async () => {
-        try {
-          while (true) {
-            const { value, done } = await tcpReader.read();
-            if (done) break;
-            if (value && serverWs.readyState === WebSocket.OPEN) {
-              if (value.byteLength > 65536) {
-                for (let offset = 0; offset < value.byteLength; offset += 65536) {
-                  serverWs.send(value.subarray(offset, offset + 65536));
-                }
-              } else {
-                serverWs.send(value);
-              }
-            }
-          }
-        } catch (_) {
-        } finally {
-          cleanup();
-          try { serverWs.close(); } catch (_) {}
-        }
-      })();
+      tcpSocket.closed.then(() => {
+        cleanup(1000, "Upstream closed");
+      }).catch(() => {
+        cleanup(1011, "Upstream TCP error");
+      });
+
+      pumpTcpToWebSocket(tcpReader, serverWs, () => isClosed, cleanup);
 
     } catch (err) {
       serverWs.close(1011, "Connect failed: " + err.message);
@@ -372,6 +564,92 @@ export default {
         2 to "149.154.167.40",
         3 to "149.154.175.117"
     )
+
+    val DC_DEFAULT_IPV6 = mapOf(
+        1 to "2001:b28:f23d:f001::a",
+        2 to "2001:67c:4e8:f002::a",
+        3 to "2001:b28:f23d:f003::a",
+        4 to "2001:67c:4e8:f004::a",
+        5 to "2001:b28:f23f:f005::a"
+    )
+
+    val DC_MEDIA_IPV6 = mapOf(
+        1 to "2001:b28:f23d:f001::b",
+        2 to "2001:67c:4e8:f002::b",
+        3 to "2001:b28:f23d:f003::b",
+        4 to "2001:67c:4e8:f004::b",
+        5 to "2001:b28:f23f:f005::b"
+    )
+
+    const val NAT64_WELL_KNOWN_PREFIX = "64:ff9b::"
+
+    fun findDcIpv6(dc: Int, isMedia: Boolean = false): String? {
+        val targetDc = if (dc == 203) 2 else dc
+        return if (isMedia) {
+            DC_MEDIA_IPV6[targetDc] ?: DC_DEFAULT_IPV6[targetDc]
+        } else {
+            DC_DEFAULT_IPV6[targetDc]
+        }
+    }
+
+    /**
+     * Синтезирует IPv6 адрес из IPv4 по RFC 6052 (Well-Known Prefix 64:ff9b::/96).
+     */
+    fun synthesizeNat64(ipv4: String, prefix: String = NAT64_WELL_KNOWN_PREFIX): String? {
+        val parts = ipv4.trim().split('.')
+        if (parts.size != 4) return null
+        val octets = parts.map { it.toIntOrNull() ?: return null }
+        if (octets.any { it !in 0..255 }) return null
+        val cleanPrefix = prefix.trimEnd(':')
+        val hex1 = String.format("%02x%02x", octets[0], octets[1])
+        val hex2 = String.format("%02x%02x", octets[2], octets[3])
+        return "$cleanPrefix::$hex1:$hex2"
+    }
+
+    /**
+     * Проверяет, является ли IPv6 адрес синтезированным адресом NAT64 (RFC 6052 WKP 64:ff9b::/96).
+     */
+    fun isNat64Address(ipv6: String): Boolean {
+        val lower = ipv6.trim().lowercase()
+        if (lower.startsWith("64:ff9b::") || lower.startsWith("64:ff9b:") || lower.startsWith("0064:ff9b:")) {
+            return try {
+                val inet = java.net.InetAddress.getByName(lower)
+                val bytes = inet.address
+                bytes.size == 16 &&
+                    bytes[0] == 0.toByte() && bytes[1] == 0x64.toByte() &&
+                    bytes[2] == 0xFF.toByte() && bytes[3] == 0x9B.toByte() &&
+                    (4..11).all { bytes[it] == 0.toByte() }
+            } catch (_: Exception) {
+                false
+            }
+        }
+        return false
+    }
+
+    /**
+     * Извлекает исходный IPv4 адрес из синтезированного адреса NAT64 RFC 6052.
+     */
+    fun extractIpv4FromNat64(ipv6: String, prefix: String = NAT64_WELL_KNOWN_PREFIX): String? {
+        val lower = ipv6.trim().lowercase()
+        if (!lower.startsWith("64:ff9b:") && !lower.startsWith("0064:ff9b:")) return null
+        return try {
+            val inet = java.net.InetAddress.getByName(lower)
+            val bytes = inet.address
+            if (bytes.size != 16) return null
+            if (bytes[0] != 0.toByte() || bytes[1] != 0x64.toByte() ||
+                bytes[2] != 0xFF.toByte() || bytes[3] != 0x9B.toByte() ||
+                !(4..11).all { bytes[it] == 0.toByte() }) {
+                return null
+            }
+            val b12 = bytes[12].toInt() and 0xFF
+            val b13 = bytes[13].toInt() and 0xFF
+            val b14 = bytes[14].toInt() and 0xFF
+            val b15 = bytes[15].toInt() and 0xFF
+            "$b12.$b13.$b14.$b15"
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     val NAMED_GATEWAYS = mapOf(
         1 to "pluto.web.telegram.org",
@@ -460,7 +738,7 @@ export default {
      */
     fun findDcByTarget(host: String): Pair<Int, Boolean>? {
         val lower = host.trim().lowercase()
-        // 1. Direct DC IP mapping
+        // 1. Direct DC IP mapping (IPv4 & IPv6)
         when (lower) {
             "149.154.175.50", "149.154.175.10" -> return Pair(1, false)
             "149.154.175.51", "149.154.175.52" -> return Pair(1, true)
@@ -473,6 +751,26 @@ export default {
             "91.108.56.130", "91.108.56.165", "91.108.4.130" -> return Pair(5, false)
             "91.108.56.131", "91.108.56.166" -> return Pair(5, true)
             "91.105.192.100" -> return Pair(203, false)
+            // Telegram IPv6 DC addresses
+            "2001:b28:f23d:f001::a" -> return Pair(1, false)
+            "2001:b28:f23d:f001::b" -> return Pair(1, true)
+            "2001:67c:4e8:f002::a" -> return Pair(2, false)
+            "2001:67c:4e8:f002::b" -> return Pair(2, true)
+            "2001:b28:f23d:f003::a" -> return Pair(3, false)
+            "2001:b28:f23d:f003::b" -> return Pair(3, true)
+            "2001:67c:4e8:f004::a" -> return Pair(4, false)
+            "2001:67c:4e8:f004::b" -> return Pair(4, true)
+            "2001:b28:f23f:f005::a" -> return Pair(5, false)
+            "2001:b28:f23f:f005::b" -> return Pair(5, true)
+        }
+
+        // NAT64 synthesized address unwrap: check if it wraps a known DC IPv4
+        if (isNat64Address(lower)) {
+            val extractedV4 = extractIpv4FromNat64(lower)
+            if (extractedV4 != null) {
+                val dcResult = findDcByTarget(extractedV4)
+                if (dcResult != null) return dcResult
+            }
         }
 
         // 2. Named gateways / domains
@@ -489,7 +787,7 @@ export default {
             return Pair(dc, isMedia)
         }
 
-        // 3. Subnet heuristic for standard Telegram DC subnets
+        // 3. Subnet heuristic for standard Telegram DC subnets (IPv4 & IPv6)
         if (lower.startsWith("149.154.175.")) {
             val last = lower.substringAfterLast('.').toIntOrNull() ?: 50
             return if (last >= 100) Pair(3, false) else Pair(1, false)
@@ -504,6 +802,11 @@ export default {
         if (lower.startsWith("91.105.192.")) {
             return Pair(203, false)
         }
+        if (lower.startsWith("2001:b28:f23d:f001:")) return Pair(1, lower.endsWith("::b"))
+        if (lower.startsWith("2001:67c:4e8:f002:")) return Pair(2, lower.endsWith("::b"))
+        if (lower.startsWith("2001:b28:f23d:f003:")) return Pair(3, lower.endsWith("::b"))
+        if (lower.startsWith("2001:67c:4e8:f004:")) return Pair(4, lower.endsWith("::b"))
+        if (lower.startsWith("2001:b28:f23f:f005:")) return Pair(5, lower.endsWith("::b"))
 
         return null
     }

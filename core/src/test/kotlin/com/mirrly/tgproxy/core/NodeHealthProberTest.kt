@@ -429,4 +429,113 @@ class NodeHealthProberTest {
         assertTrue(metric.rxBytes > 0, "Must have recorded useful RX bytes")
         assertTrue(metric.detail.contains("E2E туннель активен"))
     }
+
+    @Test
+    fun testNodeProbeStatusUnsupportedStageProperties() {
+        assertEquals("Не поддерживается сетью", NodeProbeStatus.UNSUPPORTED_STAGE.label)
+        assertFalse(NodeProbeStatus.UNSUPPORTED_STAGE.isSuccess)
+    }
+
+    @Test
+    fun testProbeViaLocalSocksIpv6Atyp4() {
+        val serverSocket = ServerSocket(0)
+        val port = serverSocket.localPort
+        val receivedAtyp = java.util.concurrent.atomic.AtomicInteger(-1)
+        val receivedIpBytes = java.util.concurrent.atomic.AtomicReference<ByteArray>(null)
+
+        val thread = Thread {
+            try {
+                val client = serverSocket.accept()
+                val inp = client.getInputStream()
+                val out = client.getOutputStream()
+
+                // 1. Auth method NO AUTH
+                inp.read(ByteArray(3))
+                out.write(byteArrayOf(0x05, 0x00))
+                out.flush()
+
+                // 2. Connect request: read header [VER, CMD, RSV, ATYP]
+                val header = ByteArray(4)
+                inp.read(header)
+                val atyp = header[3].toInt() and 0xFF
+                receivedAtyp.set(atyp)
+
+                if (atyp == 0x04) { // IPv6: 16 bytes
+                    val ipBytes = ByteArray(16)
+                    inp.read(ipBytes)
+                    receivedIpBytes.set(ipBytes)
+                }
+                val portBytes = ByteArray(2)
+                inp.read(portBytes)
+
+                // Reply: Success
+                out.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x01, 0xBB.toByte()))
+                out.flush()
+                client.close()
+            } catch (_: Exception) {
+            } finally {
+                serverSocket.close()
+            }
+        }
+        thread.isDaemon = true
+        thread.start()
+
+        val metric = NodeHealthProber.probeViaLocalSocks(
+            host = "2001:b28:f23d:f001::a",
+            port = 443,
+            socksPort = port,
+            auth = null,
+            timeoutMs = 1500
+        )
+        thread.join(2000)
+
+        assertEquals(0x04, receivedAtyp.get(), "SOCKS5 must encode IPv6 destination with ATYP 0x04")
+        assertNotNull(receivedIpBytes.get())
+        assertEquals(16, receivedIpBytes.get()?.size)
+        assertEquals(NodeProbeStatus.AVAILABLE, metric.status)
+    }
+
+    @Test
+    fun testProbeViaLocalSocksRepNetworkUnreachableYieldsUnsupportedStage() {
+        val serverSocket = ServerSocket(0)
+        val port = serverSocket.localPort
+
+        val thread = Thread {
+            try {
+                val client = serverSocket.accept()
+                val inp = client.getInputStream()
+                val out = client.getOutputStream()
+
+                // 1. Auth method NO AUTH
+                inp.read(ByteArray(3))
+                out.write(byteArrayOf(0x05, 0x00))
+                out.flush()
+
+                // 2. Connect request
+                inp.read(ByteArray(10))
+
+                // Reply: REP 0x03 (Network unreachable)
+                out.write(byteArrayOf(0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
+                out.flush()
+                client.close()
+            } catch (_: Exception) {
+            } finally {
+                serverSocket.close()
+            }
+        }
+        thread.isDaemon = true
+        thread.start()
+
+        val metric = NodeHealthProber.probeViaLocalSocks(
+            host = "192.0.2.1",
+            port = 443,
+            socksPort = port,
+            auth = null,
+            timeoutMs = 1500
+        )
+        thread.join(2000)
+
+        assertEquals(NodeProbeStatus.UNSUPPORTED_STAGE, metric.status, "REP 0x03 must be mapped to UNSUPPORTED_STAGE")
+        assertFalse(metric.status.isSuccess)
+    }
 }

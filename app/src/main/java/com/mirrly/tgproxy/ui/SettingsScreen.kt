@@ -19,11 +19,15 @@
 package com.mirrly.tgproxy.ui
 
 import android.content.Intent
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.os.Build
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.core.view.WindowCompat
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.NativeProxy
 import android.view.WindowManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -59,7 +63,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.annotation.StringRes
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -74,7 +80,6 @@ import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.core.ProxyMode
 import com.mirrly.tgproxy.core.TcpNoDelayMode
-import com.mirrly.tgproxy.service.NetworkConditionEvaluator
 import com.mirrly.tgproxy.service.ProxyForegroundService
 import com.mirrly.tgproxy.ui.theme.*
 import com.mirrly.tgproxy.util.shareApp
@@ -137,7 +142,7 @@ fun InertialSpringSwitch(
     }
 }
 
-/** Маленькая кнопка-подсказка «ⓘ» рядом с заголовком настройки */
+/** Small button-hint «ⓘ» next to with title configuring */
 @Composable
 fun InfoButton(
     modifier: Modifier = Modifier,
@@ -169,7 +174,7 @@ fun InfoButton(
     }
 }
 
-/** Всплывающее диалоговое окно с подробным описанием настройки */
+/** Popup dialog window with detailed description configuring */
 @Composable
 fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
     val haptic = LocalHapticFeedback.current
@@ -209,7 +214,7 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                     border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
                 ) {
                     Text(
-                        text = "СПРАВКА И НАСТРОЙКИ",
+                        text = stringResource(R.string.settings_help_title),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = ActiveGreenLed,
@@ -247,7 +252,7 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_arrow_left),
-                        contentDescription = "Назад",
+                        contentDescription = stringResource(R.string.action_back),
                         tint = TextWhite,
                         modifier = Modifier.size(22.dp)
                     )
@@ -272,9 +277,7 @@ private fun FormattedInfoBody(body: String) {
             val lines = trimmed.lines()
             val firstLine = lines.firstOrNull() ?: ""
             val isHeaderBlock = firstLine.endsWith(":") ||
-                                firstLine.contains("БЕЗОПАСНОСТЬ") ||
-                                firstLine.contains("КАК РАБОТАЕТ") ||
-                                firstLine.contains("ПОЧЕМУ СВОЙ ВОРКЕР")
+                                (firstLine.length > 2 && firstLine == firstLine.uppercase(java.util.Locale.ROOT))
 
             if (isHeaderBlock && lines.size > 1) {
                 // Render section block in a transparent container
@@ -390,12 +393,12 @@ private fun InfoBulletItem(text: String) {
     }
 }
 
-enum class SettingsCategory(val title: String) {
-    ALL("Все"),
-    NETWORK("Сеть"),
-    UPLINK_DOH("Аплинк"),
-    SYSTEM("Система"),
-    MISC("Прочее")
+enum class SettingsCategory(@StringRes val titleRes: Int) {
+    ALL(R.string.settings_category_all),
+    NETWORK(R.string.settings_category_network),
+    UPLINK_DOH(R.string.settings_category_uplink),
+    SYSTEM(R.string.settings_category_system),
+    MISC(R.string.settings_category_other)
 }
 
 @Composable
@@ -408,6 +411,12 @@ private fun SettingsDivider() {
     )
 }
 
+enum class SettingsProtocolMode {
+    MTPROTO,
+    SOCKS5,
+    VPN
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -416,14 +425,17 @@ fun SettingsScreen(
     onOpenUpdate: () -> Unit = {},
     onOpenWorkerGuide: () -> Unit = {},
     onOpenWorkerManager: () -> Unit = {},
-    onOpenVolunteers: () -> Unit = {},
-    onOpenHallOfFame: () -> Unit = {}
+    onOpenHallOfFame: () -> Unit = {},
+    onOpenOnboarding: () -> Unit = {},
+    onOpenDiagnosticReport: () -> Unit = {},
+    initialIsVpn: Boolean = false
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val app = MirrlyApplication.instance
     val config = app.config
     val server = app.proxyServer
+    val systemVpnColors = remember { com.mirrly.tgproxy.ui.theme.VpnThemeManager.getSystemVpnPalette(context) }
 
     var portText by remember { mutableStateOf(config.bindPort.toString()) }
     val isPortError by remember {
@@ -446,7 +458,23 @@ fun SettingsScreen(
     val isSwitching by com.mirrly.tgproxy.service.ProtocolSwitchManager.isSwitching.collectAsState()
     val selectedMode = if (isSocks5) ProxyMode.SOCKS5 else ProxyMode.MTPROTO
 
+    var activeProtocolMode by rememberSaveable {
+        mutableStateOf(
+            if (initialIsVpn) SettingsProtocolMode.VPN
+            else if (isSocks5) SettingsProtocolMode.SOCKS5
+            else SettingsProtocolMode.MTPROTO
+        )
+    }
+    var showVpnInDevDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isSocks5) {
+        if (activeProtocolMode != SettingsProtocolMode.VPN) {
+            activeProtocolMode = if (isSocks5) SettingsProtocolMode.SOCKS5 else SettingsProtocolMode.MTPROTO
+        }
+    }
+
     var selectedSpeedPresetName by remember { mutableStateOf(config.speedPresetName) }
+    val isAdvancedMode by app.prefsManager.advancedSettingsEnabledFlow.collectAsState()
     var autostart by remember { mutableStateOf(config.autostartOnBoot) }
     var infoKey by remember { mutableStateOf<String?>(null) }
     var pendingIssueRedirectUrl by remember { mutableStateOf<String?>(null) }
@@ -477,6 +505,44 @@ fun SettingsScreen(
     var showWarpRegistrationDialog by remember { mutableStateOf(false) }
     var warpDialogStartRegistrationImmediately by remember { mutableStateOf(false) }
 
+    val density = LocalDensity.current.density
+    val langBlurAnim = remember { Animatable(0f) }
+    val langBlurVal = langBlurAnim.value
+
+    val langBlurModifier = if (langBlurVal > 0.005f) {
+        Modifier.graphicsLayer {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val blurPx = langBlurVal * 16f * density
+                if (blurPx > 0.5f) {
+                    renderEffect = RenderEffect.createBlurEffect(
+                        blurPx,
+                        blurPx,
+                        Shader.TileMode.CLAMP
+                    ).asComposeRenderEffect()
+                }
+            }
+            alpha = (1f - langBlurVal * 0.45f).coerceIn(0.55f, 1f)
+        }
+    } else {
+        Modifier
+    }
+
+    val onLanguageChange: (String) -> Unit = { newLang ->
+        if (!langBlurAnim.isRunning) {
+            coroutineScope.launch {
+                langBlurAnim.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 130, easing = FastOutLinearInEasing)
+                )
+                app.prefsManager.setAppLanguage(newLang)
+                langBlurAnim.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 180, easing = LinearOutSlowInEasing)
+                )
+            }
+        }
+    }
+
     fun restartProxyIfNeeded() {
         app.saveConfig()
         if (server.isRunning) {
@@ -490,7 +556,7 @@ fun SettingsScreen(
                     context.startService(serviceIntent)
                 }
             } catch (e: Exception) {
-                AppLogger.e("SettingsScreen", "Не удалось перезапустить службу прокси: ${e.message}")
+                AppLogger.e("SettingsScreen", "Failed to restart proxy service: ${e.message}")
             }
         }
     }
@@ -574,6 +640,7 @@ fun SettingsScreen(
                 .adaptiveContainerWidth(600.dp)
                 .fillMaxHeight()
                 .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
+                .then(langBlurModifier)
                 .verticalScroll(scrollState)
                 .padding(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 110.dp,
@@ -584,68 +651,139 @@ fun SettingsScreen(
         ) {
             if (showNetwork) {
                 SettingsProtocolSection(
-                    selectedMode = selectedMode,
+                    activeMode = activeProtocolMode,
                     isSwitching = isSwitching,
+                    vpnColors = systemVpnColors,
                     onInfoClick = { infoKey = "protocols_info" },
                     onModeSelect = { mode ->
-                        com.mirrly.tgproxy.service.ProtocolSwitchManager.switchProtocol(context, mode)
+                        activeProtocolMode = mode
+                        when (mode) {
+                            SettingsProtocolMode.MTPROTO -> {
+                                if (isSocks5) {
+                                    com.mirrly.tgproxy.service.ProtocolSwitchManager.switchProtocol(context, ProxyMode.MTPROTO)
+                                }
+                            }
+                            SettingsProtocolMode.SOCKS5 -> {
+                                if (!isSocks5) {
+                                    com.mirrly.tgproxy.service.ProtocolSwitchManager.switchProtocol(context, ProxyMode.SOCKS5)
+                                }
+                            }
+                            SettingsProtocolMode.VPN -> {
+                                // Switch to VPN mode preview
+                            }
+                        }
                     }
                 )
 
                 SettingsDivider()
 
-                SettingsNetworkSection(
-                    selectedMode = selectedMode,
-                    portText = portText,
-                    onPortChange = { portText = it },
-                    isPortError = isPortError,
-                    socks5PortText = socks5PortText,
-                    onSocks5PortChange = { socks5PortText = it },
-                    isSocks5PortError = isSocks5PortError,
-                    socks5UserText = socks5UserText,
-                    onSocks5UserChange = { socks5UserText = it },
-                    socks5PassText = socks5PassText,
-                    onSocks5PassChange = { socks5PassText = it },
-                    showSocks5Pass = showSocks5Pass,
-                    onToggleShowSocks5Pass = { showSocks5Pass = !showSocks5Pass },
-                    onGenerateSocks5Auth = {
-                        val (u, p) = ProxyConfig.generateRandomSocks5Credentials()
-                        socks5UserText = u
-                        socks5PassText = p
-                        config.socks5Username = u
-                        config.socks5Password = p
-                        NativeProxy.setSocks5Auth(u, p)
-                        restartProxyIfNeeded()
-                    },
-                    onClearSocks5Auth = {
-                        socks5UserText = ""
-                        socks5PassText = ""
-                        config.socks5Username = ""
-                        config.socks5Password = ""
-                        NativeProxy.setSocks5Auth("", "")
-                        restartProxyIfNeeded()
-                    },
-                    secretText = secretText,
-                    onSecretChange = { secretText = it },
-                    showSecret = showSecret,
-                    onToggleShowSecret = { showSecret = !showSecret },
-                    onRefreshSecret = {
-                        val newSecret = ProxyConfig.generateRandomSecret()
-                        secretText = newSecret
-                        config.secretHex = newSecret
-                        restartProxyIfNeeded()
-                    },
-                    onInfoClick = { infoKey = it }
-                )
+                when (activeProtocolMode) {
+                    SettingsProtocolMode.VPN -> {
+                        SettingsVpnInDevSection(
+                            vpnColors = systemVpnColors,
+                            onOpenVpnDialog = { showVpnInDevDialog = true }
+                        )
+                    }
+                    SettingsProtocolMode.MTPROTO -> {
+                        SettingsNetworkSection(
+                            selectedMode = ProxyMode.MTPROTO,
+                            portText = portText,
+                            onPortChange = { portText = it },
+                            isPortError = isPortError,
+                            socks5PortText = socks5PortText,
+                            onSocks5PortChange = { socks5PortText = it },
+                            isSocks5PortError = isSocks5PortError,
+                            socks5UserText = socks5UserText,
+                            onSocks5UserChange = { socks5UserText = it },
+                            socks5PassText = socks5PassText,
+                            onSocks5PassChange = { socks5PassText = it },
+                            showSocks5Pass = showSocks5Pass,
+                            onToggleShowSocks5Pass = { showSocks5Pass = !showSocks5Pass },
+                            onGenerateSocks5Auth = {
+                                val (u, p) = ProxyConfig.generateRandomSocks5Credentials()
+                                socks5UserText = u
+                                socks5PassText = p
+                                config.socks5Username = u
+                                config.socks5Password = p
+                                NativeProxy.setSocks5Auth(u, p)
+                                restartProxyIfNeeded()
+                            },
+                            onClearSocks5Auth = {
+                                socks5UserText = ""
+                                socks5PassText = ""
+                                config.socks5Username = ""
+                                config.socks5Password = ""
+                                NativeProxy.setSocks5Auth("", "")
+                                restartProxyIfNeeded()
+                            },
+                            secretText = secretText,
+                            onSecretChange = { secretText = it },
+                            showSecret = showSecret,
+                            onToggleShowSecret = { showSecret = !showSecret },
+                            onRefreshSecret = {
+                                val newSecret = ProxyConfig.generateRandomSecret()
+                                secretText = newSecret
+                                config.secretHex = newSecret
+                                restartProxyIfNeeded()
+                            },
+                            onInfoClick = { infoKey = it }
+                        )
+                    }
+                    SettingsProtocolMode.SOCKS5 -> {
+                        SettingsNetworkSection(
+                            selectedMode = ProxyMode.SOCKS5,
+                            portText = portText,
+                            onPortChange = { portText = it },
+                            isPortError = isPortError,
+                            socks5PortText = socks5PortText,
+                            onSocks5PortChange = { socks5PortText = it },
+                            isSocks5PortError = isSocks5PortError,
+                            socks5UserText = socks5UserText,
+                            onSocks5UserChange = { socks5UserText = it },
+                            socks5PassText = socks5PassText,
+                            onSocks5PassChange = { socks5PassText = it },
+                            showSocks5Pass = showSocks5Pass,
+                            onToggleShowSocks5Pass = { showSocks5Pass = !showSocks5Pass },
+                            onGenerateSocks5Auth = {
+                                val (u, p) = ProxyConfig.generateRandomSocks5Credentials()
+                                socks5UserText = u
+                                socks5PassText = p
+                                config.socks5Username = u
+                                config.socks5Password = p
+                                NativeProxy.setSocks5Auth(u, p)
+                                restartProxyIfNeeded()
+                            },
+                            onClearSocks5Auth = {
+                                socks5UserText = ""
+                                socks5PassText = ""
+                                config.socks5Username = ""
+                                config.socks5Password = ""
+                                NativeProxy.setSocks5Auth("", "")
+                                restartProxyIfNeeded()
+                            },
+                            secretText = secretText,
+                            onSecretChange = { secretText = it },
+                            showSecret = showSecret,
+                            onToggleShowSecret = { showSecret = !showSecret },
+                            onRefreshSecret = {
+                                val newSecret = ProxyConfig.generateRandomSecret()
+                                secretText = newSecret
+                                config.secretHex = newSecret
+                                restartProxyIfNeeded()
+                            },
+                            onInfoClick = { infoKey = it }
+                        )
 
-                SettingsDivider()
+                        SettingsDivider()
 
-                SettingsWorkerSection(
-                    config = config,
-                    onOpenWorkerManager = onOpenWorkerManager,
-                    onOpenWorkerGuide = onOpenWorkerGuide,
-                    onInfoClick = { infoKey = it }
-                )
+                        SettingsWorkerSection(
+                            config = config,
+                            onOpenWorkerManager = onOpenWorkerManager,
+                            onOpenWorkerGuide = onOpenWorkerGuide,
+                            onInfoClick = { infoKey = it }
+                        )
+                    }
+                }
 
                 if (showUplinkDoh || showSystem || showMisc) {
                     SettingsDivider()
@@ -653,42 +791,44 @@ fun SettingsScreen(
             }
 
             if (showUplinkDoh) {
-                SettingsUplinkWarpSection(
-                    config = config,
-                    uplinkMode = uplinkMode,
-                    warpProfile = warpProfile,
-                    isRegisteringWarp = isRegisteringWarp,
-                    onSelectUplinkMode = { newMode ->
-                        app.prefsManager.setUplinkMode(newMode)
-                        config.uplinkModeName = newMode.name
-                        app.saveConfig()
-                        server.applyUplinkMode(newMode)
-                        restartProxyIfNeeded()
-                    },
-                    onRefreshWarpAccount = {
-                        warpDialogStartRegistrationImmediately = true
-                        showWarpRegistrationDialog = true
-                    },
-                    onOpenWarpDetails = {
-                        warpDialogStartRegistrationImmediately = false
-                        showWarpRegistrationDialog = true
-                    },
-                    onInfoClick = { infoKey = it },
-                    vlessUuid = vlessUuid,
-                    onRegenerateVlessUuid = {
-                        val newUuid = com.mirrly.tgproxy.core.ProxyConfig.generateVlessUuid()
-                        vlessUuid = newUuid
-                        config.vlessUuid = newUuid
-                        app.prefsManager.setVlessUuid(newUuid)
-                        app.saveConfig()
-                        server.applyVlessConfig(newUuid, config.vlessPath)
-                        Toast.makeText(context, "Сгенерирован новый UUID для VLESS", Toast.LENGTH_SHORT).show()
-                        restartProxyIfNeeded()
-                    },
-                    onRestartProxy = { restartProxyIfNeeded() }
-                )
+                if (activeProtocolMode == SettingsProtocolMode.SOCKS5) {
+                    SettingsUplinkWarpSection(
+                        config = config,
+                        uplinkMode = uplinkMode,
+                        warpProfile = warpProfile,
+                        isRegisteringWarp = isRegisteringWarp,
+                        onSelectUplinkMode = { newMode ->
+                            app.prefsManager.setUplinkMode(newMode)
+                            config.uplinkModeName = newMode.name
+                            app.saveConfig()
+                            server.applyUplinkMode(newMode)
+                            restartProxyIfNeeded()
+                        },
+                        onRefreshWarpAccount = {
+                            warpDialogStartRegistrationImmediately = true
+                            showWarpRegistrationDialog = true
+                        },
+                        onOpenWarpDetails = {
+                            warpDialogStartRegistrationImmediately = false
+                            showWarpRegistrationDialog = true
+                        },
+                        onInfoClick = { infoKey = it },
+                        vlessUuid = vlessUuid,
+                        onRegenerateVlessUuid = {
+                            val newUuid = com.mirrly.tgproxy.core.ProxyConfig.generateVlessUuid()
+                            vlessUuid = newUuid
+                            config.vlessUuid = newUuid
+                            app.prefsManager.setVlessUuid(newUuid)
+                            app.saveConfig()
+                            server.applyVlessConfig(newUuid, config.vlessPath)
+                            Toast.makeText(context, context.getString(R.string.toast_vless_uuid_generated), Toast.LENGTH_SHORT).show()
+                            restartProxyIfNeeded()
+                        },
+                        onRestartProxy = { restartProxyIfNeeded() }
+                    )
 
-                SettingsDivider()
+                    SettingsDivider()
+                }
 
                 SettingsDohSection(
                     enabledProviderIds = enabledDohProviderIds,
@@ -707,14 +847,14 @@ fun SettingsScreen(
                     },
                     onToggleProvider = { providerId, isEnabled ->
                         if (isProxyRunning || server.isRunning) {
-                            Toast.makeText(context, "Остановите прокси для смены DNS", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.toast_stop_proxy_change_dns), Toast.LENGTH_SHORT).show()
                             return@SettingsDohSection
                         }
                         val newSet = if (isEnabled) {
                             enabledDohProviderIds + providerId
                         } else {
                             if (enabledDohProviderIds.size <= 1 && enabledDohProviderIds.contains(providerId)) {
-                                Toast.makeText(context, "Необходимо оставить хотя бы один DoH-провайдер", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.toast_doh_keep_at_least_one), Toast.LENGTH_SHORT).show()
                                 enabledDohProviderIds
                             } else {
                                 enabledDohProviderIds - providerId
@@ -727,7 +867,7 @@ fun SettingsScreen(
                     },
                     onResetDefaults = {
                         if (isProxyRunning || server.isRunning) {
-                            Toast.makeText(context, "Остановите прокси для сброса DNS", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.toast_stop_proxy_reset_dns), Toast.LENGTH_SHORT).show()
                             return@SettingsDohSection
                         }
                         val defaults = com.mirrly.tgproxy.core.DohResolver.DEFAULT_ENABLED_PROVIDER_IDS
@@ -737,11 +877,11 @@ fun SettingsScreen(
                         server.applyDohConfig(defaults)
                         benchmarkResults = emptyMap()
                         benchmarkSummary = null
-                        Toast.makeText(context, "Настройки DoH сброшены по умолчанию", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.toast_doh_reset_defaults), Toast.LENGTH_SHORT).show()
                     },
                     onSelectAllProviders = {
                         if (isProxyRunning || server.isRunning) {
-                            Toast.makeText(context, "Остановите прокси для смены DNS", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.toast_stop_proxy_change_dns), Toast.LENGTH_SHORT).show()
                             return@SettingsDohSection
                         }
                         val allIds = com.mirrly.tgproxy.core.DohResolver.ALL_PROVIDERS.map { it.id }.toSet()
@@ -749,7 +889,7 @@ fun SettingsScreen(
                         config.enabledDohProviderIds = allIds
                         app.saveConfig()
                         server.applyDohConfig(allIds)
-                        Toast.makeText(context, "Включены все DoH-серверы (${allIds.size})", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.toast_doh_all_enabled, allIds.size.toString()), Toast.LENGTH_SHORT).show()
                     },
                     isBenchmarking = isBenchmarkingDoh,
                     benchmarkProgress = benchmarkProgress,
@@ -757,7 +897,7 @@ fun SettingsScreen(
                     benchmarkSummary = benchmarkSummary,
                     onStartBenchmark = {
                         if (isProxyRunning || server.isRunning) {
-                            Toast.makeText(context, "Остановите прокси для запуска автоподбора", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.toast_stop_proxy_start_benchmark), Toast.LENGTH_SHORT).show()
                             return@SettingsDohSection
                         }
                         if (isBenchmarkingDoh) return@SettingsDohSection
@@ -779,12 +919,15 @@ fun SettingsScreen(
                                     config.enabledDohProviderIds = report.recommendedProviderIds
                                     app.saveConfig()
                                     server.applyDohConfig(report.recommendedProviderIds)
-                                    Toast.makeText(context, report.summaryText, Toast.LENGTH_LONG).show()
+                                    val selected = report.results.filter { it.isRecommended }
+                                    val namesWithPing = selected.joinToString(", ") { "${it.providerName} (${it.latencyMs} ms)" }
+                                    val toastMsg = context.getString(R.string.toast_doh_selected_best, selected.size, namesWithPing)
+                                    Toast.makeText(context, toastMsg, Toast.LENGTH_LONG).show()
                                 } else {
-                                    Toast.makeText(context, "Все серверы недоступны. Проверьте интернет-соединение.", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, context.getString(R.string.toast_doh_all_unreachable), Toast.LENGTH_LONG).show()
                                 }
                             } catch (e: Exception) {
-                                Toast.makeText(context, "Ошибка тестирования: ${e.message}", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.toast_doh_benchmark_err, e.message ?: ""), Toast.LENGTH_SHORT).show()
                             } finally {
                                 isBenchmarkingDoh = false
                                 benchmarkProgress = null
@@ -800,22 +943,6 @@ fun SettingsScreen(
             }
 
             if (showSystem) {
-                SettingsPerformanceSection(
-                    config = config,
-                    selectedSpeedPresetName = selectedSpeedPresetName,
-                    onPresetSelect = { preset ->
-                        selectedSpeedPresetName = preset.name
-                        config.applyPreset(preset)
-                        if (preset != com.mirrly.tgproxy.core.SpeedPreset.AUTO) {
-                            server.applyPoolSize(preset.defaultPoolSize)
-                        }
-                        app.saveConfig()
-                    },
-                    onInfoClick = { infoKey = it }
-                )
-
-                SettingsDivider()
-
                 SettingsSystemSection(
                     autostart = autostart,
                     onAutostartChange = { newValue ->
@@ -832,6 +959,61 @@ fun SettingsScreen(
                         sleepTimerInitialTab = TimerDialogTab.SCHEDULE
                         showSleepTimerDialog = true
                     },
+                    onOpenOnboarding = onOpenOnboarding,
+                    onOpenDiagnosticReport = onOpenDiagnosticReport,
+                    onInfoClick = { infoKey = it },
+                    onLanguageChange = onLanguageChange
+                )
+
+                SettingsDivider()
+
+                AnimatedVisibility(
+                    visible = isAdvancedMode,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                        SettingsPerformanceSection(
+                            config = config,
+                            selectedSpeedPresetName = selectedSpeedPresetName,
+                            onPresetSelect = { preset ->
+                                selectedSpeedPresetName = preset.name
+                                config.speedPresetName = preset.name
+                                config.applyPreset(preset)
+                                app.saveConfig()
+                                restartProxyIfNeeded()
+                            },
+                            onInfoClick = { infoKey = it }
+                        )
+
+                        SettingsDivider()
+
+                        SettingsAdvancedEngineeringSection(
+                            config = config,
+                            onInfoClick = { infoKey = it },
+                            onRestartProxy = { restartProxyIfNeeded() }
+                        )
+
+                        SettingsDivider()
+                    }
+                }
+
+                SettingsAdvancedModeToggleCard(
+                    isAdvancedMode = isAdvancedMode,
+                    onToggle = { enabled ->
+                        app.prefsManager.setAdvancedSettingsEnabled(enabled)
+                        if (!enabled) {
+                            app.prefsManager.resetAdvancedSettingsToDefaults(config)
+                            app.saveConfig()
+                            selectedSpeedPresetName = config.speedPresetName
+                            restartProxyIfNeeded()
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.toast_advanced_mode_reset),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
                     onInfoClick = { infoKey = it }
                 )
 
@@ -845,7 +1027,6 @@ fun SettingsScreen(
                     onOpenAbout = onOpenAbout,
                     onDonateClick = { showDonateConfirmDialog = true },
                     onOpenUpdate = onOpenUpdate,
-                    onOpenVolunteers = onOpenVolunteers,
                     onOpenHallOfFame = onOpenHallOfFame
                 )
             }
@@ -856,7 +1037,8 @@ fun SettingsScreen(
         SettingsTopBar(
             selectedCategory = selectedCategory,
             onSelectCategory = { selectedCategory = it },
-            onBack = onBack
+            onBack = onBack,
+            modifier = langBlurModifier
         )
 
         CyberParticlesOverlay(
@@ -868,8 +1050,8 @@ fun SettingsScreen(
         if (showDonateConfirmDialog) {
             ExternalLinkConfirmDialog(
                 url = "https://dalink.to/cartneyzix",
-                title = "Поддержать разработчика",
-                description = "Ссылка ведет на страницу сервиса DaLink для добровольной поддержки автора R1Xern. Mirrly TG Proxy — полностью бесплатный проект с открытым исходным кодом.",
+                title = stringResource(R.string.settings_support_dev),
+                description = stringResource(R.string.settings_support_dev_desc),
                 onDismiss = { showDonateConfirmDialog = false }
             )
         }
@@ -884,7 +1066,7 @@ fun SettingsScreen(
         if (showWarpRegistrationDialog) {
             WarpRegistrationDialog(
                 initialProfile = warpProfile,
-                workerDomain = config.getEffectiveCfDomain(),
+                workerDomain = com.mirrly.tgproxy.core.WarpAccountManager.REGISTRATION_WORKER_DOMAIN,
                 initialLicenseKey = config.warpLicenseKey,
                 startRegistrationImmediately = warpDialogStartRegistrationImmediately,
                 onProfileSaved = { newProf ->
@@ -899,6 +1081,13 @@ fun SettingsScreen(
                 }
             )
         }
+
+        if (showVpnInDevDialog) {
+            VpnInDevDialog(
+                vpnColors = systemVpnColors,
+                onDismiss = { showVpnInDevDialog = false }
+            )
+        }
     }
 }
 
@@ -907,13 +1096,15 @@ fun SettingsScreen(
 private fun SettingsTopBar(
     selectedCategory: SettingsCategory,
     onSelectCategory: (SettingsCategory) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
     val accent = ActiveGreenLed
 
     Column(
         modifier = Modifier
+            .then(modifier)
             .fillMaxWidth()
             .background(
                 brush = Brush.verticalGradient(
@@ -930,7 +1121,7 @@ private fun SettingsTopBar(
         TopAppBar(
             title = {
                 Text(
-                    text = "Настройки",
+                    text = stringResource(R.string.action_settings),
                     color = TextWhite,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
@@ -946,7 +1137,7 @@ private fun SettingsTopBar(
                 }) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_arrow_left),
-                        contentDescription = "Назад",
+                        contentDescription = stringResource(R.string.action_back),
                         tint = TextWhite,
                         modifier = Modifier.size(22.dp)
                     )
@@ -1002,7 +1193,7 @@ private fun SettingsTopBar(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = category.title,
+                            text = stringResource(category.titleRes),
                             fontSize = 11.5.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = chipText,
@@ -1019,10 +1210,11 @@ private fun SettingsTopBar(
 
 @Composable
 private fun SettingsProtocolSection(
-    selectedMode: ProxyMode,
+    activeMode: SettingsProtocolMode,
     isSwitching: Boolean,
+    vpnColors: ProtocolColors,
     onInfoClick: () -> Unit,
-    onModeSelect: (ProxyMode) -> Unit
+    onModeSelect: (SettingsProtocolMode) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     Column(
@@ -1034,7 +1226,7 @@ private fun SettingsProtocolSection(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text = "ПРОТОКОЛ",
+                text = stringResource(R.string.settings_protocol_title),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Black,
                 letterSpacing = 1.3.sp,
@@ -1045,11 +1237,15 @@ private fun SettingsProtocolSection(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            listOf(ProxyMode.MTPROTO, ProxyMode.SOCKS5).forEach { mode ->
-                val isSelected = selectedMode == mode
-                val modeAccent = if (mode == ProxyMode.SOCKS5) Socks5Accent else MtprotoAccent
+            SettingsProtocolMode.values().forEach { mode ->
+                val isSelected = activeMode == mode
+                val modeAccent = when (mode) {
+                    SettingsProtocolMode.MTPROTO -> MtprotoAccent
+                    SettingsProtocolMode.SOCKS5  -> Socks5Accent
+                    SettingsProtocolMode.VPN     -> vpnColors.primary
+                }
                 val chipBorder by animateColorAsState(
                     targetValue = if (isSelected) modeAccent else AmoledBorder,
                     animationSpec = tween(200),
@@ -1067,8 +1263,9 @@ private fun SettingsProtocolSection(
                 )
 
                 val modeLabel = when (mode) {
-                    ProxyMode.MTPROTO -> "MTProto"
-                    ProxyMode.SOCKS5  -> "SOCKS5 [БЕТА]"
+                    SettingsProtocolMode.MTPROTO -> "MTProto"
+                    SettingsProtocolMode.SOCKS5  -> stringResource(R.string.mode_socks5_beta)
+                    SettingsProtocolMode.VPN     -> stringResource(R.string.mode_vpn_in_dev)
                 }
 
                 Box(
@@ -1081,19 +1278,254 @@ private fun SettingsProtocolSection(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
-                            if (isSwitching || selectedMode == mode) return@clickable
+                            if (isSwitching || activeMode == mode) return@clickable
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onModeSelect(mode)
                         }
-                        .padding(vertical = 12.dp),
+                        .padding(horizontal = 4.dp, vertical = 11.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = modeLabel,
-                        fontSize = 13.5.sp,
+                        fontSize = 11.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = chipTextColor
+                        color = chipTextColor,
+                        maxLines = 1,
+                        softWrap = false,
+                        textAlign = TextAlign.Center
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsVpnInDevSection(
+    vpnColors: ProtocolColors,
+    onOpenVpnDialog: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 1),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.vpn_system_title_dev),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.3.sp,
+                color = TextMuted
+            )
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(vpnColors.primary.copy(alpha = 0.12f))
+                    .border(1.dp, vpnColors.primary.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 7.dp, vertical = 2.5.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.vpn_badge_locked),
+                    color = vpnColors.primary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+        ) {
+            Column {
+                // Header overview
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.vpn_tunnel_title),
+                        color = TextWhite,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.5.sp
+                    )
+                    Text(
+                        text = stringResource(R.string.vpn_tunnel_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+
+                // Divider
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                // Item 1: Kill Switch
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = stringResource(R.string.vpn_killswitch_title),
+                            color = TextWhite.copy(alpha = 0.6f),
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.vpn_killswitch_desc),
+                            color = TextMuted.copy(alpha = 0.6f),
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.White.copy(alpha = 0.04f))
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.vpn_status_unavailable),
+                            color = TextMuted,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                // Divider
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                // Item 2: Split Tunneling
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = stringResource(R.string.vpn_splittunnel_title),
+                            color = TextWhite.copy(alpha = 0.6f),
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.vpn_splittunnel_desc),
+                            color = TextMuted.copy(alpha = 0.6f),
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.White.copy(alpha = 0.04f))
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.vpn_status_unavailable),
+                            color = TextMuted,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                // Divider
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                // Item 3: VPN Core Architecture
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = stringResource(R.string.vpn_architecture_title),
+                            color = TextWhite.copy(alpha = 0.6f),
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_vpn_mode_desc),
+                            color = TextMuted.copy(alpha = 0.6f),
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(vpnColors.primary.copy(alpha = 0.08f))
+                            .border(1.dp, vpnColors.primary.copy(alpha = 0.25f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_mode_in_dev),
+                            color = vpnColors.primary,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                // Divider
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                // Action button to open VpnInDevDialog
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = vpnColors.primary.copy(alpha = 0.10f),
+                        border = BorderStroke(1.dp, vpnColors.primary.copy(alpha = 0.35f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onOpenVpnDialog()
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 11.dp, horizontal = 14.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.vpn_details_btn),
+                                color = vpnColors.primary,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1131,7 +1563,7 @@ private fun SettingsNetworkSection(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
-            text = "СЕТЬ",
+            text = stringResource(R.string.settings_network_title),
             fontSize = 12.sp,
             fontWeight = FontWeight.Black,
             letterSpacing = 1.3.sp,
@@ -1147,7 +1579,7 @@ private fun SettingsNetworkSection(
                     .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
             ) {
                 Column {
-                    // 1. ПОРТ MTProto
+                    // 1. PORT MTProto
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1160,11 +1592,11 @@ private fun SettingsNetworkSection(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text("Порт MTProto", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                                Text(stringResource(R.string.settings_port_mtproto), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
                                 InfoButton { onInfoClick("port") }
                             }
                             Text(
-                                text = if (isPortError) "Введите число от 1 до 65535" else "Локальный порт для Telegram",
+                                text = if (isPortError) stringResource(R.string.settings_port_range_hint) else stringResource(R.string.settings_port_mtproto_desc),
                                 color = if (isPortError) Color(0xFFEF4444) else TextMuted,
                                 fontSize = 11.5.sp
                             )
@@ -1207,7 +1639,7 @@ private fun SettingsNetworkSection(
                     // Divider
                     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
 
-                    // 2. СЕКРЕТНЫЙ КЛЮЧ
+                    // 2. SECRET KEY
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1223,7 +1655,7 @@ private fun SettingsNetworkSection(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text("Секретный ключ (Hex)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                                Text(stringResource(R.string.settings_secret_hex), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
                                 InfoButton { onInfoClick("secret") }
                             }
 
@@ -1297,7 +1729,7 @@ private fun SettingsNetworkSection(
             }
         } else {
             // SOCKS5 Mode Settings
-            // 1. КАРТОЧКА ПОРТА SOCKS5
+            // 1. CARD PORT SOCKS5
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1317,11 +1749,11 @@ private fun SettingsNetworkSection(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("Порт SOCKS5", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                            Text(stringResource(R.string.settings_port_socks5), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
                             InfoButton { onInfoClick("port") }
                         }
                         Text(
-                            text = if (isSocks5PortError) "Введите число от 1 до 65535" else "Локальный TCP Relay порт",
+                            text = if (isSocks5PortError) stringResource(R.string.settings_port_range_hint) else stringResource(R.string.settings_port_socks5_desc),
                             color = if (isSocks5PortError) Color(0xFFEF4444) else TextMuted,
                             fontSize = 11.5.sp
                         )
@@ -1362,7 +1794,7 @@ private fun SettingsNetworkSection(
                 }
             }
 
-            // 2. КАРТОЧКА АВТОРИЗАЦИИ SOCKS5 (RFC 1929)
+            // 2. CARD note SOCKS5 (RFC 1929)
             val hasAuth = socks5UserText.isNotBlank() || socks5PassText.isNotBlank()
             Box(
                 modifier = Modifier
@@ -1384,7 +1816,7 @@ private fun SettingsNetworkSection(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("Авторизация SOCKS5", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                            Text(stringResource(R.string.settings_socks5_auth_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
                             InfoButton { onInfoClick("socks5_auth") }
                         }
 
@@ -1394,7 +1826,7 @@ private fun SettingsNetworkSection(
                             border = BorderStroke(1.dp, if (hasAuth) Socks5Accent.copy(alpha = 0.4f) else AmoledBorder)
                         ) {
                             Text(
-                                text = if (hasAuth) "RFC 1929" else "ОТКРЫТЫЙ",
+                                text = if (hasAuth) "RFC 1929" else stringResource(R.string.settings_socks5_auth_open),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (hasAuth) Socks5Accent else TextMuted,
@@ -1413,7 +1845,7 @@ private fun SettingsNetworkSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Логин",
+                            text = stringResource(R.string.settings_login),
                             color = TextMuted,
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.Medium,
@@ -1442,7 +1874,7 @@ private fun SettingsNetworkSection(
                                     contentAlignment = Alignment.CenterStart
                                 ) {
                                     if (socks5UserText.isEmpty()) {
-                                        Text("Без логина (открытый)", color = TextMuted.copy(alpha = 0.6f), fontSize = 12.sp)
+                                        Text(stringResource(R.string.settings_login_open_desc), color = TextMuted.copy(alpha = 0.6f), fontSize = 12.sp)
                                     }
                                     innerTextField()
                                 }
@@ -1460,7 +1892,7 @@ private fun SettingsNetworkSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Пароль",
+                            text = stringResource(R.string.settings_password),
                             color = TextMuted,
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.Medium,
@@ -1496,7 +1928,7 @@ private fun SettingsNetworkSection(
                                     ) {
                                         Box(modifier = Modifier.weight(1f)) {
                                             if (socks5PassText.isEmpty()) {
-                                                Text("Без пароля (открытый)", color = TextMuted.copy(alpha = 0.6f), fontSize = 12.sp)
+                                                Text(stringResource(R.string.settings_password_open_desc), color = TextMuted.copy(alpha = 0.6f), fontSize = 12.sp)
                                             }
                                             innerTextField()
                                         }
@@ -1546,7 +1978,7 @@ private fun SettingsNetworkSection(
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                             modifier = Modifier.weight(1f).height(32.dp)
                         ) {
-                            Text("Сгенерировать логин и пароль", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.settings_btn_generate_creds), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                         }
 
                         if (hasAuth) {
@@ -1560,7 +1992,7 @@ private fun SettingsNetworkSection(
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                                 modifier = Modifier.height(32.dp)
                             ) {
-                                Text("Очистить", color = TextWhite, fontSize = 11.5.sp)
+                                Text(stringResource(R.string.settings_btn_clear), color = TextWhite, fontSize = 11.5.sp)
                             }
                         }
                     }
@@ -1580,13 +2012,15 @@ private fun SettingsPerformanceSection(
     val haptic = LocalHapticFeedback.current
     val app = MirrlyApplication.instance
     val server = app.proxyServer
+    val transportPoolStatus by server.transportPoolStatus.collectAsState()
+    val adaptiveDecision by server.adaptiveNetworkDecision.collectAsState()
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 2),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text(
-            text = "ПРОИЗВОДИТЕЛЬНОСТЬ",
+            text = stringResource(R.string.settings_perf_title),
             fontSize = 12.sp,
             fontWeight = FontWeight.Black,
             letterSpacing = 1.3.sp,
@@ -1598,7 +2032,7 @@ private fun SettingsPerformanceSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text("Режимы пропускной способности (WsPool)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(stringResource(R.string.settings_wspool_modes), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 InfoButton { onInfoClick("preset") }
             }
 
@@ -1642,11 +2076,11 @@ private fun SettingsPerformanceSection(
                                 com.mirrly.tgproxy.core.SpeedPreset.AUTO -> R.drawable.ic_speed_auto
                             }
                             val titleText = when (preset) {
-                                com.mirrly.tgproxy.core.SpeedPreset.ECO -> "Эко"
-                                com.mirrly.tgproxy.core.SpeedPreset.BALANCED -> "Баланс"
-                                com.mirrly.tgproxy.core.SpeedPreset.TURBO -> "Турбо"
-                                com.mirrly.tgproxy.core.SpeedPreset.ULTRA -> "Ультра"
-                                com.mirrly.tgproxy.core.SpeedPreset.AUTO -> "Авто"
+                                com.mirrly.tgproxy.core.SpeedPreset.ECO -> stringResource(R.string.settings_speed_eco)
+                                com.mirrly.tgproxy.core.SpeedPreset.BALANCED -> stringResource(R.string.settings_speed_balance)
+                                com.mirrly.tgproxy.core.SpeedPreset.TURBO -> stringResource(R.string.settings_speed_turbo)
+                                com.mirrly.tgproxy.core.SpeedPreset.ULTRA -> stringResource(R.string.settings_speed_ultra)
+                                com.mirrly.tgproxy.core.SpeedPreset.AUTO -> stringResource(R.string.settings_speed_auto)
                             }
 
                             Icon(
@@ -1669,29 +2103,11 @@ private fun SettingsPerformanceSection(
         }
 
         var tcpNoDelayModeState by remember { mutableStateOf(config.tcpNoDelayMode) }
-        val context = LocalContext.current
-        val autoEvaluation by produceState(
-            initialValue = NetworkConditionEvaluator.evaluate(
-                context = context,
-                capabilities = null,
-                currentPingMs = server.currentPingMs,
-                currentThroughputBps = server.stats.downloadSpeedBps + server.stats.uploadSpeedBps
-            ),
-            key1 = server.currentPingMs,
-            key2 = server.stats.downloadSpeedBps
-        ) {
-            value = NetworkConditionEvaluator.evaluate(
-                context = context,
-                capabilities = null,
-                currentPingMs = server.currentPingMs,
-                currentThroughputBps = server.stats.downloadSpeedBps + server.stats.uploadSpeedBps
-            )
-        }
 
         val tcpNoDelayStatusText = when (tcpNoDelayModeState) {
-            TcpNoDelayMode.AUTO -> autoEvaluation.statusDescription
-            TcpNoDelayMode.ON -> "Включено: Мгновенная отправка (все сети)"
-            TcpNoDelayMode.OFF -> "Выключено: Склеивание пакетов Nagle (все сети)"
+            TcpNoDelayMode.AUTO -> adaptiveDecision.statusDescription
+            TcpNoDelayMode.ON -> stringResource(R.string.settings_tcp_nodelay_on)
+            TcpNoDelayMode.OFF -> stringResource(R.string.settings_tcp_nodelay_off)
         }
 
         Column(
@@ -1707,7 +2123,7 @@ private fun SettingsPerformanceSection(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("Мгновенная отдача (TCP_NODELAY)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(stringResource(R.string.settings_tcp_nodelay_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     InfoButton { onInfoClick("tcp_nodelay") }
                 }
             }
@@ -1750,10 +2166,10 @@ private fun SettingsPerformanceSection(
                                 val effective = when (mode) {
                                     TcpNoDelayMode.ON -> true
                                     TcpNoDelayMode.OFF -> false
-                                    TcpNoDelayMode.AUTO -> autoEvaluation.isInstantSendRecommended
+                                    TcpNoDelayMode.AUTO -> adaptiveDecision.recommendedTcpNoDelay
                                 }
                                 config.tcpNoDelay = effective
-                                server.applyTcpNoDelay(effective)
+                                server.setTcpNoDelayMode(mode)
                                 app.saveConfig()
                             }
                             .padding(vertical = 10.dp),
@@ -1771,10 +2187,674 @@ private fun SettingsPerformanceSection(
 
             Text(
                 text = tcpNoDelayStatusText,
-                color = if (tcpNoDelayModeState == TcpNoDelayMode.AUTO && autoEvaluation.isInstantSendRecommended) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
+                color = if (tcpNoDelayModeState == TcpNoDelayMode.AUTO && adaptiveDecision.recommendedTcpNoDelay) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
                 fontSize = 11.5.sp,
                 lineHeight = 15.sp
             )
+        }
+    }
+}
+
+@Composable
+private fun SettingsAdvancedModeToggleCard(
+    isAdvancedMode: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onInfoClick: (String) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val borderAnim by animateColorAsState(
+        targetValue = if (isAdvancedMode) ActiveGreenLed.copy(alpha = 0.40f) else AmoledBorder,
+        animationSpec = tween(250),
+        label = "advModeBorder"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.Transparent)
+            .border(1.dp, borderAnim, RoundedCornerShape(18.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_advanced_mode_title),
+                        color = TextWhite,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    InfoButton { onInfoClick("advanced_mode") }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(
+                                if (isAdvancedMode) ActiveGreenLed.copy(alpha = 0.15f)
+                                else Color.White.copy(alpha = 0.06f)
+                            )
+                            .border(
+                                1.dp,
+                                if (isAdvancedMode) ActiveGreenLed.copy(alpha = 0.4f)
+                                else AmoledBorder,
+                                RoundedCornerShape(6.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (isAdvancedMode) "EXPERT" else "SIMPLE",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            color = if (isAdvancedMode) ActiveGreenLed else TextMuted,
+                            letterSpacing = 0.8.sp
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = stringResource(R.string.settings_advanced_mode_desc),
+                    color = TextMuted,
+                    fontSize = 11.5.sp,
+                    lineHeight = 15.sp
+                )
+            }
+            InertialSpringSwitch(
+                checked = isAdvancedMode,
+                onCheckedChange = { checked ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onToggle(checked)
+                }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = isAdvancedMode,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(AmoledBorder)
+                )
+
+                // Warning & Disclaimer
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFF59E0B).copy(alpha = 0.08f))
+                        .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_advanced_mode_warning),
+                        color = Color(0xFFFBBF24),
+                        fontSize = 11.sp,
+                        lineHeight = 14.5.sp
+                    )
+                }
+
+                // Automatic rollback notice
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.03f))
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_advanced_mode_rollback_notice),
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        lineHeight = 14.5.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsAdvancedEngineeringSection(
+    config: ProxyConfig,
+    onInfoClick: (String) -> Unit,
+    onRestartProxy: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val app = MirrlyApplication.instance
+    var happyEyeballsDelay by remember { mutableStateOf(app.prefsManager.getHappyEyeballsDelayMs()) }
+    var ipFamilyPref by remember { mutableStateOf(app.prefsManager.getIpFamilyPreference()) }
+    var customAnycastEndpoint by remember { mutableStateOf(config.warpUserEndpointOverride) }
+    var bufferSize by remember { mutableStateOf(config.bufferSizeBytes) }
+    var keepAliveSeconds by remember { mutableStateOf(app.prefsManager.getSocketKeepAliveSeconds()) }
+
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 3),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.settings_advanced_section_title),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.3.sp,
+                color = TextMuted
+            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(ActiveGreenLed.copy(alpha = 0.12f))
+                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.40f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.badge_expert),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black,
+                    color = ActiveGreenLed,
+                    letterSpacing = 0.8.sp
+                )
+            }
+        }
+
+        // 1. Happy Eyeballs Delay (RFC 8305)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_happy_eyeballs_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        InfoButton { onInfoClick("happy_eyeballs") }
+                    }
+                    Text(
+                        text = stringResource(R.string.settings_happy_eyeballs_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(100L, 200L, 300L).forEach { delayMs ->
+                        val isSelected = happyEyeballsDelay == delayMs
+                        val chipBorder by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
+                            animationSpec = tween(200),
+                            label = "heBorder_$delayMs"
+                        )
+                        val chipBg by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
+                            animationSpec = tween(200),
+                            label = "heBg_$delayMs"
+                        )
+                        val chipTextColor by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                            animationSpec = tween(200),
+                            label = "heText_$delayMs"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(chipBg)
+                                .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    happyEyeballsDelay = delayMs
+                                    app.prefsManager.setHappyEyeballsDelayMs(delayMs)
+                                }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.unit_ms_format, delayMs),
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = chipTextColor
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. IP Protocol Stack Preference
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_ip_family_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        InfoButton { onInfoClick("ip_family") }
+                    }
+                    Text(
+                        text = stringResource(R.string.settings_ip_family_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "DUAL_STACK" to stringResource(R.string.settings_ip_family_dual),
+                        "IPV4_ONLY" to stringResource(R.string.settings_ip_family_v4),
+                        "IPV6_FIRST" to stringResource(R.string.settings_ip_family_v6)
+                    ).forEach { (prefKey, label) ->
+                        val isSelected = ipFamilyPref == prefKey
+                        val chipBorder by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
+                            animationSpec = tween(200),
+                            label = "ipBorder_$prefKey"
+                        )
+                        val chipBg by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
+                            animationSpec = tween(200),
+                            label = "ipBg_$prefKey"
+                        )
+                        val chipTextColor by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                            animationSpec = tween(200),
+                            label = "ipText_$prefKey"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(chipBg)
+                                .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    ipFamilyPref = prefKey
+                                    app.prefsManager.setIpFamilyPreference(prefKey)
+                                }
+                                .padding(vertical = 8.dp, horizontal = 2.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 10.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = chipTextColor,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Custom Anycast Endpoint WARP
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_warp_anycast_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        InfoButton { onInfoClick("warp_anycast") }
+                    }
+                    Text(
+                        text = stringResource(R.string.settings_warp_anycast_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    BasicTextField(
+                        value = customAnycastEndpoint,
+                        onValueChange = { newValue ->
+                            customAnycastEndpoint = newValue
+                            config.warpUserEndpointOverride = newValue.trim()
+                            app.saveConfig()
+                        },
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = TextWhite,
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        cursorBrush = SolidColor(ActiveGreenLed),
+                        decorationBox = { inner ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.White.copy(alpha = 0.04f))
+                                    .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (customAnycastEndpoint.isEmpty()) {
+                                    Text(
+                                        text = config.warpPeerEndpoint.ifEmpty { "188.114.96.1:8095" },
+                                        color = TextMuted.copy(alpha = 0.5f),
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                inner()
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    if (customAnycastEndpoint.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White.copy(alpha = 0.06f))
+                                .clickable {
+                                    customAnycastEndpoint = ""
+                                    config.warpUserEndpointOverride = ""
+                                    app.saveConfig()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(stringResource(R.string.action_reset), fontSize = 11.sp, color = TextMuted)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Socket Buffer Size (TCP RX/TX)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_socket_buffer_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        InfoButton { onInfoClick("socket_buffer") }
+                    }
+                    Text(
+                        text = stringResource(R.string.settings_socket_buffer_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        131072 to "128 KB",
+                        262144 to "256 KB",
+                        524288 to "512 KB",
+                        1048576 to "1 MB",
+                        2097152 to "2 MB"
+                    ).forEach { (sizeBytes, label) ->
+                        val isSelected = bufferSize == sizeBytes
+                        val chipBorder by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
+                            animationSpec = tween(200),
+                            label = "bufBorder_$sizeBytes"
+                        )
+                        val chipBg by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
+                            animationSpec = tween(200),
+                            label = "bufBg_$sizeBytes"
+                        )
+                        val chipTextColor by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                            animationSpec = tween(200),
+                            label = "bufText_$sizeBytes"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(chipBg)
+                                .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    bufferSize = sizeBytes
+                                    config.bufferSizeBytes = sizeBytes
+                                    app.saveConfig()
+                                }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = chipTextColor,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. WebSocket Keep-Alive Interval
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_ws_keepalive_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        InfoButton { onInfoClick("ws_keepalive") }
+                    }
+                    Text(
+                        text = stringResource(R.string.settings_ws_keepalive_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(15, 30, 60).forEach { seconds ->
+                        val isSelected = keepAliveSeconds == seconds
+                        val chipBorder by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
+                            animationSpec = tween(200),
+                            label = "kaBorder_$seconds"
+                        )
+                        val chipBg by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
+                            animationSpec = tween(200),
+                            label = "kaBg_$seconds"
+                        )
+                        val chipTextColor by animateColorAsState(
+                            targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                            animationSpec = tween(200),
+                            label = "kaText_$seconds"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(chipBg)
+                                .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    keepAliveSeconds = seconds
+                                    app.prefsManager.setSocketKeepAliveSeconds(seconds)
+                                }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.unit_sec_format, seconds),
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = chipTextColor
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 6. Reset Engineering Defaults
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = Color.White.copy(alpha = 0.04f),
+            border = BorderStroke(1.dp, AmoledBorder),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    app.prefsManager.resetAdvancedSettingsToDefaults(config)
+                    app.saveConfig()
+                    happyEyeballsDelay = app.prefsManager.getHappyEyeballsDelayMs()
+                    ipFamilyPref = app.prefsManager.getIpFamilyPreference()
+                    customAnycastEndpoint = config.warpUserEndpointOverride
+                    bufferSize = config.bufferSizeBytes
+                    keepAliveSeconds = app.prefsManager.getSocketKeepAliveSeconds()
+                    onRestartProxy()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.toast_advanced_settings_reverted),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 13.dp, horizontal = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_advanced_btn_reset_defaults),
+                    color = TextMuted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.3.sp
+                )
+            }
         }
     }
 }
@@ -1799,7 +2879,7 @@ private fun SettingsWorkerSection(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text = "ТУННЕЛИРОВАНИЕ CLOUDFLARE",
+                text = stringResource(R.string.settings_cf_title),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Black,
                 letterSpacing = 1.3.sp,
@@ -1853,13 +2933,13 @@ private fun SettingsWorkerSection(
 
                         Column {
                             Text(
-                                text = "Менеджер воркеров",
+                                text = stringResource(R.string.settings_worker_manager),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextWhite
                             )
                             Text(
-                                text = "Активен: ${activeWorker.name}",
+                                text = stringResource(R.string.settings_worker_active, activeWorker.name),
                                 fontSize = 11.5.sp,
                                 color = TextMuted
                             )
@@ -1913,13 +2993,13 @@ private fun SettingsWorkerSection(
 
                         Column {
                             Text(
-                                text = "Инструкция по развертыванию",
+                                text = stringResource(R.string.settings_worker_guide),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextWhite
                             )
                             Text(
-                                text = "Создать личный воркер за 2 минуты",
+                                text = stringResource(R.string.settings_worker_guide_desc),
                                 fontSize = 11.5.sp,
                                 color = TextMuted
                             )
@@ -1967,9 +3047,9 @@ private fun SettingsWorkerSection(
                 }
                 Text(
                     text = if (config.isSocks5Mode) {
-                        "Cloudflare Worker принимает WSS/VLESS соединения и пересылает TCP-трафик SOCKS5 к серверам через cloudflare:sockets."
+                        stringResource(R.string.settings_cf_worker_desc_socks5)
                     } else {
-                        "Cloudflare Worker применяется для аплинка SOCKS5. В текущем режиме MTProto соединение идет напрямую к шлюзам Telegram."
+                        stringResource(R.string.settings_cf_worker_desc_mtproto)
                     },
                     color = TextMuted,
                     fontSize = 11.5.sp,
@@ -2085,6 +3165,8 @@ private fun SettingsUplinkWarpSection(
     var useOperaForWarp by remember { mutableStateOf(config.useOperaVpnForWarp) }
     var activeOperaNodeId by remember { mutableStateOf(config.operaVpnNodeId) }
     var activeVlessDomain by remember { mutableStateOf(config.getEffectiveVlessDomain()) }
+    var activeAwgStrategy by remember { mutableStateOf(config.awgStrategy) }
+    var customAwgIniText by remember { mutableStateOf(config.awgCustomIni) }
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 4),
@@ -2101,7 +3183,7 @@ private fun SettingsUplinkWarpSection(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "РЕЖИМ АПЛИНКА (WARP & WORKER)",
+                    text = stringResource(R.string.settings_uplink_title),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -2117,7 +3199,7 @@ private fun SettingsUplinkWarpSection(
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = "BETA",
+                    text = stringResource(R.string.badge_beta),
                     fontSize = 9.5.sp,
                     fontWeight = FontWeight.Black,
                     color = ActiveGreenLed,
@@ -2153,7 +3235,7 @@ private fun SettingsUplinkWarpSection(
                         )
                     }
                     Text(
-                        text = "Аплинк туннелирует SOCKS5. Для MTProto используется прямое подключение.",
+                        text = stringResource(R.string.settings_uplink_note),
                         fontSize = 11.sp,
                         color = TextMuted,
                         lineHeight = 14.sp,
@@ -2163,7 +3245,7 @@ private fun SettingsUplinkWarpSection(
             }
         }
 
-        // Выбор режима аплинка
+        // note note note
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2172,8 +3254,8 @@ private fun SettingsUplinkWarpSection(
                 UplinkModeChip(
                     mode = com.mirrly.tgproxy.core.UplinkMode.WORKER,
                     displayName = "Worker WSS",
-                    badge = "Базовый",
-                    subtitle = "Cloudflare Edge",
+                    badge = stringResource(R.string.settings_mode_basic),
+                    subtitle = stringResource(R.string.settings_uplink_worker_sub),
                     isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WORKER,
                     onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.WORKER) },
                     modifier = Modifier.weight(1f)
@@ -2181,10 +3263,13 @@ private fun SettingsUplinkWarpSection(
                 UplinkModeChip(
                     mode = com.mirrly.tgproxy.core.UplinkMode.VLESS,
                     displayName = "VLESS over WS",
-                    badge = "WSS",
-                    subtitle = "TLS 1.3 :443",
+                    badge = stringResource(R.string.settings_mode_in_dev),
+                    subtitle = stringResource(R.string.settings_mode_in_dev),
                     isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.VLESS,
-                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.VLESS) },
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        Toast.makeText(context, context.getString(R.string.settings_mode_in_dev), Toast.LENGTH_SHORT).show()
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -2196,7 +3281,7 @@ private fun SettingsUplinkWarpSection(
                     mode = com.mirrly.tgproxy.core.UplinkMode.MASQUE,
                     displayName = "WARP MASQUE",
                     badge = "QUIC H3",
-                    subtitle = "Anycast HTTP/3",
+                    subtitle = stringResource(R.string.settings_uplink_masque_sub),
                     isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE,
                     onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.MASQUE) },
                     modifier = Modifier.weight(1f)
@@ -2205,7 +3290,7 @@ private fun SettingsUplinkWarpSection(
                     mode = com.mirrly.tgproxy.core.UplinkMode.AWG,
                     displayName = "WARP AWG",
                     badge = "WireGuard",
-                    subtitle = "Anycast обфускация",
+                    subtitle = stringResource(R.string.settings_anycast_obfuscation),
                     isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
                     onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG) },
                     modifier = Modifier.weight(1f)
@@ -2219,7 +3304,7 @@ private fun SettingsUplinkWarpSection(
                     mode = com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
                     displayName = "WARP Cascade",
                     badge = "Dual Anycast",
-                    subtitle = "MASQUE (HTTP/3) -> AWG",
+                    subtitle = stringResource(R.string.settings_uplink_cascade_sub),
                     isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
                     onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE) },
                     modifier = Modifier.weight(1f)
@@ -2227,7 +3312,7 @@ private fun SettingsUplinkWarpSection(
             }
         }
 
-        // Блок профиля Cloudflare WARP MASQUE
+        // note profile Cloudflare WARP MASQUE
         AnimatedVisibility(
             visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE
                 || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.HYBRID
@@ -2291,7 +3376,7 @@ private fun SettingsUplinkWarpSection(
                                 }
                             }
                             Text(
-                                text = if (hasProfile) "${warpProfile?.clientIpv4} • Anycast" else "Не зарегистрирован (авторегистрация)",
+                                text = if (hasProfile) "${warpProfile?.clientIpv4} • Anycast" else stringResource(R.string.settings_unregistered_autoreg),
                                 fontSize = 11.sp,
                                 color = if (hasProfile) ActiveGreenLed else TextMuted
                             )
@@ -2320,7 +3405,7 @@ private fun SettingsUplinkWarpSection(
                                 )
                             } else {
                                 Text(
-                                    text = if (warpProfile != null) "Обновить" else "Создать",
+                                    text = if (warpProfile != null) stringResource(R.string.settings_btn_refresh) else stringResource(R.string.settings_btn_create),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -2328,7 +3413,7 @@ private fun SettingsUplinkWarpSection(
                         }
                     }
 
-                    // Быстрые действия: просмотр профиля + AmneziaWG конфиг
+                    // note note: note profile + AmneziaWG note
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2347,7 +3432,7 @@ private fun SettingsUplinkWarpSection(
                                     }
                             ) {
                                 Text(
-                                    text = "Детали регистрации",
+                                    text = stringResource(R.string.settings_reg_details),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextWhite,
@@ -2369,7 +3454,7 @@ private fun SettingsUplinkWarpSection(
                                     val awgConf = config.getAmneziaWgConfig()
                                     val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                     clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AmneziaWG Config", awgConf))
-                                    Toast.makeText(context, "Конфиг AmneziaWG скопирован", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.settings_amnezia_copied), Toast.LENGTH_SHORT).show()
                                 }
                         ) {
                             Text(
@@ -2383,7 +3468,7 @@ private fun SettingsUplinkWarpSection(
                         }
                     }
 
-                    // Сетевые параметры узла
+                    // note note note
                     if (hasProfile) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -2399,9 +3484,9 @@ private fun SettingsUplinkWarpSection(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Anycast эндпоинт", fontSize = 10.5.sp, color = TextMuted)
+                                    Text(stringResource(R.string.settings_anycast_endpoint), fontSize = 10.5.sp, color = TextMuted)
                                     Text(
-                                        "${warpProfile?.peerEndpoint} (ТСПУ Bypass)",
+                                        "${warpProfile?.peerEndpoint} (${stringResource(R.string.label_tspu_bypass)})",
                                         fontSize = 10.5.sp,
                                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold,
@@ -2412,9 +3497,9 @@ private fun SettingsUplinkWarpSection(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Сертификат mTLS P-256", fontSize = 10.5.sp, color = TextMuted)
+                                    Text(stringResource(R.string.settings_mtls_cert), fontSize = 10.5.sp, color = TextMuted)
                                     Text(
-                                        if (warpProfile?.clientCertBase64?.isNotBlank() == true) "Активен (X.509)" else "Базовый",
+                                        if (warpProfile?.clientCertBase64?.isNotBlank() == true) stringResource(R.string.settings_cert_active_x509) else stringResource(R.string.settings_mode_basic),
                                         fontSize = 10.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = if (warpProfile?.clientCertBase64?.isNotBlank() == true) ActiveGreenLed else TextMuted
@@ -2426,7 +3511,7 @@ private fun SettingsUplinkWarpSection(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text("Лицензия WARP+", fontSize = 10.5.sp, color = TextMuted)
+                                        Text(stringResource(R.string.settings_warp_plus_license), fontSize = 10.5.sp, color = TextMuted)
                                         Text(
                                             if (activeLic.length >= 14) activeLic.take(6) + "..." + activeLic.takeLast(6) else activeLic,
                                             fontSize = 10.5.sp,
@@ -2440,7 +3525,111 @@ private fun SettingsUplinkWarpSection(
                         }
                     }
 
-                    // Туннелирование WARP через Opera VPN Upstream
+                    // Блок выбора стратегии обфускации AmneziaWG (AWG & WARP_CASCADE)
+                    AnimatedVisibility(
+                        visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, AmoledBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Column {
+                                    Text(
+                                        text = stringResource(R.string.awg_strategy_title),
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextWhite
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.awg_strategy_desc),
+                                        fontSize = 9.5.sp,
+                                        color = TextMuted
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    com.mirrly.tgproxy.core.AwgObfuscationStrategy.entries.forEach { strat ->
+                                        val isSel = strat == activeAwgStrategy
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (isSel) ActiveGreenLed.copy(alpha = 0.15f) else Color.Transparent,
+                                            border = BorderStroke(1.dp, if (isSel) ActiveGreenLed.copy(alpha = 0.6f) else AmoledBorder),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    activeAwgStrategy = strat
+                                                    config.awgStrategyName = strat.name
+                                                    app.saveConfig()
+                                                    val awgIni = config.getAmneziaWgConfig(cleanEndpoint = config.warpPeerEndpoint)
+                                                    com.mirrly.tgproxy.core.NativeProxy.setAwgConfig(awgIni)
+                                                    onRestartProxy()
+                                                }
+                                        ) {
+                                            Text(
+                                                text = strat.displayName,
+                                                fontSize = 9.5.sp,
+                                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSel) ActiveGreenLed else TextWhite,
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 1,
+                                                modifier = Modifier.padding(vertical = 6.dp, horizontal = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                val descText = when (activeAwgStrategy) {
+                                    com.mirrly.tgproxy.core.AwgObfuscationStrategy.FAST -> stringResource(R.string.awg_strategy_fast_desc)
+                                    com.mirrly.tgproxy.core.AwgObfuscationStrategy.BALANCED -> stringResource(R.string.awg_strategy_balanced_desc)
+                                    com.mirrly.tgproxy.core.AwgObfuscationStrategy.DEEP_STEALTH -> stringResource(R.string.awg_strategy_deep_desc)
+                                    com.mirrly.tgproxy.core.AwgObfuscationStrategy.CUSTOM -> stringResource(R.string.awg_strategy_custom_desc)
+                                }
+                                Text(
+                                    text = descText,
+                                    fontSize = 9.sp,
+                                    color = TextMuted,
+                                    lineHeight = 12.sp
+                                )
+
+                                if (activeAwgStrategy == com.mirrly.tgproxy.core.AwgObfuscationStrategy.CUSTOM) {
+                                    OutlinedTextField(
+                                        value = customAwgIniText,
+                                        onValueChange = {
+                                            customAwgIniText = it
+                                            config.awgCustomIni = it
+                                            app.saveConfig()
+                                            if (it.isNotBlank()) {
+                                                com.mirrly.tgproxy.core.NativeProxy.setAwgConfig(it)
+                                            }
+                                        },
+                                        placeholder = { Text(stringResource(R.string.awg_custom_ini_hint), fontSize = 10.sp, color = TextMuted) },
+                                        modifier = Modifier.fillMaxWidth().height(100.dp),
+                                        textStyle = androidx.compose.ui.text.TextStyle(
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                            fontSize = 9.5.sp,
+                                            color = TextWhite
+                                        ),
+                                        maxLines = 6
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // note WARP note Opera VPN Upstream
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = Color.Transparent,
@@ -2458,13 +3647,13 @@ private fun SettingsUplinkWarpSection(
                             ) {
                                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                                     Text(
-                                        text = "Opera VPN Upstream для WARP",
+                                        text = stringResource(R.string.settings_opera_upstream_title),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextWhite
                                     )
                                     Text(
-                                        text = "Каскад: ТСПУ -> Opera VPN Anycast -> Cloudflare MASQUE",
+                                        text = stringResource(R.string.settings_opera_upstream_desc),
                                         fontSize = 9.5.sp,
                                         color = TextMuted
                                     )
@@ -2474,6 +3663,7 @@ private fun SettingsUplinkWarpSection(
                                     onCheckedChange = { enabled ->
                                         useOperaForWarp = enabled
                                         config.useOperaVpnForWarp = enabled
+                                        config.allowOperaDirectExit = enabled
                                         app.saveConfig()
                                         app.proxyServer.applyOperaVpnConfig()
                                         onRestartProxy()
@@ -2483,7 +3673,7 @@ private fun SettingsUplinkWarpSection(
 
                             if (useOperaForWarp) {
                                 Text(
-                                    text = "ВЫБОР УЗЛА OPERA VPN",
+                                    text = stringResource(R.string.settings_opera_node_select),
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 0.8.sp,
@@ -2511,7 +3701,7 @@ private fun SettingsUplinkWarpSection(
                                                     app.saveConfig()
                                                     app.proxyServer.applyOperaVpnConfig()
                                                     onRestartProxy()
-                                                    Toast.makeText(context, "Узел Opera VPN: ${node.name}", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, context.getString(R.string.settings_opera_node_selected, node.name), Toast.LENGTH_SHORT).show()
                                                 }
                                         ) {
                                             Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
@@ -2538,7 +3728,7 @@ private fun SettingsUplinkWarpSection(
             }
         }
 
-        // Блок параметров VLESS over WebSocket
+        // note note VLESS over WebSocket
         AnimatedVisibility(
             visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.VLESS,
             enter = fadeIn() + expandVertically(),
@@ -2643,16 +3833,16 @@ private fun SettingsUplinkWarpSection(
                         )
                     }
 
-                    // Выбор узла пресета VLESS
+                    // note note note VLESS
                     Text(
-                        text = "ПУБЛИЧНЫЕ УЗЛЫ (PAGES & ANYCAST CDN)",
+                        text = stringResource(R.string.settings_vless_pages_title),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp,
                         color = TextMuted
                     )
 
-                    // Горизонтальный список чипов с узлами
+                    // note note note with note
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2684,7 +3874,7 @@ private fun SettingsUplinkWarpSection(
                                         app.proxyServer.applyOperaVpnConfig()
                                         app.proxyServer.applyVlessPreset(preset)
                                         onRestartProxy()
-                                        Toast.makeText(context, "Выбран узел Pages: ${preset.name}", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.settings_vless_page_selected, preset.name), Toast.LENGTH_SHORT).show()
                                     }
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
@@ -2705,9 +3895,9 @@ private fun SettingsUplinkWarpSection(
                         }
                     }
 
-                    // Выбор Cloudflare Worker для VLESS
+                    // note Cloudflare Worker for VLESS
                     Text(
-                        text = "ВОРКЕРЫ CLOUDFLARE ДЛЯ VLESS",
+                        text = stringResource(R.string.settings_vless_cf_workers_title),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp,
@@ -2742,7 +3932,7 @@ private fun SettingsUplinkWarpSection(
                                         app.proxyServer.applyOperaVpnConfig()
                                         app.proxyServer.applyVlessConfig(config.vlessUuid, config.vlessPath, worker.domain)
                                         onRestartProxy()
-                                        Toast.makeText(context, "Выбран воркер для VLESS: ${worker.name}", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.settings_vless_worker_selected, worker.name), Toast.LENGTH_SHORT).show()
                                     }
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
@@ -2763,9 +3953,9 @@ private fun SettingsUplinkWarpSection(
                         }
                     }
 
-                    // Серверы Opera VPN (VLESS Хостинг)
+                    // note Opera VPN (VLESS note)
                     Text(
-                        text = "СЕРВЕРЫ OPERA VPN (VLESS ХОСТИНГ)",
+                        text = stringResource(R.string.settings_vless_opera_servers_title),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp,
@@ -2805,7 +3995,7 @@ private fun SettingsUplinkWarpSection(
                                         app.proxyServer.applyOperaVpnConfig()
                                         app.proxyServer.applyVlessConfig(config.vlessUuid, config.vlessPath, node.endpoint)
                                         onRestartProxy()
-                                        Toast.makeText(context, "Выбран сервер Opera VPN: ${node.name}", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.settings_vless_opera_selected, node.name), Toast.LENGTH_SHORT).show()
                                     }
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
@@ -2826,7 +4016,7 @@ private fun SettingsUplinkWarpSection(
                         }
                     }
 
-                    // Чип UUID клиента
+                    // note UUID note
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = Color.Transparent,
@@ -2841,7 +4031,7 @@ private fun SettingsUplinkWarpSection(
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("VLESS UUID", vlessUuid))
-                                Toast.makeText(context, "UUID скопирован в буфер", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.settings_vless_uuid_copied), Toast.LENGTH_SHORT).show()
                             }
                     ) {
                         Row(
@@ -2850,7 +4040,7 @@ private fun SettingsUplinkWarpSection(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f).padding(end = 6.dp)) {
-                                Text("UUID клиента:", fontSize = 9.5.sp, color = TextMuted)
+                                Text(stringResource(R.string.settings_vless_uuid_client), fontSize = 9.5.sp, color = TextMuted)
                                 Text(
                                     text = vlessUuid,
                                     fontSize = 10.5.sp,
@@ -2862,14 +4052,14 @@ private fun SettingsUplinkWarpSection(
                             }
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_copy),
-                                contentDescription = "Копировать",
+                                contentDescription = stringResource(R.string.action_copy),
                                 tint = ActiveGreenLed,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
                     }
 
-                    // Кнопки управления узлами
+                    // note note note
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -2899,7 +4089,7 @@ private fun SettingsUplinkWarpSection(
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(
-                                    text = "Новый UUID",
+                                    text = stringResource(R.string.settings_btn_new_uuid),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextWhite
@@ -2907,7 +4097,7 @@ private fun SettingsUplinkWarpSection(
                             }
                         }
 
-                        // Импорт vless:// из буфера обмена
+                        // note vless:// note note note
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color.Transparent,
@@ -2936,19 +4126,19 @@ private fun SettingsUplinkWarpSection(
                                                 app.saveConfig()
                                                 app.proxyServer.applyVlessPreset(parsed)
                                                 onRestartProxy()
-                                                Toast.makeText(context, "Импортирован узел: ${parsed.name}", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, context.getString(R.string.settings_vless_node_imported, parsed.name), Toast.LENGTH_SHORT).show()
                                             }
                                             is com.mirrly.tgproxy.core.VlessParseResult.Failure -> {
-                                                Toast.makeText(context, "Ошибка VLESS: ${parseResult.reason}", Toast.LENGTH_LONG).show()
+                                                Toast.makeText(context, context.getString(R.string.settings_vless_err, parseResult.reason), Toast.LENGTH_LONG).show()
                                             }
                                         }
                                     } else {
-                                        Toast.makeText(context, "В буфере нет ссылки vless://", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.settings_vless_no_link_in_clip), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                         ) {
                             Text(
-                                text = "Импорт vless",
+                                text = stringResource(R.string.settings_vless_btn_import),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextWhite,
@@ -2957,7 +4147,7 @@ private fun SettingsUplinkWarpSection(
                             )
                         }
 
-                        // Обновить базу узлов из публичных репозиториев
+                        // note note note note note note
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color.Transparent,
@@ -2972,7 +4162,7 @@ private fun SettingsUplinkWarpSection(
                                         val fresh = com.mirrly.tgproxy.core.VlessPresetsRepository.fetchFreshPublicPresets(socks5Port = app.config.socks5Port)
                                         vlessPresets = fresh
                                         isFetchingPresets = false
-                                        Toast.makeText(context, "Доступно узлов: ${fresh.size}", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.settings_vless_nodes_available, fresh.size.toString()), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                         ) {
@@ -2993,7 +4183,7 @@ private fun SettingsUplinkWarpSection(
                                 }
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(
-                                    text = if (isFetchingPresets) "Загрузка..." else "Обновить",
+                                    text = if (isFetchingPresets) stringResource(R.string.state_loading) else stringResource(R.string.settings_btn_refresh),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextWhite
@@ -3001,7 +4191,7 @@ private fun SettingsUplinkWarpSection(
                             }
                         }
 
-                        // Экспорт ссылки
+                        // note note
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = ActiveGreenLed.copy(alpha = 0.12f),
@@ -3014,11 +4204,11 @@ private fun SettingsUplinkWarpSection(
                                     val vlessUrl = config.getVlessShareUrl()
                                     val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                     clipboard.setPrimaryClip(android.content.ClipData.newPlainText("VLESS URI", vlessUrl))
-                                    Toast.makeText(context, "Ссылка vless:// скопирована в буфер", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.settings_vless_link_copied), Toast.LENGTH_SHORT).show()
                                 }
                         ) {
                             Text(
-                                text = "Экспорт",
+                                text = stringResource(R.string.settings_vless_btn_export),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = ActiveGreenLed,
@@ -3028,7 +4218,7 @@ private fun SettingsUplinkWarpSection(
                         }
                     }
 
-                    // Раскрывающийся блок с техническими параметрами
+                    // note note with note note
                     AnimatedVisibility(
                         visible = isDetailsExpanded,
                         enter = fadeIn() + expandVertically(),
@@ -3048,7 +4238,7 @@ private fun SettingsUplinkWarpSection(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Активный хост", fontSize = 10.5.sp, color = TextMuted)
+                                    Text(stringResource(R.string.settings_vless_active_host), fontSize = 10.5.sp, color = TextMuted)
                                     Text(config.getEffectiveVlessDomain(), fontSize = 10.5.sp, color = TextWhite, fontWeight = FontWeight.Medium)
                                 }
                                 Row(
@@ -3056,142 +4246,30 @@ private fun SettingsUplinkWarpSection(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     val currentPreset = vlessPresets.firstOrNull { it.id == activePresetId }
-                                    Text("Регион узла", fontSize = 10.5.sp, color = TextMuted)
-                                    Text(currentPreset?.region ?: "Global Anycast CDN", fontSize = 10.5.sp, color = ActiveGreenLed, fontWeight = FontWeight.Medium)
+                                    Text(stringResource(R.string.settings_vless_node_region), fontSize = 10.5.sp, color = TextMuted)
+                                    Text(currentPreset?.region ?: stringResource(R.string.vless_preset_default_region), fontSize = 10.5.sp, color = ActiveGreenLed, fontWeight = FontWeight.Medium)
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("WebSocket путь", fontSize = 10.5.sp, color = TextMuted)
+                                    Text(stringResource(R.string.settings_vless_ws_path), fontSize = 10.5.sp, color = TextMuted)
                                     Text(config.vlessPath, fontSize = 10.5.sp, color = TextWhite, fontWeight = FontWeight.Medium)
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Транспортный порт", fontSize = 10.5.sp, color = TextMuted)
+                                    Text(stringResource(R.string.settings_vless_transport_port), fontSize = 10.5.sp, color = TextMuted)
                                     Text("443 (HTTPS/WSS)", fontSize = 10.5.sp, color = TextWhite, fontWeight = FontWeight.Medium)
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("Мимикрия браузера", fontSize = 10.5.sp, color = TextMuted)
+                                    Text(stringResource(R.string.settings_vless_browser_mimic), fontSize = 10.5.sp, color = TextMuted)
                                     Text("Chrome 128", fontSize = 10.5.sp, color = ActiveGreenLed, fontWeight = FontWeight.SemiBold)
                                 }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Блок авто-каскада обхода блокировок ТСПУ (Active Liveness Probe)
-        val isLivenessEnabled = remember(config.isLivenessProbeEnabled) { mutableStateOf(config.isLivenessProbeEnabled) }
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, AmoledBorder),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = "Живая проба (Active Liveness)",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                            InfoButton { onInfoClick("liveness_probe_info") }
-                        }
-                        Text(
-                            text = "Контрольный опрос Telegram DC2 (порт 443). При глушении ТСПУ (> 800мс) — мгновенный переход по каскаду",
-                            fontSize = 11.sp,
-                            color = TextMuted,
-                            lineHeight = 14.sp
-                        )
-                    }
-
-                    InertialSpringSwitch(
-                        checked = isLivenessEnabled.value,
-                        onCheckedChange = { enabled ->
-                            isLivenessEnabled.value = enabled
-                            config.isLivenessProbeEnabled = enabled
-                            val appInstance = MirrlyApplication.instance
-                            appInstance.prefsManager.setLivenessProbeEnabled(enabled)
-                            appInstance.saveConfig()
-                            appInstance.proxyServer.applyLivenessProbeConfig(enabled)
-                        }
-                    )
-                }
-
-                if (isLivenessEnabled.value) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = AmoledSurface,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Текущий транспорт каскада:",
-                                    fontSize = 11.sp,
-                                    color = TextMuted
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    val currentStageName = MirrlyApplication.instance.proxyServer.stats.activeCascadeStage.ifEmpty { "Scanned WARP (Frag)" }
-                                    Text(
-                                        text = currentStageName,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = ActiveGreenLed
-                                    )
-                                }
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Цепочка переключения:",
-                                    fontSize = 10.sp,
-                                    color = TextMuted
-                                )
-                                Text(
-                                    text = "IPv6 -> WARP (Frag) -> MASQUE -> VLESS",
-                                    fontSize = 9.5.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    color = TextWhite
-                                )
                             }
                         }
                     }
@@ -3208,9 +4286,13 @@ private fun SettingsSystemSection(
     timerState: com.mirrly.tgproxy.service.SleepTimerState,
     onOpenSleepTimer: () -> Unit,
     onOpenSchedule: () -> Unit,
-    onInfoClick: (String) -> Unit
+    onOpenOnboarding: () -> Unit = {},
+    onOpenDiagnosticReport: () -> Unit = {},
+    onInfoClick: (String) -> Unit,
+    onLanguageChange: (String) -> Unit = {}
 ) {
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     val app = MirrlyApplication.instance
     var disableAnimations by remember { mutableStateOf(app.prefsManager.areAnimationsDisabled()) }
     val scheduleConfig = remember { app.prefsManager.loadScheduleConfig() }
@@ -3220,7 +4302,7 @@ private fun SettingsSystemSection(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text(
-            text = "СИСТЕМА И ЭНЕРГОСБЕРЕЖЕНИЕ",
+            text = stringResource(R.string.settings_system_title),
             fontSize = 12.sp,
             fontWeight = FontWeight.Black,
             letterSpacing = 1.3.sp,
@@ -3237,10 +4319,10 @@ private fun SettingsSystemSection(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("Автозапуск при загрузке", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(stringResource(R.string.settings_autostart_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     InfoButton { onInfoClick("autostart") }
                 }
-                Text("Автоматический запуск службы прокси после перезагрузки устройства", color = TextMuted, fontSize = 11.5.sp)
+                Text(stringResource(R.string.settings_autostart_desc), color = TextMuted, fontSize = 11.5.sp)
             }
             InertialSpringSwitch(
                 checked = autostart,
@@ -3261,9 +4343,9 @@ private fun SettingsSystemSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text("Таймер сна (автоотключение)", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(stringResource(R.string.settings_sleep_timer_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(
-                    text = if (timerState.isActive) "Активен • Отключение через ${timerState.formatRemainingTime()}" else "Выключен • Нажмите для выбора интервала",
+                    text = if (timerState.isActive) stringResource(R.string.settings_sleep_timer_active, timerState.formatRemainingTime()) else stringResource(R.string.settings_sleep_timer_off),
                     color = if (timerState.isActive) ActiveGreenLed else TextMuted,
                     fontSize = 11.5.sp
                 )
@@ -3289,9 +4371,9 @@ private fun SettingsSystemSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text("Расписание работы прокси", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(stringResource(R.string.settings_schedule_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(
-                    text = if (scheduleConfig.isEnabled) "Включено • ${scheduleConfig.getSummaryText()}" else "Выключено • Запуск и остановка по времени",
+                    text = if (scheduleConfig.isEnabled) stringResource(R.string.settings_schedule_active, scheduleConfig.getSummaryText(context)) else stringResource(R.string.settings_schedule_off),
                     color = if (scheduleConfig.isEnabled) ActiveGreenLed else TextMuted,
                     fontSize = 11.5.sp
                 )
@@ -3304,7 +4386,7 @@ private fun SettingsSystemSection(
             )
         }
 
-        // ── ЗАЩИТА АККУМУЛЯТОРА (BATTERY SAVER GUARD) ──
+        // ── note note (BATTERY SAVER GUARD) ──
         var isBatteryGuardEnabled by remember { mutableStateOf(app.config.isBatteryGuardEnabled) }
         var batteryGuardThreshold by remember { mutableStateOf(app.config.batteryGuardThreshold) }
         var batteryGuardStopOnPowerSave by remember { mutableStateOf(app.config.batteryGuardStopOnPowerSave) }
@@ -3328,11 +4410,11 @@ private fun SettingsSystemSection(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("Защита аккумулятора", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(stringResource(R.string.settings_battery_guard_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         InfoButton { onInfoClick("battery_guard") }
                     }
                     Text(
-                        text = if (isBatteryGuardEnabled) "Автоотключение при заряде ниже $batteryGuardThreshold% или энергосбережении" else "Выключена • Автоматическое сохранение заряда батареи",
+                        text = if (isBatteryGuardEnabled) stringResource(R.string.settings_battery_guard_active, batteryGuardThreshold.toString()) else stringResource(R.string.settings_battery_guard_off),
                         color = if (isBatteryGuardEnabled) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
                         fontSize = 11.5.sp,
                         lineHeight = 15.sp
@@ -3362,7 +4444,7 @@ private fun SettingsSystemSection(
                     // Threshold selector
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
-                            text = "Порог отключения по заряду:",
+                            text = stringResource(R.string.settings_battery_threshold),
                             color = TextWhite.copy(alpha = 0.9f),
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.Medium
@@ -3427,13 +4509,13 @@ private fun SettingsSystemSection(
                     ) {
                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                             Text(
-                                text = "Отключать при энергосбережении Android",
+                                text = stringResource(R.string.settings_battery_android_saver),
                                 color = TextWhite.copy(alpha = 0.9f),
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = "Срабатывает при активации системного режима экономии энергии",
+                                text = stringResource(R.string.settings_battery_android_saver_desc),
                                 color = TextMuted,
                                 fontSize = 11.sp
                             )
@@ -3451,7 +4533,7 @@ private fun SettingsSystemSection(
             }
         }
 
-        // ── АДАПТИВНЫЙ QOS И ТРОТТЛИНГ ──
+        // ── note QOS note note ──
         var isAdaptiveQoSEnabled by remember { mutableStateOf(app.config.isAdaptiveQoSEnabled) }
 
         Row(
@@ -3469,11 +4551,11 @@ private fun SettingsSystemSection(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("Адаптивный QoS и троттлинг", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(stringResource(R.string.settings_qos_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     InfoButton { onInfoClick("adaptive_qos") }
                 }
                 Text(
-                    text = if (isAdaptiveQoSEnabled) "Включен • Динамическое урезание пула сокетов и буферов при нагреве и энергосбережении" else "Выключен • Прокси работает на максимальной мощности без троттлинга",
+                    text = if (isAdaptiveQoSEnabled) stringResource(R.string.settings_qos_active) else stringResource(R.string.settings_qos_off),
                     color = if (isAdaptiveQoSEnabled) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
                     fontSize = 11.5.sp,
                     lineHeight = 15.sp
@@ -3490,7 +4572,7 @@ private fun SettingsSystemSection(
             )
         }
 
-        // ── ИСКЛЮЧЕНИЕ ИЗ ОПТИМИЗАЦИИ БАТАРЕИ (DOZE MODE) ──
+        // ── note note note note (DOZE MODE) ──
         val context = LocalContext.current
         val powerManager = remember { context.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager }
         var isIgnoringBatteryOptimizations by remember {
@@ -3531,14 +4613,17 @@ private fun SettingsSystemSection(
                         try {
                             val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                                 data = Uri.parse("package:${context.packageName}")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
                             context.startActivity(intent)
                         } catch (_: Exception) {
                             try {
-                                val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
                                 context.startActivity(intent)
                             } catch (_: Exception) {
-                                Toast.makeText(context, "Не удалось открыть настройки энергосбережения", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.settings_err_open_battery_settings), Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
@@ -3552,14 +4637,14 @@ private fun SettingsSystemSection(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("Исключение из Doze Mode", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(stringResource(R.string.settings_doze_mode_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     InfoButton { onInfoClick("doze_mode") }
                 }
                 Text(
                     text = if (isIgnoringBatteryOptimizations) {
-                        "Разрешено • Защита от заморозки сокетов в глубоком сне активна"
+                        stringResource(R.string.settings_doze_mode_allowed)
                     } else {
-                        "Оптимизируется системой • Нажмите для отключения ограничений Doze Mode"
+                        stringResource(R.string.settings_doze_mode_optimizing)
                     },
                     color = if (isIgnoringBatteryOptimizations) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
                     fontSize = 11.5.sp,
@@ -3572,7 +4657,7 @@ private fun SettingsSystemSection(
                 border = BorderStroke(1.dp, if (isIgnoringBatteryOptimizations) ActiveGreenLed.copy(alpha = 0.4f) else AmoledBorder)
             ) {
                 Text(
-                    text = if (isIgnoringBatteryOptimizations) "Активно" else "Настроить",
+                    text = if (isIgnoringBatteryOptimizations) stringResource(R.string.settings_doze_status_active) else stringResource(R.string.settings_doze_btn_configure),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (isIgnoringBatteryOptimizations) ActiveGreenLed else TextWhite,
@@ -3591,10 +4676,10 @@ private fun SettingsSystemSection(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("Режим энергосбережения", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(stringResource(R.string.settings_power_saver_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     InfoButton { onInfoClick("disable_animations") }
                 }
-                Text("Отключение фоновых анимаций и частиц для экономии заряда батареи", color = TextMuted, fontSize = 11.5.sp)
+                Text(stringResource(R.string.settings_power_saver_desc), color = TextMuted, fontSize = 11.5.sp)
             }
             InertialSpringSwitch(
                 checked = disableAnimations,
@@ -3604,6 +4689,221 @@ private fun SettingsSystemSection(
                 }
             )
         }
+
+        // ── note note (APP LANGUAGE) ──
+        val currentAppLanguage by app.prefsManager.appLanguageFlow.collectAsState()
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column {
+                Text(
+                    text = stringResource(R.string.settings_language_title),
+                    color = TextWhite,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = stringResource(R.string.settings_language_desc),
+                    color = TextMuted,
+                    fontSize = 11.5.sp
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    "system" to stringResource(R.string.settings_language_system),
+                    "ru" to stringResource(R.string.settings_language_ru),
+                    "en" to stringResource(R.string.settings_language_en)
+                ).forEach { (langCode, langLabel) ->
+                    val isSelected = currentAppLanguage == langCode
+                    val chipBorder by animateColorAsState(
+                        targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
+                        animationSpec = tween(200),
+                        label = "langBorder_$langCode"
+                    )
+                    val chipBg by animateColorAsState(
+                        targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.12f) else Color.Transparent,
+                        animationSpec = tween(200),
+                        label = "langBg_$langCode"
+                    )
+                    val chipTextColor by animateColorAsState(
+                        targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                        animationSpec = tween(200),
+                        label = "langText_$langCode"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(chipBg)
+                            .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                if (currentAppLanguage == langCode) return@clickable
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onLanguageChange(langCode)
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = langLabel,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = chipTextColor,
+                            maxLines = 1,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── note note ──
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, AmoledBorder),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onOpenOnboarding()
+                }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = stringResource(R.string.settings_onboarding_replay),
+                        color = TextWhite,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.5.sp
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_onboarding_replay_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_chevron_right),
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+
+        // ── РЕЖИМ ОПЫТНОГО ПОЛЬЗОВАТЕЛЯ (ADVANCED / EXPERT MODE) ──
+        var isAdvancedSettingsEnabled by remember { mutableStateOf(app.prefsManager.isAdvancedSettingsEnabled()) }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(
+                    1.dp,
+                    if (isAdvancedSettingsEnabled) ActiveGreenLed.copy(alpha = 0.35f) else AmoledBorder,
+                    RoundedCornerShape(18.dp)
+                )
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_advanced_mode_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp
+                        )
+                        InfoButton { onInfoClick("advanced_mode") }
+                    }
+                    Text(
+                        text = stringResource(R.string.settings_advanced_mode_desc),
+                        color = if (isAdvancedSettingsEnabled) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+                InertialSpringSwitch(
+                    checked = isAdvancedSettingsEnabled,
+                    onCheckedChange = { checked ->
+                        isAdvancedSettingsEnabled = checked
+                        app.prefsManager.setAdvancedSettingsEnabled(checked)
+                    }
+                )
+            }
+        }
+
+        // ── ДИАГНОСТИЧЕСКИЙ ОТЧЁТ (DIAGNOSTIC REPORT) ──
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, AmoledBorder),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onOpenDiagnosticReport()
+                }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = stringResource(R.string.settings_tile_diagnostic_report_title),
+                        color = TextWhite,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.5.sp
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_tile_diagnostic_report_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp
+                    )
+                }
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_chevron_right),
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
     }
 }
 
@@ -3612,7 +4912,6 @@ private fun SettingsAboutSection(
     onOpenAbout: () -> Unit,
     onDonateClick: () -> Unit,
     onOpenUpdate: () -> Unit,
-    onOpenVolunteers: () -> Unit,
     onOpenHallOfFame: () -> Unit
 ) {
     val context = LocalContext.current
@@ -3627,7 +4926,7 @@ private fun SettingsAboutSection(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
-            text = "О ПРИЛОЖЕНИИ И СООБЩЕСТВЕ",
+            text = stringResource(R.string.settings_about_category_title),
             fontSize = 12.sp,
             fontWeight = FontWeight.Black,
             letterSpacing = 1.3.sp,
@@ -3641,91 +4940,7 @@ private fun SettingsAboutSection(
                 .background(Color.Transparent)
                 .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
         ) {
-            // ── 1. STANDOUT VOLUNTEER TESTING BUTTON ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .lightSweep(
-                        isEnabled = true,
-                        shape = RoundedCornerShape(14.dp),
-                        sweepColor = ActiveGreenLed
-                    )
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onOpenVolunteers()
-                    }
-                    .padding(horizontal = 14.dp, vertical = 11.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(ActiveGreenLed.copy(alpha = 0.12f))
-                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_volunteer_badge),
-                            contentDescription = null,
-                            tint = ActiveGreenLed,
-                            modifier = Modifier.size(17.dp)
-                        )
-                    }
-
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = "Программа тестирования",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = ActiveGreenLed.copy(alpha = 0.15f),
-                                border = androidx.compose.foundation.BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.4f))
-                            ) {
-                                Text(
-                                    text = "НАБОР",
-                                    fontSize = 8.5.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = ActiveGreenLed,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                )
-                            }
-                        }
-                        Text(
-                            text = "Ищем волонтеров: ранний доступ к APK и бонусы",
-                            fontSize = 11.5.sp,
-                            color = TextMuted
-                        )
-                    }
-                }
-
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_chevron_right),
-                    contentDescription = null,
-                    tint = ActiveGreenLed,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
-
-            // ── 2. STANDOUT HALL OF FAME BUTTON ──
+            // ── 1. STANDOUT HALL OF FAME BUTTON ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -3772,7 +4987,7 @@ private fun SettingsAboutSection(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "Зал Славы и Благодарности",
+                                text = stringResource(R.string.settings_hall_of_fame_title),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextWhite
@@ -3783,7 +4998,7 @@ private fun SettingsAboutSection(
                                 border = androidx.compose.foundation.BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.4f))
                             ) {
                                 Text(
-                                    text = "TOP",
+                                    text = stringResource(R.string.badge_top),
                                     fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Black,
                                     color = ActiveGreenLed,
@@ -3792,7 +5007,7 @@ private fun SettingsAboutSection(
                             }
                         }
                         Text(
-                            text = "Первопроходцы, контрибьюторы и цифровые слепки",
+                            text = stringResource(R.string.settings_hall_of_fame_desc),
                             fontSize = 11.5.sp,
                             color = TextMuted
                         )
@@ -3845,13 +5060,13 @@ private fun SettingsAboutSection(
 
                     Column {
                         Text(
-                            text = "О разработчике & Проекте",
+                            text = stringResource(R.string.settings_about_dev_title),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
                         )
                         Text(
-                            text = "Mirrly Dev (R1Xern) • Информация, соцсети и статус сборки",
+                            text = stringResource(R.string.settings_about_dev_desc),
                             fontSize = 11.5.sp,
                             color = TextMuted
                         )
@@ -3905,13 +5120,13 @@ private fun SettingsAboutSection(
 
                     Column {
                         Text(
-                            text = "Поддержать разработчика",
+                            text = stringResource(R.string.settings_support_dev),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
                         )
                         Text(
-                            text = "Добровольный донат на развитие проекта (DaLink)",
+                            text = stringResource(R.string.settings_support_dev_desc),
                             fontSize = 11.5.sp,
                             color = TextMuted
                         )
@@ -3957,7 +5172,7 @@ private fun SettingsAboutSection(
                                         } else {
                                             Toast.makeText(
                                                 context,
-                                                "У вас установлена актуальная версия",
+                                                context.getString(R.string.settings_update_actual),
                                                 Toast.LENGTH_SHORT
                                             ).show()
                                         }
@@ -3965,7 +5180,7 @@ private fun SettingsAboutSection(
                                     onFailure = { err ->
                                         Toast.makeText(
                                             context,
-                                            "Ошибка проверки обновлений: ${err.localizedMessage}",
+                                            context.getString(R.string.settings_update_check_err, err.localizedMessage ?: ""),
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     }
@@ -4000,16 +5215,16 @@ private fun SettingsAboutSection(
 
                     Column {
                         Text(
-                            text = if (isUpdateAvailable) "Найдено обновление!" else "Проверить обновления",
+                            text = if (isUpdateAvailable) stringResource(R.string.settings_update_available) else stringResource(R.string.settings_btn_check_updates),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = titleColor
                         )
                         Text(
                             text = when {
-                                isCheckingUpdate -> "Проверка GitHub Releases..."
-                                isUpdateAvailable -> "Доступна новая версия • Нажмите для установки"
-                                else -> "Поиск новых версий на GitHub"
+                                isCheckingUpdate -> stringResource(R.string.settings_update_checking)
+                                isUpdateAvailable -> stringResource(R.string.settings_update_available_tap)
+                                else -> stringResource(R.string.settings_update_search_github)
                             },
                             fontSize = 11.5.sp,
                             color = if (isUpdateAvailable) TextWhite.copy(alpha = 0.9f) else TextMuted
@@ -4038,212 +5253,28 @@ private fun SettingsAboutSection(
 
 @Composable
 fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
-    val (dlgTitle, dlgBody) = when (infoKey) {
-        "uplink_modes_info" -> "Режимы аплинка (Транспорт и обход ТСПУ)" to
-            "АРХИТЕКТУРА АПЛИНКА В MIRRLY:\n" +
-            "• Аплинк (Upstream Tunnel) определяет физический и криптографический сетевой маршрут от локального SOCKS5-прокси (127.0.0.1:10808) до серверов Telegram через цензурные шлюзы ТСПУ/DPI.\n" +
-            "• Трафик мессенджера инкапсулируется в современные протоколы с маскировкой под обычный веб-серфинг или туннелируется через Anycast-инфраструктуру Cloudflare.\n" +
-            "• В отличие от системного VPN, Mirrly работает как локальный transparent TCP-релей без создания TUN-интерфейса, что исключает утечки DNS, батарейный голод и системные ограничения Android.\n\n" +
-            "1. CLOUDFLARE WORKER (WEBSOCKET OVER TLS 1.3):\n" +
-            "• Принцип работы: трафик передается по защищенному WebSocket-туннелю (порт 443) к бессерверной V8-функции в сети Cloudflare Edge. Воркер использует внутренний сокетный API (cloudflare:sockets) для прямого TCP-подключения к дата-центрам Telegram.\n" +
-            "• Обход блокировок: оператор связи и оборудование ТСПУ видят стандартный HTTPS-запрос с доверенным TLS 1.3 сертификатом глобального CDN, что исключает блокировку по протокольным сигнатурам.\n" +
-            "• Особенности: бесплатный лимит Cloudflare составляет 100 000 вызовов в сутки. Благодаря мультиплексированию (передаче тысяч пакетов внутри одного открытого сокета) данный лимит практически невозможно исчерпать в повседневном использовании.\n\n" +
-            "2. CLOUDFLARE WARP (MASQUE / RFC 9484):\n" +
-            "• Принцип работы: передовой стандарт IETF CONNECT-IP / CONNECT-UDP поверх протоколов HTTP/3 и QUIC. Прокси связывается с Anycast-шлюзами Cloudflare (188.114.96.1) через нативные учетные данные WireGuard и сертификаты mTLS (ECDSA P-256).\n" +
-            "• Преимущества: полное отсутствие блокировки начала очереди (Head-of-Line Blocking), минимальные задержки (RTT) и высочайшая стабильность при голосовых звонках и видеосвязи.\n" +
-            "• Устойчивость к ТСПУ: поддерживает автоматический подбор незаблокированных портов Anycast (500, 8095, 8443, 1074, 443) и фрагментацию первого пакета рукопожатия (Noise Handshake Fragmentation).\n\n" +
-            "3. VLESS OVER WEBSOCKET (ANYCAST PAGES CDN & ПОДПИСКИ):\n" +
-            "• Принцип работы: компактный бинарный протокол VLESS v0 в связке с транспортом WebSocket (порт 443) и шифрованием TLS 1.3. Соединение мимикрирует под обычный браузерный трафик Google Chrome.\n" +
-            "• Доступность без регистрации: не требует создания аккаунта Cloudflare, настройки API-токенов или развертывания личных воркеров.\n" +
-            "• Автоматический пул и зеркала: приложение включает пул стабильных Anycast-узлов в Европе (Амстердам, Франкфурт) и Азии (Сингапур), а также потоковый загрузчик публичных зеркал подписок с проверкой валидности и гонкой Happy Eyeballs в нативном Rust-ядре.\n\n" +
-            "4. ГИБРИДНЫЙ РЕЖИМ (КАСКАД WORKER + WARP):\n" +
-            "• Принцип работы: двухзвенное туннелирование. Смартфон подключается к доверенному Cloudflare Worker по зашифрованному WSS, а воркер перенаправляет поток в Anycast-сеть WARP к целевому Telegram DC.\n" +
-            "• Преимущества: решает проблему блокировки UDP-трафика и прямого доступа к IP-диапазонам WARP операторами связи. Узел ТСПУ видит лишь легитимный HTTPS-трафик к Cloudflare Worker.\n\n" +
-            "КАСКАДНОЕ ПЕРЕКЛЮЧЕНИЕ (ACTIVE LIVENESS FAILOVER):\n" +
-            "• Встроенный модуль активного мониторинга туннеля с интервалом 15 секунд контролирует доступность серверов Telegram.\n" +
-            "• В случае деградации сессии или сброса RST со стороны ТСПУ происходит бесшовный автоматический переход:\n" +
-            "IPv6 Anycast WARP -> Scanned WARP (Noise Frag) -> MASQUE (HTTP/3) -> VLESS Anycast CDN."
-
-        "warp_masque_info" -> "Туннель Cloudflare WARP & MASQUE" to
-            "ПРИНЦИП РАБОТЫ И СТАНДАРТ MASQUE:\n" +
-            "• Протокол MASQUE (Multiplexing Application Substrate over QUIC Encryption, RFC 9484 / RFC 9298) позволяет мультиплексировать IP-пакеты и UDP-дейтаграммы поверх защищенного транспортного уровня HTTP/3 и QUIC.\n" +
-            "• Трафик маршрутизируется через ближайший по задержке Anycast-сервер Cloudflare Edge.\n\n" +
-            "АВТОМАТИЧЕСКАЯ РЕГИСТРАЦИЯ И КРИПТОГРАФИЯ:\n" +
-            "• При создании профиля приложение обращается к API регистрации Cloudflare через защищенный обфусцированный HTTP-клиент.\n" +
-            "• Генерируется ключевая пара эллиптической кривой Curve25519 / ECDSA P-256 и выпускается персональный клиентский X.509 сертификат взаимной аутентификации (mTLS).\n" +
-            "• Устройству выделяется индивидуальный внутренний IPv4 (172.16.0.2) и IPv6 (/128) адрес.\n\n" +
-            "ОБХОД БЛОКИРОВОК И ФРАГМЕНТАЦИЯ ПАКЕТОВ:\n" +
-            "• Системы ТСПУ фильтруют стандартные заголовки рукопожатия WireGuard. Для обхода блокировок ядро Mirrly применяет фрагментацию первого пакета: разделение инициализирующего сообщения на части менее MTU с задержкой отправки хвоста.\n" +
-            "• Встроенный сканер конечных точек автоматически подбирает рабочий Anycast-порт среди 8095, 8443, 500, 1074 и 443.\n\n" +
-            "ЭКСПОРТ В AMNEZIAWG:\n" +
-            "• При необходимости параметры сгенерированного профиля (включая мусорные заголовки Init Packet Magic Header I1) можно скопировать в буфер обмена для использования в сторонних клиентах AmneziaWG."
-
-        "vless_info" -> "Протокол VLESS & Публичные Anycast-узлы" to
-            "ОСОБЕННОСТИ ПРОТОКОЛА VLESS:\n" +
-            "• VLESS — это легковесный транспортный протокол нулевой версии (v0) без избыточного внутреннего шифрования (encryption=none).\n" +
-            "• Вся криптографическая защита возлагается на внешний слой TLS 1.3 с маскировкой под стандартный браузерный трафик (Chrome utls-mimic) на порту 443.\n\n" +
-            "РАБОТА ЧЕРЕЗ CLOUDFLARE PAGES:\n" +
-            "• В отличие от воркеров, узлы Cloudflare Pages развернуты на глобальной статической Anycast CDN-инфраструктуре Cloudflare.\n" +
-            "• Домены вида *.pages.dev обладают высоким доверием в сетевых фильтрах и не вызывают подозрений у оборудования DPI.\n\n" +
-            "ДИНАМИЧЕСКИЙ ПУЛ И ГОНКА HAPPY EYEBALLS:\n" +
-            "• В нативном Rust-движке (mirrlyengine) реализован параллельный опрос узлов. При сбое основного сервера прокси мгновенно подбирает альтернативный живой узел из пула без разрыва сессии Telegram.\n" +
-            "• Потоковый загрузчик автоматически синхронизирует актуальные узлы из проверенных зеркал подписок GitHub с жесткой фильтрацией (поддерживаются только чистые WSS over TLS узлы; несовместимые с WSS протоколы Reality, gRPC и raw TCP отсекаются при парсинге).\n" +
-            "• Все проверенные узлы кэшируются в локальной энергонезависимой памяти устройства."
-
-        "port" -> "Локальные порты прокси" to
-            "НАЗНАЧЕНИЕ ПОРТОВ:\n" +
-            "• Локальный порт прослушивания — это сетевой сокет (127.0.0.1) на вашем устройстве, к которому подключается клиент Telegram.\n" +
-            "• Порт 1080: стандартный порт режима MTProto (нативный протокол Telegram с Fake-TLS).\n" +
-            "• Порт 10808: стандартный порт режима SOCKS5 (универсальный прозрачный TCP-релей).\n\n" +
-            "РЕКОМЕНДАЦИИ ПО НАСТРОЙКЕ:\n" +
-            "• Рекомендованные порты: 1080 (MTProto) и 10808 (SOCKS5). Они не требуют прав root и стандартизированы для прокси-серверов.\n" +
-            "• Допустимый диапазон: от 1024 до 65535.\n" +
-            "• Если указанный порт занят другой службой на устройстве, ядро прокси не сможет запустить слушатель (Bind Error).\n" +
-            "• При изменении порта не забудьте обновить параметры прокси в Telegram по кнопке «Подключить Telegram»."
-
-        "secret" -> "Секретный ключ MTProto (Fake-TLS)" to
-            "СТРУКТУРА И КРИПТОГРАФИЯ КЛЮЧА:\n" +
-            "• 32-символьный шестнадцатеричный (Hex) ключ используется клиентом Telegram для аутентификации и шифрования заголовков сессии MTProto.\n" +
-            "• Префикс «dd»: активирует защитный режим Fake-TLS.\n" +
-            "• При Fake-TLS первое сообщение рукопожатия мессенджера маскируется под ClientHello стандартного протокола TLS 1.3 с легитимным доменным именем (SNI).\n\n" +
-            "ГЕНЕРАЦИЯ И ПРИМЕНЕНИЕ:\n" +
-            "• Нажмите на значок генерации для создания криптографически стойкого случайного ключа.\n" +
-            "• После генерации нового ключа обязательно обновите ссылку прокси в Telegram."
-
-        "cf_domain" -> "Cloudflare Worker & Персональный домен" to
-            "АРХИТЕКТУРА И БЕЗОПАСНОСТЬ:\n" +
-            "• Cloudflare Worker выполняет роль распределенного релея между прокси и серверами Telegram через сокетный интерфейс cloudflare:sockets.\n" +
-            "• Весь трафик шифруется на всем пути следования. Провайдер связи видит исключительно обращение к защищенному CDN-домену по порту 443.\n\n" +
-            "РАЗВЕРТЫВАНИЕ ЛИЧНОГО ВОРКЕРА:\n" +
-            "• Использование личного бесплатного воркера гарантирует максимальную стабильность, отсутствие посторонней нагрузки и полную конфиденциальность.\n" +
-            "• Бесплатный план Cloudflare предоставляет 100 000 запросов в день на каждый персональный аккаунт.\n" +
-            "• Добавленный личный домен имеет наивысший приоритет в системе маршрутизации Mirrly."
-
-        "autostart" -> "Автозапуск службы при загрузке устройства" to
-            "ПРИНЦИП РАБОТЫ:\n" +
-            "• Служба регистрирует системный широковещательный ресивер события BOOT_COMPLETED.\n" +
-            "• После включения или перезагрузки смартфона прокси автоматически поднимает локальный сокет без необходимости ручного открытия приложения.\n\n" +
-            "ОСОБЕННОСТИ НАСТРОЙКИ НА РАЗНЫХ ПРОШИВКАХ:\n" +
-            "• Xiaomi (MIUI / HyperOS):\n" +
-            "Необходимо открыть «Настройки -> Приложения -> Разрешения -> Автозапуск» и разрешить автозапуск Mirrly TG Proxy, а также перевести контроль фоновой активности в режим «Нет ограничений».\n\n" +
-            "• Samsung (One UI):\n" +
-            "В разделе «Батарея -> Ограничения в фоновом режиме» добавьте приложение в список «Никогда не спящие приложения».\n\n" +
-            "• Huawei / Honor (EMUI / MagicOS):\n" +
-            "В настройках «Запуск приложений» переведите управление в ручной режим и отметьте «Автозапуск», «Косвенный запуск» и «Работа в фоновом режиме»."
-
-        "preset" -> "Пропускная способность и пул сокетов (WsPool)" to
-            "ТЕХНОЛОГИЯ WEBSOCKET PRE-WARMING:\n" +
-            "• Для устранения задержек при открытии чатов и загрузке медиа нативное ядро Mirrly поддерживает предварительно открытый пул сокетов (Pre-Warming Pool) и кольцевых буферов.\n\n" +
-            "ДОСТУПНЫЕ ПРОФИЛИ:\n" +
-            "• Эко (2 сокета, буфер 128 КБ):\n" +
-            "Минимальная нагрузка на процессор, память (~150 КБ RAM) и батарею. Рекомендуется для слабых устройств и фонового чтения текстовых каналов.\n\n" +
-            "• Баланс (4 сокета, буфер 256 КБ, стандарт):\n" +
-            "Оптимальное соотношение скорости загрузки медиафайлов и энергопотребления для повседневного использования.\n\n" +
-            "• Турбо (8 сокетов, буфер 1 МБ):\n" +
-            "Ускоренная предзагрузка фотографий, голосовых сообщений и моментальный отклик интерфейса Telegram при быстром скролле ленты.\n\n" +
-            "• Ультра (16 сокетов, буфер 2 МБ):\n" +
-            "Максимальная параллелизация потоков данных. Обеспечивает предельную скорость при скачивании архивов и просмотре 4K-видео на скоростных Wi-Fi и 5G-сетях.\n\n" +
-            "• Авто (2–16 сокетов, адаптивная память):\n" +
-            "Интеллектуальная система управления QoS: автоматически расширяет пул при передаче тяжелых файлов и сужает его до 2 сокетов при простое и низкой активности экрана."
-
-        "tcp_nodelay" -> "Управление алгоритмом Нагла (TCP_NODELAY)" to
-            "ПРИНЦИП РАБОТЫ АЛГОРИТМА НАГЛА (RFC 896):\n" +
-            "• По умолчанию стек TCP объединяет короткие порции данных в более крупные пакеты перед отправкой, ожидая подтверждения (ACK) от удаленного узла.\n" +
-            "• Это снижает сетевые накладные расходы, но приводит к искусственной задержке интерактивных данных (до 200–500 мс).\n\n" +
-            "РЕЖИМЫ РАБОТЫ В MIRRLY:\n" +
-            "• Авто (рекомендуется):\n" +
-            "Интеллектуальный контроль задержки. Флаг TCP_NODELAY активируется автоматически при стабильном канале (RTT < 140 мс) для мгновенной реакции чатов. При деградации радиоканала или высоком джиттере включается склеивание пакетов для защиты от перегрузки модема.\n\n" +
-            "• Включено (Мгновенная отдача):\n" +
-            "Флаг TCP_NODELAY принудительно включен на всех сокетах. Пакеты уходят в сеть немедленно. Минимизирует время отправки сообщений, но может незначительно увеличивать расход энергии модема при слабом сигнале.\n\n" +
-            "• Выключено (Экономия и склеивание):\n" +
-            "Пакеты группируются операционной системой. Рекомендуется только для крайне медленных 2G/EDGE каналов связи."
-
-        "disable_animations" -> "Энергосбережение и отключение визуальных эффектов" to
-            "ОПТИМИЗАЦИЯ ДЛЯ AMOLED И БЮДЖЕТНЫХ УСТРОЙСТВ:\n" +
-            "• Полное отключение отрисовки частиц фонового Canvas-оверлея (CyberParticlesOverlay).\n" +
-            "• Минимизация количества фаз перерисовки Compose-интерфейса.\n" +
-            "• Снижение энергопотребления на высокогерцовых OLED/AMOLED экранах (90–120 Гц) и продление времени автономной работы устройства при открытом приложении."
-
-        "protocols_info" -> "Протоколы подключения Telegram" to
-            "СРАВНЕНИЕ РЕЖИМОВ РАБОТЫ:\n" +
-            "• Приложение поддерживает два независимых режима работы прокси: MTProto и SOCKS5. Одновременно может быть активен только один из них.\n\n" +
-            "1. MTPROTO (ПОРТ 1080):\n" +
-            "• Нативный протокол мессенджера Telegram.\n" +
-            "• Использует криптографический режим Fake-TLS (префикс dd) со случайным 32-символьным ключом, эмулируя безопасный сеанс HTTPS.\n" +
-            "• Трафик маршрутизируется через распределенные Anycast-узлы Flowseal CDN с аппаратным кэшированием медиафайлов.\n" +
-            "• Ссылка для подключения: tg://proxy?server=127.0.0.1&port=1080&secret=dd...\n\n" +
-            "2. SOCKS5 (ПОРТ 10808):\n" +
-            "• Прозрачный TCP-релей по стандарту RFC 1928.\n" +
-            "• Мессенджер самостоятельно шифрует весь пользовательский трафик сквозным шифрованием.\n" +
-            "• Поддерживает не только текстовые чаты и каналы, но и полноценные голосовые и видеозвонки Telegram без задержек.\n" +
-            "• Поддерживает гибкое переключение аплинков (Cloudflare Worker, WARP MASQUE, VLESS over WSS, Гибрид).\n" +
-            "• Ссылка для подключения: tg://socks?server=127.0.0.1&port=10808"
-
-        "socks5_auth" -> "Аутентификация SOCKS5 (RFC 1929)" to
-            "ЗАЩИТА ЛОКАЛЬНОГО ИНТЕРФЕЙСА:\n" +
-            "• По умолчанию локальный сокет 127.0.0.1:10808 доступен всем процессам Android на устройстве.\n" +
-            "• Задание логина и пароля активирует обязательную аутентификацию по RFC 1929 (Username/Password Authentication).\n" +
-            "• Любое стороннее приложение, попытавшееся отправить трафик через локальный порт Mirrly без знания учетных данных, получит отказ в доступе.\n\n" +
-            "УДОБСТВО ИНТЕГРАЦИИ:\n" +
-            "• При клике на кнопку «Подключить Telegram» или копировании конфигурации логин и пароль автоматически добавляются в URI формат: tg://socks?server=127.0.0.1&port=10808&user=...&pass=..."
-
-        "battery_guard" -> "Защита батареи и температурный контроль" to
-            "МНОГОУРОВНЕВАЯ СИСТЕМА ЭНЕРГОСБЕРЕЖЕНИЯ:\n" +
-            "• Контроль минимального заряда:\n" +
-            "Вы можете задать порог отключения от 5% до 25%. Если заряд батареи опускается ниже выбранной отметки, служба отправляет предупреждающее уведомление в шторку и запускает 5-минутный таймер до автоотключения сокетов.\n\n" +
-            "• Отмена автоотключения в один клик:\n" +
-            "В уведомлении доступна кнопка «Отменить», позволяющая продолжить непрерывную работу прокси без отключения.\n\n" +
-            "• Интеграция с режимом энергосбережения:\n" +
-            "При включении системного режима экономии энергии Android прокси также предупреждает пользователя за 5 минут до плановой остановки.\n\n" +
-            "• Защита при зарядке:\n" +
-            "При подключении устройства к зарядному устройству таймер отсчета автоматически отменяется, а защитные ограничения снимаются.\n\n" +
-            "• Термальный контроль (Thermal QoS):\n" +
-            "При нагреве батареи выше 42°C движок снижает размер пула сокетов и уменьшает интенсивность фоновых диагностических замеров."
-
-        "adaptive_qos" -> "Адаптивный QoS и динамический троттлинг" to
-            "УПРАВЛЕНИЕ ПРОИЗВОДИТЕЛЬНОСТЬЮ И ТРОТТЛИНГОМ:\n" +
-            "• Адаптивное управление качеством обслуживания (QoS):\n" +
-            "При включенном режиме движок непрерывно отслеживает температуру устройства и статус энергосбережения. При перегреве или низком заряде автоматически снижается размер пула сокетов и буферов для защиты аккумулятора.\n\n" +
-            "• Режим максимальной производительности (Отключено):\n" +
-            "При выключении опции любые искусственные замедления, урезания пула сокетов и буферов при разряде батареи и режиме энергосбережения полностью отключаются. Прокси работает на полной мощности с максимальным размером пула (16) и буфера (2 МБ).\n\n" +
-            "• Аппаратная безопасность:\n" +
-            "Даже при выключенном троттлинге защита от критического перегрева чипа (THERMAL_STATUS_CRITICAL) сохраняется на уровне ядра для предотвращения деградации батареи и повреждения аппаратных компонентов устройства."
-
-        "doze_mode" -> "Исключение из режима энергосбережения (Doze Mode)" to
-            "РЕЖИМ ГЛУБОКОГО СНА ANDROID (DOZE MODE):\n" +
-            "• Начиная с Android 6.0 (API 23), система погружает устройство в режим глубокого сна (Doze Mode), если оно лежит неподвижно с выключенным экраном.\n" +
-            "• В режиме Doze операционная система отключает доступ к сети для фоновых процессов, замораживает сокеты и откладывает сетевые синхронизации.\n\n" +
-            "ЗАЧЕМ НУЖНО ИСКЛЮЧЕНИЕ:\n" +
-            "• При нахождении в спящем режиме более 1–2 часов Android может разорвать фоновые соединения прокси с серверами Telegram.\n" +
-            "• Добавление Mirrly TG Proxy в список исключений из оптимизации батареи позволяет приложению удерживать сетевые сокеты активными для мгновенного приема входящих звонков и уведомлений без задержек.\n\n" +
-            "ВЛИЯНИЕ НА АВТОНОМНОСТЬ:\n" +
-            "• Нативное ядро прокси оптимизировано на уровне C++/Rust и практически не потребляет процессорное время в режиме ожидания (~0.1% заряда за сутки).\n" +
-            "• Исключение из оптимизации не приводит к повышенному разряду аккумулятора."
-
-        "doh_providers" -> "Резолвер DNS-over-HTTPS (Параллельная DoH Гонка)" to
-            "ТЕХНОЛОГИЯ ПАРАЛЛЕЛЬНОЙ ГОНКИ (DOH RACE):\n" +
-            "• Запросы на определение IP-адресов серверов Telegram и доменов воркеров отправляются параллельно по протоколу HTTP/2 с шифрованием TLS 1.3 всем включенным серверам одновременно.\n" +
-            "• Сервер, ответивший первым без ошибок, становится победителем. Все оставшиеся параллельные сокеты немедленно прерываются.\n" +
-            "• Результат кэшируется в локальном LRU-кэше на время жизни записи (TTL), снижая задержку повторных обращений до 0 мс.\n\n" +
-            "СМАРТ-БЕНЧМАРК И ЗАЩИТА ОТ DNS-ОТРАВЛЕНИЯ:\n" +
-            "• Интеллектуальный бенчмарк тестирует каждый сервер на сетевую доступность, задержку RTT и валидность выданных IP-адресов.\n" +
-            "• Адреса проверяются на принадлежность официальной автономной системе Telegram (AS44907). Любые попытки подмены адресов на цензурные заглушки РКН отсекаются на корню.\n\n" +
-            "РЕКОМЕНДОВАННЫЕ ПРОВАЙДЕРЫ:\n" +
-            "• AdGuard, DNS.SB, NextDNS, Control D и Quad9: демонстрируют наивысшую стабильность в сетях операторов РФ и не подвержены фильтрации.\n" +
-            "• Серверы Cloudflare и Google по умолчанию отключены, так как их стандартные IP-адреса нередко подвергаются замедлению со стороны мобильных операторов."
-
-        "liveness_probe_info" -> "Активный контроль туннеля (Active Liveness Probe)" to
-            "ПРИНЦИП НЕПРЕРЫВНОГО МОНИТОРИНГА:\n" +
-            "• Через активный туннель посылаются легковесные контрольные TCP-зонды к серверам Telegram DC (порт 443) каждые 15 секунд при включенном экране и каждые 45 секунд в фоновом режиме.\n" +
-            "• Зонд эмулирует проверку физической сквозной доступности канала без создания значимой сетевой нагрузки.\n\n" +
-            "ДЕТЕКЦИЯ БЛОКИРОВОК И ПЕРЕХОД ПО КАСКАДУ:\n" +
-            "• Если контрольный зонд не получает ответа в течение 800 мс или дважды фиксирует сброс пакетов, система регистрирует блокировку со стороны ТСПУ и немедленно переключает сетевой транспорт:\n" +
-            "IPv6 Anycast WARP -> Scanned WARP (Noise Frag) -> MASQUE (HTTP/3) -> VLESS Anycast CDN.\n\n" +
-            "ПАССИВНАЯ ЭКОНОМИЯ ЭНЕРГИИ:\n" +
-            "• Если скорость пользовательского трафика превышает 2 КБ/с (вы переписываетесь, слушаете аудио или качаете медиа), синтетические контрольные зонды автоматически пропускаются для сбережения аккумулятора."
-
+    val (dlgTitleRes, dlgBodyRes) = when (infoKey) {
+        "uplink_modes_info" -> R.string.info_uplink_modes_title to R.string.info_uplink_modes_body
+        "warp_masque_info" -> R.string.info_warp_masque_title to R.string.info_warp_masque_body
+        "vless_info" -> R.string.info_vless_title to R.string.info_vless_body
+        "port", "ports_info" -> R.string.info_ports_title to R.string.info_ports_body
+        "secret", "secret_info" -> R.string.info_secret_title to R.string.info_secret_body
+        "cf_domain", "worker_info" -> R.string.info_worker_title to R.string.info_worker_body
+        "autostart", "autostart_info" -> R.string.info_autostart_title to R.string.info_autostart_body
+        "preset", "wspool_info" -> R.string.info_wspool_title to R.string.info_wspool_body
+        "tcp_nodelay", "tcp_nodelay_info" -> R.string.info_tcp_nodelay_title to R.string.info_tcp_nodelay_body
+        "disable_animations", "powersaver_info" -> R.string.info_powersaver_title to R.string.info_powersaver_body
+        "protocols_info" -> R.string.info_protocols_title to R.string.info_protocols_body
+        "socks5_auth", "socks5_auth_info" -> R.string.info_socks5_auth_title to R.string.info_socks5_auth_body
+        "battery_guard", "battery_guard_info" -> R.string.info_battery_guard_title to R.string.info_battery_guard_body
+        "adaptive_qos", "qos_info" -> R.string.info_qos_title to R.string.info_qos_body
+        "doze_mode", "doze_mode_info" -> R.string.info_doze_mode_title to R.string.info_doze_mode_body
+        "doh_providers", "doh_info" -> R.string.info_doh_title to R.string.info_doh_body
+        "advanced_mode" -> R.string.settings_advanced_mode_title to R.string.settings_advanced_mode_desc
         else -> return
     }
+    val dlgTitle = stringResource(dlgTitleRes)
+    val dlgBody = stringResource(dlgBodyRes)
     InfoDialog(title = dlgTitle, body = dlgBody, onDismiss = onDismiss)
 }
 
@@ -4283,7 +5314,7 @@ private fun SettingsDohSection(
         modifier = Modifier.staggeredEntrance(index = 2),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Заголовок секции с быстрыми кнопками управления
+        // note note with note note note
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -4294,7 +5325,7 @@ private fun SettingsDohSection(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "DNS-OVER-HTTPS (DOH)",
+                    text = stringResource(R.string.settings_doh_section_header),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -4307,7 +5338,7 @@ private fun SettingsDohSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // Кнопка включения всех серверов
+                // note note note note
                 if (enabledProviderIds.size < allProviders.size) {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
@@ -4325,7 +5356,7 @@ private fun SettingsDohSection(
                             }
                     ) {
                         Text(
-                            text = "Все 14",
+                            text = stringResource(R.string.doh_btn_enable_all, 14),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (isProxyRunning) TextMuted else ActiveGreenLed,
@@ -4339,7 +5370,7 @@ private fun SettingsDohSection(
                         border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.30f))
                     ) {
                         Text(
-                            text = "Все 14 OK",
+                            text = stringResource(R.string.doh_btn_enable_all_ok, 14),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = ActiveGreenLed,
@@ -4348,7 +5379,7 @@ private fun SettingsDohSection(
                     }
                 }
 
-                // Кнопка сброса настроек по умолчанию
+                // note note note by note
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = Color.Transparent,
@@ -4365,7 +5396,7 @@ private fun SettingsDohSection(
                         }
                 ) {
                     Text(
-                        text = "Сброс",
+                        text = stringResource(R.string.doh_btn_reset),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = if (isProxyRunning) TextMuted else TextWhite.copy(alpha = 0.85f),
@@ -4375,7 +5406,7 @@ private fun SettingsDohSection(
             }
         }
 
-        // Предупреждение о блокировке изменения параметров при активном прокси
+        // note note note note note note note note
         if (isProxyRunning) {
             Surface(
                 shape = RoundedCornerShape(10.dp),
@@ -4391,7 +5422,7 @@ private fun SettingsDohSection(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Прокси активен • Для смены узлов остановите службу",
+                        text = stringResource(R.string.doh_notice_proxy_running),
                         fontSize = 11.sp,
                         color = TextMuted,
                         modifier = Modifier.weight(1f).padding(end = 8.dp)
@@ -4412,7 +5443,7 @@ private fun SettingsDohSection(
                             }
                     ) {
                         Text(
-                            text = "Остановить",
+                            text = stringResource(R.string.action_stop),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFEF4444),
@@ -4423,7 +5454,7 @@ private fun SettingsDohSection(
             }
         }
 
-        // Компактная плашка умного автоподбора
+        // note note note note
         Surface(
             shape = RoundedCornerShape(12.dp),
             color = Color.Transparent,
@@ -4462,18 +5493,18 @@ private fun SettingsDohSection(
                         text = if (isBenchmarking) {
                             val cur = benchmarkProgress?.first ?: 0
                             val tot = benchmarkProgress?.second ?: allProviders.size
-                            "Тестирование: $cur из $tot..."
+                            stringResource(R.string.doh_testing_progress, cur.toString(), tot.toString())
                         } else {
-                            "Умный автоподбор DNS"
+                            stringResource(R.string.doh_smart_selection_title)
                         },
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (isProxyRunning) TextMuted else ActiveGreenLed
                     )
                     Text(
-                        text = if (isBenchmarking) "Замер RTT и обход ТСПУ"
-                               else if (isProxyRunning) "Остановите прокси для замера"
-                               else "Автовыбор самых быстрых незаблокированных узлов",
+                        text = if (isBenchmarking) stringResource(R.string.doh_measuring_rtt)
+                               else if (isProxyRunning) stringResource(R.string.doh_stop_to_measure)
+                               else stringResource(R.string.doh_auto_pick_fastest),
                         fontSize = 10.5.sp,
                         color = TextMuted,
                         maxLines = 1,
@@ -4494,7 +5525,7 @@ private fun SettingsDohSection(
                         border = BorderStroke(1.dp, if (isProxyRunning) AmoledBorder else ActiveGreenLed.copy(alpha = 0.35f))
                     ) {
                         Text(
-                            text = "Тест",
+                            text = stringResource(R.string.doh_btn_test),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (isProxyRunning) TextMuted else ActiveGreenLed,
@@ -4505,7 +5536,7 @@ private fun SettingsDohSection(
             }
         }
 
-        // Информационный баннер результатов автоподбора
+        // note note note note
         AnimatedVisibility(
             visible = benchmarkSummary != null && !isBenchmarking,
             enter = fadeIn() + expandVertically(),
@@ -4540,7 +5571,7 @@ private fun SettingsDohSection(
             }
         }
 
-        // Выпадающая карточка со списком DoH-серверов
+        // note note note note DoH-note
         Surface(
             shape = RoundedCornerShape(14.dp),
             color = Color.Transparent,
@@ -4548,7 +5579,7 @@ private fun SettingsDohSection(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Компактный заголовок
+                // note title
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -4591,7 +5622,7 @@ private fun SettingsDohSection(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(
-                                    text = "Список DoH-серверов",
+                                    text = stringResource(R.string.doh_list_title),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = TextWhite
@@ -4602,7 +5633,7 @@ private fun SettingsDohSection(
                                     border = BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.4f))
                                 ) {
                                     Text(
-                                        text = "${enabledProviderIds.size} ИЗ ${allProviders.size}",
+                                        text = stringResource(R.string.doh_list_ratio, enabledProviderIds.size.toString(), allProviders.size.toString()),
                                         fontSize = 8.5.sp,
                                         fontWeight = FontWeight.Black,
                                         color = ActiveGreenLed,
@@ -4611,7 +5642,7 @@ private fun SettingsDohSection(
                                 }
                             }
                             Text(
-                                text = if (isListExpanded) "Нажмите для скрытия списка узлов" else "${enabledProviderIds.size} активно • Конкурентный Race Resolver",
+                                text = if (isListExpanded) stringResource(R.string.doh_hide_list_hint) else stringResource(R.string.doh_active_race_hint, enabledProviderIds.size.toString()),
                                 fontSize = 11.sp,
                                 color = TextMuted
                             )
@@ -4633,7 +5664,7 @@ private fun SettingsDohSection(
                     )
                 }
 
-                // Раскрывающийся блок со списком серверов
+                // note note note note note
                 AnimatedVisibility(
                     visible = isListExpanded,
                     enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = tween(220)),
@@ -4701,38 +5732,38 @@ private fun SettingsDohSection(
                                                     ActiveGreenLed.copy(alpha = 0.12f),
                                                     ActiveGreenLed.copy(alpha = 0.35f),
                                                     ActiveGreenLed,
-                                                    "${result.latencyMs} мс"
+                                                    stringResource(R.string.unit_ms_val, result.latencyMs.toString())
                                                 )
                                                 com.mirrly.tgproxy.core.DohHealthStatus.GOOD -> DohBadgeStyle(
                                                     ActiveGreenLed.copy(alpha = 0.10f),
                                                     ActiveGreenLed.copy(alpha = 0.30f),
                                                     ActiveGreenLed,
-                                                    "${result.latencyMs} мс"
+                                                    stringResource(R.string.unit_ms_val, result.latencyMs.toString())
                                                 )
                                                 com.mirrly.tgproxy.core.DohHealthStatus.MODERATE,
                                                 com.mirrly.tgproxy.core.DohHealthStatus.SLOW -> DohBadgeStyle(
                                                     Color.Transparent,
                                                     AmoledBorder,
                                                     TextWhite.copy(alpha = 0.85f),
-                                                    "${result.latencyMs} мс"
+                                                    stringResource(R.string.unit_ms_val, result.latencyMs.toString())
                                                 )
                                                 com.mirrly.tgproxy.core.DohHealthStatus.BLOCKED -> DohBadgeStyle(
                                                     Color(0xFFEF4444).copy(alpha = 0.12f),
                                                     Color(0xFFEF4444).copy(alpha = 0.35f),
                                                     Color(0xFFEF4444),
-                                                    "Блок ТСПУ"
+                                                    stringResource(R.string.doh_status_tspu_block)
                                                 )
                                                 com.mirrly.tgproxy.core.DohHealthStatus.TIMEOUT -> DohBadgeStyle(
                                                     Color(0xFFEF4444).copy(alpha = 0.12f),
                                                     Color(0xFFEF4444).copy(alpha = 0.35f),
                                                     Color(0xFFEF4444),
-                                                    "Таймаут"
+                                                    stringResource(R.string.doh_status_timeout)
                                                 )
                                                 com.mirrly.tgproxy.core.DohHealthStatus.POISONED -> DohBadgeStyle(
                                                     Color(0xFFEF4444).copy(alpha = 0.12f),
                                                     Color(0xFFEF4444).copy(alpha = 0.35f),
                                                     Color(0xFFEF4444),
-                                                    "Подмена IP"
+                                                    stringResource(R.string.doh_status_ip_poison)
                                                 )
                                             }
 
@@ -4757,7 +5788,7 @@ private fun SettingsDohSection(
                                                     border = BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.40f))
                                                 ) {
                                                     Text(
-                                                        text = "Топ",
+                                                        text = stringResource(R.string.doh_badge_top),
                                                         fontSize = 8.5.sp,
                                                         fontWeight = FontWeight.Black,
                                                         color = ActiveGreenLed,
@@ -4772,7 +5803,7 @@ private fun SettingsDohSection(
                                                 border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.1f))
                                             ) {
                                                 Text(
-                                                    text = "Ожидание...",
+                                                    text = stringResource(R.string.doh_status_pending),
                                                     fontSize = 8.5.sp,
                                                     fontWeight = FontWeight.Normal,
                                                     color = TextMuted,
@@ -4787,7 +5818,7 @@ private fun SettingsDohSection(
                                                     border = BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.30f))
                                                 ) {
                                                     Text(
-                                                        text = "ТСПУ OK",
+                                                        text = stringResource(R.string.doh_status_tspu_ok),
                                                         fontSize = 8.5.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = ActiveGreenLed,
@@ -4802,7 +5833,7 @@ private fun SettingsDohSection(
                                                     border = BorderStroke(0.8.dp, Color(0xFFEF4444).copy(alpha = 0.30f))
                                                 ) {
                                                     Text(
-                                                        text = "РКН блок?",
+                                                        text = stringResource(R.string.doh_status_rkn_block),
                                                         fontSize = 8.5.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color(0xFFEF4444),

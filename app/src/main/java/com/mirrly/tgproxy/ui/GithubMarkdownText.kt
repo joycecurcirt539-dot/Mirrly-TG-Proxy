@@ -1,4 +1,6 @@
 package com.mirrly.tgproxy.ui
+import com.mirrly.tgproxy.R
+import androidx.compose.ui.res.stringResource
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,7 +32,7 @@ fun GithubMarkdownText(
 ) {
     if (markdownText.isBlank()) {
         Text(
-            text = "Описание изменений отсутствует.",
+            text = stringResource(R.string.markdown_no_changelog),
             color = TextMuted,
             fontSize = 13.sp,
             modifier = modifier

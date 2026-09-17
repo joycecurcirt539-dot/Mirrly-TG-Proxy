@@ -6,203 +6,247 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
 package com.mirrly.tgproxy.core
 
+import java.io.File
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class NetworkConditionEvaluatorTest {
+    private val readyWifi = NetworkProfile(
+        generation = 7L,
+        validated = true,
+        suspended = false,
+        transport = NetworkTransport.WIFI,
+        wifi = true,
+        estimatedDownKbps = 100_000,
+        estimatedUpKbps = 20_000
+    ).normalized()
+
+    private fun snapshot(
+        atMs: Long,
+        throughputBps: Long = 0L,
+        pingMs: Long = 80L,
+        minRttMs: Long = 60L,
+        jitterMs: Long = 10L,
+        successRate: Int = 100,
+        profile: NetworkProfile = readyWifi,
+        mode: TcpNoDelayMode = TcpNoDelayMode.AUTO,
+        qos: QoSThrottleLevel = QoSThrottleLevel.NONE
+    ) = AdaptivePolicySnapshot(
+        observedAtMs = atMs,
+        networkProfile = profile,
+        throughputBps = throughputBps,
+        smoothedPingMs = pingMs,
+        minRttMs = minRttMs,
+        jitterMs = jitterMs,
+        successRatePercent = successRate,
+        qosThrottleLevel = qos,
+        tcpNoDelayMode = mode
+    )
 
     @Test
-    fun testThroughputTierEscalation() {
-        // 1. Eco Tier (< 150 KB/s)
-        val eco = NetworkConditionEvaluator.evaluate(
-            throughputBps = 80_000L,
-            smoothedPingMs = 50L,
-            minRttMs = 45L,
-            jitterMs = 5L,
-            successRatePercent = 100
-        )
-        assertEquals(2, eco.recommendedPoolSize)
-        assertEquals(NetworkConditionEvaluator.BUFFER_SIZE_ECO, eco.recommendedBufferSizeBytes)
-        assertTrue(eco.recommendedTcpNoDelay)
-        assertEquals(ConnectionQuality.EXCELLENT, eco.connectionQuality)
+    fun `the same snapshot returns the same effective decision`() {
+        val controller = AdaptiveNetworkPolicyController(initialPoolSize = 2)
+        val sample = snapshot(atMs = 1_000L)
 
-        // 2. Balanced Tier (>= 150 KB/s)
-        val balanced = NetworkConditionEvaluator.evaluate(
-            throughputBps = 300_000L,
-            smoothedPingMs = 60L,
-            minRttMs = 50L,
-            jitterMs = 8L,
-            successRatePercent = 100
-        )
-        assertEquals(4, balanced.recommendedPoolSize)
-        assertEquals(NetworkConditionEvaluator.BUFFER_SIZE_BALANCED, balanced.recommendedBufferSizeBytes)
+        val first = controller.evaluate(sample)
+        val duplicate = controller.evaluate(sample)
 
-        // 3. Turbo Tier (>= 1.5 MB/s)
-        val turbo = NetworkConditionEvaluator.evaluate(
-            throughputBps = 2_000_000L,
-            smoothedPingMs = 70L,
-            minRttMs = 55L,
-            jitterMs = 10L,
-            successRatePercent = 100
-        )
-        assertEquals(8, turbo.recommendedPoolSize)
-        assertEquals(NetworkConditionEvaluator.BUFFER_SIZE_TURBO, turbo.recommendedBufferSizeBytes)
-
-        // 4. Ultra Tier (>= 6 MB/s)
-        val ultra = NetworkConditionEvaluator.evaluate(
-            throughputBps = 8_000_000L,
-            smoothedPingMs = 70L,
-            minRttMs = 55L,
-            jitterMs = 10L,
-            successRatePercent = 100
-        )
-        assertEquals(16, ultra.recommendedPoolSize)
-        assertEquals(NetworkConditionEvaluator.BUFFER_SIZE_ULTRA, ultra.recommendedBufferSizeBytes)
+        assertEquals(first, duplicate)
+        assertEquals(1L, duplicate.revision)
+        assertTrue(duplicate.recommendedTcpNoDelay)
+        assertEquals(AdaptiveTrafficClass.INTERACTIVE_CHAT, duplicate.trafficClass)
     }
 
     @Test
-    fun testBufferbloatAndHighLatencyTriggersEcoFallback() {
-        // High traffic 8 MB/s, but severe Bufferbloat (RTT 250ms vs Min 40ms -> Delta 210ms >= 150ms)
-        val bloated = NetworkConditionEvaluator.evaluate(
-            throughputBps = 8_000_000L,
-            smoothedPingMs = 250L,
-            minRttMs = 40L,
-            jitterMs = 30L,
-            successRatePercent = 100
-        )
-        assertEquals(2, bloated.recommendedPoolSize, "Bufferbloat congestion must fallback pool size to 2")
-        assertEquals(NetworkConditionEvaluator.BUFFER_SIZE_ECO, bloated.recommendedBufferSizeBytes)
-        assertTrue(bloated.isBufferbloatMitigationActive)
+    fun `repeated unavailable snapshots do not create policy revisions`() {
+        val controller = AdaptiveNetworkPolicyController(initialPoolSize = 4)
+        val unavailable = NetworkProfile()
 
-        // Severe latency (600ms >= 500ms threshold)
-        val highLatency = NetworkConditionEvaluator.evaluate(
-            throughputBps = 8_000_000L,
-            smoothedPingMs = 600L,
-            minRttMs = 550L,
-            jitterMs = 40L,
-            successRatePercent = 100
-        )
-        assertEquals(2, highLatency.recommendedPoolSize)
-        assertTrue(highLatency.isBufferbloatMitigationActive)
+        val first = controller.evaluate(snapshot(atMs = 0L, profile = unavailable))
+        for (second in 1L..30L) {
+            controller.evaluate(snapshot(atMs = second * 1_000L, profile = unavailable))
+        }
+
+        assertEquals(1L, first.revision)
+        assertEquals(first.revision, controller.currentDecision.revision)
+        assertEquals(AdaptiveNetworkState.UNAVAILABLE, controller.currentDecision.networkState)
+        assertFalse(controller.currentDecision.recommendedTcpNoDelay)
     }
 
     @Test
-    fun testTcpNoDelayRulesForVoipAndInteractive() {
-        // 1. VoIP Priority: MOS = 4.20 -> TCP_NODELAY always true
-        val voip = NetworkConditionEvaluator.evaluate(
-            throughputBps = 1_000_000L,
-            smoothedPingMs = 50L,
-            minRttMs = 45L,
-            jitterMs = 5L,
-            successRatePercent = 100,
-            mosScore = 4.20,
-            isCallRecommended = true,
-            isAutoSpeedPreset = true,
-            baseTcpNoDelay = false
-        )
-        assertTrue(voip.recommendedTcpNoDelay, "VoIP calls must have TCP_NODELAY = true for minimal latency")
-        assertTrue(voip.isInteractiveVoipActive)
+    fun `one throughput spike cannot switch interactive traffic to media`() {
+        val controller = AdaptiveNetworkPolicyController(initialPoolSize = 4)
+        val initial = controller.evaluate(snapshot(atMs = 0L, throughputBps = 0L))
 
-        // 2. Interactive Low Throughput: throughput < 500 KB/s -> TCP_NODELAY always true
-        val interactive = NetworkConditionEvaluator.evaluate(
-            throughputBps = 100_000L,
-            smoothedPingMs = 50L,
-            minRttMs = 45L,
-            jitterMs = 5L,
-            successRatePercent = 100,
-            mosScore = 2.0,
-            isCallRecommended = false,
-            isAutoSpeedPreset = true,
-            baseTcpNoDelay = false
-        )
-        assertTrue(interactive.recommendedTcpNoDelay, "Interactive small packets require TCP_NODELAY = true")
+        val spike = controller.evaluate(snapshot(atMs = 1_000L, throughputBps = 8_000_000L))
 
-        // 3. Bulk Download without VoIP -> uses baseTcpNoDelay
-        val bulk = NetworkConditionEvaluator.evaluate(
-            throughputBps = 8_000_000L,
-            smoothedPingMs = 50L,
-            minRttMs = 45L,
-            jitterMs = 5L,
-            successRatePercent = 100,
-            mosScore = 2.0,
-            isCallRecommended = false,
-            isAutoSpeedPreset = true,
-            baseTcpNoDelay = false
-        )
-        assertFalse(bulk.recommendedTcpNoDelay, "Bulk download with baseTcpNoDelay=false should respect config")
+        assertEquals(AdaptiveTrafficClass.INTERACTIVE_CHAT, spike.trafficClass)
+        assertTrue(spike.recommendedTcpNoDelay)
+        assertEquals(initial.recommendedPoolSize, spike.recommendedPoolSize)
     }
 
     @Test
-    fun testQoSThermalThrottlingClamping() {
-        // Throughput warrants Ultra (16 sockets), but Severe Thermal QoS clamps to 2 sockets (Eco)
-        val severe = NetworkConditionEvaluator.evaluate(
-            throughputBps = 8_000_000L,
-            smoothedPingMs = 40L,
-            minRttMs = 35L,
-            jitterMs = 5L,
-            successRatePercent = 100,
-            qosThrottleLevel = QoSThrottleLevel.SEVERE
-        )
-        assertEquals(2, severe.recommendedPoolSize)
-        assertEquals(NetworkConditionEvaluator.BUFFER_SIZE_ECO, severe.recommendedBufferSizeBytes)
+    fun `sustained media is confirmed and applied only after dwell and cooldown`() {
+        val controller = AdaptiveNetworkPolicyController(initialPoolSize = 4)
+        val initial = controller.evaluate(snapshot(atMs = 0L))
+        assertTrue(initial.recommendedTcpNoDelay)
 
-        // Throughput warrants Ultra (16 sockets), but Moderate Thermal QoS clamps to 4 sockets (Balanced)
-        val moderate = NetworkConditionEvaluator.evaluate(
-            throughputBps = 8_000_000L,
-            smoothedPingMs = 40L,
-            minRttMs = 35L,
-            jitterMs = 5L,
-            successRatePercent = 100,
-            qosThrottleLevel = QoSThrottleLevel.MODERATE
-        )
-        assertEquals(4, moderate.recommendedPoolSize)
-        assertEquals(NetworkConditionEvaluator.BUFFER_SIZE_BALANCED, moderate.recommendedBufferSizeBytes)
+        for (second in 1L..29L) {
+            val decision = controller.evaluate(
+                snapshot(atMs = second * 1_000L, throughputBps = 8_000_000L)
+            )
+            assertTrue(decision.recommendedTcpNoDelay, "cooldown must hold through second $second")
+        }
+
+        val media = controller.evaluate(snapshot(atMs = 30_000L, throughputBps = 8_000_000L))
+        assertEquals(AdaptiveTrafficClass.SUSTAINED_MEDIA, media.trafficClass)
+        assertFalse(media.recommendedTcpNoDelay)
+        assertTrue(media.recommendedPoolSize >= 3)
+        assertEquals(2L, media.revision)
     }
 
     @Test
-    fun testConnectionQualityClassification() {
-        // EXCELLENT
-        assertEquals(
-            ConnectionQuality.EXCELLENT,
-            NetworkConditionEvaluator.evaluateConnectionQuality(smoothedPingMs = 50L, jitterMs = 15L, consecutiveFailures = 0, successRatePercent = 100)
+    fun `transient rtt spike under 5 seconds does not trigger degraded`() {
+        val controller = AdaptiveNetworkPolicyController(initialPoolSize = 2)
+        controller.evaluate(snapshot(atMs = 0L, pingMs = 80L, minRttMs = 60L))
+        controller.evaluate(snapshot(atMs = 30_000L, pingMs = 80L, minRttMs = 60L))
+
+        // Всплеск RTT до 450 мс на 4 секунды (меньше 7 секунд окна наблюдения)
+        for (second in 31L..34L) {
+            controller.evaluate(snapshot(atMs = second * 1_000L, pingMs = 450L, minRttMs = 60L))
+        }
+        // Возврат к нормальному RTT
+        val recovered = controller.evaluate(snapshot(atMs = 35_000L, pingMs = 80L, minRttMs = 60L))
+
+        assertEquals(AdaptiveNetworkState.NORMAL, recovered.networkState)
+        assertTrue(recovered.recommendedTcpNoDelay)
+        assertEquals(1L, recovered.revision, "Кратковременный всплеск не должен вызывать переключения состояния")
+    }
+
+    @Test
+    fun `sustained rtt degradation over 7 seconds triggers degraded`() {
+        val controller = AdaptiveNetworkPolicyController(initialPoolSize = 2)
+        controller.evaluate(snapshot(atMs = 0L, pingMs = 80L, minRttMs = 60L))
+        controller.evaluate(snapshot(atMs = 30_000L, pingMs = 80L, minRttMs = 60L))
+
+        // Устойчивая деградация: RTT 400 мс на протяжении 8 секунд (>= 7с dwell time и 5 семплов)
+        for (second in 31L..38L) {
+            controller.evaluate(snapshot(atMs = second * 1_000L, pingMs = 400L, minRttMs = 60L))
+        }
+
+        val degraded = controller.currentDecision
+        assertEquals(AdaptiveNetworkState.DEGRADED, degraded.networkState)
+        assertFalse(degraded.recommendedTcpNoDelay)
+        assertEquals(2L, degraded.revision)
+    }
+
+    @Test
+    fun `rtt hysteresis and candidate dwell prevent boundary flapping`() {
+        val controller = AdaptiveNetworkPolicyController(initialPoolSize = 2)
+        controller.evaluate(snapshot(atMs = 0L, pingMs = 140L, minRttMs = 120L))
+
+        for (second in 1L..30L) {
+            val ping = if (second % 2L == 0L) 355L else 345L
+            controller.evaluate(snapshot(atMs = second * 1_000L, pingMs = ping, minRttMs = 160L))
+        }
+        val congested = controller.currentDecision
+        assertEquals(AdaptiveNetworkState.DEGRADED, congested.networkState)
+        assertFalse(congested.recommendedTcpNoDelay)
+        assertEquals(2L, congested.revision, "enter threshold may cause one transition, never flapping")
+
+        for (second in 31L..60L) {
+            val ping = if (second % 2L == 0L) 355L else 195L
+            controller.evaluate(snapshot(atMs = second * 1_000L, pingMs = ping, minRttMs = 120L))
+        }
+        assertEquals(2L, controller.currentDecision.revision)
+        assertEquals(AdaptiveNetworkState.DEGRADED, controller.currentDecision.networkState)
+    }
+
+    @Test
+    fun `congestion exits only at the lower recovery threshold`() {
+        val controller = AdaptiveNetworkPolicyController(initialPoolSize = 2)
+        controller.evaluate(snapshot(atMs = 0L, pingMs = 80L, minRttMs = 60L))
+        for (second in 1L..30L) {
+            controller.evaluate(snapshot(atMs = second * 1_000L, pingMs = 380L, minRttMs = 160L))
+        }
+        assertEquals(AdaptiveNetworkState.DEGRADED, controller.currentDecision.networkState)
+
+        // RTT снизился до 210 мс (выше порога выхода 200 мс)
+        for (second in 31L..60L) {
+            controller.evaluate(snapshot(atMs = second * 1_000L, pingMs = 210L, minRttMs = 120L))
+        }
+        assertEquals(AdaptiveNetworkState.DEGRADED, controller.currentDecision.networkState)
+
+        // RTT снизился до 180 мс (ниже 200 мс) и кулдаун 30с истёк -> вход в RECOVERING
+        for (second in 61L..75L) {
+            controller.evaluate(snapshot(atMs = second * 1_000L, pingMs = 180L, minRttMs = 120L))
+        }
+        assertEquals(AdaptiveNetworkState.RECOVERING, controller.currentDecision.networkState)
+    }
+
+    @Test
+    fun `explicit tcp mode bypasses adaptive cooldown`() {
+        val controller = AdaptiveNetworkPolicyController(initialPoolSize = 2)
+        controller.evaluate(snapshot(atMs = 0L))
+
+        val off = controller.evaluate(snapshot(atMs = 1_000L, mode = TcpNoDelayMode.OFF), force = true)
+        val on = controller.evaluate(snapshot(atMs = 1_001L, mode = TcpNoDelayMode.ON), force = true)
+
+        assertFalse(off.recommendedTcpNoDelay)
+        assertTrue(on.recommendedTcpNoDelay)
+        assertEquals(3L, on.revision)
+    }
+
+    @Test
+    fun `thermal qos clamp is part of the same effective decision`() {
+        val controller = AdaptiveNetworkPolicyController(initialPoolSize = 4)
+        val severe = controller.evaluate(
+            snapshot(
+                atMs = 0L,
+                throughputBps = 8_000_000L,
+                qos = QoSThrottleLevel.SEVERE
+            ),
+            force = true
         )
 
-        // GOOD
-        assertEquals(
-            ConnectionQuality.GOOD,
-            NetworkConditionEvaluator.evaluateConnectionQuality(smoothedPingMs = 150L, jitterMs = 45L, consecutiveFailures = 0, successRatePercent = 90)
-        )
+        assertEquals(1, severe.recommendedPoolSize)
+        assertEquals(AdaptiveNetworkPolicyController.BUFFER_SIZE_ECO, severe.recommendedBufferSizeBytes)
+    }
 
-        // MODERATE
-        assertEquals(
-            ConnectionQuality.MODERATE,
-            NetworkConditionEvaluator.evaluateConnectionQuality(smoothedPingMs = 300L, jitterMs = 45L, consecutiveFailures = 0, successRatePercent = 70)
-        )
+    @Test
+    fun `quality classifier remains diagnostic and deterministic`() {
+        assertEquals(ConnectionQuality.EXCELLENT, NetworkQualityClassifier.evaluate(50L, 15L, 0, 100))
+        assertEquals(ConnectionQuality.GOOD, NetworkQualityClassifier.evaluate(150L, 45L, 0, 90))
+        assertEquals(ConnectionQuality.MODERATE, NetworkQualityClassifier.evaluate(300L, 45L, 0, 70))
+        assertEquals(ConnectionQuality.POOR, NetworkQualityClassifier.evaluate(450L, 120L, 0, 50))
+        assertEquals(ConnectionQuality.OFFLINE, NetworkQualityClassifier.evaluate(50L, 10L, 3, 100))
+    }
 
-        // POOR
-        assertEquals(
-            ConnectionQuality.POOR,
-            NetworkConditionEvaluator.evaluateConnectionQuality(smoothedPingMs = 450L, jitterMs = 120L, consecutiveFailures = 0, successRatePercent = 50)
-        )
+    @Test
+    fun `service and ui consume the core decision instead of evaluating policy`() {
+        val serviceSource = File(
+            "..",
+            "app/src/main/java/com/mirrly/tgproxy/service/ProxyForegroundService.kt"
+        ).canonicalFile.readText()
+        val uiSource = File(
+            "..",
+            "app/src/main/java/com/mirrly/tgproxy/ui/SettingsScreen.kt"
+        ).canonicalFile.readText()
+        val duplicateEvaluator = File(
+            "..",
+            "app/src/main/java/com/mirrly/tgproxy/service/NetworkConditionEvaluator.kt"
+        ).canonicalFile
 
-        // OFFLINE on 3 failures
-        assertEquals(
-            ConnectionQuality.OFFLINE,
-            NetworkConditionEvaluator.evaluateConnectionQuality(smoothedPingMs = 50L, jitterMs = 10L, consecutiveFailures = 3, successRatePercent = 100)
-        )
+        assertFalse(duplicateEvaluator.exists())
+        assertFalse(serviceSource.contains("NetworkConditionEvaluator.evaluate"))
+        assertFalse(uiSource.contains("NetworkConditionEvaluator.evaluate"))
+        assertTrue(uiSource.contains("server.adaptiveNetworkDecision.collectAsState()"))
+        assertTrue(uiSource.contains("server.setTcpNoDelayMode(mode)"))
     }
 }

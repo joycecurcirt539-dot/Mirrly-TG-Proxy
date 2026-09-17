@@ -78,8 +78,8 @@ object HumanLogTranslator {
                 val code = Regex("""\b-?\d+\b""").find(msg)?.value ?: ""
                 if (code.isNotEmpty()) "Ошибка запуска MTProto движка (код: $code)" else "Ошибка запуска MTProto движка"
             }
-            msg.contains("setPoolSize() не удался", ignoreCase = true) || msg.contains("setPoolSize failed", ignoreCase = true) -> {
-                "Ошибка изменения размера пула сокетов, выполняем перезапуск..."
+            msg.contains("SetMtprotoStandbyPerActiveSlot", ignoreCase = true) && msg.contains("не удался", ignoreCase = true) -> {
+                "Не удалось изменить MTProto standby без перезапуска"
             }
             msg.contains("Код ответа нативной библиотеки", ignoreCase = true) || msg.contains("Native proxy returned code", ignoreCase = true) -> {
                 val code = Regex("""\b-?\d+\b""").find(msg)?.value ?: ""

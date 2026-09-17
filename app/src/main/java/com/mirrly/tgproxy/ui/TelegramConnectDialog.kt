@@ -17,6 +17,7 @@
  */
 
 package com.mirrly.tgproxy.ui
+import androidx.compose.ui.res.stringResource
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -100,7 +101,7 @@ fun TelegramConnectDialog(
                     border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
                 ) {
                     Text(
-                        text = "ВЫБОР ПРОТОКОЛА ДЛЯ TELEGRAM",
+                        text = stringResource(R.string.tg_connect_dialog_category),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = ActiveGreenLed,
@@ -110,7 +111,7 @@ fun TelegramConnectDialog(
                 }
 
                 Text(
-                    text = "Подключение к Telegram",
+                    text = stringResource(R.string.tg_connect_dialog_title),
                     fontSize = 21.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite,
@@ -118,14 +119,14 @@ fun TelegramConnectDialog(
                 )
 
                 Text(
-                    text = "Выберите подходящий протокол под вашу текущую задачу:",
+                    text = stringResource(R.string.tg_connect_dialog_subtitle),
                     fontSize = 13.sp,
                     color = TextWhite.copy(alpha = 0.85f),
                     textAlign = TextAlign.Center,
                     lineHeight = 18.sp
                 )
 
-                // ─── CARD 1: MTProto Proxy (Рекомендуется для чатов) ───
+                // ─── CARD 1: MTProto Proxy (Recommended for chats) ───
                 val isMtActive = !app.config.isSocks5Mode
                 Surface(
                     shape = RoundedCornerShape(18.dp),
@@ -152,7 +153,7 @@ fun TelegramConnectDialog(
                                     modifier = Modifier.size(8.dp)
                                 ) {}
                                 Text(
-                                    text = "MTProto Proxy",
+                                    text = stringResource(R.string.tg_connect_proto_mtproto),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = TextWhite
@@ -165,7 +166,7 @@ fun TelegramConnectDialog(
                                 border = BorderStroke(1.dp, MtprotoAccent.copy(alpha = 0.4f))
                             ) {
                                 Text(
-                                    text = if (isMtActive) "АКТИВЕН • РЕКОМЕНДУЕТСЯ" else "РЕКОМЕНДУЕТСЯ",
+                                    text = if (isMtActive) stringResource(R.string.tg_connect_mtproto_badge_active) else stringResource(R.string.tg_connect_mtproto_badge),
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Black,
                                     color = MtprotoAccent,
@@ -175,7 +176,7 @@ fun TelegramConnectDialog(
                         }
 
                         Text(
-                            text = "Идеально для чатов, каналов и 4K-медиа. Максимальная скорость, пул WsPool и минимальный расход батареи.",
+                            text = stringResource(R.string.tg_connect_mtproto_desc),
                             fontSize = 12.5.sp,
                             color = TextWhite.copy(alpha = 0.78f),
                             lineHeight = 17.sp
@@ -206,7 +207,7 @@ fun TelegramConnectDialog(
                                 border = BorderStroke(1.dp, MtprotoAccent.copy(alpha = 0.6f)),
                                 modifier = Modifier.weight(1.3f).height(42.dp)
                             ) {
-                                Text("В Telegram", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(stringResource(R.string.tg_connect_btn_open_tg), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
 
                             OutlinedButton(
@@ -214,19 +215,19 @@ fun TelegramConnectDialog(
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("Telegram MTProto", mtprotoUrl))
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    Toast.makeText(context, "MTProto ссылка скопирована!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.tg_connect_toast_mtproto_copied), Toast.LENGTH_SHORT).show()
                                 },
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
                                 modifier = Modifier.weight(1f).height(42.dp)
                             ) {
-                                Text("Копировать", color = TextWhite, fontSize = 12.sp)
+                                Text(stringResource(R.string.action_copy), color = TextWhite, fontSize = 12.sp)
                             }
                         }
                     }
                 }
 
-                // ─── CARD 2: SOCKS5 Proxy (Для звонков) ───
+                // ─── CARD 2: SOCKS5 Proxy (For calls) ───
                 val isSocks5Active = app.config.isSocks5Mode
                 Surface(
                     shape = RoundedCornerShape(18.dp),
@@ -253,7 +254,7 @@ fun TelegramConnectDialog(
                                     modifier = Modifier.size(8.dp)
                                 ) {}
                                 Text(
-                                    text = "SOCKS5 Proxy",
+                                    text = stringResource(R.string.tg_connect_proto_socks5),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = TextWhite
@@ -266,7 +267,7 @@ fun TelegramConnectDialog(
                                 border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.5f))
                             ) {
                                 Text(
-                                    text = if (isSocks5Active) "АКТИВЕН • БЕТА" else "БЕТА • ДЛЯ ЗВОНКОВ",
+                                    text = if (isSocks5Active) stringResource(R.string.tg_connect_socks5_badge_active) else stringResource(R.string.tg_connect_socks5_badge),
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Black,
                                     color = Socks5Accent,
@@ -276,7 +277,7 @@ fun TelegramConnectDialog(
                         }
 
                         Text(
-                            text = "Поддерживает обход блокировок аудио- и видеозвонков через TCP-туннель. Режим находится в стадии БЕТА-тестирования, стабильность работы не гарантируется.",
+                            text = stringResource(R.string.tg_connect_socks5_desc),
                             fontSize = 12.5.sp,
                             color = TextWhite.copy(alpha = 0.78f),
                             lineHeight = 17.sp
@@ -295,13 +296,13 @@ fun TelegramConnectDialog(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "Логин: ${app.config.socks5Username.ifEmpty { "—" }}",
+                                        text = stringResource(R.string.tg_connect_socks5_login_prefix, app.config.socks5Username.ifEmpty { "—" }),
                                         fontSize = 11.sp,
                                         color = TextWhite.copy(alpha = 0.85f),
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
-                                        text = "Пароль: ${if (app.config.socks5Password.isNotEmpty()) "••••••••" else "—"}",
+                                        text = stringResource(R.string.tg_connect_socks5_pass_prefix, if (app.config.socks5Password.isNotEmpty()) "••••••••" else "—"),
                                         fontSize = 11.sp,
                                         color = TextWhite.copy(alpha = 0.85f),
                                         fontWeight = FontWeight.Medium
@@ -342,7 +343,7 @@ fun TelegramConnectDialog(
                                 border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.6f)),
                                 modifier = Modifier.weight(1.3f).height(42.dp)
                             ) {
-                                Text("В Telegram", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(stringResource(R.string.tg_connect_btn_open_tg), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
 
                             OutlinedButton(
@@ -350,13 +351,13 @@ fun TelegramConnectDialog(
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("Telegram SOCKS5", socks5Url))
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    Toast.makeText(context, "SOCKS5 ссылка скопирована!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.tg_connect_toast_socks5_copied), Toast.LENGTH_SHORT).show()
                                 },
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
                                 modifier = Modifier.weight(1f).height(42.dp)
                             ) {
-                                Text("Копировать", color = TextWhite, fontSize = 12.sp)
+                                Text(stringResource(R.string.action_copy), color = TextWhite, fontSize = 12.sp)
                             }
                         }
                     }
@@ -383,7 +384,7 @@ fun TelegramConnectDialog(
                     .height(48.dp)
             ) {
                 Text(
-                    text = "Закрыть",
+                    text = stringResource(R.string.action_close),
                     fontSize = 14.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite

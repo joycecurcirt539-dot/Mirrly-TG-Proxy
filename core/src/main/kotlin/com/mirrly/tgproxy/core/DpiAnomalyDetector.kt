@@ -99,7 +99,15 @@ object DpiAnomalyDetector {
             return FailureType.RATE_LIMITED_429
         }
 
-        // 5. Проверка потери сетевого интерфейса
+        // 5. Проверка неподдерживаемого семейства адресов (EAFNOSUPPORT / IPv4 на IPv6-only)
+        if (fullMessage.contains("EAFNOSUPPORT", ignoreCase = true) ||
+            fullMessage.contains("Address family not supported", ignoreCase = true) ||
+            (HappyEyeballsEngine.isIpv6OnlyNetwork() && (fullMessage.contains("ENETUNREACH", ignoreCase = true) || fullMessage.contains("Network is unreachable", ignoreCase = true)))
+        ) {
+            return FailureType.UNSUPPORTED_NETWORK_FAMILY
+        }
+
+        // 6. Проверка потери сетевого интерфейса
         if (fullMessage.contains("ENETUNREACH", ignoreCase = true) ||
             fullMessage.contains("Network is unreachable", ignoreCase = true) ||
             fullMessage.contains("NetworkLost", ignoreCase = true)

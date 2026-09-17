@@ -64,7 +64,7 @@ object UpdateManager {
             val lastNotifiedVersion = prefs.getString(KEY_LAST_NOTIFIED_VERSION, null)
             val cachedVersion = prefs.getString(KEY_CACHED_VERSION, null)
 
-            val isAppUpgraded = lastAppVersion != currentAppVersion
+            val isAppUpgraded = UpdateChecker.cleanVersionString(lastAppVersion ?: "") != UpdateChecker.cleanVersionString(currentAppVersion)
             val isNotifiedNotNewer = !lastNotifiedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(lastNotifiedVersion, currentAppVersion)
             val isCachedNotNewer = !cachedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(cachedVersion, currentAppVersion)
 
@@ -124,7 +124,7 @@ object UpdateManager {
         val lastNotifiedVersion = prefs.getString(KEY_LAST_NOTIFIED_VERSION, null)
         val cachedVersion = prefs.getString(KEY_CACHED_VERSION, null)
 
-        val isAppUpgraded = lastAppVersion != currentAppVersion
+        val isAppUpgraded = UpdateChecker.cleanVersionString(lastAppVersion ?: "") != UpdateChecker.cleanVersionString(currentAppVersion)
         val isNotifiedNotNewer = !lastNotifiedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(lastNotifiedVersion, currentAppVersion)
         val isCachedNotNewer = !cachedVersion.isNullOrBlank() && !UpdateChecker.isVersionNewer(cachedVersion, currentAppVersion)
 
@@ -283,7 +283,7 @@ object UpdateManager {
                     val lastNotifiedTimeMs = prefs.getLong(KEY_LAST_NOTIFIED_TIME, 0L)
                     val now = System.currentTimeMillis()
 
-                    val isNewVersion = lastNotifiedVersion != info.versionName
+                    val isNewVersion = UpdateChecker.cleanVersionString(lastNotifiedVersion ?: "") != UpdateChecker.cleanVersionString(info.versionName)
                     val isReminderDue = (now - lastNotifiedTimeMs) >= NOTIFICATION_REMINDER_INTERVAL_MS
 
                     if (notifyIfFound && (isNewVersion || isReminderDue)) {

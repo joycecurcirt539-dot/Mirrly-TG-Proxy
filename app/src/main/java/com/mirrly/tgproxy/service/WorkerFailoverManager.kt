@@ -21,10 +21,14 @@ package com.mirrly.tgproxy.service
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.CircuitState
+import com.mirrly.tgproxy.core.EstablishmentStage
 import com.mirrly.tgproxy.core.FailureType
 import com.mirrly.tgproxy.core.WorkerCircuitRecord
 import com.mirrly.tgproxy.core.WorkerProfile
 import com.mirrly.tgproxy.core.WorkerStatus
+import com.mirrly.tgproxy.core.WorkerSwitchPolicy
+import com.mirrly.tgproxy.core.PingProbeResult
+import com.mirrly.tgproxy.core.PingSnapshot
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -54,11 +58,20 @@ data class FailoverState(
 )
 
 object WorkerFailoverManager {
+    const val MIN_FAILOVER_COOLDOWN_MS = 30_000L
+    const val ANTI_PING_PONG_WINDOW_MS = 60_000L
+
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var recoveryJob: Job? = null
     private val mutex = Mutex()
 
     private val circuitRecords = ConcurrentHashMap<String, WorkerCircuitRecord>()
+    private val switchPolicy = WorkerSwitchPolicy()
+    private var lastObservationMs = Long.MIN_VALUE
+
+    @Volatile
+    var lastFailoverTimestampMs: Long = 0L
+        private set
 
     private val _failoverState = MutableStateFlow(FailoverState())
     val failoverState: StateFlow<FailoverState> = _failoverState.asStateFlow()
@@ -80,18 +93,18 @@ object WorkerFailoverManager {
         if (!hasOpenCircuits) return
 
         recoveryJob = scope.launch {
-            AppLogger.d("WorkerFailover", "Запущен адаптивный Recovery Watchdog для проверки узлов в карантине")
+            AppLogger.d("WorkerFailover", "Started adaptive Recovery Watchdog to check quarantined nodes")
             while (isActive) {
                 delay(15000)
 
                 if (!app.proxyServer.isRunning || !app.config.isSocks5Mode || !app.prefsManager.isAutoFailoverEnabled()) {
-                    AppLogger.d("WorkerFailover", "Служба прокси остановлена или failover отключен. Остановка Watchdog.")
+                    AppLogger.d("WorkerFailover", "Proxy service stopped or failover disabled. Stopping Watchdog.")
                     break
                 }
 
                 val openRecords = circuitRecords.values.filter { it.state == CircuitState.OPEN || it.state == CircuitState.HALF_OPEN }
                 if (openRecords.isEmpty()) {
-                    AppLogger.d("WorkerFailover", "Все узлы в статусе CLOSED. Watchdog завершил работу.")
+                    AppLogger.d("WorkerFailover", "All nodes in CLOSED state. Watchdog finished.")
                     break
                 }
 
@@ -99,7 +112,7 @@ object WorkerFailoverManager {
 
                 val remainingOpen = circuitRecords.values.filter { it.state == CircuitState.OPEN || it.state == CircuitState.HALF_OPEN }
                 if (remainingOpen.isEmpty()) {
-                    AppLogger.i("WorkerFailover", "Все сбойные узлы успешно восстановились. Watchdog завершил работу.")
+                    AppLogger.i("WorkerFailover", "All failed nodes successfully recovered. Watchdog finished.")
                     break
                 }
             }
@@ -116,99 +129,70 @@ object WorkerFailoverManager {
 
     fun getAllCircuitRecords(): Map<String, WorkerCircuitRecord> = circuitRecords.toMap()
 
-    /**
-     * Обработка сетевого сбоя от PingEngine на активном воркере.
-     */
-    suspend fun handleActiveWorkerFailure(failureType: FailureType, domain: String) = mutex.withLock {
+    /** Preflight diagnostics may update health, but are not a continuous probe series. */
+    fun handleActiveWorkerSuccess(domain: String, rttMs: Long) {
         val app = MirrlyApplication.instance
-        if (!app.config.isSocks5Mode) return@withLock
+        val worker = (app.prefsManager.getDeveloperWorkers() + app.prefsManager.getCustomWorkers())
+            .find { it.id == app.prefsManager.getActiveWorkerId() && it.domain.equals(domain, true) }
+            ?: return
+        circuitRecords.getOrPut(worker.id) {
+            WorkerCircuitRecord(workerId = worker.id, domain = worker.domain)
+        }.recordSuccess(rttMs)
+    }
+
+    /** One ordered observation path for both successful and failed probes. */
+    suspend fun handleActiveWorkerProbe(
+        probe: PingProbeResult,
+        domain: String,
+        snapshot: PingSnapshot,
+        networkGeneration: Long,
+        observedAtMs: Long
+    ) = mutex.withLock {
+        val app = MirrlyApplication.instance
+        if (!app.proxyServer.isRunning || !app.config.isSocks5Mode) return@withLock
         if (!app.prefsManager.isAutoFailoverEnabled()) return@withLock
+        if (networkGeneration != app.proxyServer.currentProfileGeneration.get()) return@withLock
+        if (observedAtMs <= lastObservationMs) return@withLock
 
         val activeId = app.prefsManager.getActiveWorkerId()
         val allWorkers = app.prefsManager.getDeveloperWorkers() + app.prefsManager.getCustomWorkers()
-        val activeWorker = allWorkers.find { it.id == activeId || it.domain.equals(domain, ignoreCase = true) } ?: return@withLock
-
-        // При полном отключении сетевого интерфейса (NETWORK_LOST) не наказываем воркер и не запускаем ротацию
-        if (failureType == FailureType.NETWORK_LOST) {
-            AppLogger.d("WorkerFailover", "Сетевой интерфейс отключен (NETWORK_LOST). Failover приостановлен до появления сети.")
+        // A late result from the previous worker must never penalize the new one.
+        val activeWorker = allWorkers.find {
+            it.id == activeId && it.domain.equals(domain, ignoreCase = true)
+        } ?: return@withLock
+        lastObservationMs = observedAtMs
+        val environment = app.proxyServer.effectiveNetworkProfile
+        if (probe.failureType == FailureType.NETWORK_LOST || !environment.validated || environment.suspended) {
+            switchPolicy.observe(activeId, networkGeneration, false, observedAtMs)
             return@withLock
         }
 
-        val record = circuitRecords.getOrPut(activeWorker.id) {
-            WorkerCircuitRecord(workerId = activeWorker.id, domain = activeWorker.domain)
-        }
-
-        record.recordFailure(failureType)
-
-        if (record.state == CircuitState.OPEN) {
-            val isDpi = com.mirrly.tgproxy.core.DpiAnomalyDetector.isDpiOrCensorship(failureType)
-            val logLabel = if (isDpi) "Instant Deep Failover (DPI/Лимит)" else "Circuit Breaker"
-            AppLogger.w(
-                "WorkerFailover",
-                "$logLabel сработал для '${activeWorker.name}' (${failureType.description}). Мгновенный переход на резервный узел..."
-            )
-            triggerFailover(activeWorker, failureType, allWorkers)
-            startRecoveryWatchdogIfNeeded()
-        }
-    }
-
-    /**
-     * Обработка успешного замера задержки на активном воркере.
-     */
-    fun handleActiveWorkerSuccess(domain: String, rttMs: Long) {
-        val app = MirrlyApplication.instance
-        if (!app.config.isSocks5Mode) return
-        val activeId = app.prefsManager.getActiveWorkerId()
         val record = circuitRecords.getOrPut(activeId) {
-            WorkerCircuitRecord(workerId = activeId, domain = domain)
+            WorkerCircuitRecord(workerId = activeId, domain = activeWorker.domain)
         }
-        record.recordSuccess(rttMs)
-    }
+        if (probe.success) record.recordSuccess(probe.rawRttMs)
+        else record.recordFailure(probe.failureType, networkGeneration = networkGeneration)
 
-    /**
-     * Предиктивная обработка деградации активного воркера (рост тренда задержки и Bufferbloat).
-     * Выполняет упреждающее переключение на здоровый резервный узел без ожидания жесткого сбоя связи.
-     */
-    suspend fun handleActiveWorkerDegradation(domain: String, currentRtt: Long, minRtt: Long) = mutex.withLock {
-        val app = MirrlyApplication.instance
-        if (!app.config.isSocks5Mode) return@withLock
-        if (!app.prefsManager.isAutoFailoverEnabled()) return@withLock
+        val degraded = !probe.success || snapshot.smoothedPingMs > 350L ||
+            snapshot.jitterMs > 60L || snapshot.bufferbloatMs >= 120L || environment.congested
+        if (!switchPolicy.observe(activeId, networkGeneration, degraded, observedAtMs)) return@withLock
 
-        val activeId = app.prefsManager.getActiveWorkerId()
-        val allWorkers = app.prefsManager.getDeveloperWorkers() + app.prefsManager.getCustomWorkers()
-        val activeWorker = allWorkers.find { it.id == activeId || it.domain.equals(domain, ignoreCase = true) } ?: return@withLock
-
-        // Ищем в пуле доступного кандидата с существенно лучшим качеством (RTT < 0.70 * currentRtt)
-        val candidates = allWorkers.filter { it.id != activeWorker.id }
-        var bestAlternative: WorkerProfile? = null
-        var highestScore = -1.0
-
-        for (candidate in candidates) {
-            val rec = circuitRecords[candidate.id]
-            if (rec != null && rec.isAvailableForRouting) {
-                val candidateRtt = rec.lastProbeRttMs ?: 120L
-                if (candidateRtt < (currentRtt * 0.70).toLong()) {
-                    val score = rec.computeQualityScore(isCustomWorker = !candidate.isDeveloperWorker)
-                    if (score > highestScore) {
-                        highestScore = score
-                        bestAlternative = candidate
-                    }
-                }
+        if (!probe.success && record.state == CircuitState.OPEN) {
+            triggerFailover(activeWorker, probe.failureType, allWorkers)
+        } else if (probe.success) {
+            // Only measured, meaningfully faster candidates may replace a working route.
+            val better = allWorkers.filter { candidate ->
+                val rec = circuitRecords[candidate.id]
+                val rtt = rec?.lastProbeRttMs
+                candidate.id != activeId && rec?.isAvailableForRouting == true &&
+                    rtt != null && rtt > 0 && rtt < snapshot.smoothedPingMs * 0.70 &&
+                    switchPolicy.canSelect(candidate.id, observedAtMs)
+            }.maxByOrNull { circuitRecords[it.id]!!.computeQualityScore(!it.isDeveloperWorker) }
+            if (better != null) {
+                triggerFailover(activeWorker, FailureType.PREDICTIVE_DEGRADATION, listOf(better))
             }
         }
-
-        if (bestAlternative != null) {
-            AppLogger.w(
-                "WorkerFailover",
-                "Предиктивный триггер: Зафиксирована деградация узла '${activeWorker.name}' (RTT: ${currentRtt}мс, Min-RTT: ${minRtt}мс). Упреждающий переход на '${bestAlternative.name}'..."
-            )
-            val record = circuitRecords.getOrPut(activeWorker.id) {
-                WorkerCircuitRecord(workerId = activeWorker.id, domain = activeWorker.domain)
-            }
-            record.recordFailure(FailureType.PREDICTIVE_DEGRADATION, customCooldownMs = 45_000L)
-            triggerFailover(activeWorker, FailureType.PREDICTIVE_DEGRADATION, allWorkers)
-            startRecoveryWatchdogIfNeeded()
-        }
+        startRecoveryWatchdogIfNeeded()
     }
 
     private fun triggerFailover(
@@ -217,21 +201,30 @@ object WorkerFailoverManager {
         allWorkers: List<WorkerProfile>
     ) {
         val app = MirrlyApplication.instance
-        val candidates = allWorkers.filter { it.id != brokenWorker.id }
+        val now = System.nanoTime() / 1_000_000L
+        val candidates = allWorkers.filter {
+            it.id != brokenWorker.id && switchPolicy.canSelect(it.id, now)
+        }
 
         // Вычисляем рейтинг кандидатов по формуле Quality Score
         var bestWorker: WorkerProfile? = null
         var highestScore = -1.0
 
-        for (candidate in candidates) {
-            val rec = circuitRecords.getOrPut(candidate.id) {
-                WorkerCircuitRecord(workerId = candidate.id, domain = candidate.domain)
-            }
-            if (rec.state != CircuitState.OPEN) {
-                val score = rec.computeQualityScore(isCustomWorker = !candidate.isDeveloperWorker)
-                if (score > highestScore) {
-                    highestScore = score
-                    bestWorker = candidate
+        val hotReserveCandidate = PredictivePreWarmManager.getNextFallbackWorker(brokenWorker.id, candidates)
+        if (hotReserveCandidate != null && circuitRecords[hotReserveCandidate.id]?.state != CircuitState.OPEN) {
+            bestWorker = hotReserveCandidate
+            AppLogger.i("WorkerFailover", "Failover: selected pre-warmed hot reserve worker '${bestWorker.name}'")
+        } else {
+            for (candidate in candidates) {
+                val rec = circuitRecords.getOrPut(candidate.id) {
+                    WorkerCircuitRecord(workerId = candidate.id, domain = candidate.domain)
+                }
+                if (rec.state != CircuitState.OPEN) {
+                    val score = rec.computeQualityScore(isCustomWorker = !candidate.isDeveloperWorker)
+                    if (score > highestScore) {
+                        highestScore = score
+                        bestWorker = candidate
+                    }
                 }
             }
         }
@@ -241,6 +234,16 @@ object WorkerFailoverManager {
         }
 
         if (bestWorker != null) {
+            val selected = bestWorker
+            val switched = app.proxyServer.networkStabilizationGate.tryChange {
+                if (app.prefsManager.getActiveWorkerId() != brokenWorker.id) return@tryChange false
+                app.prefsManager.setActiveWorkerId(selected.id)
+                switchPolicy.switched(brokenWorker.id, now)
+                lastFailoverTimestampMs = System.currentTimeMillis()
+                true
+            }
+            if (!switched) return
+            app.proxyServer.adaptiveController.beginRecovery(System.nanoTime() / 1_000_000L)
             val event = FailoverEvent(
                 fromWorkerName = brokenWorker.name,
                 toWorkerName = bestWorker.name,
@@ -259,34 +262,62 @@ object WorkerFailoverManager {
 
             AppLogger.i(
                 "WorkerFailover",
-                "Failover: Бесшовное переключение с '${brokenWorker.name}' на '${bestWorker.name}' (${bestWorker.domain})"
+                "Failover: Seamless switch from '${brokenWorker.name}' to '${bestWorker.name}' (${bestWorker.domain})"
             )
 
-            // Переключаем активный домен без перезапуска сокетов Telegram
-            app.prefsManager.setActiveWorkerId(bestWorker.id)
         } else {
-            AppLogger.e("WorkerFailover", "Failover: Все доступные воркеры в пуле находятся в состоянии карантина!")
+            AppLogger.e("WorkerFailover", "Failover: All available workers in pool are in quarantine!")
         }
     }
 
     private suspend fun checkAndProbeRecoveredWorkers() {
         val app = MirrlyApplication.instance
         val allWorkers = app.prefsManager.getDeveloperWorkers() + app.prefsManager.getCustomWorkers()
+        val currentNetGen = app.proxyServer.currentProfileGeneration.get()
 
         for (worker in allWorkers) {
             val record = circuitRecords.getOrPut(worker.id) {
                 WorkerCircuitRecord(workerId = worker.id, domain = worker.domain)
             }
 
-            if (record.checkCooldownExpiration()) {
-                val res = WorkerPingTester.pingWorker(worker.domain)
-                if (res.first == WorkerStatus.ONLINE && res.second != null) {
-                    record.recordSuccess(res.second!!)
-                    AppLogger.i("WorkerFailover", "Воркер '${worker.name}' успешно восстановился (RTT: ${res.second}мс). Выведен из карантина.")
-                } else {
-                    record.recordFailure(if (res.first == WorkerStatus.RATE_LIMITED_429) FailureType.RATE_LIMITED_429 else FailureType.CONNECT_TIMEOUT)
+            if (record.checkCooldownExpiration(currentNetGen)) {
+                // В состоянии HALF_OPEN допускается ровно ОДНА пробная попытка, предотвращая толпу
+                if (!record.tryAcquireHalfOpenTrial()) {
+                    continue
+                }
+
+                try {
+                    // Проверка реального контракта эндпоинта воркера:
+                    // Обычный root HTTP 200 (например, HTML стороннего сайта) категорически НЕ закрывает circuit /tcp-v2
+                    val requireRelayContract = record.failureStage == EstablishmentStage.READY ||
+                            record.failureStage == EstablishmentStage.WSS ||
+                            record.lastFailureReason == FailureType.RELAY_ACK_FAILED
+
+                    val res = WorkerPingTester.probeWorkerRelayContract(worker.domain)
+                    if (res.first == WorkerStatus.ONLINE && res.second != null) {
+                        record.recordSuccess(res.second!!)
+                        AppLogger.i("WorkerFailover", "Worker '${worker.name}' confirmed relay contract (RTT: ${res.second}ms). Released from quarantine.")
+                    } else {
+                        val fType = when (res.first) {
+                            WorkerStatus.RATE_LIMITED_429 -> FailureType.RATE_LIMITED_429
+                            else -> if (requireRelayContract) FailureType.RELAY_ACK_FAILED else FailureType.CONNECT_TIMEOUT
+                        }
+                        record.recordFailure(fType, networkGeneration = currentNetGen)
+                    }
+                } catch (_: Exception) {
+                    record.releaseHalfOpenTrial()
                 }
             }
         }
+    }
+
+    /**
+     * Экстренный принудительный разрыв всех текущих сессий (Emergency Kill).
+     * Не вызывается при штатном failover; служит отдельной операторской или аварийной командой.
+     */
+    fun emergencyKillExistingFlows(reason: String = "manual_emergency_kill") {
+        AppLogger.w("WorkerFailover", "Emergency kill of all active flows requested (reason=$reason)")
+        val app = MirrlyApplication.instance
+        app.proxyServer.emergencyKillAllSockets(reason)
     }
 }

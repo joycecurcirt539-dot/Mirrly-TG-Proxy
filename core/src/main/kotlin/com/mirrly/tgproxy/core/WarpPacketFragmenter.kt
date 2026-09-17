@@ -18,6 +18,7 @@
 
 package com.mirrly.tgproxy.core
 
+import org.bouncycastle.crypto.digests.Blake2sDigest
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
@@ -27,6 +28,7 @@ import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.SecureRandom
+import java.util.Base64
 
 /**
  * Движок фрагментации и десинхронизации первого UDP-пакета (Handshake Initiation).
@@ -46,12 +48,53 @@ object WarpPacketFragmenter {
     private val secureRandom = SecureRandom()
     private const val WIREGUARD_INITIATION_SIZE = 148
     private const val DEFAULT_IPV4_SPLIT_OFFSET = 64
+    const val CLOUDFLARE_WARP_PEER_PUBKEY_B64 = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
 
     /**
-     * Формирует тестовый 148-байтный пакет инициализации WireGuard.
+     * Вычисляет MAC1 для пакета WireGuard Handshake Initiation согласно Noise IKpsk2 / RFC 7693.
+     * Формула:
+     * mac1_key = BLAKE2s-256("mac1----" || peerPublicKey)
+     * mac1 = BLAKE2s-128(key = mac1_key, data = packet[0..116])
+     */
+    fun calculateWireGuardMac1(packet116: ByteArray, peerPublicKey: ByteArray): ByteArray {
+        val mac1KeyInput = ByteArray(8 + 32)
+        System.arraycopy("mac1----".toByteArray(Charsets.US_ASCII), 0, mac1KeyInput, 0, 8)
+        System.arraycopy(peerPublicKey, 0, mac1KeyInput, 8, 32)
+
+        val keyDigest = Blake2sDigest(256)
+        keyDigest.update(mac1KeyInput, 0, mac1KeyInput.size)
+        val mac1Key = ByteArray(32)
+        keyDigest.doFinal(mac1Key, 0)
+
+        val macDigest = Blake2sDigest(mac1Key, 16, null, null)
+        macDigest.update(packet116, 0, 116)
+        val mac1 = ByteArray(16)
+        macDigest.doFinal(mac1, 0)
+        return mac1
+    }
+
+    fun calculateWireGuardMac1(packet116: ByteArray, peerPublicKeyBase64: String): ByteArray {
+        val pubKeyBytes = try {
+            Base64.getDecoder().decode(peerPublicKeyBase64)
+        } catch (_: Exception) {
+            ByteArray(32)
+        }
+        return calculateWireGuardMac1(packet116, pubKeyBytes)
+    }
+
+    /**
+     * Формирует тестовый 148-байтный пакет инициализации WireGuard с криптографически валидным MAC1.
      * Используется для проверки доступности Anycast-эндпоинтов Cloudflare.
      */
-    fun createWireGuardInitiationProbe(): ByteArray {
+    fun createWireGuardInitiationProbe(
+        peerPublicKeyBase64: String = CLOUDFLARE_WARP_PEER_PUBKEY_B64
+    ): ByteArray {
+        val peerPub = try {
+            Base64.getDecoder().decode(peerPublicKeyBase64)
+        } catch (_: Exception) {
+            Base64.getDecoder().decode(CLOUDFLARE_WARP_PEER_PUBKEY_B64)
+        }
+
         val buf = ByteBuffer.allocate(WIREGUARD_INITIATION_SIZE).order(ByteOrder.LITTLE_ENDIAN)
         // Message Type: 1 (Initiation)
         buf.put(0x01.toByte())
@@ -74,10 +117,13 @@ object WarpPacketFragmenter {
         val timestampCipher = ByteArray(28)
         secureRandom.nextBytes(timestampCipher)
         buf.put(timestampCipher)
-        // MAC1 (16 bytes)
-        val mac1 = ByteArray(16)
-        secureRandom.nextBytes(mac1)
+
+        // MAC1 (16 bytes calculated via BLAKE2s)
+        val packet116 = ByteArray(116)
+        System.arraycopy(buf.array(), 0, packet116, 0, 116)
+        val mac1 = calculateWireGuardMac1(packet116, peerPub)
         buf.put(mac1)
+
         // MAC2 (16 zero bytes)
         buf.put(ByteArray(16))
 

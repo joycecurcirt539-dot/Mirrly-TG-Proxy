@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -85,7 +86,8 @@ fun TunnelSpeedTestScreen(
     val testState by engine.liveState.collectAsState()
     val historyRecords by SpeedTestHistoryManager.historyFlow.collectAsState()
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Тест скорости, 1 = История
+    var selectedTab by remember { mutableIntStateOf(1) } // 0 = Speed Test (in dev), 1 = History
+    var showInDevDialog by remember { mutableStateOf(false) }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
 
     val targetDomain = if (isSocks5) {
@@ -137,7 +139,11 @@ fun TunnelSpeedTestScreen(
                 isSocks5 = isSocks5,
                 onTabSelected = { newTab ->
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    selectedTab = newTab
+                    if (newTab == 0) {
+                        showInDevDialog = true
+                    } else {
+                        selectedTab = newTab
+                    }
                 }
             )
 
@@ -213,7 +219,7 @@ fun TunnelSpeedTestScreen(
                         // 7. Error Notice if test encountered failure
                         if (testState.stage == SpeedTestStage.ERROR && testState.errorDetail != null) {
                             SpeedTestErrorCard(
-                                errorMessage = testState.errorDetail ?: "Ошибка соединения"
+                                errorMessage = testState.errorDetail ?: stringResource(R.string.speed_test_error_conn)
                             )
                         }
 
@@ -273,6 +279,12 @@ fun TunnelSpeedTestScreen(
                 }
             )
         }
+
+        if (showInDevDialog) {
+            SpeedTestInDevDialog(
+                onDismiss = { showInDevDialog = false }
+            )
+        }
     }
 }
 
@@ -299,7 +311,7 @@ private fun SpeedTestSegmentedTabs(
                 .padding(3.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Tab 0: Замер
+            // Tab 0: Measure
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -325,16 +337,16 @@ private fun SpeedTestSegmentedTabs(
                         modifier = Modifier.size(15.dp)
                     )
                     Text(
-                        text = "ЗАМЕР СКОРОСТИ",
-                        fontSize = 11.5.sp,
+                        text = stringResource(R.string.speed_test_tab_test),
+                        fontSize = 10.5.sp,
                         fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
-                        letterSpacing = 0.8.sp,
+                        letterSpacing = 0.6.sp,
                         color = if (selectedTab == 0) TextWhite else TextMuted
                     )
                 }
             }
 
-            // Tab 1: История
+            // Tab 1: History
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -360,7 +372,7 @@ private fun SpeedTestSegmentedTabs(
                         modifier = Modifier.size(15.dp)
                     )
                     Text(
-                        text = "ИСТОРИЯ",
+                        text = stringResource(R.string.speed_test_tab_history),
                         fontSize = 11.5.sp,
                         fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
                         letterSpacing = 0.8.sp,
@@ -395,10 +407,10 @@ private fun SpeedTestPhaseStepper(
     val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
 
     val phases = listOf(
-        Pair(1, "Пинг"),
-        Pair(2, "Входящая"),
-        Pair(3, "Исходящая"),
-        Pair(4, "Итог")
+        Pair(1, stringResource(R.string.speed_test_phase_ping)),
+        Pair(2, stringResource(R.string.speed_test_phase_download)),
+        Pair(3, stringResource(R.string.speed_test_phase_upload)),
+        Pair(4, stringResource(R.string.speed_test_phase_summary))
     )
 
     val activeStep = when (stage) {
@@ -530,7 +542,7 @@ private fun SpeedTestTopBar(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_arrow_left),
-                    contentDescription = "Назад",
+                    contentDescription = stringResource(R.string.action_back),
                     tint = TextWhite,
                     modifier = Modifier.size(20.dp)
                 )
@@ -541,7 +553,7 @@ private fun SpeedTestTopBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "ТЕСТ СКОРОСТИ ТУННЕЛЯ",
+                    text = stringResource(R.string.speed_test_header_title),
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.2.sp,
@@ -612,7 +624,7 @@ private fun SpeedTestHeaderCard(
 
                 Column {
                     Text(
-                        text = "Узел туннелирования",
+                        text = stringResource(R.string.speed_test_tunnel_node),
                         fontSize = 11.sp,
                         color = TextMuted,
                         fontWeight = FontWeight.Medium
@@ -788,7 +800,7 @@ private fun SpeedometerGauge(
                     color = TextWhite
                 )
                 Text(
-                    text = "Мбит / с",
+                    text = stringResource(R.string.speed_test_mbps_unit),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = primaryAccent,
@@ -842,9 +854,9 @@ private fun SpeedMetricsGrid(
         MetricTile(
             modifier = Modifier.weight(1f),
             iconRes = R.drawable.ic_diag_rtt,
-            title = "ПИНГ",
-            value = if (state.pingMs > 0) "${state.pingMs} мс" else "—",
-            subValue = if (state.minPingMs > 0) "Мин: ${state.minPingMs} мс" else "Задержка RTT",
+            title = stringResource(R.string.speed_test_stat_ping),
+            value = if (state.pingMs > 0) stringResource(R.string.speed_test_stat_ping_ms, state.pingMs) else "—",
+            subValue = if (state.minPingMs > 0) stringResource(R.string.speed_test_stat_min_ping, state.minPingMs) else stringResource(R.string.speed_test_stat_rtt_delay),
             accentColor = Color(0xFF38BDF8)
         )
 
@@ -852,9 +864,9 @@ private fun SpeedMetricsGrid(
         MetricTile(
             modifier = Modifier.weight(1f),
             iconRes = R.drawable.ic_diag_jitter,
-            title = "ДЖИТТЕР",
-            value = if (state.pingMs > 0) "±${state.jitterMs} мс" else "—",
-            subValue = if (state.jitterMs <= 15) "Высокая стабильность" else "Вариация RTT",
+            title = stringResource(R.string.speed_test_stat_jitter),
+            value = if (state.pingMs > 0) stringResource(R.string.speed_test_stat_jitter_val, state.jitterMs) else "—",
+            subValue = if (state.jitterMs <= 15) stringResource(R.string.speed_test_stat_high_stability) else stringResource(R.string.speed_test_stat_jitter_variation),
             accentColor = Color(0xFFB388FF)
         )
     }
@@ -867,9 +879,9 @@ private fun SpeedMetricsGrid(
         MetricTile(
             modifier = Modifier.weight(1f),
             iconRes = R.drawable.ic_arrow_down,
-            title = "ВХОДЯЩАЯ",
-            value = if (state.downloadSpeedMbps > 0) "${String.format(Locale.US, "%.1f", state.downloadSpeedMbps)} Мбит/с" else "—",
-            subValue = if (state.downloadedBytes > 0) "${state.downloadedBytes / (1024 * 1024)} МБ получено" else "Канал загрузки",
+            title = stringResource(R.string.speed_test_stat_download),
+            value = if (state.downloadSpeedMbps > 0) stringResource(R.string.speed_test_mbps_compact, String.format(Locale.US, "%.1f", state.downloadSpeedMbps)) else "—",
+            subValue = if (state.downloadedBytes > 0) stringResource(R.string.speed_test_stat_downloaded_mb, state.downloadedBytes / (1024 * 1024)) else stringResource(R.string.speed_test_stat_download_channel),
             accentColor = accentColor
         )
 
@@ -877,9 +889,9 @@ private fun SpeedMetricsGrid(
         MetricTile(
             modifier = Modifier.weight(1f),
             iconRes = R.drawable.ic_arrow_up,
-            title = "ИСХОДЯЩАЯ",
-            value = if (state.uploadSpeedMbps > 0) "${String.format(Locale.US, "%.1f", state.uploadSpeedMbps)} Мбит/с" else "—",
-            subValue = if (state.uploadedBytes > 0) "${state.uploadedBytes / (1024 * 1024)} МБ отправлено" else "Канал отдачи",
+            title = stringResource(R.string.speed_test_stat_upload),
+            value = if (state.uploadSpeedMbps > 0) stringResource(R.string.speed_test_mbps_compact, String.format(Locale.US, "%.1f", state.uploadSpeedMbps)) else "—",
+            subValue = if (state.uploadedBytes > 0) stringResource(R.string.speed_test_stat_uploaded_mb, state.uploadedBytes / (1024 * 1024)) else stringResource(R.string.speed_test_stat_upload_channel),
             accentColor = Color(0xFFFFB703)
         )
     }
@@ -963,7 +975,7 @@ private fun SpeedWaveformCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "ДИНАМИКА СКОРОСТИ В РЕАЛЬНОМ ВРЕМЕНИ",
+                    text = stringResource(R.string.speed_test_chart_header),
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 0.8.sp,
@@ -972,7 +984,7 @@ private fun SpeedWaveformCard(
 
                 val safePeak = if (peakSpeed.isFinite() && peakSpeed >= 0) peakSpeed else 0.0
                 Text(
-                    text = "Пик: ${String.format(Locale.US, "%.1f", safePeak)} Мбит/с",
+                    text = stringResource(R.string.speed_test_chart_peak, String.format(Locale.US, "%.1f", safePeak)),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = accentColor
@@ -1061,7 +1073,7 @@ private fun TelegramSuitabilityCard(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "ОЦЕНКА КАЧЕСТВА КАНАЛА",
+                        text = stringResource(R.string.speed_test_report_header),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.1.sp,
@@ -1094,10 +1106,10 @@ private fun TelegramSuitabilityCard(
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF1E293B)))
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SuitabilityRow(label = "Текстовые чаты и стикеры", verdict = report.chatsVerdict, accent = ActiveGreenLed)
-                SuitabilityRow(label = "Голосовые и видеозвонки", verdict = report.voiceVerdict, accent = Color(0xFF38BDF8))
-                SuitabilityRow(label = "Фотографии и медиа", verdict = report.mediaVerdict, accent = ActiveGreenLed)
-                SuitabilityRow(label = "Тяжелые файлы и видео", verdict = report.videoVerdict, accent = Color(0xFFFFB703))
+                SuitabilityRow(label = stringResource(R.string.speed_test_suit_chats), verdict = report.chatsVerdict, accent = ActiveGreenLed)
+                SuitabilityRow(label = stringResource(R.string.speed_test_suit_voice), verdict = report.voiceVerdict, accent = Color(0xFF38BDF8))
+                SuitabilityRow(label = stringResource(R.string.speed_test_suit_media), verdict = report.mediaVerdict, accent = ActiveGreenLed)
+                SuitabilityRow(label = stringResource(R.string.speed_test_suit_video), verdict = report.videoVerdict, accent = Color(0xFFFFB703))
             }
         }
     }
@@ -1138,7 +1150,7 @@ private fun SpeedTestErrorCard(
             )
             Column {
                 Text(
-                    text = "Сбой замера скорости",
+                    text = stringResource(R.string.speed_test_failed),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFFEF4444)
@@ -1163,9 +1175,9 @@ private fun SpeedTestActionButton(
     val isTesting = stage == SpeedTestStage.PING || stage == SpeedTestStage.DOWNLOAD || stage == SpeedTestStage.UPLOAD || stage == SpeedTestStage.ANALYSIS
     val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
     val btnText = when (stage) {
-        SpeedTestStage.IDLE -> "ЗАПУСТИТЬ ТЕСТ СКОРОСТИ"
-        SpeedTestStage.COMPLETED, SpeedTestStage.CANCELLED, SpeedTestStage.ERROR -> "ПОВТОРИТЬ ТЕСТ"
-        else -> "ОСТАНОВИТЬ ТЕСТ"
+        SpeedTestStage.IDLE -> stringResource(R.string.speed_test_btn_start)
+        SpeedTestStage.COMPLETED, SpeedTestStage.CANCELLED, SpeedTestStage.ERROR -> stringResource(R.string.speed_test_btn_retry)
+        else -> stringResource(R.string.speed_test_btn_stop)
     }
 
     Surface(
@@ -1222,7 +1234,7 @@ private fun SpeedTestHistoryView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "ВСЕГО ЗАМЕРОВ: ${historyRecords.size}",
+                text = stringResource(R.string.speed_test_total_records, historyRecords.size),
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
@@ -1248,7 +1260,7 @@ private fun SpeedTestHistoryView(
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
-                            text = "Очистить",
+                            text = stringResource(R.string.logs_action_clear),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFEF4444)
@@ -1288,14 +1300,14 @@ private fun SpeedTestHistoryView(
                     }
 
                     Text(
-                        text = "История замеров пуста",
+                        text = stringResource(R.string.speed_test_empty_history_title),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextWhite
                     )
 
                     Text(
-                        text = "Запустите тестирование скорости туннеля, чтобы результаты и телеметрия сохранились здесь.",
+                        text = stringResource(R.string.speed_test_empty_history_desc),
                         fontSize = 12.sp,
                         color = TextMuted,
                         textAlign = TextAlign.Center,
@@ -1311,7 +1323,7 @@ private fun SpeedTestHistoryView(
                         border = BorderStroke(1.dp, accentColor)
                     ) {
                         Text(
-                            text = "Запустить первый тест",
+                            text = stringResource(R.string.speed_test_btn_first_test),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite,
@@ -1416,7 +1428,7 @@ private fun SpeedHistoryRecordCard(
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_trash),
-                        contentDescription = "Удалить",
+                        contentDescription = stringResource(R.string.history_btn_delete),
                         tint = TextMuted.copy(alpha = 0.6f),
                         modifier = Modifier.size(13.dp)
                     )
@@ -1442,14 +1454,14 @@ private fun SpeedHistoryRecordCard(
                             modifier = Modifier.size(11.dp)
                         )
                         Text(
-                            text = "ВХОД.",
+                            text = stringResource(R.string.speed_test_in_short),
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextMuted
                         )
                     }
                     Text(
-                        text = "${String.format(Locale.US, "%.1f", record.downloadSpeedMbps)} Мбит/с",
+                        text = stringResource(R.string.speed_test_mbps_compact, String.format(Locale.US, "%.1f", record.downloadSpeedMbps)),
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Black,
                         color = TextWhite
@@ -1469,14 +1481,14 @@ private fun SpeedHistoryRecordCard(
                             modifier = Modifier.size(11.dp)
                         )
                         Text(
-                            text = "ИСХОД.",
+                            text = stringResource(R.string.speed_test_out_short),
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextMuted
                         )
                     }
                     Text(
-                        text = "${String.format(Locale.US, "%.1f", record.uploadSpeedMbps)} Мбит/с",
+                        text = stringResource(R.string.speed_test_mbps_compact, String.format(Locale.US, "%.1f", record.uploadSpeedMbps)),
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Black,
                         color = TextWhite
@@ -1486,13 +1498,13 @@ private fun SpeedHistoryRecordCard(
                 // Ping / Jitter
                 Column {
                     Text(
-                        text = "RTT / ДЖИТТЕР",
+                        text = stringResource(R.string.speed_test_rtt_jitter),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextMuted
                     )
                     Text(
-                        text = "${record.pingMs} мс (±${record.jitterMs})",
+                        text = stringResource(R.string.speed_test_rtt_jitter_val, record.pingMs, record.jitterMs),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF38BDF8)
@@ -1568,7 +1580,7 @@ private fun ClearSpeedHistoryDialog(
                         }
 
                         Text(
-                            text = "Очистить историю замеров?",
+                            text = stringResource(R.string.speed_test_clear_dialog_title),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextWhite
@@ -1576,7 +1588,7 @@ private fun ClearSpeedHistoryDialog(
                     }
 
                     Text(
-                        text = "Все сохраненные результаты тестов скорости сетевого туннеля будут безвозвратно удалены.",
+                        text = stringResource(R.string.speed_test_clear_dialog_desc),
                         fontSize = 12.5.sp,
                         color = TextMuted,
                         lineHeight = 17.sp
@@ -1597,7 +1609,7 @@ private fun ClearSpeedHistoryDialog(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(
-                                    text = "Отмена",
+                                    text = stringResource(R.string.action_cancel),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = TextWhite
@@ -1616,7 +1628,7 @@ private fun ClearSpeedHistoryDialog(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(
-                                    text = "Удалить всё",
+                                    text = stringResource(R.string.speed_test_btn_delete_all),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFFEF4444)
