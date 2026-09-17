@@ -6,6 +6,12 @@
 
 **Локальный шлюз маршрутизации для Telegram на нативном движке Rust (mirrlyengine) с поддержкой MTProto, SOCKS5, мульти-аплинк туннелирования (Cloudflare Worker WSS, WARP MASQUE HTTP/3, AmneziaWG, VLESS, WARP Cascade) без системного VPN**
 
+<br/>
+
+**[ 🇷🇺 Русский ](README.md)** &nbsp;|&nbsp; **[ 🇬🇧 English ](README_EN.md)**
+
+<br/>
+
 [![Android](https://img.shields.io/badge/Android-8.0%2B-1E293B?logo=android&logoColor=3DDC84)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0%2B-1E293B?logo=kotlin&logoColor=7F52FF)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/UI-Compose-1E293B?logo=android&logoColor=4285F4)](https://developer.android.com/jetpack/compose)
