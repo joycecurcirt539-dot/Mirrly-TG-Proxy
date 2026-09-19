@@ -181,6 +181,15 @@ fun MirrlyTheme(
             val insetsController = WindowCompat.getInsetsController(window, view)
             insetsController.isAppearanceLightStatusBars = false
             insetsController.isAppearanceLightNavigationBars = false
+            // On API 35+ edge-to-edge transparency is enforced by the system.
+            // On API 26–34 we must set it explicitly, otherwise the system places
+            // an opaque black scrim behind the status bar and nav bar.
+            if (android.os.Build.VERSION.SDK_INT < 35) {
+                @Suppress("DEPRECATION")
+                window.statusBarColor = android.graphics.Color.TRANSPARENT
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            }
         }
     }
 
