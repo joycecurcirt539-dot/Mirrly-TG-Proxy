@@ -178,8 +178,6 @@ fun MirrlyTheme(
         SideEffect {
             val window = (view.context.findActivity())?.window ?: return@SideEffect
             WindowCompat.setDecorFitsSystemWindows(window, false)
-            window.statusBarColor = android.graphics.Color.TRANSPARENT
-            window.navigationBarColor = android.graphics.Color.TRANSPARENT
             val insetsController = WindowCompat.getInsetsController(window, view)
             insetsController.isAppearanceLightStatusBars = false
             insetsController.isAppearanceLightNavigationBars = false
