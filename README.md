@@ -35,7 +35,7 @@
 [![Terms](https://img.shields.io/badge/TERMS-1E293B)](TERMS_OF_USE.md)
 [![License](https://img.shields.io/badge/GPLv3-1E293B)](LICENSE)
 
-*Маршрутизация трафика Telegram через нативное ядро mirrlyengine (Rust/Tokio). Поддерживает протоколы MTProto и SOCKS5, мульти-аплинк архитектуру (Cloudflare Worker WSS, VLESS, WARP MASQUE HTTP/3, AmneziaWG, WARP Cascade), дискретный конечный автомат стабильности сети FSM, потоковый контроль буферов 4 МБ и безопасную экспресс-диагностику. Работает локально на устройстве без root-прав и без создания системного VPN-соединения.*
+*Маршрутизация трафика Telegram через нативное ядро mirrlyengine (Rust/Tokio). Поддерживает протоколы MTProto и SOCKS5, дискретный конечный автомат стабильности сети FSM, потоковый контроль буферов 4 МБ и безопасную экспресс-диагностику. Работает локально на устройстве без root-прав и без создания системного VPN-соединения.*
 
 <br/>
 
