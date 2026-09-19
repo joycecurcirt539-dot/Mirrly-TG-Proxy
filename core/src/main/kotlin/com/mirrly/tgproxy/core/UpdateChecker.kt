@@ -118,9 +118,10 @@ object UpdateChecker {
 
     private val client by lazy {
         OkHttpClient.Builder()
-            .dns(DohOkHttpDns.INSTANCE)
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(8, TimeUnit.SECONDS)
+            .dns(okhttp3.Dns.SYSTEM)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build()
     }
 
