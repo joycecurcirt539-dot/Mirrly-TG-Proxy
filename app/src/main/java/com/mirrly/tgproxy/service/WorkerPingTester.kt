@@ -29,9 +29,6 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 object WorkerPingTester {
-    private const val RELAY_PROBE_TIMEOUT_MS = 2_500L
-    private const val RECOVERY_RELAY_PROBE_TIMEOUT_MS = 3_500L
-
     private val probe by lazy {
         WorkerRelayHealthProbe(OkHttpClient.Builder()
             .dns(DohOkHttpDns.INSTANCE)
@@ -67,10 +64,8 @@ object WorkerPingTester {
             return@withContext WorkerStatus.ERROR_UNREACHABLE to null
         }
 
-        // Не ограничиваем relay-проверку 400 мс: DNS/TLS/Cloudflare часто требуют
-        // больше времени, из-за чего исправный основной воркер ошибочно показывался
-        // как недоступный (красный крестик).
-        val relayResult = probeRelayInternal(cleanDomain, RELAY_PROBE_TIMEOUT_MS)
+        // 1. Попытка высокоточного SOCKS5 v2 релей-пробинга (WebSocket /tcp-v2 с 4-байтным контрольным ACK)
+        val relayResult = probeRelayInternal(cleanDomain, timeoutMs = minOf(2500L, 400L))
         if (relayResult.first == WorkerStatus.ONLINE) {
             com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 2)
             return@withContext relayResult
@@ -94,17 +89,14 @@ object WorkerPingTester {
     /** Root HTTP is reachability only; ONLINE requires the versioned upstream-ready ACK. */
     suspend fun probeWorkerRelayContract(
         domain: String,
-        timeoutMs: Long = RECOVERY_RELAY_PROBE_TIMEOUT_MS
+        timeoutMs: Long = 3500L
     ): Pair<WorkerStatus, Long?> = withContext(Dispatchers.IO) {
         val cleanDomain = sanitizeDomain(domain)
         if (cleanDomain.isBlank() || cleanDomain.any { it in "/?#@" }) {
             return@withContext WorkerStatus.ERROR_UNREACHABLE to null
         }
 
-        val relayResult = probeRelayInternal(
-            cleanDomain,
-            timeoutMs.coerceIn(800L, RECOVERY_RELAY_PROBE_TIMEOUT_MS)
-        )
+        val relayResult = probeRelayInternal(cleanDomain, minOf(timeoutMs, 400L))
         if (relayResult.first == WorkerStatus.ONLINE) {
             com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 2)
             return@withContext relayResult
