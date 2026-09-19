@@ -4,7 +4,7 @@
 
 # Mirrly TG Proxy для Android
 
-**Локальный шлюз маршрутизации для Telegram на нативном движке Rust (mirrlyengine) с поддержкой MTProto, SOCKS5, мульти-аплинк туннелирования (Cloudflare Worker WSS) без системного VPN**
+**Локальный шлюз маршрутизации для Telegram на нативном движке Rust (mirrlyengine) с поддержкой MTProto, SOCKS5, мульти-аплинк туннелирования (Anycast CDN Flowseal, Cloudflare Worker WSS) без системного VPN**
 
 <br/>
 
