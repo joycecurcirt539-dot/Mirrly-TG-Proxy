@@ -385,6 +385,9 @@ object WarpEndpointScanner {
             val socketAddress = InetSocketAddress(targetAddr, port)
 
             socket = DatagramSocket()
+            if (!VpnSocketProtector.protect(socket)) {
+                return WarpEndpointCandidate(ipStr, port, endpoint, rttMs = -1L, isAlive = false, scanProtocol = protocol)
+            }
             socket.soTimeout = timeoutMs.toInt()
 
             val probePayload = when (protocol) {

@@ -146,12 +146,7 @@ class ProxyForegroundService : Service() {
                         }
                     }
 
-                    if (!isInitial && (app.config.isMasqueUplink || app.config.isHybridUplink)) {
-                        tuneWarpJob?.cancel()
-                        tuneWarpJob = serviceScope.launch(Dispatchers.IO) {
-                            checkAndTuneWarpEndpoint()
-                        }
-                    }
+
                 }
             },
             onNetworkSuspended = {
@@ -195,8 +190,7 @@ class ProxyForegroundService : Service() {
                         val server = app.proxyServer
                         server.stop()
                         delay(350)
-                        val needsWarp = app.config.isMasqueUplink || app.config.isHybridUplink || app.config.isAwgUplink || app.config.isWarpCascadeUplink
-                        val started = startServerWithProfiling(server, cacheDir, needsWarp)
+                        val started = startServerWithProfiling(server, cacheDir, needsWarp = false)
                         if (started) {
                             withContext(Dispatchers.Main) {
                                 ProxyTileService.requestSync(this@ProxyForegroundService)
@@ -267,49 +261,13 @@ class ProxyForegroundService : Service() {
         val server = app.proxyServer
         if (!server.isRunning) {
             serviceScope.launch(Dispatchers.IO) {
+                app.prefsManager.restoreUserPrimaryWorkerIfNeeded()
                 if (app.config.isSocks5Mode && !app.config.hasSocks5Auth) {
                     val (u, p) = com.mirrly.tgproxy.core.ProxyConfig.generateRandomSocks5Credentials()
                     app.config.socks5Username = u
                     app.config.socks5Password = p
                     app.prefsManager.saveConfig(app.config)
                     com.mirrly.tgproxy.core.NativeProxy.setSocks5Auth(u, p)
-                }
-                val needsWarp = app.config.isMasqueUplink || app.config.isHybridUplink || app.config.isAwgUplink || app.config.isWarpCascadeUplink
-                val hasInvalidWarpCredentials = app.config.warpToken.isBlank() ||
-                    app.config.warpToken == "mirrly-bootstrap-token" ||
-                    app.config.warpPrivateKey == com.mirrly.tgproxy.core.WarpAccountManager.BOOTSTRAP_PROFILE.privateKeyBase64
-                if (needsWarp && hasInvalidWarpCredentials && !warpRegistrationInProgress) {
-                    warpRegistrationInProgress = true
-                    AppLogger.i(TAG, "WARP active, profile not found or placeholder. Registering live account...")
-                    try {
-                        val regResult = com.mirrly.tgproxy.core.WarpAccountManager.registerAndActivate(
-                            fallbackToBootstrap = false
-                        )
-                        regResult.onSuccess { profile ->
-                            app.prefsManager.saveWarpProfile(profile)
-                            app.config.applyWarpProfile(profile)
-                            app.prefsManager.saveConfig(app.config)
-                            AppLogger.i(TAG, "WARP profile created successfully: ${profile.getSummary()}")
-                            val awgIni = app.config.getAmneziaWgConfig(cleanEndpoint = app.config.warpPeerEndpoint)
-                            com.mirrly.tgproxy.core.NativeProxy.setAwgConfig(awgIni)
-                        }.onFailure { err ->
-                            AppLogger.w(TAG, "WARP auto-registration failed: ${err.message}")
-                        }
-                    } finally {
-                        warpRegistrationInProgress = false
-                    }
-                }
-                // Предстартовая диагностика и экспресс-анализ («Подключение в один клик»)
-                try {
-                    val preflightResult = PreflightDiagnosticsEngine.runPreflight(
-                        context = this@ProxyForegroundService,
-                        config = app.config,
-                        prefsManager = app.prefsManager,
-                        isDegraded = false
-                    )
-                    AppLogger.i(TAG, "Pre-flight analysis completed: ${preflightResult.selectedRouteSummary}")
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "Pre-flight analysis exception: ${e.message}")
                 }
 
                 val initialNetworkType = networkObserver?.getCurrentNetworkTypeName().orEmpty()
@@ -318,8 +276,38 @@ class ProxyForegroundService : Service() {
                         initialNetworkType.contains("Cellular", ignoreCase = true),
                     isScreenOn = isScreenOn
                 )
-                val started = startServerWithProfiling(server, cacheDir, needsWarp)
+
+                // 1. Поэтапная валидация и выбор наилучшего маршрута (Preflight Phase) ДО открытия зеленого статуса
+                val preflightResult = try {
+                    PreflightDiagnosticsEngine.runPreflight(
+                        context = this@ProxyForegroundService,
+                        config = app.config,
+                        prefsManager = app.prefsManager,
+                        isDegraded = false
+                    )
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Pre-flight analysis exception: ${e.message}")
+                    null
+                }
+                AppLogger.i(TAG, "Smart Connect pre-flight completed: ${preflightResult?.selectedRouteSummary}")
+
+                // 2. Запуск локального сервера с УЖЕ отобранным и проверенным узлом
+                val started = startServerWithProfiling(server, cacheDir, needsWarp = false)
                 if (started) {
+                    // 3. Предварительный прогрев (Pre-Warm) туннеля для мгновенного отклика в Telegram
+                    if (!app.config.isSocks5Mode) {
+                        try {
+                            com.mirrly.tgproxy.core.NativeProxy.warmupWsPool()
+                        } catch (_: Exception) {}
+                    } else {
+                        val targetDomain = app.config.getEffectiveCfDomain()
+                        if (targetDomain.isNotBlank()) {
+                            try {
+                                com.mirrly.tgproxy.core.DohResolver.resolve(targetDomain)
+                            } catch (_: Exception) {}
+                        }
+                    }
+
                     SessionHistoryManager.onSessionStarted(
                         presetName = getPresetShortName(app.config.speedPreset),
                         proxyMode = app.config.proxyMode.name
@@ -327,30 +315,19 @@ class ProxyForegroundService : Service() {
                     WorkerRequestTracker.onSessionStarted()
                     DonationManager.recordSuccessfulConnection(this@ProxyForegroundService)
 
-                    if (app.config.isMasqueUplink || app.config.isHybridUplink) {
-                        tuneWarpJob?.cancel()
-                        tuneWarpJob = serviceScope.launch(Dispatchers.IO) {
-                            checkAndTuneWarpEndpoint()
-                        }
-                    } else if (app.config.isVlessUplink) {
-                        serviceScope.launch(Dispatchers.IO) {
-                            try {
-                                com.mirrly.tgproxy.core.VlessPresetsRepository.fetchFreshPublicPresets(socks5Port = app.config.socks5Port)
-                            } catch (_: Exception) {}
-                        }
-                    }
-
                     if (app.prefsManager.isAutoStopOnStartEnabled() && !SleepTimerManager.timerState.value.isActive) {
                         val autoStopMin = app.prefsManager.getAutoStopMinutes()
                         AppLogger.i(TAG, "Auto-stop on launch enabled: starting timer for $autoStopMin min")
                         SleepTimerManager.startTimer(this@ProxyForegroundService, autoStopMin)
                     }
                 }
+
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     ProxyTileService.requestSync(this@ProxyForegroundService)
                     startNotificationUpdates()
                     startWakeLockRefresh()
                     WorkerFailoverManager.startRecoveryWatchdogIfNeeded()
+                    updateNotificationImmediately()
                 }
             }
         } else {
@@ -608,16 +585,8 @@ class ProxyForegroundService : Service() {
                 val currentStage = stats.activeCascadeStageCode
                 val uplinkLabel = when {
                     stats.activeEffectiveRoute.isNotBlank() -> stats.activeEffectiveRoute
-                    app.config.isWarpCascadeUplink && currentStage == 2 -> getString(R.string.notif_route_fallback_awg)
-                    currentStage == 1 -> "WARP MASQUE"
-                    currentStage == 2 -> "WARP AmneziaWG"
-                    currentStage == 7 -> "VLESS (Opera Hop)"
                     stats.activeCascadeStage.isNotBlank() -> stats.activeCascadeStage
-                    app.config.isVlessUplink -> "VLESS"
-                    app.config.isMasqueUplink -> "WARP MASQUE"
-                    app.config.isAwgUplink -> "WARP AmneziaWG"
-                    isWorker -> "Worker"
-                    else -> "SOCKS5"
+                    else -> "Cloudflare Worker WSS"
                 }
                 val isCloudflareWorkerRoute = ProxyDisplayLabels.isCloudflareWorkerRoute(
                     effectiveRoute = stats.activeEffectiveRoute,
@@ -775,6 +744,8 @@ class ProxyForegroundService : Service() {
                 }
 
                 server.stop()
+                WorkerFailoverManager.onProxyStopped()
+                MirrlyApplication.instance.prefsManager.restoreUserPrimaryWorkerIfNeeded()
 
                 withContext(Dispatchers.Main) {
                     ProxyTileService.requestSync(this@ProxyForegroundService)
@@ -1049,7 +1020,7 @@ class ProxyForegroundService : Service() {
         val currentEp = app.config.warpPeerEndpoint
         val (_, port) = com.mirrly.tgproxy.core.WarpEndpointScanner.parseEndpoint(currentEp)
 
-        if (!app.proxyServer.isRunning || (!app.config.isMasqueUplink && !app.config.isHybridUplink)) {
+        if (!app.proxyServer.isRunning || !app.config.isAnyWarpUplink) {
             return
         }
 
@@ -1077,6 +1048,8 @@ class ProxyForegroundService : Service() {
             if (best != null && best.endpoint != currentEp) {
                 AppLogger.i(TAG, "Selected working WARP Anycast port: ${best.endpoint} (${best.rttMs}ms)")
                 app.config.warpPeerEndpoint = best.endpoint
+                app.config.warpMasquePeerEndpoint = best.endpoint
+                app.config.warpMeasuredWgEndpoint = best.endpoint
                 app.prefsManager.saveConfig(app.config)
                 app.proxyServer.applyWarpEndpoint(best.endpoint, expectedGeneration = targetGen, expectedMode = targetMode)
             }

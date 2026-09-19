@@ -7,6 +7,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use once_cell::sync::Lazy;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
@@ -417,7 +418,34 @@ async fn socks5_acquire_uplink(
         .await
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum WorkerProtocol {
+    Auto,
+    V1Legacy,
+    V2Ack,
+}
+
+static WORKER_PROTO_CACHE: Lazy<parking_lot::RwLock<std::collections::HashMap<String, WorkerProtocol>>> =
+    Lazy::new(|| parking_lot::RwLock::new(std::collections::HashMap::new()));
+
+pub fn get_worker_protocol(worker: &str) -> WorkerProtocol {
+    let key = crate::cfproxy::canonical_cfproxy_cooldown_key(worker);
+    WORKER_PROTO_CACHE
+        .read()
+        .get(&key)
+        .copied()
+        .unwrap_or(WorkerProtocol::Auto)
+}
+
+pub fn mark_worker_protocol(worker: &str, proto: WorkerProtocol) {
+    let key = crate::cfproxy::canonical_cfproxy_cooldown_key(worker);
+    if !key.is_empty() {
+        WORKER_PROTO_CACHE.write().insert(key, proto);
+    }
+}
+
 #[derive(Debug)]
+#[allow(dead_code)]
 pub(crate) enum WorkerConnectError {
     Canceled,
     Cooldown429(String),
@@ -437,6 +465,79 @@ async fn attempt_single_worker_connect(
         return Err(WorkerConnectError::Canceled);
     }
 
+    let proto = get_worker_protocol(&worker);
+
+    // Fast-path: if worker is already known as V1Legacy, connect directly to legacy /tcp without waiting on /tcp-v2!
+    if proto == WorkerProtocol::V1Legacy {
+        let (ws_v1, resolved_ip_v1, err_v1) = cf_connect_domain_with_category(
+            &worker,
+            &path_v1,
+            None,
+            3.5,
+            crate::budget::FlowCategory::UserFlow,
+            Some(&cancel),
+        )
+        .await;
+
+        if let Some(w) = ws_v1 {
+            if cancel.is_cancelled() {
+                let _ = w.close().await;
+                return Err(WorkerConnectError::Canceled);
+            }
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            if !resolved_ip_v1.is_empty() {
+                ldebug!(
+                    "SOCKS5 worker ok {} via {} ({}ms, direct legacy /tcp)",
+                    worker,
+                    resolved_ip_v1,
+                    elapsed_ms
+                );
+            } else {
+                ldebug!(
+                    "SOCKS5 worker ok {} ({}ms, direct legacy /tcp)",
+                    worker,
+                    elapsed_ms
+                );
+            }
+            if crate::generation_guard::is_current(expected) {
+                STATS.socks5_v1_downgrades.fetch_add(1, Ordering::Relaxed);
+                let _ = crate::generation_guard::apply_if_current(expected, || {
+                    crate::recovery::mark_success(&worker);
+                    clear_cfproxy_recovery_cooldown(&worker);
+                });
+                return Ok((w, worker));
+            } else {
+                let _ = w.close().await;
+                return Err(WorkerConnectError::Canceled);
+            }
+        } else {
+            if let Some(ref e) = err_v1 {
+                if crate::ws::is_cooldown_error(e) {
+                    let _ = crate::generation_guard::apply_if_current(expected, || {
+                        mark_cfproxy_429_cooldown(&worker, e);
+                    });
+                    return Err(WorkerConnectError::Cooldown429(e.compact()));
+                }
+                let _ = crate::generation_guard::apply_if_current(expected, || {
+                    mark_cfproxy_recovery_circuit_at_stage(
+                        &worker,
+                        Duration::from_secs(5),
+                        &e.compact(),
+                        crate::recovery::EstablishmentStage::Wss,
+                        expected.network,
+                    );
+                });
+                let resolved_ip_opt = resolved_ip_v1.parse::<std::net::IpAddr>().ok();
+                crate::node_independence::NODE_INDEPENDENCE_TRACKER
+                    .write()
+                    .record_node_failure(&worker, resolved_ip_opt, None);
+            }
+            return Err(WorkerConnectError::ConnectionFailed(
+                err_v1.map(|e| e.compact()).unwrap_or_else(|| "connect_failed".to_string()),
+            ));
+        }
+    }
+
     // 1. First attempt /tcp-v2 with relay-ready ACK contract
     let (ws_v2, resolved_ip, err) = cf_connect_domain_with_category(
         &worker,
@@ -454,9 +555,11 @@ async fn attempt_single_worker_connect(
             return Err(WorkerConnectError::Canceled);
         }
         // Wait for the versioned relay-ready control ACK from Worker: [0x56, 0x02, 0x00, 0x00]
+        // If worker is v2, the frame is sent immediately upon accept and arrives in <50ms.
+        // We use a tight 350ms timeout so legacy v1 workers downgrade with zero user perception!
         let ack_res = tokio::select! {
             _ = cancel.cancelled() => Err(WsError::Canceled),
-            r = w.recv_with_timeout(Duration::from_millis(2500)) => r,
+            r = w.recv_with_timeout(Duration::from_millis(350)) => r,
         };
         match ack_res {
             Ok(ack_data)
@@ -465,6 +568,7 @@ async fn attempt_single_worker_connect(
                     && ack_data[1] == 0x02
                     && ack_data[2] == 0x00 =>
             {
+                mark_worker_protocol(&worker, WorkerProtocol::V2Ack);
                 let elapsed_ms = start.elapsed().as_millis() as u64;
                 if !resolved_ip.is_empty() {
                     ldebug!(
@@ -492,29 +596,17 @@ async fn attempt_single_worker_connect(
                 return Err(WorkerConnectError::Canceled);
             }
             Ok(other) => {
-                lwarn!(
-                    "SOCKS5 worker {} sent invalid /tcp-v2 ACK (len={}), closing",
+                ldebug!(
+                    "SOCKS5 worker {} /tcp-v2 returned non-v2 ACK (len={}), downgrading to legacy /tcp without penalty",
                     worker,
                     other.len()
                 );
+                mark_worker_protocol(&worker, WorkerProtocol::V1Legacy);
                 let _ = w.close().await;
-                let _ = crate::generation_guard::apply_if_current(expected, || {
-                    mark_cfproxy_recovery_circuit_at_stage(
-                        &worker,
-                        Duration::from_secs(20),
-                        "invalid_ack",
-                        crate::recovery::EstablishmentStage::Ready,
-                        expected.network,
-                    );
-                });
-                return Err(WorkerConnectError::AckTimeoutOrInvalid(format!(
-                    "invalid_ack_len_{}",
-                    other.len()
-                )));
             }
             Err(e) => {
                 ldebug!(
-                    "SOCKS5 worker {} /tcp-v2 ACK wait error/close: {:?}",
+                    "SOCKS5 worker {} /tcp-v2 ACK wait error/close: {:?}, downgrading to legacy /tcp without penalty",
                     worker,
                     e
                 );
@@ -522,15 +614,7 @@ async fn attempt_single_worker_connect(
                 if matches!(e, WsError::Canceled) {
                     return Err(WorkerConnectError::Canceled);
                 }
-                let _ = crate::generation_guard::apply_if_current(expected, || {
-                    mark_cfproxy_recovery_circuit_at_stage(
-                        &worker,
-                        Duration::from_secs(20),
-                        "ack_timeout_or_error",
-                        crate::recovery::EstablishmentStage::Ready,
-                        expected.network,
-                    );
-                });
+                mark_worker_protocol(&worker, WorkerProtocol::V1Legacy);
             }
         }
     } else if let Some(ref e) = err {
@@ -540,15 +624,12 @@ async fn attempt_single_worker_connect(
             });
             return Err(WorkerConnectError::Cooldown429(e.compact()));
         }
-        let _ = crate::generation_guard::apply_if_current(expected, || {
-            mark_cfproxy_recovery_circuit_at_stage(
-                &worker,
-                Duration::from_secs(25),
-                &e.compact(),
-                crate::recovery::EstablishmentStage::Wss,
-                expected.network,
-            );
-        });
+        ldebug!(
+            "SOCKS5 worker {} /tcp-v2 connect failed ({}), attempting legacy /tcp fallback before penalizing",
+            worker,
+            e.compact()
+        );
+        mark_worker_protocol(&worker, WorkerProtocol::V1Legacy);
     }
 
     if cancel.is_cancelled() {
@@ -598,6 +679,7 @@ async fn attempt_single_worker_connect(
             Err(WorkerConnectError::Canceled)
         }
     } else {
+        // Both /tcp-v2 and legacy /tcp failed! Only now is the worker genuinely down!
         if let Some(ref e) = err_v1 {
             if crate::ws::is_cooldown_error(e) {
                 let _ = crate::generation_guard::apply_if_current(expected, || {
@@ -608,7 +690,7 @@ async fn attempt_single_worker_connect(
             let _ = crate::generation_guard::apply_if_current(expected, || {
                 mark_cfproxy_recovery_circuit_at_stage(
                     &worker,
-                    Duration::from_secs(25),
+                    Duration::from_secs(5),
                     &e.compact(),
                     crate::recovery::EstablishmentStage::Wss,
                     expected.network,
@@ -730,11 +812,11 @@ pub(crate) async fn socks5_acquire_cf_ws(
         let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
         let smoothed_rtt = crate::network_profile::get_profile().transport_sli.smoothed_rtt_ms;
         let hedge_delay = if smoothed_rtt > 0 {
-            Duration::from_millis(((smoothed_rtt as u64) * 3).clamp(800, 2500))
+            Duration::from_millis(((smoothed_rtt as u64) * 2).clamp(250, 600))
         } else if is_mobile {
-            Duration::from_millis(1500)
+            Duration::from_millis(400)
         } else {
-            Duration::from_millis(800)
+            Duration::from_millis(250)
         };
 
         let fp_worker = proven.clone();
@@ -870,9 +952,9 @@ pub(crate) async fn socks5_acquire_cf_ws(
 
     let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
     let stagger_step = if is_mobile {
-        Duration::from_millis(300)
+        Duration::from_millis(50)
     } else {
-        Duration::from_millis(100)
+        Duration::from_millis(25)
     };
 
     for (i, worker) in diverse_candidates.clone().into_iter().enumerate() {

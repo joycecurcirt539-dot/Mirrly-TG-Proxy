@@ -113,8 +113,17 @@ val Socks5Palette = ProtocolColors(
 )
 
 @Composable
-fun rememberAnimatedProtocolColors(isSocks5: Boolean): ProtocolColors {
-    val target = if (isSocks5) Socks5Palette else MtprotoPalette
+fun rememberAnimatedProtocolColors(
+    isSocks5: Boolean,
+    isVpn: Boolean = false,
+    vpnPalette: ProtocolColors? = null
+): ProtocolColors {
+    val target = when {
+        isVpn && vpnPalette != null -> vpnPalette
+        isVpn -> VpnElectricAmberPalette
+        isSocks5 -> Socks5Palette
+        else -> MtprotoPalette
+    }
     val spec = tween<Color>(durationMillis = 750, easing = FastOutSlowInEasing)
 
     val primary by androidx.compose.animation.animateColorAsState(target.primary, spec, label = "protoPrimary")
@@ -178,7 +187,15 @@ fun MirrlyTheme(
     }
 
     val isSocks5 by com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.isSocks5Flow.collectAsState(initial = false)
-    val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+    val vpnState by com.mirrly.tgproxy.service.MirrlyVpnService.vpnState.collectAsState()
+    val isVpnActive = vpnState == VpnUiState.CONNECTED || vpnState == VpnUiState.CONNECTING
+    val vpnPalette = remember { com.mirrly.tgproxy.ui.theme.VpnThemeManager.getSystemVpnPalette(view.context) }
+
+    val protoColors = rememberAnimatedProtocolColors(
+        isSocks5 = isSocks5,
+        isVpn = isVpnActive,
+        vpnPalette = vpnPalette
+    )
 
     androidx.compose.runtime.CompositionLocalProvider(LocalProtocolColors provides protoColors) {
         ProvideAdaptiveMetrics {
@@ -255,6 +272,71 @@ fun Modifier.horizontalFadingEdges(
         val startPx = startFadeWidth.toPx().coerceAtMost(w / 3f)
         val endPx = endFadeWidth.toPx().coerceAtMost(w / 3f)
 
+        if (startPx > 0f) {
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    colors = StartFadeColors,
+                    startX = 0f,
+                    endX = startPx
+                ),
+                blendMode = BlendMode.DstIn
+            )
+        }
+        if (endPx > 0f) {
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    colors = EndFadeColors,
+                    startX = w - endPx,
+                    endX = w
+                ),
+                blendMode = BlendMode.DstIn
+            )
+        }
+    }
+
+/**
+ * Universal 4-Way Smooth Fading Edges extension modifier (Top, Bottom, Start, End).
+ * Softly dissolves content along all 4 viewport borders into dark vignette.
+ * Optimized with zero-allocation draw passes for butter-smooth 120 FPS performance.
+ */
+fun Modifier.fourWayFadingEdges(
+    topFadeHeight: Dp = 24.dp,
+    bottomFadeHeight: Dp = 44.dp,
+    startFadeWidth: Dp = 14.dp,
+    endFadeWidth: Dp = 14.dp
+): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val h = size.height
+        val w = size.width
+        if (h <= 0f || w <= 0f) return@drawWithContent
+
+        val topPx = topFadeHeight.toPx().coerceAtMost(h / 2f)
+        val bottomPx = bottomFadeHeight.toPx().coerceAtMost(h / 2f)
+        val startPx = startFadeWidth.toPx().coerceAtMost(w / 3f)
+        val endPx = endFadeWidth.toPx().coerceAtMost(w / 3f)
+
+        if (topPx > 0f) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = TopFadeColors,
+                    startY = 0f,
+                    endY = topPx
+                ),
+                blendMode = BlendMode.DstIn
+            )
+        }
+        if (bottomPx > 0f) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = BottomFadeColors,
+                    startY = h - bottomPx,
+                    endY = h
+                ),
+                blendMode = BlendMode.DstIn
+            )
+        }
         if (startPx > 0f) {
             drawRect(
                 brush = Brush.horizontalGradient(

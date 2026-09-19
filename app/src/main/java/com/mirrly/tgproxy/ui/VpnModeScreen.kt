@@ -687,10 +687,19 @@ fun VpnInfoWidget(
     isCompact: Boolean,
     vpnState: VpnUiState,
     vpnColors: ProtocolColors,
+    vpnUplinkMode: com.mirrly.tgproxy.core.UplinkMode = com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
     onTap: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isActive = vpnState == VpnUiState.CONNECTED
+    val protocolLabel = when (vpnUplinkMode) {
+        com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> "Cascade"
+        com.mirrly.tgproxy.core.UplinkMode.VLESS -> "VLESS"
+        com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "MASQUE"
+        com.mirrly.tgproxy.core.UplinkMode.AWG -> "AWG"
+        else -> vpnUplinkMode.displayName
+    }
+
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = Color.Transparent,
@@ -738,7 +747,7 @@ fun VpnInfoWidget(
 
                 VpnInfoCell(
                     label = stringResource(R.string.vpn_stat_protocol),
-                    value = "WARP",
+                    value = protocolLabel,
                     isActive = isActive,
                     isCompact = isCompact,
                     modifier = Modifier.weight(1f).clickable(remember { MutableInteractionSource() }, null) { onTap() }
@@ -771,9 +780,14 @@ fun VpnInfoWidget(
                         .background(if (isActive) vpnColors.primary else vpnColors.primary.copy(alpha = 0.65f))
                 )
                 Spacer(modifier = Modifier.width(7.dp))
+                val noticeText = if (isActive) {
+                    stringResource(R.string.status_vpn_system_connected_desc)
+                } else {
+                    "Туннелирование устройства через ${vpnUplinkMode.displayName}"
+                }
                 Text(
-                    text = if (isActive) stringResource(R.string.status_vpn_system_connected_desc) else stringResource(R.string.vpn_screen_in_dev_hint),
-                    color = if (isActive) TextWhite.copy(alpha = 0.85f) else TextMuted.copy(alpha = 0.65f),
+                    text = noticeText,
+                    color = if (isActive) TextWhite.copy(alpha = 0.85f) else TextMuted.copy(alpha = 0.75f),
                     fontSize = if (isCompact) 9.5.sp else 10.5.sp,
                     fontWeight = FontWeight.Medium,
                     textAlign = TextAlign.Center,
@@ -888,14 +902,46 @@ fun VpnActionDock(
 }
 
 // =============================================================================
-// VpnInDevDialog — Frosted-glass modal dialog (DialogBackdropBox)
+// VpnProtocolSelectorDialog — Frosted-glass modal dialog (DialogBackdropBox)
 // Strict factual text, NO emoji, unified with system-selected VPN accent.
 // =============================================================================
 @Composable
-fun VpnInDevDialog(
+fun VpnProtocolSelectorDialog(
     vpnColors: ProtocolColors,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val app = com.mirrly.tgproxy.MirrlyApplication.instance
+    val currentMode by app.prefsManager.vpnUplinkModeFlow.collectAsState()
+    var selectedMode by remember(currentMode) { mutableStateOf(currentMode) }
+    val vpnState by com.mirrly.tgproxy.service.MirrlyVpnService.vpnState.collectAsState()
+
+    val protocols = remember {
+        listOf(
+            Triple(
+                com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
+                "WARP Cascade",
+                "MASQUE (QUIC) + AWG отказоустойчивость • Dual Anycast"
+            ),
+            Triple(
+                com.mirrly.tgproxy.core.UplinkMode.VLESS,
+                "VLESS over WS",
+                "Anycast CDN • TLS 1.3 маскировка трафика"
+            ),
+            Triple(
+                com.mirrly.tgproxy.core.UplinkMode.MASQUE,
+                "WARP MASQUE",
+                "IETF RFC 9484 CONNECT-UDP по HTTP/3 • QUIC"
+            ),
+            Triple(
+                com.mirrly.tgproxy.core.UplinkMode.AWG,
+                "WARP AWG",
+                "AmneziaWG с обфускацией мусорных пакетов • Anycast"
+            )
+        )
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -909,8 +955,8 @@ fun VpnInDevDialog(
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .adaptiveContainerWidth(380.dp)
-                    .padding(horizontal = 24.dp)
+                    .adaptiveContainerWidth(400.dp)
+                    .padding(horizontal = 20.dp)
                     .clickable(remember { MutableInteractionSource() }, null) {}
             ) {
                 Surface(
@@ -921,13 +967,13 @@ fun VpnInDevDialog(
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp)
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)
                     ) {
-                        // Icon badge
+                        // Header
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(52.dp)
+                                .size(48.dp)
                                 .clip(CircleShape)
                                 .background(vpnColors.primary.copy(alpha = 0.12f))
                                 .border(1.dp, vpnColors.primary.copy(alpha = 0.35f), CircleShape)
@@ -936,56 +982,103 @@ fun VpnInDevDialog(
                                 painter = painterResource(R.drawable.ic_vpn),
                                 contentDescription = null,
                                 tint = vpnColors.primary,
-                                modifier = Modifier.size(26.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = stringResource(R.string.vpn_mode_title),
+                            text = "Протокол Mirrly VPN",
                             color = TextWhite,
-                            fontSize = 18.sp,
+                            fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = stringResource(R.string.vpn_dialog_title_dev),
-                            color = vpnColors.primary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 0.8.sp
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(
-                            text = stringResource(R.string.vpn_dialog_desc_dev),
+                            text = "Выберите протокол для системного туннеля:",
                             color = TextMuted,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Normal,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 19.sp
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, AmoledBorder)
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Protocol List
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = stringResource(R.string.vpn_dialog_independent_hint),
-                                color = TextMuted.copy(alpha = 0.70f),
-                                fontSize = 11.5.sp,
-                                textAlign = TextAlign.Center,
-                                lineHeight = 16.sp,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp)
-                            )
+                            protocols.forEach { (mode, name, desc) ->
+                                val isSelected = selectedMode == mode
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isSelected) vpnColors.primary.copy(alpha = 0.10f) else Color.Transparent,
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isSelected) vpnColors.primary.copy(alpha = 0.60f) else AmoledBorder
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            selectedMode = mode
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clip(CircleShape)
+                                                .border(
+                                                    if (isSelected) 5.dp else 1.5.dp,
+                                                    if (isSelected) vpnColors.primary else AmoledBorder,
+                                                    CircleShape
+                                                )
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = name,
+                                                color = if (isSelected) TextWhite else TextWhite.copy(alpha = 0.85f),
+                                                fontSize = 13.5.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = desc,
+                                                color = TextMuted,
+                                                fontSize = 10.5.sp,
+                                                lineHeight = 14.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
+
                         Spacer(modifier = Modifier.height(20.dp))
+
+                        // Apply Button
                         Surface(
-                            onClick = onDismiss,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                app.prefsManager.setVpnUplinkMode(selectedMode)
+                                app.config.vpnUplinkModeName = selectedMode.name
+                                app.saveConfig()
+                                if (vpnState == VpnUiState.CONNECTED) {
+                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                                }
+                                onDismiss()
+                            },
                             shape = RoundedCornerShape(12.dp),
-                            color = vpnColors.primary.copy(alpha = 0.14f),
-                            border = BorderStroke(1.dp, vpnColors.primary.copy(alpha = 0.55f)),
-                            modifier = Modifier.fillMaxWidth().height(44.dp).springPress(onClick = onDismiss)
+                            color = vpnColors.primary.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, vpnColors.primary.copy(alpha = 0.60f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
@@ -996,6 +1089,134 @@ fun VpnInDevDialog(
                                     color = vpnColors.primary,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun VpnInDevDialog(
+    vpnColors: ProtocolColors,
+    onDismiss: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    var showProtocolSelector by remember { mutableStateOf(false) }
+
+    if (showProtocolSelector) {
+        VpnProtocolSelectorDialog(
+            vpnColors = vpnColors,
+            onDismiss = onDismiss
+        )
+        return
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        DialogBackdropBox(onDismiss = onDismiss) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .adaptiveContainerWidth(400.dp)
+                    .padding(horizontal = 20.dp)
+                    .clickable(remember { MutableInteractionSource() }, null) {}
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF0C0E14),
+                    border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.45f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFFB74D).copy(alpha = 0.12f))
+                                .border(1.dp, Color(0xFFFFB74D).copy(alpha = 0.35f), CircleShape)
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_vpn),
+                                contentDescription = null,
+                                tint = Color(0xFFFFB74D),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_vpn_in_dev_dialog_title),
+                                color = TextWhite,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_vpn_in_dev_dialog_body),
+                                color = TextMuted,
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, AmoledBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        showProtocolSelector = true
+                                    }
+                            ) {
+                                Text(
+                                    text = "Выбрать протокол",
+                                    color = TextWhite,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 11.dp)
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onDismiss()
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFFFB74D).copy(alpha = 0.15f),
+                                    contentColor = Color(0xFFFFB74D)
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.5f)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.settings_vpn_in_dev_dialog_ok),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
                                 )
                             }
                         }

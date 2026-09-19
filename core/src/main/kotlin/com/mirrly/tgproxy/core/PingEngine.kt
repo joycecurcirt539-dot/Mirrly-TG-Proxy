@@ -221,6 +221,9 @@ class PingEngine(
     var isDormant: Boolean = false
         private set
 
+    @Volatile
+    var isScreenOn: Boolean = true
+
     val smoothedPingMs: Long
         get() = currentSnapshot.smoothedPingMs
 
@@ -564,8 +567,9 @@ class PingEngine(
 
     /**
      * Динамический интервал между пробами:
-     * - При активном трафике не нагружаем радиомодем (15 сек).
-     * - В покое — каждые 5 сек.
+     * - При выключенном экране — 60 сек (энергосбережение).
+     * - При активном трафике не нагружаем радиомодем (30 сек).
+     * - В покое — 20 сек (достаточно для точного статуса UI без паразитной нагрузки).
      * - При сбоях — адаптивный backoff:
      *   - Полное отсутствие сети (NETWORK_LOST или затяжной DNS_FAILURE) -> 5с -> 15с -> 30с (0 нагрузки на CPU и батарею).
      *   - DPI блокировки / 429 / таймаут узла -> 1.5с -> 3с -> 6с для быстрого failover переключения.
@@ -573,6 +577,9 @@ class PingEngine(
     private fun calculateNextProbeDelay(lastSuccess: Boolean): Long {
         if (isDormant) {
             return 30000L
+        }
+        if (!isScreenOn) {
+            return 60000L
         }
         if (!lastSuccess) {
             val isTotalOutage = lastFailureType == FailureType.NETWORK_LOST ||
@@ -594,9 +601,9 @@ class PingEngine(
         }
         val throughput = trafficThroughputProvider()
         return if (throughput > 102_400L) { // > 100 KB/s
-            15000L
+            30000L
         } else {
-            5000L
+            20000L
         }
     }
 

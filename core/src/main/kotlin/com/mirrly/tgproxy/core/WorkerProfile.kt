@@ -30,8 +30,10 @@ data class WorkerProfile(
     val name: String,
     val domain: String,
     val isDeveloperWorker: Boolean = false,
+    val isCloudflarePersonal: Boolean = false,
     var lastPingMs: Long? = null,
     var lastStatus: WorkerStatus = WorkerStatus.UNKNOWN,
     var circuitState: CircuitState = CircuitState.CLOSED,
-    var cooldownRemainingSec: Long = 0L
+    var cooldownRemainingSec: Long = 0L,
+    var scriptVersion: Int = 0
 )

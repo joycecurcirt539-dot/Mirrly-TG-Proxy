@@ -22,6 +22,24 @@ class ProxyTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
+        val prefs = PreferencesManager(this)
+        val isVpnMode = prefs.isVpnModeEnabled()
+
+        if (MirrlyVpnService.isRunning) {
+            MirrlyVpnService.stop(this)
+            updateTileState(false)
+            return
+        }
+
+        if (isVpnMode) {
+            val prepIntent = MirrlyVpnService.prepare(this)
+            if (prepIntent == null) {
+                MirrlyVpnService.start(this)
+                updateTileState(true)
+                return
+            }
+        }
+
         val server = MirrlyApplication.instance.proxyServer
         val serviceIntent = Intent(this, ProxyForegroundService::class.java)
 
@@ -47,10 +65,17 @@ class ProxyTileService : TileService() {
 
     private fun updateTileState(forcedState: Boolean? = null) {
         val tile = qsTile ?: return
-        val isRunning = forcedState ?: MirrlyApplication.instance.proxyServer.isRunning
+        val isVpn = MirrlyVpnService.isRunning
+        val isProxy = MirrlyApplication.instance.proxyServer.isRunning
+        val isRunning = forcedState ?: (isVpn || isProxy)
+
         tile.state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        tile.label = if (isRunning) getString(R.string.tile_proxy_on) else getString(R.string.tile_proxy_off)
-        tile.icon = Icon.createWithResource(this, R.drawable.ic_qs_proxy)
+        tile.label = if (isRunning) {
+            if (isVpn) "Mirrly VPN • ВКЛ" else getString(R.string.tile_proxy_on)
+        } else {
+            getString(R.string.tile_proxy_off)
+        }
+        tile.icon = Icon.createWithResource(this, if (isVpn) R.drawable.ic_vpn else R.drawable.ic_qs_proxy)
         tile.updateTile()
     }
 

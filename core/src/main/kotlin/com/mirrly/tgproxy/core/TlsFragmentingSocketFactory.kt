@@ -70,11 +70,17 @@ class TlsFragmentingSocket(private val delegate: Socket) : Socket() {
     private var wrappedOutputStream: OutputStream? = null
 
     override fun connect(endpoint: SocketAddress?) {
+        if (!VpnSocketProtector.protect(delegate)) {
+            throw java.io.IOException("Socket protection failed; aborted to prevent VPN routing loop")
+        }
         delegate.connect(endpoint)
         delegate.tcpNoDelay = true
     }
 
     override fun connect(endpoint: SocketAddress?, timeout: Int) {
+        if (!VpnSocketProtector.protect(delegate)) {
+            throw java.io.IOException("Socket protection failed; aborted to prevent VPN routing loop")
+        }
         delegate.connect(endpoint, timeout)
         delegate.tcpNoDelay = true
     }

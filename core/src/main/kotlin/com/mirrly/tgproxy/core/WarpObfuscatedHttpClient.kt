@@ -90,6 +90,9 @@ object WarpObfuscatedHttpClient {
                 withinDeadline(budget, { socket.close() }) { deadline ->
                     socket.tcpNoDelay = true
                     socket.soTimeout = budget
+                    if (!VpnSocketProtector.protect(socket)) {
+                        throw IOException("Socket protection failed; aborted to prevent VPN routing loop")
+                    }
                     socket.connect(InetSocketAddress(ip, port), budget)
                     val engine = createEngine(customContext, host, port)
                     val connection = EngineConnection(socket, engine, deadline, host, enableFragmentation)

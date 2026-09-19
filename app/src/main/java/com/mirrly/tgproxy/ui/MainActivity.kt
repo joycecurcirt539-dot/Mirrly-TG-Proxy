@@ -309,19 +309,7 @@ class MainActivity : ComponentActivity() {
                 // Stable navigation action callbacks
                 val navigateTo: (String) -> Unit = remember {
                     { screen ->
-                        if (screen == "worker_guide") {
-                            workerManagerSection = ManagerSection.GUIDE
-                            if (screenStack.lastOrNull() != "worker_manager") {
-                                screenStack.add("worker_manager")
-                            }
-                            isWmVisible = true
-                            scope.launch {
-                                workerManagerOpenProgress.animateTo(
-                                    1f,
-                                    spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
-                                )
-                            }
-                        } else if (screen == "worker_manager") {
+                        if (screen == "worker_manager") {
                             workerManagerSection = ManagerSection.WORKERS
                             if (screenStack.lastOrNull() != "worker_manager") {
                                 screenStack.add("worker_manager")
@@ -537,8 +525,24 @@ class MainActivity : ComponentActivity() {
                     val isHallOfFame = currentScreen == "hall_of_fame"
                     val isTelegramChannel = currentScreen == "telegram_channel"
                     val isDiagnosticReport = currentScreen == "diagnostic_report"
+                    val isWorkerGuide = currentScreen == "worker_guide"
 
                     // Animated States for All Screens
+                    val workerGuideOffsetFraction = animateFloatAsState(
+                        targetValue = if (isWorkerGuide) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "workerGuideOffset"
+                    )
+                    val workerGuideScale = animateFloatAsState(
+                        targetValue = if (isWorkerGuide) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "workerGuideScale"
+                    )
+                    val workerGuideAlpha = animateFloatAsState(
+                        targetValue = if (isWorkerGuide) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "workerGuideAlpha"
+                    )
                     val diagnosticReportOffsetFraction = animateFloatAsState(
                         targetValue = if (isDiagnosticReport) 0f else 1.0f,
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -1156,6 +1160,38 @@ class MainActivity : ComponentActivity() {
                         ) {
                             DiagnosticReportScreen(
                                 onBack = onNavigateBack
+                            )
+                        }
+                    }
+
+                    // ── 15. WORKER GUIDE SCREEN (Dedicated Full Screen) ──
+                    if (activeScreens.contains("worker_guide")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * workerGuideOffsetFraction.value
+                                    scaleX = workerGuideScale.value
+                                    scaleY = workerGuideScale.value
+                                    alpha = workerGuideAlpha.value
+                                }
+                        ) {
+                            WorkerGuideScreen(
+                                onBack = onNavigateBack,
+                                onOpenWorkerManager = {
+                                    onNavigateBack()
+                                    workerManagerSection = ManagerSection.DEPLOY
+                                    if (screenStack.lastOrNull() != "worker_manager") {
+                                        screenStack.add("worker_manager")
+                                    }
+                                    isWmVisible = true
+                                    scope.launch {
+                                        workerManagerOpenProgress.animateTo(
+                                            1f,
+                                            spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)
+                                        )
+                                    }
+                                }
                             )
                         }
                     }

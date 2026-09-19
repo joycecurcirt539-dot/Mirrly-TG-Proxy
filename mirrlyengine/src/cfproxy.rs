@@ -675,6 +675,10 @@ pub fn clear_cfproxy_recovery_cooldown(domain: &str) {
     }
 }
 
+pub fn clear_all_recovery_cooldowns() {
+    CFPROXY_RECOVERY_CIRCUIT.write().clear();
+}
+
 pub fn set_doh_endpoints(endpoints_csv: &str) {
     let mut list = Vec::new();
     for item in endpoints_csv.split(',') {

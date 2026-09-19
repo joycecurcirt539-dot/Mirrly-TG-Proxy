@@ -65,15 +65,21 @@ object WorkerPingTester {
         }
 
         // 1. Попытка высокоточного SOCKS5 v2 релей-пробинга (WebSocket /tcp-v2 с 4-байтным контрольным ACK)
-        val relayResult = probeRelayInternal(cleanDomain, timeoutMs = 2500L)
-        if (relayResult.first == WorkerStatus.ONLINE || relayResult.first == WorkerStatus.RATE_LIMITED_429) {
+        val relayResult = probeRelayInternal(cleanDomain, timeoutMs = minOf(2500L, 400L))
+        if (relayResult.first == WorkerStatus.ONLINE) {
+            com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 2)
+            return@withContext relayResult
+        } else if (relayResult.first == WorkerStatus.RATE_LIMITED_429) {
             return@withContext relayResult
         }
 
         // 2. Интеллектуальный HTTP & Signature Fallback:
         // Проверяем доступность воркера, статус Cloudflare и сигнатуру скрипта Mirrly
         val httpResult = verifyWorkerHttpEndpoint(cleanDomain)
-        if (httpResult.first == WorkerStatus.ONLINE || httpResult.first == WorkerStatus.RATE_LIMITED_429) {
+        if (httpResult.first == WorkerStatus.ONLINE) {
+            com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 1)
+            return@withContext httpResult
+        } else if (httpResult.first == WorkerStatus.RATE_LIMITED_429) {
             return@withContext httpResult
         }
 
@@ -90,13 +96,20 @@ object WorkerPingTester {
             return@withContext WorkerStatus.ERROR_UNREACHABLE to null
         }
 
-        val relayResult = probeRelayInternal(cleanDomain, timeoutMs)
-        if (relayResult.first == WorkerStatus.ONLINE || relayResult.first == WorkerStatus.RATE_LIMITED_429) {
+        val relayResult = probeRelayInternal(cleanDomain, minOf(timeoutMs, 400L))
+        if (relayResult.first == WorkerStatus.ONLINE) {
+            com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 2)
+            return@withContext relayResult
+        } else if (relayResult.first == WorkerStatus.RATE_LIMITED_429) {
             return@withContext relayResult
         }
 
         // Fallback к валидированному эндпоинту Cloudflare Worker Mirrly
-        verifyWorkerHttpEndpoint(cleanDomain)
+        val httpResult = verifyWorkerHttpEndpoint(cleanDomain)
+        if (httpResult.first == WorkerStatus.ONLINE) {
+            com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 1)
+        }
+        httpResult
     }
 
     private suspend fun probeRelayInternal(cleanDomain: String, timeoutMs: Long): Pair<WorkerStatus, Long?> {

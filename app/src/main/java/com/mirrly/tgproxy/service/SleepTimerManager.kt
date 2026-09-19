@@ -180,6 +180,11 @@ object SleepTimerManager {
             MirrlyApplication.instance.proxyServer.stop()
         }
 
+        // Stop VPN Service if running (Task N15)
+        if (MirrlyVpnService.isRunning) {
+            MirrlyVpnService.stop(context)
+        }
+
         NotificationHelper.showTimerExpiredNotification(context)
     }
 }

@@ -30,6 +30,7 @@ import android.provider.Settings
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.annotation.StringRes
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -112,9 +113,9 @@ import kotlinx.coroutines.launch
 
 enum class ManagerSection(@StringRes val titleRes: Int) {
     WORKERS(R.string.wm_tab_workers),
+    DEPLOY(R.string.wm_tab_deploy),
     SHARE(R.string.wm_tab_share),
-    SCANNER(R.string.wm_tab_scanner),
-    GUIDE(R.string.wm_tab_guide)
+    SCANNER(R.string.wm_tab_scanner)
 }
 
 private enum class WmWorkerFilterType {
@@ -122,27 +123,6 @@ private enum class WmWorkerFilterType {
     DEVELOPER,
     CUSTOM
 }
-
-private enum class WmGuideTab(@StringRes val titleRes: Int) {
-    PC(R.string.cf_guide_tab_pc),
-    PHONE(R.string.cf_guide_tab_phone),
-    SCRIPT(R.string.cf_guide_tab_script),
-    FAQ(R.string.cf_guide_tab_faq)
-}
-
-private data class WmGuideStepItem(
-    val stepNumber: String,
-    @StringRes val titleRes: Int,
-    @StringRes val descriptionRes: Int,
-    @StringRes val actionTextRes: Int? = null,
-    val isCopyAction: Boolean = false,
-    val isDashAction: Boolean = false
-)
-
-private data class WmFaqItem(
-    @StringRes val titleRes: Int,
-    @StringRes val descriptionRes: Int
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -189,41 +169,17 @@ fun WorkerManagerScreen(
     var selectedShareWorker by remember { mutableStateOf<WorkerProfile?>(null) }
     var workerToDelete by remember { mutableStateOf<WorkerProfile?>(null) }
 
-    // Guide State
-    var selectedGuideTab by remember { mutableStateOf(WmGuideTab.PC) }
-    var showDashboardConfirmDialog by remember { mutableStateOf(false) }
-    var showDeployScriptConfirmDialog by remember { mutableStateOf(false) }
-
     var headerHeightDp by remember { mutableStateOf(210.dp) }
 
     val filterTypes = remember { listOf(WmWorkerFilterType.ALL, WmWorkerFilterType.DEVELOPER, WmWorkerFilterType.CUSTOM) }
-    val allGuideTabs = remember { listOf(WmGuideTab.PC, WmGuideTab.PHONE, WmGuideTab.SCRIPT, WmGuideTab.FAQ) }
 
     fun handleDismiss() {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         onBack()
     }
 
-    fun copyDeployCommandToClipboard() {
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val cmd = "irm https://raw.githubusercontent.com/joycecurcirt539-dot/Mirrly-TG-Proxy/main/tools/deploy-worker/deploy.ps1 | iex"
-        val clip = ClipData.newPlainText("Mirrly Deploy Command", cmd)
-        clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, context.getString(R.string.cf_guide_toast_deploy_copied), Toast.LENGTH_SHORT).show()
-    }
-
-    fun copyScriptToClipboard() {
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("Cloudflare Worker Script", TgConstants.CLOUDFLARE_WORKER_JS_CODE)
-        clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, context.getString(R.string.cf_guide_toast_script_copied), Toast.LENGTH_SHORT).show()
-    }
-
-    fun openCloudflareDashboard() {
-        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        showDashboardConfirmDialog = true
+    BackHandler {
+        handleDismiss()
     }
 
     fun switchToNextSubTab() {
@@ -234,21 +190,14 @@ fun WorkerManagerScreen(
                 selectedFilter = filterTypes[currentIndex + 1]
             } else {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                currentSection = ManagerSection.SHARE
+                currentSection = ManagerSection.DEPLOY
             }
+        } else if (currentSection == ManagerSection.DEPLOY) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            currentSection = ManagerSection.SHARE
         } else if (currentSection == ManagerSection.SHARE) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             currentSection = ManagerSection.SCANNER
-        } else if (currentSection == ManagerSection.SCANNER) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            currentSection = ManagerSection.GUIDE
-            selectedGuideTab = WmGuideTab.PC
-        } else {
-            val currentIndex = allGuideTabs.indexOf(selectedGuideTab)
-            if (currentIndex < allGuideTabs.size - 1) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                selectedGuideTab = allGuideTabs[currentIndex + 1]
-            }
         }
     }
 
@@ -259,21 +208,15 @@ fun WorkerManagerScreen(
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 selectedFilter = filterTypes[currentIndex - 1]
             }
-        } else if (currentSection == ManagerSection.SHARE) {
+        } else if (currentSection == ManagerSection.DEPLOY) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             currentSection = ManagerSection.WORKERS
+        } else if (currentSection == ManagerSection.SHARE) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            currentSection = ManagerSection.DEPLOY
         } else if (currentSection == ManagerSection.SCANNER) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             currentSection = ManagerSection.SHARE
-        } else {
-            val currentIndex = allGuideTabs.indexOf(selectedGuideTab)
-            if (currentIndex > 0) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                selectedGuideTab = allGuideTabs[currentIndex - 1]
-            } else {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                currentSection = ManagerSection.SCANNER
-            }
         }
     }
 
@@ -365,121 +308,18 @@ fun WorkerManagerScreen(
         }
     }
 
-    // Guide Step Items
-    val pcSteps = remember {
-        listOf(
-            WmGuideStepItem(
-                stepNumber = "1",
-                titleRes = R.string.cf_guide_step_pc_1_title,
-                descriptionRes = R.string.cf_guide_step_pc_1_desc,
-                actionTextRes = R.string.cf_guide_step_pc_1_action,
-                isDashAction = true
-            ),
-            WmGuideStepItem(
-                stepNumber = "2",
-                titleRes = R.string.cf_guide_step_pc_2_title,
-                descriptionRes = R.string.cf_guide_step_pc_2_desc
-            ),
-            WmGuideStepItem(
-                stepNumber = "3",
-                titleRes = R.string.cf_guide_step_pc_3_title,
-                descriptionRes = R.string.cf_guide_step_pc_3_desc
-            ),
-            WmGuideStepItem(
-                stepNumber = "4",
-                titleRes = R.string.cf_guide_step_pc_4_title,
-                descriptionRes = R.string.cf_guide_step_pc_4_desc,
-                actionTextRes = R.string.cf_guide_step_pc_4_action,
-                isCopyAction = true
-            ),
-            WmGuideStepItem(
-                stepNumber = "5",
-                titleRes = R.string.cf_guide_step_pc_5_title,
-                descriptionRes = R.string.cf_guide_step_pc_5_desc
-            ),
-            WmGuideStepItem(
-                stepNumber = "6",
-                titleRes = R.string.cf_guide_step_pc_6_title,
-                descriptionRes = R.string.cf_guide_step_pc_6_desc
-            )
-        )
-    }
-
-    val phoneSteps = remember {
-        listOf(
-            WmGuideStepItem(
-                stepNumber = "1",
-                titleRes = R.string.cf_guide_step_ph_1_title,
-                descriptionRes = R.string.cf_guide_step_ph_1_desc,
-                actionTextRes = R.string.cf_guide_step_ph_1_action,
-                isDashAction = true
-            ),
-            WmGuideStepItem(
-                stepNumber = "2",
-                titleRes = R.string.cf_guide_step_ph_2_title,
-                descriptionRes = R.string.cf_guide_step_ph_2_desc
-            ),
-            WmGuideStepItem(
-                stepNumber = "3",
-                titleRes = R.string.cf_guide_step_ph_3_title,
-                descriptionRes = R.string.cf_guide_step_ph_3_desc
-            ),
-            WmGuideStepItem(
-                stepNumber = "4",
-                titleRes = R.string.cf_guide_step_ph_4_title,
-                descriptionRes = R.string.cf_guide_step_ph_4_desc,
-                actionTextRes = R.string.cf_guide_step_ph_4_action,
-                isCopyAction = true
-            ),
-            WmGuideStepItem(
-                stepNumber = "5",
-                titleRes = R.string.cf_guide_step_ph_5_title,
-                descriptionRes = R.string.cf_guide_step_ph_5_desc
-            )
-        )
-    }
-
-    val faqItems = remember {
-        listOf(
-            WmFaqItem(
-                titleRes = R.string.cf_guide_faq_1_title,
-                descriptionRes = R.string.cf_guide_faq_1_desc
-            ),
-            WmFaqItem(
-                titleRes = R.string.cf_guide_faq_2_title,
-                descriptionRes = R.string.cf_guide_faq_2_desc
-            ),
-            WmFaqItem(
-                titleRes = R.string.cf_guide_faq_3_title,
-                descriptionRes = R.string.cf_guide_faq_3_desc
-            ),
-            WmFaqItem(
-                titleRes = R.string.cf_guide_faq_4_title,
-                descriptionRes = R.string.cf_guide_faq_4_desc
-            ),
-            WmFaqItem(
-                titleRes = R.string.cf_guide_faq_5_title,
-                descriptionRes = R.string.cf_guide_faq_5_desc
-            ),
-            WmFaqItem(
-                titleRes = R.string.cf_guide_faq_6_title,
-                descriptionRes = R.string.cf_guide_faq_6_desc
-            )
-        )
+    val isActiveWorkerRateLimited by remember(allWorkers, activeWorkerId) {
+        derivedStateOf {
+            val activeDomain = allWorkers.firstOrNull { it.id == activeWorkerId }?.domain
+            activeDomain != null && pingResults[activeDomain]?.first == WorkerStatus.RATE_LIMITED_429
+        }
     }
 
     val workersListState = rememberLazyListState()
-    val guideListState = rememberLazyListState()
 
     LaunchedEffect(selectedFilter) {
         if (workersListState.firstVisibleItemIndex > 0 || workersListState.firstVisibleItemScrollOffset > 0) {
             workersListState.scrollToItem(0)
-        }
-    }
-
-    LaunchedEffect(selectedGuideTab) {
-        if (guideListState.firstVisibleItemIndex > 0 || guideListState.firstVisibleItemScrollOffset > 0) {
-            guideListState.scrollToItem(0)
         }
     }
 
@@ -522,24 +362,6 @@ fun WorkerManagerScreen(
                 return Offset.Zero
             }
         }
-    }
-
-    if (showDashboardConfirmDialog) {
-        ExternalLinkConfirmDialog(
-            url = "https://dash.cloudflare.com/",
-            title = stringResource(R.string.cf_guide_link_dash_title),
-            description = stringResource(R.string.cf_guide_link_dash_desc),
-            onDismiss = { showDashboardConfirmDialog = false }
-        )
-    }
-
-    if (showDeployScriptConfirmDialog) {
-        ExternalLinkConfirmDialog(
-            url = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/tree/main/tools/deploy-worker",
-            title = stringResource(R.string.cf_guide_link_autodeploy_title),
-            description = stringResource(R.string.cf_guide_link_autodeploy_desc),
-            onDismiss = { showDeployScriptConfirmDialog = false }
-        )
     }
 
     Box(
@@ -604,9 +426,17 @@ fun WorkerManagerScreen(
             alphaMultiplier = 0.50f
         )
 
-        // 1. SCROLLABLE BODY CONTENT (AnimatedContent between WORKERS, SHARE, SCANNER and GUIDE)
+        // 1. SCROLLABLE BODY CONTENT (AnimatedContent between WORKERS, DEPLOY, SHARE, SCANNER)
         AnimatedContent(
             targetState = currentSection,
+            modifier = Modifier
+                .fillMaxSize()
+                .fourWayFadingEdges(
+                    topFadeHeight = 28.dp,
+                    bottomFadeHeight = 56.dp,
+                    startFadeWidth = 12.dp,
+                    endFadeWidth = 12.dp
+                ),
             transitionSpec = {
                 val fromIndex = ManagerSection.values().indexOf(initialState)
                 val toIndex = ManagerSection.values().indexOf(targetState)
@@ -697,13 +527,103 @@ fun WorkerManagerScreen(
                             ),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            // Quick Cloudflare Personal Worker Deploy Banner (Styled 1:1 like GlassWorkerCard)
+                            item(key = "cf_quick_deploy_banner") {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color.Transparent,
+                                    border = BorderStroke(1.dp, Color(0xFF181E2E)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            currentSection = ManagerSection.DEPLOY
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(9.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(28.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color(0xFFF38020).copy(alpha = 0.12f))
+                                                    .border(1.dp, Color(0xFFF38020).copy(alpha = 0.35f), RoundedCornerShape(8.dp)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.ic_diag_cloudflare),
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFF38020),
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.cf_deploy_quick_banner_title),
+                                                        color = TextWhite,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = Color(0xFFF38020).copy(alpha = 0.15f),
+                                                        border = BorderStroke(0.5.dp, Color(0xFFF38020).copy(alpha = 0.45f))
+                                                    ) {
+                                                        Text(
+                                                            text = "Cloudflare",
+                                                            color = Color(0xFFF38020),
+                                                            fontSize = 9.5.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Text(
+                                                    text = stringResource(R.string.cf_deploy_quick_banner_desc),
+                                                    color = TextMuted,
+                                                    fontSize = 11.sp,
+                                                    lineHeight = 14.sp
+                                                )
+                                            }
+                                        }
+
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                                            contentDescription = null,
+                                            tint = TextMuted,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+
                             // Warning Card for 429 Rate Limit
                             if (hasRateLimitedWorkers) {
                                 item(key = "rate_limit_warning") {
+                                    val warningColor = if (isActiveWorkerRateLimited) Color(0xFFEF4444) else Color(0xFFF59E0B)
+                                    val titleRes = if (isActiveWorkerRateLimited) R.string.wm_limit_429_active_title else R.string.wm_limit_rate_limit_title
+                                    val descRes = if (isActiveWorkerRateLimited) R.string.wm_limit_429_active_desc else R.string.wm_limit_429_public_desc
+
                                     Surface(
                                         shape = RoundedCornerShape(13.dp),
-                                        color = Color(0xFFF59E0B).copy(alpha = 0.08f),
-                                        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
+                                        color = warningColor.copy(alpha = 0.08f),
+                                        border = BorderStroke(1.dp, warningColor.copy(alpha = 0.45f)),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(bottom = 2.dp)
@@ -720,30 +640,30 @@ fun WorkerManagerScreen(
                                                     modifier = Modifier
                                                         .size(6.dp)
                                                         .clip(CircleShape)
-                                                        .background(Color(0xFFF59E0B))
+                                                        .background(warningColor)
                                                 )
                                                 Surface(
                                                     shape = RoundedCornerShape(5.dp),
                                                     color = Color.Transparent,
-                                                    border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
+                                                    border = BorderStroke(1.dp, warningColor.copy(alpha = 0.35f))
                                                 ) {
                                                     Text(
                                                         text = stringResource(R.string.wm_limit_429),
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFFF59E0B),
+                                                        color = warningColor,
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
                                                     )
                                                 }
                                                 Text(
-                                                    text = stringResource(R.string.wm_limit_rate_limit_title),
+                                                    text = stringResource(titleRes),
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 12.sp,
-                                                    color = Color(0xFFF59E0B)
+                                                    color = warningColor
                                                 )
                                             }
                                             Text(
-                                                text = stringResource(R.string.wm_limit_429_desc),
+                                                text = stringResource(descRes),
                                                 fontSize = 12.sp,
                                                 color = TextWhite.copy(alpha = 0.85f),
                                                 lineHeight = 16.5.sp
@@ -877,6 +797,21 @@ fun WorkerManagerScreen(
                         }
                     }
                 }
+                ManagerSection.DEPLOY -> {
+                    CloudflareDeploySection(
+                        prefs = prefs,
+                        activeProtoColor = activeProtoColor,
+                        onWorkerDeployed = {
+                            refreshWorkers()
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(
+                                top = headerHeightDp,
+                                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 40.dp
+                            )
+                    )
+                }
                 ManagerSection.SHARE -> {
                     ShareWorkerContent(
                         workers = customWorkers,
@@ -924,351 +859,6 @@ fun WorkerManagerScreen(
                         headerPadding = headerHeightDp
                     )
                 }
-                ManagerSection.GUIDE -> {
-                    LazyColumn(
-                        state = guideListState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .nestedScroll(nestedScrollConnection),
-                        contentPadding = PaddingValues(
-                            top = headerHeightDp + 8.dp,
-                            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 110.dp,
-                            start = 16.dp,
-                            end = 16.dp
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        when (selectedGuideTab) {
-                            WmGuideTab.PC -> {
-                                item(key = "pc_auto_deploy_card") {
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = activeProtoColor.copy(alpha = 0.08f),
-                                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.40f)),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 2.dp)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(6.dp)
-                                                        .clip(CircleShape)
-                                                        .background(activeProtoColor)
-                                                )
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.5.dp),
-                                                    color = Color.Transparent,
-                                                    border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.40f))
-                                                ) {
-                                                    Text(
-                                                        text = stringResource(R.string.cf_guide_badge_one_click),
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = activeProtoColor,
-                                                        modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
-                                                    )
-                                                }
-                                                Text(
-                                                    text = stringResource(R.string.cf_guide_autodeploy_title),
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.sp,
-                                                    color = activeProtoColor
-                                                )
-                                            }
-                                            Text(
-                                                text = stringResource(R.string.cf_guide_autodeploy_desc),
-                                                fontSize = 11.5.sp,
-                                                color = TextWhite.copy(alpha = 0.9f),
-                                                lineHeight = 16.sp
-                                            )
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = activeProtoColor.copy(alpha = 0.16f),
-                                                    border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.55f)),
-                                                    modifier = Modifier
-                                                        .weight(1.2f)
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .springPress(onClick = { copyDeployCommandToClipboard() })
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.5.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.Center
-                                                    ) {
-                                                        Icon(
-                                                            painter = painterResource(id = R.drawable.ic_copy),
-                                                            contentDescription = stringResource(R.string.cf_guide_btn_copy),
-                                                            tint = activeProtoColor,
-                                                            modifier = Modifier.size(12.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(5.dp))
-                                                        Text(
-                                                            text = stringResource(R.string.cf_guide_btn_copy_cmd),
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = TextWhite
-                                                        )
-                                                    }
-                                                }
-
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = Color.Transparent,
-                                                    border = BorderStroke(1.dp, Color(0xFF1E283D)),
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .springPress(onClick = { showDeployScriptConfirmDialog = true })
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.5.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.Center
-                                                    ) {
-                                                        Icon(
-                                                            painter = painterResource(id = R.drawable.ic_github),
-                                                            contentDescription = "GitHub",
-                                                            tint = TextMuted,
-                                                            modifier = Modifier.size(12.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(5.dp))
-                                                        Text(
-                                                            text = stringResource(R.string.cf_guide_btn_deploy_bat),
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.Medium,
-                                                            color = TextMuted
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                itemsIndexed(
-                                    items = pcSteps,
-                                    key = { _, item -> "pc_${item.stepNumber}" }
-                                ) { _, step ->
-                                    GlassGuideStepCard(
-                                        stepNumber = step.stepNumber,
-                                        title = stringResource(step.titleRes),
-                                        description = stringResource(step.descriptionRes),
-                                        activeAccentColor = activeProtoColor,
-                                        actionText = step.actionTextRes?.let { stringResource(it) },
-                                        onAction = when {
-                                            step.isCopyAction -> { { copyScriptToClipboard() } }
-                                            step.isDashAction -> { { openCloudflareDashboard() } }
-                                            else -> null
-                                        }
-                                    )
-                                }
-                            }
-                            WmGuideTab.PHONE -> {
-                                item(key = "phone_tip") {
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = Color(0xFF38BDF8).copy(alpha = 0.08f),
-                                        border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f)),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 2.dp)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(6.dp)
-                                                        .clip(CircleShape)
-                                                        .background(Color(0xFF38BDF8))
-                                                )
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.5.dp),
-                                                    color = Color.Transparent,
-                                                    border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.35f))
-                                                ) {
-                                                    Text(
-                                                        text = stringResource(R.string.cf_guide_tip_badge),
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFF38BDF8),
-                                                        modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
-                                                    )
-                                                }
-                                                Text(
-                                                    text = stringResource(R.string.cf_guide_tip_title),
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.sp,
-                                                    color = Color(0xFF38BDF8)
-                                                )
-                                            }
-                                            Text(
-                                                text = stringResource(R.string.cf_guide_tip_desc),
-                                                fontSize = 11.5.sp,
-                                                color = TextWhite.copy(alpha = 0.85f),
-                                                lineHeight = 16.sp
-                                            )
-                                        }
-                                    }
-                                }
-
-                                itemsIndexed(
-                                    items = phoneSteps,
-                                    key = { _, item -> "phone_${item.stepNumber}" }
-                                ) { _, step ->
-                                    GlassGuideStepCard(
-                                        stepNumber = step.stepNumber,
-                                        title = stringResource(step.titleRes),
-                                        description = stringResource(step.descriptionRes),
-                                        activeAccentColor = activeProtoColor,
-                                        actionText = step.actionTextRes?.let { stringResource(it) },
-                                        onAction = when {
-                                            step.isCopyAction -> { { copyScriptToClipboard() } }
-                                            step.isDashAction -> { { openCloudflareDashboard() } }
-                                            else -> null
-                                        }
-                                    )
-                                }
-                            }
-                            WmGuideTab.SCRIPT -> {
-                                item(key = "script_header") {
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = Color.Transparent,
-                                        border = BorderStroke(1.dp, Color(0xFF181E2E)),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(12.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(6.dp)
-                                                            .clip(CircleShape)
-                                                            .background(activeProtoColor)
-                                                    )
-                                                    Text(
-                                                        text = "cloudflare_worker.js",
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = TextWhite
-                                                    )
-                                                }
-
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = activeProtoColor.copy(alpha = 0.12f),
-                                                    border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.45f)),
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .springPress(onClick = { copyScriptToClipboard() })
-                                                ) {
-                                                    Row(
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                    ) {
-                                                        Icon(
-                                                            painter = painterResource(id = R.drawable.ic_copy),
-                                                            contentDescription = stringResource(R.string.cf_guide_btn_copy),
-                                                            tint = activeProtoColor,
-                                                            modifier = Modifier.size(12.dp)
-                                                        )
-                                                        Text(
-                                                            text = stringResource(R.string.cf_guide_btn_copy),
-                                                            color = activeProtoColor,
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                    }
-                                                }
-                                            }
-
-                                            Text(
-                                                text = TgConstants.CLOUDFLARE_WORKER_JS_CODE,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = 10.5.sp,
-                                                color = TextWhite.copy(alpha = 0.8f),
-                                                lineHeight = 15.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            WmGuideTab.FAQ -> {
-                                itemsIndexed(
-                                    items = faqItems,
-                                    key = { index, _ -> "faq_item_$index" }
-                                ) { _, faq ->
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = Color.Transparent,
-                                        border = BorderStroke(1.dp, Color(0xFF181E2E)),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(6.dp)
-                                                        .clip(CircleShape)
-                                                        .background(activeProtoColor)
-                                                )
-                                                Text(
-                                                    text = stringResource(faq.titleRes),
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = TextWhite
-                                                )
-                                            }
-                                            Text(
-                                                text = stringResource(faq.descriptionRes),
-                                                fontSize = 11.5.sp,
-                                                color = TextMuted,
-                                                lineHeight = 16.sp,
-                                                modifier = Modifier.padding(start = 12.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
 
@@ -1314,7 +904,7 @@ fun WorkerManagerScreen(
                         }
                     }
                 }
-                .padding(bottom = 18.dp)
+                .padding(bottom = 8.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -1322,28 +912,6 @@ fun WorkerManagerScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Top Drag Handle Pill (Tap or Swipe up to collapse)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp, bottom = 2.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            handleDismiss()
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(36.dp)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(Color.White.copy(alpha = 0.28f))
-                    )
-                }
-
                 // Top App Bar
                 TopAppBar(
                     title = {
@@ -1358,14 +926,13 @@ fun WorkerManagerScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = if (currentSection == ManagerSection.GUIDE) {
-                                    stringResource(R.string.wm_sub_guide)
-                                } else {
-                                    if (isSocks5) stringResource(R.string.wm_sub_socks5) else stringResource(R.string.wm_sub_mtproto)
+                                text = when (currentSection) {
+                                    ManagerSection.DEPLOY -> stringResource(R.string.cf_deploy_header_subtitle)
+                                    else -> if (isSocks5) stringResource(R.string.wm_sub_socks5) else stringResource(R.string.wm_sub_mtproto)
                                 },
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = activeProtoColor
+                                color = if (currentSection == ManagerSection.DEPLOY) Color(0xFFF38020) else activeProtoColor
                             )
                         }
                     },
@@ -1431,18 +998,6 @@ fun WorkerManagerScreen(
                                         .rotate(pingRotation)
                                 )
                             }
-                        } else {
-                            // Copy script shortcut in Guide
-                            IconButton(onClick = {
-                                copyScriptToClipboard()
-                            }) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_copy),
-                                    contentDescription = stringResource(R.string.cf_guide_toast_script_copied),
-                                    tint = activeProtoColor,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -1481,6 +1036,8 @@ fun WorkerManagerScreen(
                             label = "sectionPillOffset"
                         )
 
+                        val currentPillColor = if (currentSection == ManagerSection.DEPLOY) Color(0xFFF38020) else activeProtoColor
+
                         // Sliding Glowing Indicator Pill
                         Box(
                             modifier = Modifier
@@ -1488,8 +1045,8 @@ fun WorkerManagerScreen(
                                 .width(sectionTabWidth)
                                 .fillMaxHeight()
                                 .clip(RoundedCornerShape(15.dp))
-                                .background(activeProtoColor.copy(alpha = 0.20f))
-                                .border(1.2.dp, activeProtoColor.copy(alpha = 0.85f), RoundedCornerShape(15.dp))
+                                .background(currentPillColor.copy(alpha = 0.20f))
+                                .border(1.2.dp, currentPillColor.copy(alpha = 0.85f), RoundedCornerShape(15.dp))
                         )
 
                         // Segment Labels Row
@@ -1515,12 +1072,13 @@ fun WorkerManagerScreen(
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {
+                                    val activeSecColor = if (sec == ManagerSection.DEPLOY) Color(0xFFF38020) else activeProtoColor
                                     Text(
                                         text = stringResource(sec.titleRes),
-                                        color = if (isSelected) activeProtoColor else TextMuted,
-                                        fontSize = 11.sp,
+                                        color = if (isSelected) activeSecColor else TextMuted,
+                                        fontSize = 10.5.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        letterSpacing = 0.2.sp,
+                                        letterSpacing = 0.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -1702,6 +1260,9 @@ fun WorkerManagerScreen(
                                 }
                             }
                         }
+                        ManagerSection.DEPLOY -> {
+                            // Subheader banner removed as per user request (title is already in TopAppBar)
+                        }
                         ManagerSection.SHARE -> {
                             Surface(
                                 shape = RoundedCornerShape(11.dp),
@@ -1755,97 +1316,6 @@ fun WorkerManagerScreen(
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Medium
                                     )
-                                }
-                            }
-                        }
-                        ManagerSection.GUIDE -> {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                // Top 3 Guide Sub-Chips
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    val topTabs = listOf(WmGuideTab.PC, WmGuideTab.PHONE, WmGuideTab.SCRIPT)
-                                    topTabs.forEach { tab ->
-                                        val isSelected = selectedGuideTab == tab
-                                        val borderColor by animateColorAsState(
-                                            targetValue = if (isSelected) activeProtoColor.copy(alpha = 0.85f) else Color(0xFF1E283D),
-                                            animationSpec = tween(180),
-                                            label = "guideTabBorder"
-                                        )
-                                        val titleColor by animateColorAsState(
-                                            targetValue = if (isSelected) activeProtoColor else TextWhite.copy(alpha = 0.85f),
-                                            animationSpec = tween(180),
-                                            label = "guideTabTitle"
-                                        )
-
-                                        Surface(
-                                            shape = RoundedCornerShape(11.dp),
-                                            color = Color.Transparent,
-                                            border = BorderStroke(1.dp, borderColor),
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(34.dp)
-                                                .clip(RoundedCornerShape(11.dp))
-                                                .springPress(onClick = {
-                                                    selectedGuideTab = tab
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                })
-                                        ) {
-                                            Box(
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = stringResource(tab.titleRes),
-                                                    color = titleColor,
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Full-Width FAQ Chip
-                                val isFaqSelected = selectedGuideTab == WmGuideTab.FAQ
-                                val faqBorderColor by animateColorAsState(
-                                    targetValue = if (isFaqSelected) activeProtoColor.copy(alpha = 0.85f) else Color(0xFF1E283D),
-                                    animationSpec = tween(180),
-                                    label = "faqTabBorder"
-                                )
-                                val faqTitleColor by animateColorAsState(
-                                    targetValue = if (isFaqSelected) activeProtoColor else TextWhite.copy(alpha = 0.85f),
-                                    animationSpec = tween(180),
-                                    label = "faqTabTitle"
-                                )
-
-                                Surface(
-                                    shape = RoundedCornerShape(11.dp),
-                                    color = Color.Transparent,
-                                    border = BorderStroke(1.dp, faqBorderColor),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(32.dp)
-                                        .clip(RoundedCornerShape(11.dp))
-                                        .springPress(onClick = {
-                                            selectedGuideTab = WmGuideTab.FAQ
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        })
-                                ) {
-                                    Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = stringResource(WmGuideTab.FAQ.titleRes),
-                                            color = faqTitleColor,
-                                            fontSize = 11.5.sp,
-                                            fontWeight = if (isFaqSelected) FontWeight.Bold else FontWeight.Medium
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -1979,85 +1449,7 @@ private fun SegmentedFilterChip(
     }
 }
 
-@Composable
-private fun GlassGuideStepCard(
-    stepNumber: String,
-    title: String,
-    description: String,
-    activeAccentColor: Color,
-    actionText: String? = null,
-    onAction: (() -> Unit)? = null
-) {
-    Surface(
-        shape = RoundedCornerShape(13.dp),
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, Color(0xFF181E2E)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(4.5.dp),
-                    color = activeAccentColor.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.45f))
-                ) {
-                    Text(
-                        text = stringResource(R.string.cf_guide_step_label, stepNumber),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = activeAccentColor,
-                        modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
-                    )
-                }
 
-                Text(
-                    text = title,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Text(
-                text = description,
-                fontSize = 11.5.sp,
-                color = TextMuted,
-                lineHeight = 16.sp
-            )
-
-            if (actionText != null && onAction != null) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = activeAccentColor.copy(alpha = 0.08f),
-                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.35f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(34.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .springPress(onClick = onAction)
-                ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = actionText,
-                            color = activeAccentColor,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
 
 /**
  * Clean Frosted Glass Worker Card (Compact, transparent outline style)
@@ -2195,16 +1587,21 @@ private fun GlassWorkerCard(
                         )
 
                         // Category Badge
+                        val isCf = worker.isCloudflarePersonal
                         Surface(
                             shape = RoundedCornerShape(4.5.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, Color(0xFF1E283D))
+                            color = if (isCf) Color(0xFFF38020).copy(alpha = 0.12f) else Color.Transparent,
+                            border = BorderStroke(1.dp, if (isCf) Color(0xFFF38020).copy(alpha = 0.5f) else Color(0xFF1E283D))
                         ) {
                             Text(
-                                text = if (worker.isDeveloperWorker) stringResource(R.string.wm_badge_official) else stringResource(R.string.wm_badge_custom),
+                                text = when {
+                                    worker.isDeveloperWorker -> stringResource(R.string.wm_badge_official)
+                                    isCf -> "Cloudflare"
+                                    else -> stringResource(R.string.wm_badge_custom)
+                                },
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = TextMuted,
+                                color = if (isCf) Color(0xFFF38020) else TextMuted,
                                 modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
                             )
                         }

@@ -41,6 +41,7 @@ interface ProxyLibrary : Library {
     fun SetTcpNoDelay(enabled: Int)
     fun SetCfProxyCacheDir(cacheDir: String)
     fun SetCfProxyConfig(enabled: Int, userDomain: String)
+    fun SetWorkerProtocol(domain: String, proto: Int)
     fun SetSecret(secret: String)
     fun SetSocks5Auth(username: String, password: String)
     fun SetDohEndpoints(endpoints: String)
@@ -119,6 +120,7 @@ interface ProxyLibrary : Library {
     fun GetNetworkProfileJson(): Pointer?
     fun SuspendNetworkSockets()
     fun WarmupWsPool()
+    fun OnScreenWakeup()
     fun SetTrustPolicy(isPrivateNode: Int, allowPublicRelayFallback: Int, allowOperaDirectExit: Int, allowOperaTransportHop: Int)
     fun GetStageTimelineJson(): Pointer?
     fun GetUsefulRxSliJson(): Pointer?
@@ -224,6 +226,14 @@ object NativeProxy {
             )
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [setCfProxyConfig]: ${t.message}", t)
+        }
+    }
+
+    fun setWorkerProtocol(domain: String, proto: Int) {
+        try {
+            ProxyLibrary.INSTANCE.SetWorkerProtocol(domain, proto)
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [setWorkerProtocol]: ${t.message}")
         }
     }
 
@@ -830,6 +840,15 @@ object NativeProxy {
             ProxyLibrary.INSTANCE.WarmupWsPool()
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [WarmupWsPool]: ${t.message}", t)
+        }
+    }
+
+    fun onScreenWakeup() {
+        if (!isStarted) return
+        try {
+            ProxyLibrary.INSTANCE.OnScreenWakeup()
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [OnScreenWakeup]: ${t.message}", t)
         }
     }
 

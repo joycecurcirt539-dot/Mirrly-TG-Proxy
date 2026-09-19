@@ -315,6 +315,15 @@ object DohResolver {
             acceptHeader = "application/dns-json"
         ),
         DohProvider(
+            id = "yandex",
+            name = "Yandex DNS",
+            description = "Russian domestic resolver (TSPU Whitelist fallback)",
+            endpointUrl = "https://common.dot.yandex.net/dns-query",
+            isDefaultEnabled = true,
+            acceptHeader = "application/dns-message",
+            useDnsParam = true
+        ),
+        DohProvider(
             id = "dnssb",
             name = "DNS.SB (Primary)",
             description = "Private DNS without logs or filtering (Anycast)",
@@ -521,10 +530,50 @@ object DohResolver {
 
     private val httpClient by lazy {
         OkHttpClient.Builder()
+            .socketFactory(object : javax.net.SocketFactory() {
+                private val defaultFactory = getDefault()
+                override fun createSocket(): java.net.Socket {
+                    val s = defaultFactory.createSocket()
+                    VpnSocketProtector.protect(s)
+                    return s
+                }
+                override fun createSocket(host: String?, port: Int): java.net.Socket {
+                    val s = defaultFactory.createSocket(host, port)
+                    VpnSocketProtector.protect(s)
+                    return s
+                }
+                override fun createSocket(host: String?, port: Int, localHost: java.net.InetAddress?, localPort: Int): java.net.Socket {
+                    val s = defaultFactory.createSocket(host, port, localHost, localPort)
+                    VpnSocketProtector.protect(s)
+                    return s
+                }
+                override fun createSocket(host: java.net.InetAddress?, port: Int): java.net.Socket {
+                    val s = defaultFactory.createSocket(host, port)
+                    VpnSocketProtector.protect(s)
+                    return s
+                }
+                override fun createSocket(address: java.net.InetAddress?, port: Int, localAddress: java.net.InetAddress?, localPort: Int): java.net.Socket {
+                    val s = defaultFactory.createSocket(address, port, localAddress, localPort)
+                    VpnSocketProtector.protect(s)
+                    return s
+                }
+            })
             .connectTimeout(2000, TimeUnit.MILLISECONDS)
             .readTimeout(2000, TimeUnit.MILLISECONDS)
             .callTimeout(2500, TimeUnit.MILLISECONDS)
             .retryOnConnectionFailure(true)
+            .dns(object : okhttp3.Dns {
+                override fun lookup(hostname: String): List<InetAddress> {
+                    return if (hostname.equals("common.dot.yandex.net", ignoreCase = true)) {
+                        listOf(
+                            InetAddress.getByName("77.88.8.8"),
+                            InetAddress.getByName("77.88.8.1")
+                        )
+                    } else {
+                        okhttp3.Dns.SYSTEM.lookup(hostname)
+                    }
+                }
+            })
             .build()
     }
 
@@ -765,10 +814,12 @@ object DohResolver {
 
         val primaryProvider = providers.firstOrNull()
         val secondaryProvider = providers.getOrNull(1)
+        val tertiaryProvider = providers.getOrNull(2) ?: providers.find { it.id == "yandex" }
 
         val localCalls = java.util.Collections.newSetFromMap(ConcurrentHashMap<okhttp3.Call, Boolean>())
         val deferredWinner = CompletableDeferred<HedgedResolutionWinner>()
         val hedgeTrigger = CompletableDeferred<Unit>()
+        val fallbackTrigger = CompletableDeferred<Unit>()
 
         fun tryComplete(addresses: List<InetAddress>, ttlSec: Long, providerName: String, isSecure: Boolean) {
             if (addresses.isNotEmpty()) {
@@ -817,6 +868,23 @@ object DohResolver {
                     val result = queryDohProvider(secondaryProvider, domain, localCalls)
                     if (result != null && result.first.isNotEmpty()) {
                         tryComplete(result.first, result.second, secondaryProvider.name, true)
+                    } else {
+                        fallbackTrigger.complete(Unit)
+                    }
+                }
+            }
+        } else {
+            fallbackTrigger.complete(Unit)
+        }
+
+        // 5. Резервный провайдер (Yandex DNS / Tertiary) при сбое первых двух серверов в РФ
+        if (tertiaryProvider != null && tertiaryProvider != secondaryProvider && tertiaryProvider != primaryProvider) {
+            launch {
+                fallbackTrigger.await()
+                if (!deferredWinner.isCompleted) {
+                    val result = queryDohProvider(tertiaryProvider, domain, localCalls)
+                    if (result != null && result.first.isNotEmpty()) {
+                        tryComplete(result.first, result.second, tertiaryProvider.name, true)
                     }
                 }
             }

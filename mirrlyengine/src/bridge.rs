@@ -113,8 +113,8 @@ impl BridgeActivity {
                                 let (transport_idle, closed) = checker();
                                 if closed {
                                     Some(std::io::ErrorKind::ConnectionReset)
-                                } else if transport_idle >= Duration::from_secs(90) {
-                                    // Transport heartbeat stall: no PONG or frame for over 90s (blackhole)
+                                } else if transport_idle >= Duration::from_secs(20) {
+                                    // Transport heartbeat stall: no PONG or frame for over 20s (blackhole)
                                     Some(std::io::ErrorKind::TimedOut)
                                 } else {
                                     // Transport health is active (pongs/frames fresh).

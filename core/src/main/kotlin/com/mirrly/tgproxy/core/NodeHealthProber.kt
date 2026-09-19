@@ -227,6 +227,7 @@ object NodeHealthProber {
 
         return try {
             rawSocket = Socket()
+            VpnSocketProtector.protect(rawSocket)
             rawSocket.tcpNoDelay = true
             rawSocket.soTimeout = READ_TIMEOUT_MS
 
@@ -335,6 +336,7 @@ object NodeHealthProber {
 
         return try {
             rawSocket = Socket()
+            VpnSocketProtector.protect(rawSocket)
             rawSocket.tcpNoDelay = true
             rawSocket.soTimeout = READ_TIMEOUT_MS
 
@@ -418,6 +420,7 @@ object NodeHealthProber {
 
         return try {
             rawSocket = Socket()
+            VpnSocketProtector.protect(rawSocket)
             rawSocket.tcpNoDelay = true
             rawSocket.soTimeout = READ_TIMEOUT_MS
             rawSocket.connect(InetSocketAddress(vlessDomain, 443), CONNECT_TIMEOUT_MS)
@@ -684,6 +687,7 @@ object NodeHealthProber {
         return try {
             // 1. TCP + TLS
             rawSocket = Socket()
+            VpnSocketProtector.protect(rawSocket)
             rawSocket.tcpNoDelay = true
             rawSocket.soTimeout = READ_TIMEOUT_MS
             rawSocket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)

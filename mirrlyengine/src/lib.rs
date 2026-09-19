@@ -451,6 +451,26 @@ pub extern "C" fn WarmupWsPool() {
     }
 }
 
+/// Predictive screen wakeup hook.
+/// Clears transient cooldowns caused by phone sleep, triggers MTProto prewarm and wakes timers.
+#[no_mangle]
+pub extern "C" fn OnScreenWakeup() {
+    crate::linfo!("OnScreenWakeup: triggering predictive wake and clearing stale circuit cooldowns");
+    cfproxy::clear_cfproxy_429_cooldowns();
+    cfproxy::clear_all_recovery_cooldowns();
+
+    let cell = state_cell();
+    let guard = cell.lock();
+    if let Some(pool) = guard.as_ref().and_then(|state| state.pool.clone()) {
+        runtime().spawn(async move {
+            let map = DC_OPT.read().clone();
+            pool.prewarm(&map).await;
+        });
+    }
+
+    awg::notify_active_peer_timer();
+}
+
 #[no_mangle]
 pub extern "C" fn SetMtprotoStandbyPerActiveSlot(size: c_int) -> c_int {
     let requested = size.clamp(config::MTPROTO_MIN_STANDBY, config::MTPROTO_MAX_STANDBY);
@@ -609,6 +629,20 @@ pub unsafe extern "C" fn SetCfProxyConfig(enabled: c_int, c_user_domain: *const 
         cfg.user_domain = user_domain.clone();
         cfg.active = user_domain;
     });
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SetWorkerProtocol(c_domain: *const c_char, proto_ver: c_int) {
+    let domain = cstr_to_string(c_domain);
+    if domain.is_empty() {
+        return;
+    }
+    let proto = match proto_ver {
+        1 => socks5::WorkerProtocol::V1Legacy,
+        2 => socks5::WorkerProtocol::V2Ack,
+        _ => socks5::WorkerProtocol::Auto,
+    };
+    socks5::mark_worker_protocol(&domain, proto);
 }
 
 #[no_mangle]

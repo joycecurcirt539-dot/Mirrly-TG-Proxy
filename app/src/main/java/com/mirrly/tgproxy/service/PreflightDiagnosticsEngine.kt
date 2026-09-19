@@ -108,16 +108,25 @@ object PreflightDiagnosticsEngine {
         AppLogger.i(TAG, "Starting Smart Connect Pre-flight analysis (isSocks5=${config.isSocks5Mode}, deadline=${deadlineMs}ms)...")
 
         val result = withTimeoutOrNull(deadlineMs) {
+            // Восстанавливаем пользовательский воркер, если он был временно смещен при failover
+            prefsManager.restoreUserPrimaryWorkerIfNeeded()
+
             // 0. Проверка горячего резерва (если маршрут уже проверен недавно)
             if (PredictivePreWarmManager.hasFreshHotReserve(config.isSocks5Mode)) {
                 val reserve = PredictivePreWarmManager.getHotReserve()
-                AppLogger.i(TAG, "Using fresh Hot Reserve route (validated ${System.currentTimeMillis() - reserve.validatedAtTimestampMs}ms ago)")
-                applyHotReserveToConfig(config, prefsManager, reserve)
-                return@withTimeoutOrNull PreflightResult(
-                    isSuccess = true,
-                    selectedRouteSummary = context.getString(R.string.preflight_hot_reserve_active),
-                    isFromHotReserve = true
-                )
+                val activeWorker = prefsManager.getActiveWorker()
+                // Если выбран пользовательский воркер, проверяем совпадение с кэшем горячего резерва
+                if (!activeWorker.isDeveloperWorker && reserve.bestWorkerId != activeWorker.id) {
+                    AppLogger.d(TAG, "Hot reserve bestWorker (${reserve.bestWorkerId}) does not match active custom worker '${activeWorker.name}'. Bypassing cached reserve.")
+                } else {
+                    AppLogger.i(TAG, "Using fresh Hot Reserve route (validated ${System.currentTimeMillis() - reserve.validatedAtTimestampMs}ms ago)")
+                    applyHotReserveToConfig(config, prefsManager, reserve)
+                    return@withTimeoutOrNull PreflightResult(
+                        isSuccess = true,
+                        selectedRouteSummary = context.getString(R.string.preflight_hot_reserve_active),
+                        isFromHotReserve = true
+                    )
+                }
             }
 
             // 1. Валидация DNS-резолвинга
@@ -165,26 +174,28 @@ object PreflightDiagnosticsEngine {
         config: ProxyConfig,
         isDnsHealthy: Boolean
     ): PreflightResult {
-        // Топ Telegram DC: DC2 (Амстердам, авторизация/сообщения), DC4 (медиа), DC1 (Майами), DC5 (Сингапур)
-        val dcTargets = listOf(
-            "149.154.167.51:443", // DC 2
-            "149.154.167.91:443", // DC 4
-            "149.154.175.50:443", // DC 1
-            "149.154.175.100:443", // DC 3
-            "91.108.56.130:443"   // DC 5
-        )
+        // Flowseal Anycast CDN узлы (kws2/kws4) и официальные шлюзы Telegram Web
+        val flowsealDomains = com.mirrly.tgproxy.core.TgConstants.getWsDomains(2)
+            .filter { it.startsWith("kws") }
+            .take(2)
+            .map { "$it:443" }
+
+        val candidates = (flowsealDomains + listOf(
+            "kws2.web.telegram.org:443",
+            "kws4.web.telegram.org:443"
+        )).distinct()
 
         val probeResults: List<Pair<String, PingProbeResult>> = PingEngine.parallelProbeCandidates(
-            targets = dcTargets,
-            timeoutMs = 1500L,
-            maxConcurrency = 5
+            targets = candidates,
+            timeoutMs = 600L,
+            maxConcurrency = 4
         )
 
         val responsiveDcs: List<Pair<String, PingProbeResult>> = probeResults
             .filter { it.second.success && it.second.rawRttMs > 0 }
             .sortedBy { it.second.rawRttMs }
 
-        val bestDc = responsiveDcs.firstOrNull()?.first ?: "149.154.167.51:443"
+        val bestDc = responsiveDcs.firstOrNull()?.first ?: (candidates.firstOrNull() ?: "kws2.web.telegram.org:443")
         val bestRtt = responsiveDcs.firstOrNull()?.second?.rawRttMs ?: -1L
         val fallbackDcs = responsiveDcs.map { it.first }.filter { it != bestDc }
 
@@ -197,9 +208,10 @@ object PreflightDiagnosticsEngine {
             )
         )
 
+        val isSuccess = responsiveDcs.isNotEmpty() || isDnsHealthy
         return PreflightResult(
-            isSuccess = responsiveDcs.isNotEmpty(),
-            selectedRouteSummary = "Telegram DC: $bestDc (${bestRtt}ms)",
+            isSuccess = isSuccess,
+            selectedRouteSummary = "Flowseal Anycast: $bestDc (${if (bestRtt > 0) "${bestRtt}ms" else "OK"})",
             rttMs = bestRtt
         )
     }
@@ -245,15 +257,52 @@ object PreflightDiagnosticsEngine {
         }
 
         val activeId = prefsManager.getActiveWorkerId()
-        // Опрашиваем до 5 лучших кандидатов параллельно (активный узел в приоритете)
-        val candidatesToProbe = allWorkers
+        val activeWorker = prefsManager.getActiveWorker(activeId)
+        val isCustomActive = !activeWorker.isDeveloperWorker
+
+        if (isCustomActive) {
+            // Пользовательский воркер имеет абсолютный приоритет!
+            // Он НИКОГДА не заменяется на узлы разработчика (Primary, Alpha, Beta, Gamma, Delta).
+            val (status, rtt) = try {
+                WorkerPingTester.probeWorkerRelayContract(activeWorker.domain, timeoutMs = 1500L)
+            } catch (_: Exception) {
+                Pair(WorkerStatus.ERROR_UNREACHABLE, null)
+            }
+            val isOnline = status == WorkerStatus.ONLINE && (rtt ?: -1L) > 0
+            val measuredRtt = if (isOnline) (rtt ?: -1L) else -1L
+
+            if (measuredRtt > 0) {
+                WorkerFailoverManager.handleActiveWorkerSuccess(activeWorker.domain, measuredRtt)
+            }
+
+            val fallbackIds = allWorkers.filter { it.id != activeWorker.id }.map { it.id }
+            PredictivePreWarmManager.updateHotReserve(
+                HotReserveRoutes(
+                    validatedAtTimestampMs = System.currentTimeMillis(),
+                    bestWorkerId = activeWorker.id,
+                    fallbackWorkerIds = fallbackIds,
+                    isDnsHealthy = isDnsHealthy
+                )
+            )
+
+            AppLogger.i(TAG, "Pre-flight custom worker retained: '${activeWorker.name}' (${measuredRtt}ms, online=$isOnline)")
+            return PreflightResult(
+                isSuccess = true,
+                selectedRouteSummary = "Worker: ${activeWorker.name} (${if (measuredRtt > 0) "${measuredRtt}ms" else "Custom"})",
+                rttMs = measuredRtt
+            )
+        }
+
+        val devWorkers = prefsManager.getDeveloperWorkers()
+        // Опрашиваем до 5 лучших кандидатов разработчика параллельно (активный узел в приоритете)
+        val candidatesToProbe = devWorkers
             .sortedByDescending { it.id == activeId }
             .take(5)
 
         val probeResults = coroutineScope {
             candidatesToProbe.map { worker ->
                 async(Dispatchers.IO) {
-                    val (status, rtt) = WorkerPingTester.probeWorkerRelayContract(worker.domain, timeoutMs = 1600L)
+                    val (status, rtt) = WorkerPingTester.probeWorkerRelayContract(worker.domain, timeoutMs = 1200L)
                     Triple(worker, status, rtt)
                 }
             }.awaitAll()
@@ -264,7 +313,7 @@ object PreflightDiagnosticsEngine {
             .sortedBy { it.third }
 
         val (chosenWorker, chosenRtt) = if (onlineWorkers.isNotEmpty()) {
-            // Если активный воркер работает стабильно (RTT < 350мс), сохраняем его для исключения лишних переключений
+            // Если активный девелоперский воркер работает стабильно (RTT < 350мс), сохраняем его
             val activeCandidate = onlineWorkers.find { it.first.id == activeId }
             if (activeCandidate != null && (activeCandidate.third ?: Long.MAX_VALUE) < 350L) {
                 activeCandidate.first to (activeCandidate.third ?: -1L)
@@ -273,12 +322,12 @@ object PreflightDiagnosticsEngine {
                 best.first to (best.third ?: -1L)
             }
         } else {
-            (allWorkers.find { it.id == activeId } ?: allWorkers.first()) to -1L
+            (devWorkers.find { it.id == activeId } ?: devWorkers.first()) to -1L
         }
 
         if (chosenWorker.id != activeId) {
-            AppLogger.i(TAG, "Smart Connect: Selected optimal worker '${chosenWorker.name}' (${chosenRtt}ms) instead of '$activeId'")
-            prefsManager.setActiveWorkerId(chosenWorker.id)
+            AppLogger.i(TAG, "Smart Connect: Selected optimal dev worker '${chosenWorker.name}' (${chosenRtt}ms) instead of '$activeId'")
+            prefsManager.setActiveWorkerId(chosenWorker.id, fromUserAction = false)
         }
         if (chosenRtt > 0) {
             WorkerFailoverManager.handleActiveWorkerSuccess(chosenWorker.domain, chosenRtt)
@@ -382,8 +431,11 @@ object PreflightDiagnosticsEngine {
         } else {
             val uplink = config.uplinkMode
             if (uplink == UplinkMode.WORKER && !reserve.bestWorkerId.isNullOrBlank()) {
-                if (prefsManager.getActiveWorkerId() != reserve.bestWorkerId) {
-                    prefsManager.setActiveWorkerId(reserve.bestWorkerId)
+                val activeWorker = prefsManager.getActiveWorker()
+                if (!activeWorker.isDeveloperWorker) {
+                    AppLogger.d(TAG, "Preserving user custom worker '${activeWorker.name}' over cached hot reserve '${reserve.bestWorkerId}'")
+                } else if (prefsManager.getActiveWorkerId() != reserve.bestWorkerId) {
+                    prefsManager.setActiveWorkerId(reserve.bestWorkerId, fromUserAction = false)
                 }
             } else if ((uplink == UplinkMode.MASQUE || uplink == UplinkMode.WARP_CASCADE || uplink == UplinkMode.AWG) && !reserve.bestWarpEndpoint.isNullOrBlank()) {
                 config.warpPeerEndpoint = reserve.bestWarpEndpoint

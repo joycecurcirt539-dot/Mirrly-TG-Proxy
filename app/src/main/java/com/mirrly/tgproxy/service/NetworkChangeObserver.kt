@@ -133,11 +133,12 @@ class NetworkChangeObserver(
     /** Проверяет, что сеть полностью готова (INTERNET + VALIDATED + NOT_SUSPENDED). */
     private fun hasUsableInternet(caps: NetworkCapabilities): Boolean {
         if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
+        val isVpn = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) && !isVpn
         ) return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
-            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) && !isVpn
         ) return false
         return true
     }
@@ -145,8 +146,9 @@ class NetworkChangeObserver(
     /** Проверяет наличие INTERNET + VALIDATED (без NOT_SUSPENDED — для детекции Suspend). */
     private fun isValidated(caps: NetworkCapabilities): Boolean {
         if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
+        val isVpn = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) && !isVpn
         ) return false
         return true
     }

@@ -76,8 +76,14 @@ data class ProxyConfig(
     var proxyModeName: String = ProxyMode.MTPROTO.name,
     // Активные провайдеры DoH (DNS-over-HTTPS)
     var enabledDohProviderIds: Set<String> = DohResolver.DEFAULT_ENABLED_PROVIDER_IDS,
-    // Режим аплинка: WORKER, MASQUE или HYBRID
+    // Режим аплинка для прокси (MTProto / SOCKS5): всегда WORKER
     var uplinkModeName: String = UplinkMode.WORKER.name,
+    // Выделенный режим туннеля для системного VPN (Android VpnService)
+    var vpnUplinkModeName: String = UplinkMode.WARP_CASCADE.name,
+    // Параметры архитектуры ядра маршрутизации VPN
+    var vpnMtu: Int = 1420,
+    var vpnBlockQuic: Boolean = true,
+    var vpnBlockIpv6Leaks: Boolean = true,
     // Параметры WARP MASQUE
     var warpAccountId: String = "",
     var warpToken: String = "",
@@ -157,7 +163,7 @@ data class ProxyConfig(
      * в соответствии с выбранной стратегией обфускации.
      */
     fun getAmneziaWgConfig(
-        cleanEndpoint: String = warpPeerEndpoint.ifBlank { "188.114.96.1:8095" },
+        cleanEndpoint: String = effectivePeerEndpoint,
         strategy: AwgObfuscationStrategy = awgStrategy
     ): String {
         if (strategy == AwgObfuscationStrategy.CUSTOM && awgCustomIni.isNotBlank()) {
@@ -198,30 +204,68 @@ data class ProxyConfig(
     val speedPreset: SpeedPreset
         get() = try { SpeedPreset.valueOf(speedPresetName) } catch (_: Exception) { SpeedPreset.AUTO }
 
-    val uplinkMode: UplinkMode
-        get() = try { UplinkMode.valueOf(uplinkModeName) } catch (_: Exception) { UplinkMode.WORKER }
+    var uplinkMode: UplinkMode
+        get() = try {
+            UplinkMode.valueOf(uplinkModeName)
+        } catch (_: Exception) {
+            UplinkMode.WORKER
+        }
+        set(value) {
+            uplinkModeName = value.name
+        }
 
+    var vpnUplinkMode: UplinkMode
+        get() {
+            val mode = try { UplinkMode.valueOf(vpnUplinkModeName) } catch (_: Exception) { UplinkMode.WARP_CASCADE }
+            return if (mode == UplinkMode.WORKER) UplinkMode.WARP_CASCADE else mode
+        }
+        set(value) {
+            vpnUplinkModeName = if (value == UplinkMode.WORKER) UplinkMode.WARP_CASCADE.name else value.name
+        }
+
+    val isVpnVlessUplink: Boolean
+        get() = vpnUplinkMode == UplinkMode.VLESS
+
+    val isVpnAwgUplink: Boolean
+        get() = vpnUplinkMode == UplinkMode.AWG
+
+    val isVpnMasqueUplink: Boolean
+        get() = vpnUplinkMode == UplinkMode.MASQUE
+
+    val isVpnWarpCascadeUplink: Boolean
+        get() = vpnUplinkMode == UplinkMode.WARP_CASCADE
+
+    val isVpnWorkerUplink: Boolean
+        get() = false
+
+    val isVpnAnyWarpUplink: Boolean
+        get() = vpnUplinkMode == UplinkMode.MASQUE
+            || vpnUplinkMode == UplinkMode.HYBRID
+            || vpnUplinkMode == UplinkMode.AWG
+            || vpnUplinkMode == UplinkMode.WARP_CASCADE
+
+    // Свойства аплинка для прокси: всегда false, так как эти туннели принадлежат исключительно Mirrly VPN
     val isMasqueUplink: Boolean
-        get() = uplinkMode == UplinkMode.MASQUE || uplinkMode == UplinkMode.WARP_CASCADE
+        get() = false
 
     val isHybridUplink: Boolean
-        get() = uplinkMode == UplinkMode.HYBRID
+        get() = false
 
     val isVlessUplink: Boolean
-        get() = uplinkMode == UplinkMode.VLESS
+        get() = false
 
     val isAwgUplink: Boolean
-        get() = uplinkMode == UplinkMode.AWG
+        get() = false
 
     val isWarpCascadeUplink: Boolean
-        get() = uplinkMode == UplinkMode.WARP_CASCADE
+        get() = false
 
-    /** true для всех режимов, требующих наличия WARP-аккаунта и крипто-конфигурации */
+    val isWorkerUplink: Boolean
+        get() = true
+
+    /** true для режимов прокси, требующих WARP (для прокси всегда false) */
     val isAnyWarpUplink: Boolean
-        get() = uplinkMode == UplinkMode.MASQUE
-            || uplinkMode == UplinkMode.HYBRID
-            || uplinkMode == UplinkMode.AWG
-            || uplinkMode == UplinkMode.WARP_CASCADE
+        get() = false
 
     val effectiveMasqueToken: String
         get() = warpMasqueToken.ifBlank { warpToken }
@@ -233,8 +277,10 @@ data class ProxyConfig(
         get() = when {
             warpUserEndpointOverride.isNotBlank() -> warpUserEndpointOverride
             warpMeasuredWgEndpoint.isNotBlank() -> warpMeasuredWgEndpoint
-            warpApiEndpoint.isNotBlank() -> warpApiEndpoint
+            warpPeerEndpoint.isNotBlank() && !warpPeerEndpoint.endsWith(":2408") -> warpPeerEndpoint
+            warpApiEndpoint.isNotBlank() && !warpApiEndpoint.endsWith(":2408") -> warpApiEndpoint
             warpPeerEndpoint.isNotBlank() -> warpPeerEndpoint
+            warpApiEndpoint.isNotBlank() -> warpApiEndpoint
             else -> "188.114.96.1:8095"
         }
 
@@ -242,11 +288,14 @@ data class ProxyConfig(
         get() = when {
             warpMasqueUserOverride.isNotBlank() -> warpMasqueUserOverride
             warpMeasuredMasqueEndpoint.isNotBlank() -> warpMeasuredMasqueEndpoint
-            warpMasqueApiEndpoint.isNotBlank() -> warpMasqueApiEndpoint
-            warpMasquePeerEndpoint.isNotBlank() -> warpMasquePeerEndpoint
+            warpMasquePeerEndpoint.isNotBlank() && !warpMasquePeerEndpoint.endsWith(":2408") -> warpMasquePeerEndpoint
+            warpMasqueApiEndpoint.isNotBlank() && !warpMasqueApiEndpoint.endsWith(":2408") -> warpMasqueApiEndpoint
             warpUserEndpointOverride.isNotBlank() -> warpUserEndpointOverride
-            warpApiEndpoint.isNotBlank() -> warpApiEndpoint
-            else -> warpPeerEndpoint
+            warpPeerEndpoint.isNotBlank() && !warpPeerEndpoint.endsWith(":2408") -> warpPeerEndpoint
+            warpApiEndpoint.isNotBlank() && !warpApiEndpoint.endsWith(":2408") -> warpApiEndpoint
+            warpMasquePeerEndpoint.isNotBlank() -> warpMasquePeerEndpoint
+            warpMasqueApiEndpoint.isNotBlank() -> warpMasqueApiEndpoint
+            else -> warpPeerEndpoint.ifBlank { "188.114.96.1:8095" }
         }
 
     val effectiveMasquePeerPublicKey: String
@@ -269,7 +318,7 @@ data class ProxyConfig(
 
     val isPrivateVpsNode: Boolean
         get() {
-            if (!isVlessUplink && !isHybridUplink) return false
+            if (!isVpnVlessUplink && uplinkMode != UplinkMode.VLESS) return false
             if (isVlessReality) return true
             val ep = getEffectiveVlessServerAddress().trim()
             if (ep.isEmpty()) return false

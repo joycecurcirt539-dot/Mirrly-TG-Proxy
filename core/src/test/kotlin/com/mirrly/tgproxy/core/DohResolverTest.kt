@@ -250,7 +250,7 @@ class DohResolverTest {
     @Test
     fun testDohProvidersConfigurationAndCloudflareExclusionByDefault() {
         val all = DohResolver.ALL_PROVIDERS
-        assertEquals(14, all.size)
+        assertEquals(15, all.size)
 
         val defaultIds = DohResolver.DEFAULT_ENABLED_PROVIDER_IDS
         // Cloudflare, Google, Quad9, GeoHide and Xbox must NOT be enabled by default
@@ -264,8 +264,9 @@ class DohResolverTest {
         assertFalse(defaultIds.contains("geohide"))
         assertFalse(defaultIds.contains("xbox"))
 
-        // AdGuard, DNS.SB, NextDNS, Control D must be enabled by default
+        // AdGuard, Yandex, DNS.SB, NextDNS, Control D must be enabled by default
         assertTrue(defaultIds.contains("adguard"))
+        assertTrue(defaultIds.contains("yandex"))
         assertTrue(defaultIds.contains("dnssb"))
         assertTrue(defaultIds.contains("dnssb_sec"))
         assertTrue(defaultIds.contains("nextdns"))

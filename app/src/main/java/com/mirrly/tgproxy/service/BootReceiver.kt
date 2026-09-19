@@ -29,20 +29,23 @@ class BootReceiver : BroadcastReceiver() {
             ScheduleManager.syncSchedule(context)
 
             if (config.autostartOnBoot) {
-                AppLogger.i("BootReceiver", "Autostart on boot is enabled, starting proxy service...")
-                val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
-                    this.action = ProxyForegroundService.ACTION_START
-                }
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(serviceIntent)
-                    } else {
-                        context.startService(serviceIntent)
+                if (prefsManager.isVpnModeEnabled() && MirrlyVpnService.prepare(context) == null) {
+                    AppLogger.i("BootReceiver", "Автозапуск при загрузке: запуск системного VPN...")
+                    MirrlyVpnService.start(context)
+                } else {
+                    AppLogger.i("BootReceiver", "Автозапуск при загрузке: запуск службы прокси...")
+                    val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
+                        this.action = ProxyForegroundService.ACTION_START
                     }
-                } catch (e: Exception) {
-                    // On Android 12+ ForegroundServiceStartNotAllowedException may be thrown
-                    // if the system is in a restricted state (locked screen, Doze, battery saver)
-                    AppLogger.e("BootReceiver", "Failed to start service on boot: ${e.message}")
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startForegroundService(serviceIntent)
+                        } else {
+                            context.startService(serviceIntent)
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.e("BootReceiver", "Сбой автозапуска службы при загрузке: ${e.message}")
+                    }
                 }
             } else {
                 AppLogger.i("BootReceiver", "Autostart on boot is disabled")

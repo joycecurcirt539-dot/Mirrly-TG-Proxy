@@ -22,6 +22,10 @@
         android:required="false" />
 
     <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
         <package android:name="org.telegram.messenger" />
         <package android:name="com.radolyn.ayugram" />
         <package android:name="com.exteragram.messenger" />
@@ -52,6 +56,7 @@
         android:roundIcon="@drawable/ic_launcher_mirrly"
         android:label="${appLabel}"
         android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:localeConfig="@xml/locales_config"
         android:theme="@style/Theme.Mirrly">
 
@@ -83,6 +88,16 @@
                 <data
                     android:scheme="mirrly"
                     android:host="worker" />
+            </intent-filter>
+
+            <!-- Deep Link: mirrly://oauth (Return from Cloudflare OAuth callback) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="mirrly"
+                    android:host="oauth" />
             </intent-filter>
 
             <!-- Android App Links: https://mirrly.app/worker?domain=...&name=... -->

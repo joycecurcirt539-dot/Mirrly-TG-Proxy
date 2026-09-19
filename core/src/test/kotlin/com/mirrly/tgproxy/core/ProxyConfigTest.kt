@@ -120,6 +120,8 @@ class ProxyConfigTest {
         assertEquals(2, SpeedPreset.BALANCED.defaultMtprotoStandbyPerActiveSlot)
         assertEquals(262144, SpeedPreset.BALANCED.defaultBufferSizeBytes)
 
+        assertEquals(262144, SpeedPreset.BALANCED.defaultBufferSizeBytes)
+
         assertEquals("Турбо (3 резерва/слот)", SpeedPreset.TURBO.displayName)
         assertEquals(3, SpeedPreset.TURBO.defaultMtprotoStandbyPerActiveSlot)
         assertEquals(1048576, SpeedPreset.TURBO.defaultBufferSizeBytes)
@@ -206,14 +208,15 @@ class ProxyConfigTest {
         assertEquals(UplinkMode.WORKER, config.uplinkMode)
 
         config.uplinkModeName = UplinkMode.MASQUE.name
-        assertTrue(config.isMasqueUplink)
+        assertEquals(UplinkMode.MASQUE, config.uplinkMode)
 
-        config.uplinkModeName = UplinkMode.HYBRID.name
-        assertTrue(config.isHybridUplink)
+        // Для системного VPN используются vpnUplinkMode
+        config.vpnUplinkModeName = UplinkMode.MASQUE.name
+        assertTrue(config.isVpnMasqueUplink)
 
-        config.uplinkModeName = UplinkMode.VLESS.name
-        assertTrue(config.isVlessUplink)
-        assertEquals(UplinkMode.VLESS, config.uplinkMode)
+        config.vpnUplinkModeName = UplinkMode.VLESS.name
+        assertTrue(config.isVpnVlessUplink)
+        assertEquals(UplinkMode.VLESS, config.vpnUplinkMode)
     }
 
     @Test

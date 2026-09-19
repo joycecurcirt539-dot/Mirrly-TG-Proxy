@@ -116,6 +116,9 @@ android {
             }
         }
         debug {
+            if (isReleaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             manifestPlaceholders["appLabel"] = "Mirrly (Debug)"
         }
     }

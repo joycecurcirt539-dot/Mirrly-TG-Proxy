@@ -34,6 +34,7 @@ class HappyEyeballsEngineTest {
     @BeforeEach
     fun setUp() {
         HappyEyeballsEngine.clearRating()
+        HappyEyeballsEngine.setNetworkGeneration(1L)
     }
 
     @Test

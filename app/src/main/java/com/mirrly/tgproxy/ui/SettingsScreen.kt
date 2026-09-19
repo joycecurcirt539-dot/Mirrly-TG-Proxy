@@ -19,10 +19,14 @@
 package com.mirrly.tgproxy.ui
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import androidx.core.view.WindowCompat
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.NativeProxy
@@ -417,6 +421,86 @@ enum class SettingsProtocolMode {
     VPN
 }
 
+enum class SettingsSafetyLevel {
+    SAFE,
+    EXPERT,
+    DANGER
+}
+
+@Composable
+fun SettingsSafetyBadge(
+    level: SettingsSafetyLevel,
+    customLabel: String? = null,
+    modifier: Modifier = Modifier
+) {
+    val (color, defaultText) = when (level) {
+        SettingsSafetyLevel.SAFE -> ActiveGreenLed to stringResource(R.string.settings_safety_safe)
+        SettingsSafetyLevel.EXPERT -> Color(0xFFFFB74D) to stringResource(R.string.settings_safety_expert)
+        SettingsSafetyLevel.DANGER -> Color(0xFFEF4444) to stringResource(R.string.settings_safety_danger)
+    }
+    val text = customLabel ?: defaultText
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(color.copy(alpha = 0.10f))
+            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = text,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Black,
+            color = color,
+            letterSpacing = 0.7.sp
+        )
+    }
+}
+
+@Composable
+private fun SettingsVpnDevBanner(
+    vpnColors: ProtocolColors,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.45f)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_vpn_in_dev_title),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.1.sp,
+                    color = Color(0xFFFFB74D)
+                )
+                SettingsSafetyBadge(
+                    level = SettingsSafetyLevel.EXPERT,
+                    customLabel = stringResource(R.string.settings_vpn_in_dev_badge)
+                )
+            }
+            Text(
+                text = stringResource(R.string.settings_vpn_in_dev_desc),
+                fontSize = 11.5.sp,
+                lineHeight = 16.sp,
+                color = TextWhite.copy(alpha = 0.85f)
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -496,6 +580,15 @@ fun SettingsScreen(
     val coroutineScope = rememberCoroutineScope()
     val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
     val uplinkMode by app.prefsManager.uplinkModeFlow.collectAsState()
+    val vpnUplinkMode by app.prefsManager.vpnUplinkModeFlow.collectAsState()
+    val vpnState by com.mirrly.tgproxy.service.MirrlyVpnService.vpnState.collectAsState()
+    val vpnMtu by app.prefsManager.vpnMtuFlow.collectAsState()
+    val vpnBlockQuic by app.prefsManager.vpnBlockQuicFlow.collectAsState()
+    val vpnBlockIpv6Leaks by app.prefsManager.vpnBlockIpv6LeaksFlow.collectAsState()
+    val vpnSplitTunnelEnabled by app.prefsManager.vpnSplitTunnelEnabledFlow.collectAsState()
+    val vpnSplitTunnelAllowlist by app.prefsManager.vpnSplitTunnelAllowlistFlow.collectAsState()
+    val vpnSplitTunnelPackages by app.prefsManager.vpnSplitTunnelPackagesFlow.collectAsState()
+    var showSplitTunnelAppsDialog by rememberSaveable { mutableStateOf(false) }
     var warpProfile by remember { mutableStateOf(app.prefsManager.getWarpProfile()) }
     var isRegisteringWarp by remember { mutableStateOf(false) }
     var vlessUuid by remember { mutableStateOf<String>(app.prefsManager.getVlessUuid().ifEmpty { config.vlessUuid }) }
@@ -561,6 +654,21 @@ fun SettingsScreen(
         }
     }
 
+    val toggleAdvancedMode: (Boolean) -> Unit = { enabled ->
+        app.prefsManager.setAdvancedSettingsEnabled(enabled)
+        if (!enabled) {
+            app.prefsManager.resetAdvancedSettingsToDefaults(config)
+            app.saveConfig()
+            selectedSpeedPresetName = config.speedPresetName
+            restartProxyIfNeeded()
+            Toast.makeText(
+                context,
+                context.getString(R.string.toast_advanced_mode_reset),
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     LaunchedEffect(portText) {
         delay(600)
         val p = portText.toIntOrNull()
@@ -619,6 +727,21 @@ fun SettingsScreen(
         )
     }
 
+    if (showSplitTunnelAppsDialog) {
+        SplitTunnelAppsDialog(
+            vpnColors = systemVpnColors,
+            selectedPackages = vpnSplitTunnelPackages,
+            onSave = { newSelection ->
+                app.prefsManager.setVpnSplitTunnelPackages(newSelection)
+                showSplitTunnelAppsDialog = false
+                if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
+                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                }
+            },
+            onDismiss = { showSplitTunnelAppsDialog = false }
+        )
+    }
+
     var selectedCategory by rememberSaveable { mutableStateOf(SettingsCategory.ALL) }
     val scrollState = rememberScrollState()
 
@@ -669,7 +792,8 @@ fun SettingsScreen(
                                 }
                             }
                             SettingsProtocolMode.VPN -> {
-                                // Switch to VPN mode preview
+                                // Switch to VPN mode preview with dev notice
+                                showVpnInDevDialog = true
                             }
                         }
                     }
@@ -679,14 +803,75 @@ fun SettingsScreen(
 
                 when (activeProtocolMode) {
                     SettingsProtocolMode.VPN -> {
-                        SettingsVpnInDevSection(
+                        SettingsVpnDevBanner(vpnColors = systemVpnColors)
+
+                        SettingsVpnStatusOverviewSection(
                             vpnColors = systemVpnColors,
+                            vpnState = vpnState,
                             onOpenVpnDialog = { showVpnInDevDialog = true }
+                        )
+
+                        SettingsDivider()
+
+                        SettingsVpnCoreSection(
+                            vpnColors = systemVpnColors,
+                            mtu = vpnMtu,
+                            onMtuSelect = { newMtu ->
+                                app.prefsManager.setVpnMtu(newMtu)
+                                config.vpnMtu = newMtu
+                                app.saveConfig()
+                                if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
+                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                                }
+                            },
+                            blockQuic = vpnBlockQuic,
+                            onToggleBlockQuic = { blocked ->
+                                app.prefsManager.setVpnBlockQuic(blocked)
+                                config.vpnBlockQuic = blocked
+                                app.saveConfig()
+                                if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
+                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                                }
+                            },
+                            blockIpv6Leaks = vpnBlockIpv6Leaks,
+                            onToggleBlockIpv6Leaks = { blocked ->
+                                app.prefsManager.setVpnBlockIpv6Leaks(blocked)
+                                config.vpnBlockIpv6Leaks = blocked
+                                app.saveConfig()
+                                if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
+                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                                }
+                            },
+                            onInfoClick = { infoKey = it }
+                        )
+
+                        SettingsDivider()
+
+                        SettingsVpnSplitTunnelSection(
+                            vpnColors = systemVpnColors,
+                            isEnabled = vpnSplitTunnelEnabled,
+                            onToggleEnabled = { enabled ->
+                                app.prefsManager.setVpnSplitTunnelEnabled(enabled)
+                                if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
+                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                                }
+                            },
+                            isAllowlist = vpnSplitTunnelAllowlist,
+                            onToggleAllowlist = { allowlist ->
+                                app.prefsManager.setVpnSplitTunnelAllowlist(allowlist)
+                                if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
+                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                                }
+                            },
+                            packageCount = vpnSplitTunnelPackages.size,
+                            onOpenAppPicker = { showSplitTunnelAppsDialog = true }
                         )
                     }
                     SettingsProtocolMode.MTPROTO -> {
                         SettingsNetworkSection(
                             selectedMode = ProxyMode.MTPROTO,
+                            isAdvancedMode = isAdvancedMode,
+                            onEnableAdvancedMode = { toggleAdvancedMode(true) },
                             portText = portText,
                             onPortChange = { portText = it },
                             isPortError = isPortError,
@@ -732,6 +917,8 @@ fun SettingsScreen(
                     SettingsProtocolMode.SOCKS5 -> {
                         SettingsNetworkSection(
                             selectedMode = ProxyMode.SOCKS5,
+                            isAdvancedMode = isAdvancedMode,
+                            onEnableAdvancedMode = { toggleAdvancedMode(true) },
                             portText = portText,
                             onPortChange = { portText = it },
                             isPortError = isPortError,
@@ -774,14 +961,6 @@ fun SettingsScreen(
                             onInfoClick = { infoKey = it }
                         )
 
-                        SettingsDivider()
-
-                        SettingsWorkerSection(
-                            config = config,
-                            onOpenWorkerManager = onOpenWorkerManager,
-                            onOpenWorkerGuide = onOpenWorkerGuide,
-                            onInfoClick = { infoKey = it }
-                        )
                     }
                 }
 
@@ -791,18 +970,19 @@ fun SettingsScreen(
             }
 
             if (showUplinkDoh) {
-                if (activeProtocolMode == SettingsProtocolMode.SOCKS5) {
+                if (activeProtocolMode == SettingsProtocolMode.VPN) {
                     SettingsUplinkWarpSection(
                         config = config,
-                        uplinkMode = uplinkMode,
+                        uplinkMode = vpnUplinkMode,
                         warpProfile = warpProfile,
                         isRegisteringWarp = isRegisteringWarp,
                         onSelectUplinkMode = { newMode ->
-                            app.prefsManager.setUplinkMode(newMode)
-                            config.uplinkModeName = newMode.name
+                            app.prefsManager.setVpnUplinkMode(newMode)
+                            config.vpnUplinkModeName = newMode.name
                             app.saveConfig()
-                            server.applyUplinkMode(newMode)
-                            restartProxyIfNeeded()
+                            if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
+                                com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                            }
                         },
                         onRefreshWarpAccount = {
                             warpDialogStartRegistrationImmediately = true
@@ -820,12 +1000,30 @@ fun SettingsScreen(
                             config.vlessUuid = newUuid
                             app.prefsManager.setVlessUuid(newUuid)
                             app.saveConfig()
-                            server.applyVlessConfig(newUuid, config.vlessPath)
                             Toast.makeText(context, context.getString(R.string.toast_vless_uuid_generated), Toast.LENGTH_SHORT).show()
-                            restartProxyIfNeeded()
+                            if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
+                                com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                            }
                         },
-                        onRestartProxy = { restartProxyIfNeeded() }
+                        onRestartProxy = {
+                            if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
+                                com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                            }
+                        }
                     )
+
+                    SettingsDivider()
+                } else if (activeProtocolMode == SettingsProtocolMode.SOCKS5) {
+                    SettingsWorkerSection(
+                        config = config,
+                        onOpenWorkerManager = onOpenWorkerManager,
+                        onOpenWorkerGuide = onOpenWorkerGuide,
+                        onInfoClick = { infoKey = it }
+                    )
+
+                    SettingsDivider()
+                } else {
+                    SettingsMtprotoCdnOverviewCard()
 
                     SettingsDivider()
                 }
@@ -1000,20 +1198,7 @@ fun SettingsScreen(
 
                 SettingsAdvancedModeToggleCard(
                     isAdvancedMode = isAdvancedMode,
-                    onToggle = { enabled ->
-                        app.prefsManager.setAdvancedSettingsEnabled(enabled)
-                        if (!enabled) {
-                            app.prefsManager.resetAdvancedSettingsToDefaults(config)
-                            app.saveConfig()
-                            selectedSpeedPresetName = config.speedPresetName
-                            restartProxyIfNeeded()
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.toast_advanced_mode_reset),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    },
+                    onToggle = toggleAdvancedMode,
                     onInfoClick = { infoKey = it }
                 )
 
@@ -1038,6 +1223,8 @@ fun SettingsScreen(
             selectedCategory = selectedCategory,
             onSelectCategory = { selectedCategory = it },
             onBack = onBack,
+            isAdvancedMode = isAdvancedMode,
+            onToggleAdvancedMode = toggleAdvancedMode,
             modifier = langBlurModifier
         )
 
@@ -1097,6 +1284,8 @@ private fun SettingsTopBar(
     selectedCategory: SettingsCategory,
     onSelectCategory: (SettingsCategory) -> Unit,
     onBack: () -> Unit,
+    isAdvancedMode: Boolean = false,
+    onToggleAdvancedMode: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -1141,6 +1330,40 @@ private fun SettingsTopBar(
                         tint = TextWhite,
                         modifier = Modifier.size(22.dp)
                     )
+                }
+            },
+            actions = {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isAdvancedMode) ActiveGreenLed.copy(alpha = 0.14f) else Color.Transparent,
+                    border = BorderStroke(1.dp, if (isAdvancedMode) ActiveGreenLed.copy(alpha = 0.5f) else AmoledBorder),
+                    modifier = Modifier
+                        .padding(end = 12.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleAdvancedMode(!isAdvancedMode)
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(if (isAdvancedMode) ActiveGreenLed else InactiveGrayLed)
+                        )
+                        Text(
+                            text = if (isAdvancedMode) "ОПЫТНЫЙ" else "ПРОСТОЙ",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.8.sp,
+                            color = if (isAdvancedMode) ActiveGreenLed else TextMuted
+                        )
+                    }
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -1301,11 +1524,13 @@ private fun SettingsProtocolSection(
 }
 
 @Composable
-private fun SettingsVpnInDevSection(
+private fun SettingsVpnStatusOverviewSection(
     vpnColors: ProtocolColors,
+    vpnState: com.mirrly.tgproxy.ui.theme.VpnUiState,
     onOpenVpnDialog: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
+    val vpnStatus by com.mirrly.tgproxy.service.MirrlyVpnService.vpnStatus.collectAsState()
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 1),
@@ -1327,13 +1552,25 @@ private fun SettingsVpnInDevSection(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .background(vpnColors.primary.copy(alpha = 0.12f))
-                    .border(1.dp, vpnColors.primary.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                    .background(
+                        if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) ActiveGreenLed.copy(alpha = 0.12f)
+                        else vpnColors.primary.copy(alpha = 0.12f)
+                    )
+                    .border(
+                        1.dp,
+                        if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) ActiveGreenLed.copy(alpha = 0.35f)
+                        else vpnColors.primary.copy(alpha = 0.35f),
+                        RoundedCornerShape(6.dp)
+                    )
                     .padding(horizontal = 7.dp, vertical = 2.5.dp)
             ) {
                 Text(
-                    text = stringResource(R.string.vpn_badge_locked),
-                    color = vpnColors.primary,
+                    text = when (vpnState) {
+                        com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED -> "АКТИВЕН"
+                        com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTING -> "ПОДКЛЮЧЕНИЕ..."
+                        else -> "НЕ АКТИВЕН"
+                    },
+                    color = if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) ActiveGreenLed else vpnColors.primary,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp
@@ -1349,7 +1586,6 @@ private fun SettingsVpnInDevSection(
                 .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
         ) {
             Column {
-                // Header overview
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1370,130 +1606,37 @@ private fun SettingsVpnInDevSection(
                     )
                 }
 
-                // Divider
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
 
-                // Item 1: Kill Switch
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                    Column {
+                        Text(text = "Активные потоки", color = TextMuted, fontSize = 11.sp)
                         Text(
-                            text = stringResource(R.string.vpn_killswitch_title),
-                            color = TextWhite.copy(alpha = 0.6f),
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = stringResource(R.string.vpn_killswitch_desc),
-                            color = TextMuted.copy(alpha = 0.6f),
-                            fontSize = 11.5.sp
+                            text = "${vpnStatus.activeTcpFlows} TCP  •  ${vpnStatus.activeUdpSessions} UDP",
+                            color = TextWhite,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.White.copy(alpha = 0.04f))
-                            .border(1.dp, AmoledBorder, RoundedCornerShape(6.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(text = "Поколение сети", color = TextMuted, fontSize = 11.sp)
                         Text(
-                            text = stringResource(R.string.vpn_status_unavailable),
-                            color = TextMuted,
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                // Divider
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
-
-                // Item 2: Split Tunneling
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text(
-                            text = stringResource(R.string.vpn_splittunnel_title),
-                            color = TextWhite.copy(alpha = 0.6f),
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = stringResource(R.string.vpn_splittunnel_desc),
-                            color = TextMuted.copy(alpha = 0.6f),
-                            fontSize = 11.5.sp
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.White.copy(alpha = 0.04f))
-                            .border(1.dp, AmoledBorder, RoundedCornerShape(6.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.vpn_status_unavailable),
-                            color = TextMuted,
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                // Divider
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
-
-                // Item 3: VPN Core Architecture
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text(
-                            text = stringResource(R.string.vpn_architecture_title),
-                            color = TextWhite.copy(alpha = 0.6f),
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = stringResource(R.string.settings_vpn_mode_desc),
-                            color = TextMuted.copy(alpha = 0.6f),
-                            fontSize = 11.5.sp
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(vpnColors.primary.copy(alpha = 0.08f))
-                            .border(1.dp, vpnColors.primary.copy(alpha = 0.25f), RoundedCornerShape(6.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_mode_in_dev),
+                            text = "gen-${vpnStatus.generation}",
                             color = vpnColors.primary,
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Medium
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
 
-                // Divider
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
 
-                // Action button to open VpnInDevDialog
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1518,7 +1661,7 @@ private fun SettingsVpnInDevSection(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = stringResource(R.string.vpn_details_btn),
+                                text = "Выбрать протокол VPN",
                                 color = vpnColors.primary,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1533,8 +1676,781 @@ private fun SettingsVpnInDevSection(
 }
 
 @Composable
+private fun SettingsVpnCoreSection(
+    vpnColors: ProtocolColors,
+    mtu: Int,
+    onMtuSelect: (Int) -> Unit,
+    blockQuic: Boolean,
+    onToggleBlockQuic: (Boolean) -> Unit,
+    blockIpv6Leaks: Boolean,
+    onToggleBlockIpv6Leaks: (Boolean) -> Unit,
+    onInfoClick: (String) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 2),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.vpn_architecture_title).uppercase(),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted
+                )
+                SettingsSafetyBadge(level = SettingsSafetyLevel.EXPERT)
+            }
+            InfoButton { onInfoClick("vpn_core_info") }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+        ) {
+            Column {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = stringResource(R.string.vpn_mtu_title),
+                                color = TextWhite,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.5.sp
+                            )
+                            Text(
+                                text = stringResource(R.string.vpn_mtu_desc),
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(vpnColors.primary.copy(alpha = 0.12f))
+                                .border(1.dp, vpnColors.primary.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 7.dp, vertical = 2.5.dp)
+                        ) {
+                            Text(
+                                text = "$mtu B",
+                                color = vpnColors.primary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            1280 to "1280 (Safe)",
+                            1420 to "1420 (WARP)",
+                            1500 to "1500 (Max)"
+                        ).forEach { (size, label) ->
+                            val isSelected = mtu == size
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSelected) vpnColors.primary.copy(alpha = 0.15f) else Color.Transparent,
+                                border = BorderStroke(1.dp, if (isSelected) vpnColors.primary.copy(alpha = 0.5f) else AmoledBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onMtuSelect(size)
+                                    }
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (isSelected) vpnColors.primary else TextMuted,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 7.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = stringResource(R.string.vpn_block_quic_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.vpn_block_quic_desc),
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                    InertialSpringSwitch(
+                        checked = blockQuic,
+                        onCheckedChange = onToggleBlockQuic,
+                        activeColor = vpnColors.primary
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = stringResource(R.string.vpn_block_ipv6_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.vpn_block_ipv6_desc),
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                    InertialSpringSwitch(
+                        checked = blockIpv6Leaks,
+                        onCheckedChange = onToggleBlockIpv6Leaks,
+                        activeColor = vpnColors.primary
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = "DNS маршрутизация в туннеле",
+                            color = TextWhite,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = "1.1.1.1, 8.8.8.8 через защищенный DoH шлюз",
+                            color = TextMuted,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(ActiveGreenLed.copy(alpha = 0.12f))
+                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Защищен",
+                            color = ActiveGreenLed,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsVpnSplitTunnelSection(
+    vpnColors: ProtocolColors,
+    isEnabled: Boolean,
+    onToggleEnabled: (Boolean) -> Unit,
+    isAllowlist: Boolean,
+    onToggleAllowlist: (Boolean) -> Unit,
+    packageCount: Int,
+    onOpenAppPicker: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 3),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f, fill = false),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.vpn_splittunnel_title).uppercase(),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                SettingsSafetyBadge(level = SettingsSafetyLevel.SAFE)
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(
+                        if (isEnabled) vpnColors.primary.copy(alpha = 0.12f)
+                        else AmoledBorder.copy(alpha = 0.4f)
+                    )
+                    .border(
+                        1.dp,
+                        if (isEnabled) vpnColors.primary.copy(alpha = 0.35f)
+                        else AmoledBorder,
+                        RoundedCornerShape(6.dp)
+                    )
+                    .padding(horizontal = 7.dp, vertical = 2.5.dp)
+            ) {
+                Text(
+                    text = if (isEnabled) "АКТИВЕН" else "ВЫКЛЮЧЕН",
+                    color = if (isEnabled) vpnColors.primary else TextMuted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = "Раздельное туннелирование",
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.vpn_splittunnel_desc),
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                    InertialSpringSwitch(
+                        checked = isEnabled,
+                        onCheckedChange = onToggleEnabled,
+                        activeColor = vpnColors.primary
+                    )
+                }
+
+                if (isEnabled) {
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Режим фильтрации приложений",
+                            color = TextMuted,
+                            fontSize = 11.sp
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val isDisallow = !isAllowlist
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isDisallow) vpnColors.primary.copy(alpha = 0.15f) else Color.Transparent,
+                                border = BorderStroke(1.dp, if (isDisallow) vpnColors.primary.copy(alpha = 0.5f) else AmoledBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onToggleAllowlist(false)
+                                    }
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.vpn_split_tunnel_mode_disallow),
+                                    color = if (isDisallow) vpnColors.primary else TextMuted,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isDisallow) FontWeight.Bold else FontWeight.Normal,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 7.dp)
+                                )
+                            }
+
+                            val isAllow = isAllowlist
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isAllow) vpnColors.primary.copy(alpha = 0.15f) else Color.Transparent,
+                                border = BorderStroke(1.dp, if (isAllow) vpnColors.primary.copy(alpha = 0.5f) else AmoledBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onToggleAllowlist(true)
+                                    }
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.vpn_split_tunnel_mode_allow),
+                                    color = if (isAllow) vpnColors.primary else TextMuted,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isAllow) FontWeight.Bold else FontWeight.Normal,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 7.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = vpnColors.primary.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, vpnColors.primary.copy(alpha = 0.4f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onOpenAppPicker()
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 11.dp, horizontal = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.vpn_split_tunnel_apps_btn, packageCount),
+                                    color = TextWhite,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Настроить →",
+                                    color = vpnColors.primary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class InstalledAppItem(
+    val packageName: String,
+    val label: String,
+    val icon: android.graphics.drawable.Drawable?
+)
+
+@Composable
+fun SplitTunnelAppsDialog(
+    vpnColors: ProtocolColors,
+    selectedPackages: Set<String>,
+    onSave: (Set<String>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    var currentSelection by remember { mutableStateOf(selectedPackages) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
+    var installedApps by remember { mutableStateOf<List<InstalledAppItem>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val pm = context.packageManager
+            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+            val resolveInfos = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.queryIntentActivities(mainIntent, PackageManager.ResolveInfoFlags.of(0L))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.queryIntentActivities(mainIntent, 0)
+            }
+            val ownPkg = context.packageName
+            val list = resolveInfos
+                .mapNotNull { it.activityInfo?.applicationInfo }
+                .filter { it.packageName != ownPkg }
+                .distinctBy { it.packageName }
+                .map { appInfo ->
+                    InstalledAppItem(
+                        packageName = appInfo.packageName,
+                        label = appInfo.loadLabel(pm).toString(),
+                        icon = try { appInfo.loadIcon(pm) } catch (_: Throwable) { null }
+                    )
+                }
+                .sortedBy { it.label.lowercase() }
+            withContext(Dispatchers.Main) {
+                installedApps = list
+                isLoading = false
+            }
+        }
+    }
+
+    val filteredApps = remember(installedApps, searchQuery) {
+        if (searchQuery.isBlank()) installedApps
+        else {
+            val q = searchQuery.trim().lowercase()
+            installedApps.filter {
+                it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        DialogBackdropBox(onDismiss = onDismiss) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 20.dp, vertical = 32.dp)
+                    .adaptiveContainerWidth(460.dp)
+                    .fillMaxHeight(0.85f)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(AmoledSurface)
+                    .border(1.dp, AmoledBorder, RoundedCornerShape(24.dp))
+                    .clickable(enabled = false) {}
+            ) {
+                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = stringResource(R.string.vpn_split_tunnel_dialog_title),
+                                color = TextWhite,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Выбрано: ${currentSelection.size} из ${installedApps.size}",
+                                color = vpnColors.primary,
+                                fontSize = 11.5.sp
+                            )
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Text("✕", color = TextMuted, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                singleLine = true,
+                                textStyle = TextStyle(color = TextWhite, fontSize = 13.sp),
+                                modifier = Modifier.weight(1f),
+                                decorationBox = { innerTextField ->
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            text = stringResource(R.string.vpn_split_tunnel_search_hint),
+                                            color = TextMuted,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            )
+                            if (searchQuery.isNotEmpty()) {
+                                Text(
+                                    text = "✕",
+                                    color = TextMuted,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.clickable { searchQuery = "" }.padding(horizontal = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, AmoledBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    val allPkgs = installedApps.map { it.packageName }.toSet()
+                                    currentSelection = allPkgs
+                                }
+                        ) {
+                            Text(
+                                text = stringResource(R.string.vpn_split_tunnel_select_all),
+                                color = TextMuted,
+                                fontSize = 11.5.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 6.dp)
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, AmoledBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    currentSelection = emptySet()
+                                }
+                        ) {
+                            Text(
+                                text = stringResource(R.string.vpn_split_tunnel_deselect_all),
+                                color = TextMuted,
+                                fontSize = 11.5.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 6.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (isLoading) {
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = vpnColors.primary, strokeWidth = 2.dp)
+                        }
+                    } else {
+                        androidx.compose.foundation.lazy.LazyColumn(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(filteredApps.size, key = { filteredApps[it].packageName }) { idx ->
+                                val app = filteredApps[idx]
+                                val isChecked = currentSelection.contains(app.packageName)
+
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isChecked) vpnColors.primary.copy(alpha = 0.08f) else Color.Transparent,
+                                    border = BorderStroke(1.dp, if (isChecked) vpnColors.primary.copy(alpha = 0.35f) else Color.Transparent),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            currentSelection = if (isChecked) {
+                                                currentSelection - app.packageName
+                                            } else {
+                                                currentSelection + app.packageName
+                                            }
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        val iconBitmap = remember(app.packageName) {
+                                            app.icon?.let { d ->
+                                                try {
+                                                    val w = if (d.intrinsicWidth > 0) d.intrinsicWidth else 72
+                                                    val h = if (d.intrinsicHeight > 0) d.intrinsicHeight else 72
+                                                    val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                                                    val c = android.graphics.Canvas(bmp)
+                                                    d.setBounds(0, 0, w, h)
+                                                    d.draw(c)
+                                                    bmp.asImageBitmap()
+                                                } catch (_: Throwable) {
+                                                    null
+                                                }
+                                            }
+                                        }
+
+                                        if (iconBitmap != null) {
+                                            androidx.compose.foundation.Image(
+                                                bitmap = iconBitmap,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp))
+                                            )
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(AmoledSurfaceHigh),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = app.label.take(1).uppercase(),
+                                                    color = TextMuted,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = app.label,
+                                                color = TextWhite,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = app.packageName,
+                                                color = TextMuted,
+                                                fontSize = 10.5.sp,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        Checkbox(
+                                            checked = isChecked,
+                                            onCheckedChange = { checked ->
+                                                currentSelection = if (checked) {
+                                                    currentSelection + app.packageName
+                                                } else {
+                                                    currentSelection - app.packageName
+                                                }
+                                            },
+                                            colors = CheckboxDefaults.colors(
+                                                checkedColor = vpnColors.primary,
+                                                uncheckedColor = AmoledBorder,
+                                                checkmarkColor = Color.Black
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = vpnColors.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onSave(currentSelection)
+                            }
+                    ) {
+                        Text(
+                            text = stringResource(R.string.vpn_split_tunnel_apply),
+                            color = Color.Black,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 11.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsNetworkSection(
     selectedMode: ProxyMode,
+    isAdvancedMode: Boolean = false,
+    onEnableAdvancedMode: () -> Unit = {},
     portText: String,
     onPortChange: (String) -> Unit,
     isPortError: Boolean,
@@ -1562,24 +2478,354 @@ private fun SettingsNetworkSection(
         modifier = Modifier.staggeredEntrance(index = 1),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(
-            text = stringResource(R.string.settings_network_title),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 1.3.sp,
-            color = TextMuted
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.settings_network_title),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.3.sp,
+                color = TextMuted
+            )
+            SettingsSafetyBadge(
+                level = if (isAdvancedMode) SettingsSafetyLevel.EXPERT else SettingsSafetyLevel.SAFE
+            )
+        }
 
         if (selectedMode == ProxyMode.MTPROTO) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color.Transparent)
-                    .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
-            ) {
-                Column {
-                    // 1. PORT MTProto
+            if (!isAdvancedMode) {
+                // Friendly Safe Summary Card for MTProto
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                        .padding(14.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_port_mtproto),
+                                        color = TextWhite,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.5.sp
+                                    )
+                                    SettingsSafetyBadge(
+                                        level = SettingsSafetyLevel.SAFE,
+                                        customLabel = stringResource(R.string.settings_port_default_badge)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = stringResource(R.string.settings_port_safe_desc, portText.toIntOrNull() ?: 10808),
+                                    color = TextMuted,
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, AmoledBorder),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onEnableAdvancedMode()
+                                    }
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.settings_btn_configure_expert),
+                                    color = ActiveGreenLed,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+
+                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_secret_hex),
+                                        color = TextWhite,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.5.sp
+                                    )
+                                    SettingsSafetyBadge(
+                                        level = SettingsSafetyLevel.SAFE,
+                                        customLabel = "АКТИВЕН"
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = stringResource(R.string.settings_secret_safe_desc),
+                                    color = TextMuted,
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Interactive Fields for Expert Mode
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                ) {
+                    Column {
+                        // 1. PORT MTProto
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(stringResource(R.string.settings_port_mtproto), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                                    SettingsSafetyBadge(level = SettingsSafetyLevel.EXPERT)
+                                    InfoButton { onInfoClick("port") }
+                                }
+                                Text(
+                                    text = if (isPortError) stringResource(R.string.settings_port_range_hint) else stringResource(R.string.settings_port_mtproto_desc),
+                                    color = if (isPortError) Color(0xFFEF4444) else TextMuted,
+                                    fontSize = 11.5.sp
+                                )
+                            }
+
+                            BasicTextField(
+                                value = portText,
+                                onValueChange = onPortChange,
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                textStyle = TextStyle(
+                                    color = if (isPortError) Color(0xFFEF4444) else TextWhite,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    textAlign = TextAlign.Center
+                                ),
+                                cursorBrush = SolidColor(if (isPortError) Color(0xFFEF4444) else ActiveGreenLed),
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier
+                                            .width(76.dp)
+                                            .height(34.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color.White.copy(alpha = 0.04f))
+                                            .border(
+                                                width = 1.dp,
+                                                color = if (isPortError) Color(0xFFEF4444) else AmoledBorder,
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                            .padding(horizontal = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        innerTextField()
+                                    }
+                                }
+                            )
+                        }
+
+                        // Divider
+                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                        // 2. SECRET KEY
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(stringResource(R.string.settings_secret_hex), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                                    SettingsSafetyBadge(level = SettingsSafetyLevel.EXPERT)
+                                    InfoButton { onInfoClick("secret") }
+                                }
+
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            onToggleShowSecret()
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Crossfade(targetState = showSecret, animationSpec = tween(180), label = "eyeFade") { isVisible ->
+                                            Icon(
+                                                painter = painterResource(id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye),
+                                                contentDescription = null,
+                                                tint = if (showSecret) ActiveGreenLed else TextMuted,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                        }
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            onRefreshSecret()
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_refresh),
+                                            contentDescription = null,
+                                            tint = TextWhite,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            BasicTextField(
+                                value = secretText,
+                                onSecretChange,
+                                singleLine = true,
+                                visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
+                                textStyle = TextStyle(
+                                    color = TextWhite,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                cursorBrush = SolidColor(ActiveGreenLed),
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(34.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color.White.copy(alpha = 0.04f))
+                                            .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 10.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        innerTextField()
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            // SOCKS5 Mode Settings
+            if (!isAdvancedMode) {
+                // Friendly Safe Summary Card for SOCKS5
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                        .padding(14.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_port_socks5),
+                                        color = TextWhite,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.5.sp
+                                    )
+                                    SettingsSafetyBadge(
+                                        level = SettingsSafetyLevel.SAFE,
+                                        customLabel = stringResource(R.string.settings_port_default_badge)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = stringResource(R.string.settings_socks5_safe_desc, socks5PortText.toIntOrNull() ?: 10808),
+                                    color = TextMuted,
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, AmoledBorder),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onEnableAdvancedMode()
+                                    }
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.settings_btn_configure_expert),
+                                    color = Socks5Accent,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Interactive Fields for Expert SOCKS5 Mode
+                // 1. CARD PORT SOCKS5
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1592,29 +2838,30 @@ private fun SettingsNetworkSection(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(stringResource(R.string.settings_port_mtproto), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                                Text(stringResource(R.string.settings_port_socks5), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                                SettingsSafetyBadge(level = SettingsSafetyLevel.EXPERT)
                                 InfoButton { onInfoClick("port") }
                             }
                             Text(
-                                text = if (isPortError) stringResource(R.string.settings_port_range_hint) else stringResource(R.string.settings_port_mtproto_desc),
-                                color = if (isPortError) Color(0xFFEF4444) else TextMuted,
+                                text = if (isSocks5PortError) stringResource(R.string.settings_port_range_hint) else stringResource(R.string.settings_port_socks5_desc),
+                                color = if (isSocks5PortError) Color(0xFFEF4444) else TextMuted,
                                 fontSize = 11.5.sp
                             )
                         }
 
                         BasicTextField(
-                            value = portText,
-                            onValueChange = onPortChange,
+                            value = socks5PortText,
+                            onValueChange = onSocks5PortChange,
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             textStyle = TextStyle(
-                                color = if (isPortError) Color(0xFFEF4444) else TextWhite,
+                                color = if (isSocks5PortError) Color(0xFFEF4444) else TextWhite,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
                                 textAlign = TextAlign.Center
                             ),
-                            cursorBrush = SolidColor(if (isPortError) Color(0xFFEF4444) else ActiveGreenLed),
+                            cursorBrush = SolidColor(if (isSocks5PortError) Color(0xFFEF4444) else Socks5Accent),
                             decorationBox = { innerTextField ->
                                 Box(
                                     modifier = Modifier
@@ -1624,7 +2871,7 @@ private fun SettingsNetworkSection(
                                         .background(Color.White.copy(alpha = 0.04f))
                                         .border(
                                             width = 1.dp,
-                                            color = if (isPortError) Color(0xFFEF4444) else AmoledBorder,
+                                            color = if (isSocks5PortError) Color(0xFFEF4444) else AmoledBorder,
                                             shape = RoundedCornerShape(8.dp)
                                         )
                                         .padding(horizontal = 6.dp),
@@ -1635,19 +2882,23 @@ private fun SettingsNetworkSection(
                             }
                         )
                     }
+                }
 
-                    // Divider
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
-
-                    // 2. SECRET KEY
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 11.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                // 2. CARD SOCKS5 AUTH (RFC 1929)
+                val hasAuth = socks5UserText.isNotBlank() || socks5PassText.isNotBlank()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.Transparent)
+                        .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(18.dp))
+                ) {
+                    Column {
+                        // Header
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -1655,344 +2906,185 @@ private fun SettingsNetworkSection(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(stringResource(R.string.settings_secret_hex), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
-                                InfoButton { onInfoClick("secret") }
+                                Text(stringResource(R.string.settings_socks5_auth_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                                SettingsSafetyBadge(level = SettingsSafetyLevel.EXPERT)
+                                InfoButton { onInfoClick("socks5_auth") }
                             }
 
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (hasAuth) Socks5Accent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f),
+                                border = BorderStroke(1.dp, if (hasAuth) Socks5Accent.copy(alpha = 0.4f) else AmoledBorder)
                             ) {
-                                IconButton(
-                                    onClick = {
-                                        onToggleShowSecret()
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Crossfade(targetState = showSecret, animationSpec = tween(180), label = "eyeFade") { isVisible ->
-                                        Icon(
-                                            painter = painterResource(id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye),
-                                            contentDescription = null,
-                                            tint = if (showSecret) ActiveGreenLed else TextMuted,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                    }
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        onRefreshSecret()
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_refresh),
-                                        contentDescription = null,
-                                        tint = TextWhite,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
+                                Text(
+                                    text = if (hasAuth) "RFC 1929" else stringResource(R.string.settings_socks5_auth_open),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (hasAuth) Socks5Accent else TextMuted,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
+                                )
                             }
                         }
 
-                        BasicTextField(
-                            value = secretText,
-                            onValueChange = onSecretChange,
-                            singleLine = true,
-                            visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
-                            textStyle = TextStyle(
-                                color = TextWhite,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                                letterSpacing = 0.5.sp
-                            ),
-                            cursorBrush = SolidColor(ActiveGreenLed),
-                            decorationBox = { innerTextField ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(34.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color.White.copy(alpha = 0.04f))
-                                        .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    innerTextField()
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        } else {
-            // SOCKS5 Mode Settings
-            // 1. CARD PORT SOCKS5
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color.Transparent)
-                    .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                        // Username Row
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(stringResource(R.string.settings_port_socks5), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
-                            InfoButton { onInfoClick("port") }
-                        }
-                        Text(
-                            text = if (isSocks5PortError) stringResource(R.string.settings_port_range_hint) else stringResource(R.string.settings_port_socks5_desc),
-                            color = if (isSocks5PortError) Color(0xFFEF4444) else TextMuted,
-                            fontSize = 11.5.sp
-                        )
-                    }
-
-                    BasicTextField(
-                        value = socks5PortText,
-                        onValueChange = onSocks5PortChange,
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        textStyle = TextStyle(
-                            color = if (isSocks5PortError) Color(0xFFEF4444) else TextWhite,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            textAlign = TextAlign.Center
-                        ),
-                        cursorBrush = SolidColor(if (isSocks5PortError) Color(0xFFEF4444) else Socks5Accent),
-                        decorationBox = { innerTextField ->
-                            Box(
-                                modifier = Modifier
-                                    .width(76.dp)
-                                    .height(34.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.White.copy(alpha = 0.04f))
-                                    .border(
-                                        width = 1.dp,
-                                        color = if (isSocks5PortError) Color(0xFFEF4444) else AmoledBorder,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(horizontal = 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                innerTextField()
-                            }
-                        }
-                    )
-                }
-            }
-
-            // 2. CARD note SOCKS5 (RFC 1929)
-            val hasAuth = socks5UserText.isNotBlank() || socks5PassText.isNotBlank()
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color.Transparent)
-                    .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(18.dp))
-            ) {
-                Column {
-                    // Header
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(stringResource(R.string.settings_socks5_auth_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
-                            InfoButton { onInfoClick("socks5_auth") }
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (hasAuth) Socks5Accent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f),
-                            border = BorderStroke(1.dp, if (hasAuth) Socks5Accent.copy(alpha = 0.4f) else AmoledBorder)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (hasAuth) "RFC 1929" else stringResource(R.string.settings_socks5_auth_open),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (hasAuth) Socks5Accent else TextMuted,
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
+                                text = stringResource(R.string.settings_login),
+                                color = TextMuted,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.width(62.dp)
+                            )
+                            BasicTextField(
+                                value = socks5UserText,
+                                onValueChange = onSocks5UserChange,
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = TextWhite,
+                                    fontSize = 12.5.sp,
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                cursorBrush = SolidColor(Socks5Accent),
+                                modifier = Modifier.weight(1f),
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(32.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color.White.copy(alpha = 0.03f))
+                                            .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 9.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        if (socks5UserText.isEmpty()) {
+                                            Text(stringResource(R.string.settings_login_open_desc), color = TextMuted.copy(alpha = 0.6f), fontSize = 12.sp)
+                                        }
+                                        innerTextField()
+                                    }
+                                }
                             )
                         }
-                    }
 
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
 
-                    // Username Row
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_login),
-                            color = TextMuted,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.width(62.dp)
-                        )
-                        BasicTextField(
-                            value = socks5UserText,
-                            onValueChange = onSocks5UserChange,
-                            singleLine = true,
-                            textStyle = TextStyle(
-                                color = TextWhite,
-                                fontSize = 12.5.sp,
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            cursorBrush = SolidColor(Socks5Accent),
-                            modifier = Modifier.weight(1f),
-                            decorationBox = { innerTextField ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(32.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color.White.copy(alpha = 0.03f))
-                                        .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 9.dp),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    if (socks5UserText.isEmpty()) {
-                                        Text(stringResource(R.string.settings_login_open_desc), color = TextMuted.copy(alpha = 0.6f), fontSize = 12.sp)
-                                    }
-                                    innerTextField()
-                                }
-                            }
-                        )
-                    }
-
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
-
-                    // Password Row
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_password),
-                            color = TextMuted,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.width(62.dp)
-                        )
-                        BasicTextField(
-                            value = socks5PassText,
-                            onValueChange = onSocks5PassChange,
-                            singleLine = true,
-                            visualTransformation = if (showSocks5Pass) VisualTransformation.None else PasswordVisualTransformation(),
-                            textStyle = TextStyle(
-                                color = TextWhite,
-                                fontSize = 12.5.sp,
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            cursorBrush = SolidColor(Socks5Accent),
-                            modifier = Modifier.weight(1f),
-                            decorationBox = { innerTextField ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(32.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color.White.copy(alpha = 0.03f))
-                                        .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
-                                        .padding(start = 9.dp, end = 4.dp),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Box(modifier = Modifier.weight(1f)) {
-                                            if (socks5PassText.isEmpty()) {
-                                                Text(stringResource(R.string.settings_password_open_desc), color = TextMuted.copy(alpha = 0.6f), fontSize = 12.sp)
-                                            }
-                                            innerTextField()
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                onToggleShowSocks5Pass()
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Crossfade(targetState = showSocks5Pass, animationSpec = tween(180), label = "socks5EyeFade") { isVisible ->
-                                                Icon(
-                                                    painter = painterResource(id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye),
-                                                    contentDescription = null,
-                                                    tint = if (isVisible) Socks5Accent else TextMuted,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        )
-                    }
-
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
-
-                    // Compact Actions
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 9.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Button(
-                            onClick = {
-                                onGenerateSocks5Auth()
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Socks5Accent.copy(alpha = 0.16f),
-                                contentColor = Socks5Accent
-                            ),
-                            border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.35f)),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                            modifier = Modifier.weight(1f).height(32.dp)
+                        // Password Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(stringResource(R.string.settings_btn_generate_creds), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = stringResource(R.string.settings_password),
+                                color = TextMuted,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.width(62.dp)
+                            )
+                            BasicTextField(
+                                value = socks5PassText,
+                                onValueChange = onSocks5PassChange,
+                                singleLine = true,
+                                visualTransformation = if (showSocks5Pass) VisualTransformation.None else PasswordVisualTransformation(),
+                                textStyle = TextStyle(
+                                    color = TextWhite,
+                                    fontSize = 12.5.sp,
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                cursorBrush = SolidColor(Socks5Accent),
+                                modifier = Modifier.weight(1f),
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(32.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color.White.copy(alpha = 0.03f))
+                                            .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                            .padding(start = 9.dp, end = 4.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Box(modifier = Modifier.weight(1f)) {
+                                                if (socks5PassText.isEmpty()) {
+                                                    Text(stringResource(R.string.settings_password_open_desc), color = TextMuted.copy(alpha = 0.6f), fontSize = 12.sp)
+                                                }
+                                                innerTextField()
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    onToggleShowSocks5Pass()
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Crossfade(targetState = showSocks5Pass, animationSpec = tween(180), label = "socks5EyeFade") { isVisible ->
+                                                    Icon(
+                                                        painter = painterResource(id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye),
+                                                        contentDescription = null,
+                                                        tint = if (isVisible) Socks5Accent else TextMuted,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            )
                         }
 
-                        if (hasAuth) {
-                            OutlinedButton(
+                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+
+                        // Compact Actions
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 9.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
                                 onClick = {
-                                    onClearSocks5Auth()
+                                    onGenerateSocks5Auth()
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 },
                                 shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Socks5Accent.copy(alpha = 0.16f),
+                                    contentColor = Socks5Accent
+                                ),
+                                border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.35f)),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                modifier = Modifier.height(32.dp)
+                                modifier = Modifier.weight(1f).height(32.dp)
                             ) {
-                                Text(stringResource(R.string.settings_btn_clear), color = TextWhite, fontSize = 11.5.sp)
+                                Text(stringResource(R.string.settings_btn_generate_creds), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                            }
+
+                            if (hasAuth) {
+                                OutlinedButton(
+                                    onClick = {
+                                        onClearSocks5Auth()
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text(stringResource(R.string.settings_btn_clear), color = TextWhite, fontSize = 11.5.sp)
+                                }
                             }
                         }
                     }
@@ -2019,13 +3111,25 @@ private fun SettingsPerformanceSection(
         modifier = Modifier.staggeredEntrance(index = 2),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text(
-            text = stringResource(R.string.settings_perf_title),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 1.3.sp,
-            color = TextMuted
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_perf_title),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted
+                )
+                SettingsSafetyBadge(level = SettingsSafetyLevel.SAFE)
+            }
+        }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
@@ -2357,27 +3461,18 @@ private fun SettingsAdvancedEngineeringSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = stringResource(R.string.settings_advanced_section_title),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 1.3.sp,
-                color = TextMuted
-            )
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(ActiveGreenLed.copy(alpha = 0.12f))
-                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.40f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = stringResource(R.string.badge_expert),
-                    fontSize = 9.sp,
+                    text = stringResource(R.string.settings_advanced_section_title),
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
-                    color = ActiveGreenLed,
-                    letterSpacing = 0.8.sp
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted
                 )
+                SettingsSafetyBadge(level = SettingsSafetyLevel.DANGER)
             }
         }
 
@@ -3183,7 +4278,7 @@ private fun SettingsUplinkWarpSection(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = stringResource(R.string.settings_uplink_title),
+                    text = "ПРОТОКОЛ ТУННЕЛЯ VPN (UPLINK)",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
@@ -3199,49 +4294,12 @@ private fun SettingsUplinkWarpSection(
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = stringResource(R.string.badge_beta),
+                    text = "VPN",
                     fontSize = 9.5.sp,
                     fontWeight = FontWeight.Black,
                     color = ActiveGreenLed,
                     letterSpacing = 0.8.sp
                 )
-            }
-        }
-
-        if (!config.isSocks5Mode) {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = Color.Transparent,
-                border = BorderStroke(1.dp, AmoledBorder),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(ActiveGreenLed.copy(alpha = 0.14f))
-                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 5.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "SOCKS5",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ActiveGreenLed
-                        )
-                    }
-                    Text(
-                        text = stringResource(R.string.settings_uplink_note),
-                        fontSize = 11.sp,
-                        color = TextMuted,
-                        lineHeight = 14.sp,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
             }
         }
 
@@ -3252,24 +4310,21 @@ private fun SettingsUplinkWarpSection(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 UplinkModeChip(
-                    mode = com.mirrly.tgproxy.core.UplinkMode.WORKER,
-                    displayName = "Worker WSS",
-                    badge = stringResource(R.string.settings_mode_basic),
-                    subtitle = stringResource(R.string.settings_uplink_worker_sub),
-                    isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WORKER,
-                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.WORKER) },
+                    mode = com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
+                    displayName = "WARP Cascade",
+                    badge = "Dual Anycast",
+                    subtitle = stringResource(R.string.settings_uplink_cascade_sub),
+                    isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
+                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE) },
                     modifier = Modifier.weight(1f)
                 )
                 UplinkModeChip(
                     mode = com.mirrly.tgproxy.core.UplinkMode.VLESS,
                     displayName = "VLESS over WS",
-                    badge = stringResource(R.string.settings_mode_in_dev),
-                    subtitle = stringResource(R.string.settings_mode_in_dev),
+                    badge = "Anycast CDN",
+                    subtitle = "TLS 1.3 Camouflage",
                     isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.VLESS,
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        Toast.makeText(context, context.getString(R.string.settings_mode_in_dev), Toast.LENGTH_SHORT).show()
-                    },
+                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.VLESS) },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -3293,20 +4348,6 @@ private fun SettingsUplinkWarpSection(
                     subtitle = stringResource(R.string.settings_anycast_obfuscation),
                     isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
                     onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                UplinkModeChip(
-                    mode = com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
-                    displayName = "WARP Cascade",
-                    badge = "Dual Anycast",
-                    subtitle = stringResource(R.string.settings_uplink_cascade_sub),
-                    isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
-                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE) },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -3573,7 +4614,7 @@ private fun SettingsUplinkWarpSection(
                                                     activeAwgStrategy = strat
                                                     config.awgStrategyName = strat.name
                                                     app.saveConfig()
-                                                    val awgIni = config.getAmneziaWgConfig(cleanEndpoint = config.warpPeerEndpoint)
+                                                    val awgIni = config.getAmneziaWgConfig(cleanEndpoint = config.effectivePeerEndpoint)
                                                     com.mirrly.tgproxy.core.NativeProxy.setAwgConfig(awgIni)
                                                     onRestartProxy()
                                                 }
@@ -4301,13 +5342,25 @@ private fun SettingsSystemSection(
         modifier = Modifier.staggeredEntrance(index = 4),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text(
-            text = stringResource(R.string.settings_system_title),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 1.3.sp,
-            color = TextMuted
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_system_title),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted
+                )
+                SettingsSafetyBadge(level = SettingsSafetyLevel.SAFE)
+            }
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -4813,56 +5866,6 @@ private fun SettingsSystemSection(
             }
         }
 
-        // ── РЕЖИМ ОПЫТНОГО ПОЛЬЗОВАТЕЛЯ (ADVANCED / EXPERT MODE) ──
-        var isAdvancedSettingsEnabled by remember { mutableStateOf(app.prefsManager.isAdvancedSettingsEnabled()) }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Transparent)
-                .border(
-                    1.dp,
-                    if (isAdvancedSettingsEnabled) ActiveGreenLed.copy(alpha = 0.35f) else AmoledBorder,
-                    RoundedCornerShape(18.dp)
-                )
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_advanced_mode_title),
-                            color = TextWhite,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
-                        )
-                        InfoButton { onInfoClick("advanced_mode") }
-                    }
-                    Text(
-                        text = stringResource(R.string.settings_advanced_mode_desc),
-                        color = if (isAdvancedSettingsEnabled) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
-                        fontSize = 11.5.sp,
-                        lineHeight = 15.sp
-                    )
-                }
-                InertialSpringSwitch(
-                    checked = isAdvancedSettingsEnabled,
-                    onCheckedChange = { checked ->
-                        isAdvancedSettingsEnabled = checked
-                        app.prefsManager.setAdvancedSettingsEnabled(checked)
-                    }
-                )
-            }
-        }
 
         // ── ДИАГНОСТИЧЕСКИЙ ОТЧЁТ (DIAGNOSTIC REPORT) ──
         Surface(
@@ -5271,6 +6274,7 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
         "doze_mode", "doze_mode_info" -> R.string.info_doze_mode_title to R.string.info_doze_mode_body
         "doh_providers", "doh_info" -> R.string.info_doh_title to R.string.info_doh_body
         "advanced_mode" -> R.string.settings_advanced_mode_title to R.string.settings_advanced_mode_desc
+        "vpn_core_info" -> R.string.vpn_architecture_title to R.string.vpn_splittunnel_desc
         else -> return
     }
     val dlgTitle = stringResource(dlgTitleRes)
@@ -5868,10 +6872,77 @@ private fun SettingsDohSection(
                         }
                     }
                 }
+        }
+    }
+}
+}
+
+@Composable
+private fun SettingsMtprotoCdnOverviewCard() {
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 4),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "МАРШРУТИЗАЦИЯ MTPROTO",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted
+                )
+                SettingsSafetyBadge(level = SettingsSafetyLevel.SAFE)
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF29B6F6).copy(alpha = 0.12f))
+                    .border(1.dp, Color(0xFF29B6F6).copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "FLOWSEAL CDN",
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color(0xFF29B6F6),
+                    letterSpacing = 0.8.sp
+                )
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, AmoledBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Прямой Anycast-транспорт к Telegram DC",
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite
+                )
+                Text(
+                    text = "Трафик MTProto маршрутизируется через защищенный Anycast CDN Flowseal напрямую в дата-центры Telegram без промежуточных воркеров и сторонних прокси.",
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    color = TextMuted
+                )
             }
         }
     }
 }
-
-
-

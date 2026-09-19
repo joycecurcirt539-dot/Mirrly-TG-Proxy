@@ -209,7 +209,12 @@ fun HomeScreen(
                 androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
                 androidx.lifecycle.Lifecycle.Event.ON_STOP -> isAppResumed = false
                 androidx.lifecycle.Lifecycle.Event.ON_RESUME,
-                androidx.lifecycle.Lifecycle.Event.ON_START -> isAppResumed = true
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    isAppResumed = true
+                    if (!server.isRunning) {
+                        app.prefsManager.restoreUserPrimaryWorkerIfNeeded()
+                    }
+                }
                 else -> {}
             }
         }
@@ -218,6 +223,7 @@ fun HomeScreen(
     }
 
     val uplinkMode by app.prefsManager.uplinkModeFlow.collectAsState()
+    val vpnUplinkMode by app.prefsManager.vpnUplinkModeFlow.collectAsState()
     val warpProfile = remember(isAppResumed, isSocks5) { app.prefsManager.getWarpProfile() }
     val vlessUuid = remember(isAppResumed) { app.prefsManager.getVlessUuid().ifEmpty { app.config.vlessUuid } }
     val vlessPath = remember(isAppResumed) { app.prefsManager.getVlessPath().ifEmpty { app.config.vlessPath } }
@@ -301,17 +307,20 @@ fun HomeScreen(
             .distinctUntilChanged()
     }.collectAsState(initial = ProxyLiveTelemetry(isRunning = server.isRunning))
 
+    val isServerRunning by server.isRunningFlow.collectAsState()
+    val isProxyRunning = telemetry.isRunning || isServerRunning || server.isRunning
+
     val currentState = when (switchPhase) {
         com.mirrly.tgproxy.service.SwitchPhase.DISCONNECTING -> ProxyUiState.DISCONNECTING
         com.mirrly.tgproxy.service.SwitchPhase.PAUSE_DARK -> ProxyUiState.DISCONNECTED
         com.mirrly.tgproxy.service.SwitchPhase.RECONNECTING -> ProxyUiState.CONNECTING
-        com.mirrly.tgproxy.service.SwitchPhase.IDLE -> pendingState ?: if (telemetry.isRunning || server.isRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
+        com.mirrly.tgproxy.service.SwitchPhase.IDLE -> pendingState ?: if (isProxyRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
     }
 
-    LaunchedEffect(telemetry.isRunning, pendingState) {
-        if (pendingState == ProxyUiState.CONNECTING && telemetry.isRunning) {
+    LaunchedEffect(isProxyRunning, pendingState) {
+        if (pendingState == ProxyUiState.CONNECTING && isProxyRunning) {
             pendingState = null
-        } else if (pendingState == ProxyUiState.DISCONNECTING && !telemetry.isRunning) {
+        } else if (pendingState == ProxyUiState.DISCONNECTING && !isProxyRunning) {
             pendingState = null
         }
     }
@@ -514,6 +523,7 @@ fun HomeScreen(
                     },
                     onOpenWorkerManager = onOpenWorkerManager,
                     uplinkMode = uplinkMode,
+                    vpnUplinkMode = vpnUplinkMode,
                     warpProfile = warpProfile,
                     vlessUuid = vlessUuid,
                     onOpenUplinkState = { showUplinkStateDialog = true },
@@ -726,9 +736,9 @@ fun HomeScreen(
 
                 // ─── 2. CENTER SECTION (Power button) ───
                 val isProxyRunning = currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING
-                val isWarpMissing = isSocks5 && (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.HYBRID) && (warpProfile == null || !warpProfile.isWarpEnabled)
-                val isDeveloperWorkerActive = isSocks5 && uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WORKER && activeWorker.isDeveloperWorker && isProxyRunning
-                val shouldShowUplinkNotice = isWarpMissing || isDeveloperWorkerActive
+                val isWarpMissing = false
+                val isDeveloperWorkerActive = isSocks5 && activeWorker.isDeveloperWorker && isProxyRunning
+                val shouldShowUplinkNotice = isDeveloperWorkerActive
                 var isUplinkNoticeVisible by remember { mutableStateOf(false) }
 
                 LaunchedEffect(shouldShowUplinkNotice) {
@@ -944,6 +954,7 @@ fun HomeScreen(
                             isCompact = isCompactHeight,
                             vpnState = vpnState,
                             vpnColors = systemVpnColors,
+                            vpnUplinkMode = vpnUplinkMode,
                             onTap = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 showVpnInDevDialog = true
@@ -1187,52 +1198,22 @@ fun HomeScreen(
                                         effectiveRoute = telemetry.effectiveRoute,
                                         operator = telemetry.operator,
                                         isTrustBoundaryMaintained = telemetry.isTrustBoundaryMaintained,
-                                        configuredWorker = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WORKER,
+                                        configuredWorker = true,
                                         securedLabel = stringResource(R.string.status_secured),
                                         publicFallbackLabel = stringResource(R.string.status_public_fallback)
                                     )
                                 } else {
-                                    when (uplinkMode) {
-                                        com.mirrly.tgproxy.core.UplinkMode.WORKER -> {
-                                        stringResource(R.string.uplink_cf_wss_secured)
-                                    }
-                                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> {
-                                        val ip = warpProfile?.clientIpv4?.ifEmpty { "Anycast" } ?: "Anycast"
-                                        stringResource(R.string.uplink_warp_masque_secured, ip)
-                                    }
-                                    com.mirrly.tgproxy.core.UplinkMode.VLESS -> {
-                                        stringResource(R.string.uplink_vless_secured)
-                                    }
-                                    com.mirrly.tgproxy.core.UplinkMode.HYBRID -> {
-                                        stringResource(R.string.uplink_hybrid_secured, activeWorker.name)
-                                    }
-                                    com.mirrly.tgproxy.core.UplinkMode.AWG -> {
-                                        stringResource(R.string.uplink_amnezia_secured)
-                                    }
-                                    com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> {
-                                        stringResource(R.string.uplink_warp_cascade_secured)
-                                    }
-                                }
+                                    stringResource(R.string.uplink_cf_wss_secured)
                                 }
                             }
                         }
                         ProxyUiState.CONNECTING -> {
-                            val phase = warpProfilerPhase
-                            if (isSocks5 && (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE) && phase != null) {
-                                "${stringResource(R.string.status_connecting)}: ${phase.displayName}"
-                            } else if (preflightMessage.isNotBlank()) {
+                            if (preflightMessage.isNotBlank()) {
                                 preflightMessage
                             } else if (!isSocks5) {
                                 stringResource(R.string.status_connecting_tg_mtproto)
                             } else {
-                                when (uplinkMode) {
-                                    com.mirrly.tgproxy.core.UplinkMode.WORKER -> stringResource(R.string.status_connecting_cf_wss)
-                                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> stringResource(R.string.status_connecting_cf_warp)
-                                    com.mirrly.tgproxy.core.UplinkMode.VLESS -> stringResource(R.string.status_connecting_vless)
-                                    com.mirrly.tgproxy.core.UplinkMode.HYBRID -> stringResource(R.string.status_connecting_hybrid)
-                                    com.mirrly.tgproxy.core.UplinkMode.AWG -> stringResource(R.string.status_connecting_amnezia)
-                                    com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> stringResource(R.string.status_connecting_warp_cascade)
-                                }
+                                stringResource(R.string.status_connecting_cf_wss)
                             }
                         }
                         ProxyUiState.DISCONNECTING -> stringResource(R.string.status_stopping)
@@ -1245,8 +1226,6 @@ fun HomeScreen(
                                 } else {
                                     stringResource(R.string.status_protection_disabled)
                                 }
-                            } else if (isSocks5 && (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.HYBRID) && (warpProfile == null || !warpProfile.isWarpEnabled)) {
-                                stringResource(R.string.status_warp_masque_needs_reg)
                             } else {
                                 stringResource(R.string.status_protection_disabled)
                             }
@@ -2949,6 +2928,7 @@ fun ProtocolSwitcherHeader(
     onSwitchProtocol: (com.mirrly.tgproxy.core.ProxyMode) -> Unit,
     onOpenWorkerManager: () -> Unit = {},
     uplinkMode: com.mirrly.tgproxy.core.UplinkMode = com.mirrly.tgproxy.core.UplinkMode.WORKER,
+    vpnUplinkMode: com.mirrly.tgproxy.core.UplinkMode = com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
     warpProfile: com.mirrly.tgproxy.core.WarpProfile? = null,
     vlessUuid: String = "",
     onOpenUplinkState: () -> Unit = {},
@@ -3196,64 +3176,27 @@ fun ProtocolSwitcherHeader(
                 onOpenUplinkState
             )
             HomeScreenTab.SOCKS5 -> {
-                when (uplinkMode) {
-                    com.mirrly.tgproxy.core.UplinkMode.WORKER -> Triple(
-                        "Worker • ${activeWorker.name}",
-                        Socks5Accent,
-                        onOpenWorkerManager
-                    )
-                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> {
-                        if (isWarpActive) {
-                            Triple(
-                                "WARP MASQUE • ${warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2"}",
-                                Socks5Accent,
-                                onOpenUplinkState
-                            )
-                        } else {
-                            Triple(
-                                stringResource(R.string.badge_warp_needs_reg),
-                                Color(0xFFFF9E00),
-                                onOpenUplinkState
-                            )
-                        }
-                    }
-                    com.mirrly.tgproxy.core.UplinkMode.VLESS -> Triple(
-                        "VLESS over WSS • TLS 1.3",
-                        Socks5Accent,
-                        onOpenUplinkState
-                    )
-                    com.mirrly.tgproxy.core.UplinkMode.HYBRID -> {
-                        if (isWarpActive) {
-                            Triple(
-                                stringResource(R.string.badge_hybrid_active, activeWorker.name),
-                                Socks5Accent,
-                                onOpenUplinkState
-                            )
-                        } else {
-                            Triple(
-                                stringResource(R.string.badge_hybrid_needs_warp),
-                                Color(0xFFFF9E00),
-                                onOpenUplinkState
-                            )
-                        }
-                    }
-                    com.mirrly.tgproxy.core.UplinkMode.AWG -> Triple(
-                        "AmneziaWG • WARP Anycast",
-                        Socks5Accent,
-                        onOpenUplinkState
-                    )
-                    com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> Triple(
-                        "WARP Cascade • Worker + AWG",
-                        Socks5Accent,
-                        onOpenUplinkState
-                    )
-                }
+                Triple(
+                    "Worker WSS • ${activeWorker.name}",
+                    Socks5Accent,
+                    onOpenWorkerManager
+                )
             }
-            HomeScreenTab.VPN -> Triple(
-                stringResource(R.string.badge_vpn_in_dev),
-                vpnColors.primary,
-                onOpenVpnInfo
-            )
+            HomeScreenTab.VPN -> {
+                val vpnBadge = when (vpnUplinkMode) {
+                    com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> "WARP Cascade • Dual Anycast"
+                    com.mirrly.tgproxy.core.UplinkMode.VLESS -> "VLESS over WSS • Anycast CDN"
+                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "WARP MASQUE • HTTP/3 QUIC"
+                    com.mirrly.tgproxy.core.UplinkMode.AWG -> "WARP AWG • AmneziaWG"
+                    com.mirrly.tgproxy.core.UplinkMode.WORKER -> "Worker WSS • Anycast"
+                    else -> vpnUplinkMode.displayName
+                }
+                Triple(
+                    vpnBadge,
+                    vpnColors.primary,
+                    onOpenVpnInfo
+                )
+            }
         }
 
         val animatedBadgeColor by animateColorAsState(
@@ -3292,6 +3235,80 @@ fun ProtocolSwitcherHeader(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
+            if (currentTab == HomeScreenTab.SOCKS5 || currentTab == HomeScreenTab.VPN) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_arrow_down),
+                    contentDescription = null,
+                    tint = animatedBadgeColor.copy(alpha = 0.70f),
+                    modifier = Modifier.size(9.dp)
+                )
+            }
+        }
+
+        // Interactive visual affordance: subtle bouncing pull-down hint for Worker Manager (SOCKS5 only)
+        if (currentTab == HomeScreenTab.SOCKS5) {
+            val infiniteSwipeTransition = rememberInfiniteTransition(label = "swipeHintBounce")
+            val bounceOffsetY by infiniteSwipeTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 3.5f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1200, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "bounceOffsetY"
+            )
+            val hintAlpha by infiniteSwipeTransition.animateFloat(
+                initialValue = 0.35f,
+                targetValue = 0.75f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1200, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "hintAlpha"
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        HapticHelper.performSoftTick(context)
+                        onOpenWorkerManager()
+                    }
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_arrow_down),
+                    contentDescription = null,
+                    tint = TextMuted.copy(alpha = hintAlpha),
+                    modifier = Modifier
+                        .size(9.5.dp)
+                        .offset(y = bounceOffsetY.dp)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Text(
+                    text = stringResource(R.string.home_swipe_down_workers_hint),
+                    color = TextMuted.copy(alpha = hintAlpha),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Normal,
+                    letterSpacing = 0.1.sp
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_arrow_down),
+                    contentDescription = null,
+                    tint = TextMuted.copy(alpha = hintAlpha),
+                    modifier = Modifier
+                        .size(9.5.dp)
+                        .offset(y = bounceOffsetY.dp)
+                )
+            }
         }
     }
 }
@@ -3530,14 +3547,7 @@ fun UplinkStateDialog(
     val modeTitle = if (!isSocks5) {
         "MTProto Direct / WSS"
     } else {
-        when (uplinkMode) {
-            com.mirrly.tgproxy.core.UplinkMode.WORKER -> "Cloudflare Worker WSS"
-            com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "Cloudflare WARP MASQUE"
-            com.mirrly.tgproxy.core.UplinkMode.VLESS -> "VLESS over WSS"
-            com.mirrly.tgproxy.core.UplinkMode.HYBRID -> stringResource(R.string.mode_hybrid_worker_warp)
-            com.mirrly.tgproxy.core.UplinkMode.AWG -> "AmneziaWG (WARP Anycast)"
-            com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> "WARP Cascade (Worker + AWG)"
-        }
+        "Cloudflare Worker WSS"
     }
 
     Dialog(
@@ -3621,51 +3631,11 @@ fun UplinkStateDialog(
                             UplinkStateRow(stringResource(R.string.uplink_field_encryption), "Fake-TLS 1.3 (dd-secret)")
                             UplinkStateRow(stringResource(R.string.uplink_field_cache_nodes), stringResource(R.string.uplink_field_cache_nodes_val))
                         } else {
-                            when (uplinkMode) {
-                                com.mirrly.tgproxy.core.UplinkMode.WORKER -> {
-                                    UplinkStateRow(stringResource(R.string.uplink_field_protocol), "SOCKS5 TCP Relay")
-                                    UplinkStateRow(stringResource(R.string.uplink_field_transport), "Cloudflare Worker WSS :443")
-                                    UplinkStateRow(stringResource(R.string.uplink_field_active_worker), activeWorker.name)
-                                    UplinkStateRow(stringResource(R.string.uplink_field_node_domain), activeWorker.domain)
-                                    UplinkStateRow(stringResource(R.string.uplink_field_conn_pool), if (activeWorker.isDeveloperWorker) stringResource(R.string.uplink_pool_shared) else stringResource(R.string.uplink_pool_personal))
-                                }
-                                com.mirrly.tgproxy.core.UplinkMode.MASQUE -> {
-                                    UplinkStateRow(stringResource(R.string.uplink_field_protocol), "Cloudflare WARP Anycast MASQUE")
-                                    UplinkStateRow(stringResource(R.string.uplink_field_registration), if (isWarpActive) stringResource(R.string.uplink_reg_active) else stringResource(R.string.uplink_reg_inactive), isAlert = !isWarpActive)
-                                    UplinkStateRow(stringResource(R.string.uplink_field_client_ipv4), warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2")
-                                    UplinkStateRow(stringResource(R.string.uplink_field_anycast_gateway), warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
-                                    UplinkStateRow(stringResource(R.string.uplink_field_mtls_crypto), if (warpProfile?.clientCertBase64?.isNotBlank() == true) stringResource(R.string.uplink_mtls_ready) else stringResource(R.string.uplink_mtls_missing))
-                                    UplinkStateRow(stringResource(R.string.uplink_field_license), if (warpProfile?.isWarpPlus == true) "Cloudflare WARP+ Unlimited" else "WARP Free")
-                                }
-                                com.mirrly.tgproxy.core.UplinkMode.VLESS -> {
-                                    UplinkStateRow(stringResource(R.string.uplink_field_protocol), "VLESS v0 over WebSocket")
-                                    UplinkStateRow(stringResource(R.string.uplink_field_client_uuid), if (vlessUuid.length > 14) "${vlessUuid.take(8)}...${vlessUuid.takeLast(4)}" else vlessUuid)
-                                    UplinkStateRow(stringResource(R.string.uplink_field_ws_path), vlessPath)
-                                    UplinkStateRow(stringResource(R.string.uplink_field_host_sni), "${activeWorker.domain}:443")
-                                    UplinkStateRow(stringResource(R.string.uplink_field_tls_camou), "TLS 1.3 Chrome (utls-mimic)")
-                                }
-                                com.mirrly.tgproxy.core.UplinkMode.HYBRID -> {
-                                    UplinkStateRow(stringResource(R.string.uplink_field_architecture), "Worker WSS -> WARP MASQUE")
-                                    UplinkStateRow(stringResource(R.string.uplink_hop_worker), "${activeWorker.name} (${activeWorker.domain})")
-                                    UplinkStateRow(stringResource(R.string.uplink_hop_warp), if (isWarpActive) "MASQUE (${warpProfile?.clientIpv4})" else stringResource(R.string.uplink_reg_inactive), isAlert = !isWarpActive)
-                                    UplinkStateRow(stringResource(R.string.uplink_field_anycast_gateway), warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
-                                }
-                                com.mirrly.tgproxy.core.UplinkMode.AWG -> {
-                                    UplinkStateRow(stringResource(R.string.uplink_field_protocol), stringResource(R.string.uplink_amnezia_desc))
-                                    UplinkStateRow(stringResource(R.string.uplink_field_registration), if (isWarpActive) stringResource(R.string.uplink_reg_warp_anycast) else stringResource(R.string.uplink_reg_inactive), isAlert = !isWarpActive)
-                                    UplinkStateRow(stringResource(R.string.uplink_field_anycast_gateway), warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
-                                    UplinkStateRow(stringResource(R.string.uplink_field_client_ipv4), warpProfile?.clientIpv4?.ifEmpty { "172.16.0.2" } ?: "172.16.0.2")
-                                    UplinkStateRow(stringResource(R.string.uplink_obfuscation_jc), stringResource(R.string.uplink_obfuscation_jc_val))
-                                    UplinkStateRow(stringResource(R.string.uplink_masking_i1), "QUIC Initial (SNI camouflage)")
-                                }
-                                com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> {
-                                    UplinkStateRow(stringResource(R.string.uplink_field_architecture), "MASQUE -> AWG -> Worker WSS")
-                                    UplinkStateRow(stringResource(R.string.uplink_cascade_l1), if (isWarpActive) "WARP HTTP/3 Anycast" else stringResource(R.string.uplink_reg_inactive), isAlert = !isWarpActive)
-                                    UplinkStateRow(stringResource(R.string.uplink_cascade_l2), if (isWarpActive) "AmneziaWG Anycast (Jc=4)" else stringResource(R.string.uplink_reg_inactive), isAlert = !isWarpActive)
-                                    UplinkStateRow(stringResource(R.string.uplink_cascade_l3), stringResource(R.string.uplink_cascade_l3_val, activeWorker.name))
-                                    UplinkStateRow(stringResource(R.string.uplink_field_anycast_gateway), warpProfile?.peerEndpoint?.ifEmpty { "188.114.96.1:500" } ?: "188.114.96.1:500")
-                                }
-                            }
+                            UplinkStateRow(stringResource(R.string.uplink_field_protocol), "SOCKS5 TCP Relay")
+                            UplinkStateRow(stringResource(R.string.uplink_field_transport), "Cloudflare Worker WSS :443")
+                            UplinkStateRow(stringResource(R.string.uplink_field_active_worker), activeWorker.name)
+                            UplinkStateRow(stringResource(R.string.uplink_field_node_domain), activeWorker.domain)
+                            UplinkStateRow(stringResource(R.string.uplink_field_conn_pool), if (activeWorker.isDeveloperWorker) stringResource(R.string.uplink_pool_shared) else stringResource(R.string.uplink_pool_personal))
                         }
 
                         if (effectiveRoute.isNotBlank()) {

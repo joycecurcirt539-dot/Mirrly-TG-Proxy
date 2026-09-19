@@ -4,6 +4,7 @@ import com.mirrly.tgproxy.R
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.core.ProxyMode
 import com.mirrly.tgproxy.core.WorkerProfile
@@ -30,11 +31,32 @@ class PreferencesManager(private val context: Context) {
     private val _uplinkModeFlow = MutableStateFlow(loadConfig().uplinkMode)
     val uplinkModeFlow: StateFlow<com.mirrly.tgproxy.core.UplinkMode> = _uplinkModeFlow.asStateFlow()
 
+    private val _vpnUplinkModeFlow = MutableStateFlow(loadConfig().vpnUplinkMode)
+    val vpnUplinkModeFlow: StateFlow<com.mirrly.tgproxy.core.UplinkMode> = _vpnUplinkModeFlow.asStateFlow()
+
     private val _appLanguageFlow = MutableStateFlow(getAppLanguage())
     val appLanguageFlow: StateFlow<String> = _appLanguageFlow.asStateFlow()
 
     private val _advancedSettingsEnabledFlow = MutableStateFlow(isAdvancedSettingsEnabled())
     val advancedSettingsEnabledFlow: StateFlow<Boolean> = _advancedSettingsEnabledFlow.asStateFlow()
+
+    private val _vpnMtuFlow = MutableStateFlow(prefs.getInt("vpn_mtu", 1420))
+    val vpnMtuFlow: StateFlow<Int> = _vpnMtuFlow.asStateFlow()
+
+    private val _vpnBlockQuicFlow = MutableStateFlow(prefs.getBoolean("vpn_block_quic", true))
+    val vpnBlockQuicFlow: StateFlow<Boolean> = _vpnBlockQuicFlow.asStateFlow()
+
+    private val _vpnBlockIpv6LeaksFlow = MutableStateFlow(prefs.getBoolean("vpn_block_ipv6_leaks", true))
+    val vpnBlockIpv6LeaksFlow: StateFlow<Boolean> = _vpnBlockIpv6LeaksFlow.asStateFlow()
+
+    private val _vpnSplitTunnelEnabledFlow = MutableStateFlow(prefs.getBoolean("vpn_split_tunnel_enabled", false))
+    val vpnSplitTunnelEnabledFlow: StateFlow<Boolean> = _vpnSplitTunnelEnabledFlow.asStateFlow()
+
+    private val _vpnSplitTunnelAllowlistFlow = MutableStateFlow(prefs.getBoolean("vpn_split_tunnel_allowlist", false))
+    val vpnSplitTunnelAllowlistFlow: StateFlow<Boolean> = _vpnSplitTunnelAllowlistFlow.asStateFlow()
+
+    private val _vpnSplitTunnelPackagesFlow = MutableStateFlow(prefs.getStringSet("vpn_split_tunnel_packages", emptySet()) ?: emptySet())
+    val vpnSplitTunnelPackagesFlow: StateFlow<Set<String>> = _vpnSplitTunnelPackagesFlow.asStateFlow()
 
     private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
         if (key == "disable_animations_particles") {
@@ -49,14 +71,36 @@ class PreferencesManager(private val context: Context) {
             _activeWorkerIdFlow.value = sharedPreferences.getString(key, "dev_default") ?: "dev_default"
         }
         if (key == "uplink_mode") {
-            val modeName = sharedPreferences.getString(key, com.mirrly.tgproxy.core.UplinkMode.WORKER.name) ?: com.mirrly.tgproxy.core.UplinkMode.WORKER.name
-            _uplinkModeFlow.value = try { com.mirrly.tgproxy.core.UplinkMode.valueOf(modeName) } catch (_: Exception) { com.mirrly.tgproxy.core.UplinkMode.WORKER }
+            _uplinkModeFlow.value = com.mirrly.tgproxy.core.UplinkMode.WORKER
+        }
+        if (key == "vpn_uplink_mode") {
+            val modeName = sharedPreferences.getString(key, com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE.name) ?: com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE.name
+            val mode = try { com.mirrly.tgproxy.core.UplinkMode.valueOf(modeName) } catch (_: Exception) { com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE }
+            _vpnUplinkModeFlow.value = if (mode == com.mirrly.tgproxy.core.UplinkMode.WORKER) com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE else mode
         }
         if (key == "app_language") {
             _appLanguageFlow.value = sharedPreferences.getString(key, "system") ?: "system"
         }
         if (key == "advanced_settings_enabled") {
             _advancedSettingsEnabledFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+        if (key == "vpn_mtu") {
+            _vpnMtuFlow.value = sharedPreferences.getInt(key, 1420)
+        }
+        if (key == "vpn_block_quic") {
+            _vpnBlockQuicFlow.value = sharedPreferences.getBoolean(key, true)
+        }
+        if (key == "vpn_block_ipv6_leaks") {
+            _vpnBlockIpv6LeaksFlow.value = sharedPreferences.getBoolean(key, true)
+        }
+        if (key == "vpn_split_tunnel_enabled") {
+            _vpnSplitTunnelEnabledFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+        if (key == "vpn_split_tunnel_allowlist") {
+            _vpnSplitTunnelAllowlistFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+        if (key == "vpn_split_tunnel_packages") {
+            _vpnSplitTunnelPackagesFlow.value = sharedPreferences.getStringSet(key, emptySet()) ?: emptySet()
         }
     }
 
@@ -89,7 +133,9 @@ class PreferencesManager(private val context: Context) {
         val cfEnabled = prefs.getBoolean("cf_proxy_enabled", defaults.cfProxyEnabled)
         val activeWorker = getActiveWorker()
         val savedCustomDomain = prefs.getString("custom_cf_domain", null)
-        val customDomain = if (!savedCustomDomain.isNullOrBlank()) {
+        val customDomain = if (!activeWorker.isDeveloperWorker) {
+            activeWorker.domain
+        } else if (!savedCustomDomain.isNullOrBlank()) {
             ProxyConfig.sanitizeDomain(savedCustomDomain)
         } else {
             activeWorker.domain
@@ -107,8 +153,12 @@ class PreferencesManager(private val context: Context) {
         val bufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
         val socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
         val socks5Username = prefs.getString("socks5_username", defaults.socks5Username) ?: defaults.socks5Username
-        val socks5Password = prefs.getString("socks5_password", defaults.socks5Password) ?: defaults.socks5Password
-        val useDefaultWorkerSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
+        val socks5Password = secretPrefs.getString("socks5_password", null) ?: prefs.getString("socks5_password", defaults.socks5Password) ?: defaults.socks5Password
+        val useDefaultWorkerSocks5 = if (!activeWorker.isDeveloperWorker) {
+            false
+        } else {
+            prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
+        }
 
         // Миграция: если proxy_mode ещё не сохранён, читаем старый socks5_enabled
         val proxyModeName = if (prefs.contains("proxy_mode")) {
@@ -126,10 +176,14 @@ class PreferencesManager(private val context: Context) {
         val savedDohProviders = prefs.getStringSet("enabled_doh_providers", null)
         val enabledDohProviderIds = savedDohProviders ?: com.mirrly.tgproxy.core.DohResolver.DEFAULT_ENABLED_PROVIDER_IDS
 
-        val uplinkModeName = prefs.getString("uplink_mode", defaults.uplinkModeName) ?: defaults.uplinkModeName
+        val uplinkModeName = com.mirrly.tgproxy.core.UplinkMode.WORKER.name
+        val vpnUplinkModeName = prefs.getString("vpn_uplink_mode", defaults.vpnUplinkModeName) ?: defaults.vpnUplinkModeName
+        val vpnMtu = prefs.getInt("vpn_mtu", defaults.vpnMtu)
+        val vpnBlockQuic = prefs.getBoolean("vpn_block_quic", defaults.vpnBlockQuic)
+        val vpnBlockIpv6Leaks = prefs.getBoolean("vpn_block_ipv6_leaks", defaults.vpnBlockIpv6Leaks)
         val warpAccountId = prefs.getString("warp_account_id", defaults.warpAccountId) ?: defaults.warpAccountId
         val warpToken = secretPrefs.getString("warp_token", null) ?: prefs.getString("warp_token", defaults.warpToken) ?: defaults.warpToken
-        val warpLicenseKey = prefs.getString("warp_license_key", defaults.warpLicenseKey) ?: defaults.warpLicenseKey
+        val warpLicenseKey = secretPrefs.getString("warp_license_key", null) ?: prefs.getString("warp_license_key", defaults.warpLicenseKey) ?: defaults.warpLicenseKey
         val warpClientIpv4 = prefs.getString("warp_client_ipv4", defaults.warpClientIpv4) ?: defaults.warpClientIpv4
         val warpClientIpv6 = prefs.getString("warp_client_ipv6", defaults.warpClientIpv6) ?: defaults.warpClientIpv6
         val warpPeerEndpoint = prefs.getString("warp_peer_endpoint", defaults.warpPeerEndpoint) ?: defaults.warpPeerEndpoint
@@ -149,7 +203,7 @@ class PreferencesManager(private val context: Context) {
         val isMasqueValid = prefs.getBoolean("is_masque_valid", defaults.isMasqueValid)
         val isWarpPlus = prefs.getBoolean("is_warp_plus", defaults.isWarpPlus)
         val isWarpAccountActive = prefs.getBoolean("is_warp_account_active", defaults.isWarpAccountActive)
-        val vlessUuid = prefs.getString("vless_uuid", defaults.vlessUuid) ?: defaults.vlessUuid
+        val vlessUuid = secretPrefs.getString("vless_uuid", null) ?: prefs.getString("vless_uuid", defaults.vlessUuid) ?: defaults.vlessUuid
         val vlessPath = prefs.getString("vless_path", defaults.vlessPath) ?: defaults.vlessPath
         val vlessDomain = prefs.getString("vless_domain", defaults.vlessDomain) ?: defaults.vlessDomain
         val vlessPresetId = prefs.getString("vless_preset_id", defaults.vlessPresetId) ?: defaults.vlessPresetId
@@ -196,6 +250,10 @@ class PreferencesManager(private val context: Context) {
             proxyModeName = proxyModeName,
             enabledDohProviderIds = enabledDohProviderIds,
             uplinkModeName = uplinkModeName,
+            vpnUplinkModeName = vpnUplinkModeName,
+            vpnMtu = vpnMtu,
+            vpnBlockQuic = vpnBlockQuic,
+            vpnBlockIpv6Leaks = vpnBlockIpv6Leaks,
             warpAccountId = warpAccountId,
             warpToken = warpToken,
             warpLicenseKey = warpLicenseKey,
@@ -267,6 +325,9 @@ class PreferencesManager(private val context: Context) {
             .putString("warp_private_key", config.warpPrivateKey)
             .putString("warp_p256_private_key", config.warpP256PrivateKey)
             .putString("warp_masque_token", config.warpMasqueToken)
+            .putString("vless_uuid", config.vlessUuid)
+            .putString("socks5_password", config.socks5Password)
+            .putString("warp_license_key", config.warpLicenseKey)
             .apply()
 
         prefs.edit()
@@ -275,6 +336,9 @@ class PreferencesManager(private val context: Context) {
             .remove("warp_private_key")
             .remove("warp_p256_private_key")
             .remove("warp_masque_token")
+            .remove("vless_uuid")
+            .remove("socks5_password")
+            .remove("warp_license_key")
             .putString("bind_host", config.bindHost)
             .putInt("bind_port", config.bindPort)
             .putBoolean("cf_proxy_enabled", config.cfProxyEnabled)
@@ -288,7 +352,6 @@ class PreferencesManager(private val context: Context) {
             .putInt("buffer_size_bytes", config.bufferSizeBytes)
             .putInt("socks5_port", config.socks5Port)
             .putString("socks5_username", config.socks5Username)
-            .putString("socks5_password", config.socks5Password)
             .putBoolean("use_default_worker_socks5", config.useDefaultWorkerSocks5)
             .putBoolean("is_battery_guard_enabled", config.isBatteryGuardEnabled)
             .putInt("battery_guard_threshold", config.batteryGuardThreshold)
@@ -298,7 +361,6 @@ class PreferencesManager(private val context: Context) {
             .putStringSet("enabled_doh_providers", config.enabledDohProviderIds)
             .putString("uplink_mode", config.uplinkModeName)
             .putString("warp_account_id", config.warpAccountId)
-            .putString("warp_license_key", config.warpLicenseKey)
             .putString("warp_client_ipv4", config.warpClientIpv4)
             .putString("warp_client_ipv6", config.warpClientIpv6)
             .putString("warp_peer_endpoint", config.warpPeerEndpoint)
@@ -315,7 +377,6 @@ class PreferencesManager(private val context: Context) {
             .putBoolean("is_masque_valid", config.isMasqueValid)
             .putBoolean("is_warp_plus", config.isWarpPlus)
             .putBoolean("is_warp_account_active", config.isWarpAccountActive)
-            .putString("vless_uuid", config.vlessUuid)
             .putString("vless_path", config.vlessPath)
             .putString("vless_domain", config.vlessDomain)
             .putString("vless_preset_id", config.vlessPresetId)
@@ -338,10 +399,15 @@ class PreferencesManager(private val context: Context) {
             .putString("warp_worker_domain", config.warpWorkerDomain)
             .putString("awg_strategy_name", config.awgStrategyName)
             .putString("awg_custom_ini", config.awgCustomIni)
+            .putString("vpn_uplink_mode", config.vpnUplinkModeName)
+            .putInt("vpn_mtu", config.vpnMtu)
+            .putBoolean("vpn_block_quic", config.vpnBlockQuic)
+            .putBoolean("vpn_block_ipv6_leaks", config.vpnBlockIpv6Leaks)
             .apply()
 
         _isSocks5Flow.value = config.isSocks5Mode
         _uplinkModeFlow.value = config.uplinkMode
+        _vpnUplinkModeFlow.value = config.vpnUplinkMode
     }
 
     fun saveWarpProfile(profile: com.mirrly.tgproxy.core.WarpProfile) {
@@ -350,14 +416,15 @@ class PreferencesManager(private val context: Context) {
         // когда apply() не успевает завершить асинхронную запись до смерти процесса.
         secretPrefs.edit()
             .putString("warp_token", profile.token)
+            .putString("warp_license_key", profile.licenseKey)
             .putString("warp_private_key", profile.privateKeyBase64)
             .putString("warp_p256_private_key", profile.p256PrivateKeyBase64)
             .putString("warp_masque_token", profile.masqueToken)
             .commit()
 
         prefs.edit()
+            .remove("warp_license_key")
             .putString("warp_account_id", profile.accountId)
-            .putString("warp_license_key", profile.licenseKey)
             .putString("warp_client_ipv4", profile.clientIpv4)
             .putString("warp_client_ipv6", profile.clientIpv6)
             .putString("warp_peer_endpoint", profile.peerEndpoint)
@@ -394,7 +461,7 @@ class PreferencesManager(private val context: Context) {
         val accountId = prefs.getString("warp_account_id", null) ?: return null
         if (accountId.isBlank()) return null
         val token = secretPrefs.getString("warp_token", null) ?: return null
-        val licenseKey = prefs.getString("warp_license_key", "") ?: ""
+        val licenseKey = secretPrefs.getString("warp_license_key", null) ?: prefs.getString("warp_license_key", "") ?: ""
         val clientIpv4 = prefs.getString("warp_client_ipv4", "172.16.0.2") ?: "172.16.0.2"
         val clientIpv6 = prefs.getString("warp_client_ipv6", "") ?: ""
         val peerEndpoint = prefs.getString("warp_peer_endpoint", "188.114.96.1:500") ?: "188.114.96.1:500"
@@ -473,18 +540,26 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun setUplinkMode(mode: com.mirrly.tgproxy.core.UplinkMode) {
-        prefs.edit().putString("uplink_mode", mode.name).apply()
-        _uplinkModeFlow.value = mode
+        prefs.edit().putString("uplink_mode", com.mirrly.tgproxy.core.UplinkMode.WORKER.name).apply()
+        _uplinkModeFlow.value = com.mirrly.tgproxy.core.UplinkMode.WORKER
     }
 
-    fun getUplinkMode(): com.mirrly.tgproxy.core.UplinkMode = _uplinkModeFlow.value
+    fun getUplinkMode(): com.mirrly.tgproxy.core.UplinkMode = com.mirrly.tgproxy.core.UplinkMode.WORKER
+
+    fun setVpnUplinkMode(mode: com.mirrly.tgproxy.core.UplinkMode) {
+        prefs.edit().putString("vpn_uplink_mode", mode.name).apply()
+        _vpnUplinkModeFlow.value = mode
+    }
+
+    fun getVpnUplinkMode(): com.mirrly.tgproxy.core.UplinkMode = _vpnUplinkModeFlow.value
 
     fun getVlessUuid(): String {
-        return prefs.getString("vless_uuid", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessUuid
+        return secretPrefs.getString("vless_uuid", null) ?: prefs.getString("vless_uuid", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessUuid
     }
 
     fun setVlessUuid(uuid: String) {
-        prefs.edit().putString("vless_uuid", uuid).apply()
+        secretPrefs.edit().putString("vless_uuid", uuid).apply()
+        prefs.edit().remove("vless_uuid").apply()
     }
 
     fun getVlessPath(): String {
@@ -660,6 +735,53 @@ class PreferencesManager(private val context: Context) {
                 isDeveloperWorker = true
             )
         )
+
+        /**
+         * Создает диагностический отчет для службы поддержки, строго исключая
+         * приватные ключи, токены, пароли и полные чувствительные URL (Task N20).
+         */
+        fun getRedactedDiagnosticReport(config: ProxyConfig): String {
+            val report = JSONObject()
+            report.put("schema_version", 2)
+            report.put("timestamp_utc_ms", System.currentTimeMillis())
+            report.put("uplink_mode", config.uplinkModeName)
+            report.put("proxy_mode", config.proxyModeName)
+            report.put("bind_port", config.bindPort)
+            report.put("socks5_port", config.socks5Port)
+            report.put("socks5_username", config.socks5Username)
+            report.put("socks5_has_auth", config.hasSocks5Auth)
+            report.put("socks5_password_redacted", if (config.socks5Password.isNotBlank()) "***REDACTED***" else "EMPTY")
+
+            // WARP Diagnostics (без секретных ключей и полного токена)
+            report.put("warp_account_id_redacted", if (config.warpAccountId.length > 8) "${config.warpAccountId.take(4)}...${config.warpAccountId.takeLast(4)}" else "***")
+            report.put("warp_has_token", config.warpToken.isNotBlank())
+            report.put("warp_has_private_key", config.warpPrivateKey.isNotBlank())
+            report.put("warp_private_key_redacted", if (config.warpPrivateKey.isNotBlank()) "***REDACTED_KEY***" else "EMPTY")
+            report.put("warp_license_key_redacted", if (config.warpLicenseKey.length >= 8) "${config.warpLicenseKey.take(4)}...${config.warpLicenseKey.takeLast(4)}" else "NONE")
+            report.put("warp_client_ipv4", config.warpClientIpv4)
+            report.put("warp_client_ipv6", config.warpClientIpv6)
+            report.put("warp_peer_endpoint", config.warpPeerEndpoint)
+            report.put("is_warp_plus", config.isWarpPlus)
+
+            // VLESS Diagnostics (без полного UUID)
+            report.put("vless_domain", config.vlessDomain)
+            report.put("vless_transport", config.vlessTransport)
+            report.put("vless_security", config.vlessSecurity)
+            report.put("vless_uuid_redacted", if (config.vlessUuid.length >= 8) "${config.vlessUuid.take(4)}...${config.vlessUuid.takeLast(4)}" else "EMPTY")
+
+            // VPN Subsystem
+            report.put("vpn_is_running", MirrlyVpnService.isRunning)
+            val vpnStatus = MirrlyVpnService.vpnStatus.value
+            report.put("vpn_internal_state", vpnStatus.internalState.name)
+            report.put("vpn_failure_reason", vpnStatus.failureReason.name)
+            report.put("vpn_generation", vpnStatus.generation)
+            report.put("vpn_bytes_in", vpnStatus.bytesIn)
+            report.put("vpn_bytes_out", vpnStatus.bytesOut)
+            report.put("vpn_active_tcp_flows", vpnStatus.activeTcpFlows)
+            report.put("vpn_active_udp_sessions", vpnStatus.activeUdpSessions)
+
+            return report.toString(2)
+        }
     }
 
     fun getDeveloperWorkers(): List<WorkerProfile> {
@@ -678,7 +800,9 @@ class PreferencesManager(private val context: Context) {
                         id = obj.getString("id"),
                         name = obj.optString("name", context.getString(R.string.pref_worker_custom_default_name)),
                         domain = obj.getString("domain"),
-                        isDeveloperWorker = false
+                        isDeveloperWorker = false,
+                        isCloudflarePersonal = obj.optBoolean("is_cf_personal", false),
+                        scriptVersion = obj.optInt("script_version", 0)
                     )
                 )
             }
@@ -693,12 +817,19 @@ class PreferencesManager(private val context: Context) {
             obj.put("id", w.id)
             obj.put("name", w.name)
             obj.put("domain", w.domain)
+            obj.put("is_cf_personal", w.isCloudflarePersonal)
+            obj.put("script_version", w.scriptVersion)
             array.put(obj)
         }
         prefs.edit().putString("custom_workers_json", array.toString()).apply()
     }
 
-    fun addCustomWorker(name: String, domain: String): Result<WorkerProfile> {
+    fun addCustomWorker(
+        name: String,
+        domain: String,
+        isCloudflarePersonal: Boolean = false,
+        scriptVersion: Int = 0
+    ): Result<WorkerProfile> {
         val formRes = com.mirrly.tgproxy.core.WorkerDomainNormalizer.normalizeForm(name, domain)
         val cleanDomain = formRes.normalizedDomain
         if (cleanDomain.isBlank()) {
@@ -716,27 +847,60 @@ class PreferencesManager(private val context: Context) {
             id = UUID.randomUUID().toString(),
             name = cleanName,
             domain = cleanDomain,
-            isDeveloperWorker = false
+            isDeveloperWorker = false,
+            isCloudflarePersonal = isCloudflarePersonal,
+            scriptVersion = scriptVersion
         )
         current.add(newWorker)
         saveCustomWorkers(current)
         return Result.success(newWorker)
     }
 
+    fun updateCustomWorkerScriptVersion(domain: String, scriptVersion: Int) {
+        val current = getCustomWorkers()
+        val updated = current.map {
+            if (it.domain.equals(domain, ignoreCase = true)) {
+                it.copy(scriptVersion = scriptVersion, isCloudflarePersonal = true)
+            } else it
+        }
+        saveCustomWorkers(updated)
+    }
+
     fun deleteCustomWorker(id: String) {
         val current = getCustomWorkers().filter { it.id != id }
         saveCustomWorkers(current)
         if (getActiveWorkerId() == id) {
-            setActiveWorkerId("dev_default")
+            setActiveWorkerId("dev_default", fromUserAction = true)
         }
+        if (getUserPrimaryWorkerId() == id) {
+            setUserPrimaryWorkerId("dev_default")
+        }
+    }
+
+    fun getUserPrimaryWorkerId(): String {
+        val saved = prefs.getString("user_primary_worker_id", null)
+        if (!saved.isNullOrBlank()) return saved
+        val active = getActiveWorkerId()
+        prefs.edit().putString("user_primary_worker_id", active).apply()
+        return active
+    }
+
+    fun setUserPrimaryWorkerId(id: String) {
+        prefs.edit().putString("user_primary_worker_id", id).apply()
     }
 
     fun getActiveWorkerId(): String {
         return prefs.getString("active_worker_id", "dev_default") ?: "dev_default"
     }
 
-    fun setActiveWorkerId(id: String) {
+    fun setActiveWorkerId(id: String, fromUserAction: Boolean = true) {
         prefs.edit().putString("active_worker_id", id).apply()
+        if (fromUserAction) {
+            prefs.edit().putString("user_primary_worker_id", id).apply()
+            try {
+                PredictivePreWarmManager.clearHotReserve()
+            } catch (_: Exception) {}
+        }
         _activeWorkerIdFlow.value = id
         val worker = getActiveWorker(id)
 
@@ -758,6 +922,19 @@ class PreferencesManager(private val context: Context) {
         try {
             WorkerFailoverManager.getCircuitRecord(worker.id)?.reset()
         } catch (_: Exception) {}
+    }
+
+    fun restoreUserPrimaryWorkerIfNeeded() {
+        val primaryId = prefs.getString("user_primary_worker_id", null) ?: return
+        val currentActive = getActiveWorkerId()
+        if (currentActive != primaryId) {
+            val allWorkers = getCustomWorkers() + DEFAULT_DEV_WORKERS
+            val primaryWorker = allWorkers.find { it.id == primaryId }
+            if (primaryWorker != null) {
+                AppLogger.i("PreferencesManager", "Restoring user primary worker '${primaryWorker.name}' ($primaryId)")
+                setActiveWorkerId(primaryId, fromUserAction = false)
+            }
+        }
     }
 
     fun getActiveWorker(activeId: String = getActiveWorkerId()): WorkerProfile {
@@ -913,4 +1090,128 @@ class PreferencesManager(private val context: Context) {
         config.bufferSizeBytes = 262144
         config.warpUserEndpointOverride = ""
     }
+
+    // ── Cloudflare Account & Deploy Session ───────────────────────────────────
+
+    fun getCloudflareToken(): String? {
+        return secretPrefs.getString("cf_access_token", null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun getCloudflareRefreshToken(): String? {
+        return secretPrefs.getString("cf_refresh_token", null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun isCloudflareAuthorized(): Boolean {
+        return !getCloudflareToken().isNullOrBlank()
+    }
+
+    fun getCloudflareAccountId(): String? {
+        return prefs.getString("cf_account_id", null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun getCloudflareAccountName(): String? {
+        return prefs.getString("cf_account_name", null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun getCloudflareSubdomain(): String? {
+        return prefs.getString("cf_subdomain", null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun setCloudflareSubdomain(subdomain: String) {
+        prefs.edit().putString("cf_subdomain", subdomain).apply()
+    }
+
+    fun saveCloudflareSession(
+        accessToken: String,
+        refreshToken: String?,
+        accountId: String?,
+        accountName: String?,
+        subdomain: String?
+    ) {
+        secretPrefs.edit()
+            .putString("cf_access_token", accessToken)
+            .putString("cf_refresh_token", refreshToken ?: "")
+            .apply()
+
+        prefs.edit()
+            .putString("cf_account_id", accountId ?: "")
+            .putString("cf_account_name", accountName ?: "")
+            .putString("cf_subdomain", subdomain ?: "")
+            .apply()
+    }
+
+    fun updateCloudflareAccessToken(accessToken: String, refreshToken: String? = null) {
+        val editor = secretPrefs.edit().putString("cf_access_token", accessToken)
+        if (!refreshToken.isNullOrBlank()) {
+            editor.putString("cf_refresh_token", refreshToken)
+        }
+        editor.apply()
+    }
+
+    fun clearCloudflareSession() {
+        secretPrefs.edit()
+            .remove("cf_access_token")
+            .remove("cf_refresh_token")
+            .apply()
+
+        prefs.edit()
+            .remove("cf_account_id")
+            .remove("cf_account_name")
+            .remove("cf_subdomain")
+            .apply()
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // VPN Mode & Split Tunnel Settings (Tasks N12, N19)
+    // ──────────────────────────────────────────────────────────────────────────
+    fun isVpnModeEnabled(): Boolean = prefs.getBoolean("vpn_mode_enabled", false)
+
+    fun setVpnModeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("vpn_mode_enabled", enabled).apply()
+    }
+
+    fun isVpnSplitTunnelEnabled(): Boolean = prefs.getBoolean("vpn_split_tunnel_enabled", false)
+
+    fun setVpnSplitTunnelEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("vpn_split_tunnel_enabled", enabled).apply()
+    }
+
+    fun isVpnSplitTunnelAllowlist(): Boolean = prefs.getBoolean("vpn_split_tunnel_allowlist", false)
+
+    fun setVpnSplitTunnelAllowlist(isAllowlist: Boolean) {
+        prefs.edit().putBoolean("vpn_split_tunnel_allowlist", isAllowlist).apply()
+    }
+
+    fun getVpnSplitTunnelPackages(): Set<String> = prefs.getStringSet("vpn_split_tunnel_packages", emptySet()) ?: emptySet()
+
+    fun setVpnSplitTunnelPackages(packages: Set<String>) {
+        prefs.edit().putStringSet("vpn_split_tunnel_packages", packages).apply()
+    }
+
+    fun getVpnMtu(): Int = prefs.getInt("vpn_mtu", 1420)
+
+    fun setVpnMtu(mtu: Int) {
+        prefs.edit().putInt("vpn_mtu", mtu).apply()
+    }
+
+    fun getVpnBlockQuic(): Boolean = prefs.getBoolean("vpn_block_quic", true)
+
+    fun setVpnBlockQuic(blocked: Boolean) {
+        prefs.edit().putBoolean("vpn_block_quic", blocked).apply()
+    }
+
+    fun getVpnBlockIpv6Leaks(): Boolean = prefs.getBoolean("vpn_block_ipv6_leaks", true)
+
+    fun setVpnBlockIpv6Leaks(blocked: Boolean) {
+        prefs.edit().putBoolean("vpn_block_ipv6_leaks", blocked).apply()
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Redacted Diagnostic Bundle (Task N20)
+    // ──────────────────────────────────────────────────────────────────────────
+    /**
+     * Создает диагностический отчет для службы поддержки, строго исключая
+     * приватные ключи, токены, пароли и полные чувствительные URL (Task N20).
+     */
+    fun getRedactedDiagnosticReport(config: ProxyConfig): String = Companion.getRedactedDiagnosticReport(config)
 }

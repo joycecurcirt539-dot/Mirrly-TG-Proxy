@@ -54,7 +54,7 @@ data class HotReserveRoutes(
  */
 object PredictivePreWarmManager {
     private const val TAG = "PredictivePreWarm"
-    const val DEBOUNCE_INTERVAL_MS = 30_000L // Минимум 30 секунд между прогревами
+    const val DEBOUNCE_INTERVAL_MS = 10_000L // Минимум 10 секунд между прогревами
     const val HOT_RESERVE_TTL_MS = 300_000L // 5 минут актуальности горячего резерва
 
     private val hotReserve = AtomicReference(HotReserveRoutes())

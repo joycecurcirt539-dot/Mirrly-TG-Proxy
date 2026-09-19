@@ -8,20 +8,20 @@ class WarpCascadeFailoverTest {
 
     @Test
     fun testTwoChannelWarpModesInProxyConfig() {
-        val masqueConfig = ProxyConfig(uplinkModeName = UplinkMode.MASQUE.name)
-        assertTrue(masqueConfig.isMasqueUplink)
-        assertTrue(masqueConfig.isAnyWarpUplink)
-        assertEquals("WARP MASQUE (HTTP/3)", masqueConfig.uplinkMode.displayName)
+        val masqueConfig = ProxyConfig(vpnUplinkModeName = UplinkMode.MASQUE.name)
+        assertTrue(masqueConfig.isVpnMasqueUplink)
+        assertTrue(masqueConfig.isVpnAnyWarpUplink)
+        assertEquals("WARP MASQUE (HTTP/3)", masqueConfig.vpnUplinkMode.displayName)
 
-        val awgConfig = ProxyConfig(uplinkModeName = UplinkMode.AWG.name)
-        assertTrue(awgConfig.isAwgUplink)
-        assertTrue(awgConfig.isAnyWarpUplink)
-        assertEquals("WARP AmneziaWG (AWG)", awgConfig.uplinkMode.displayName)
+        val awgConfig = ProxyConfig(vpnUplinkModeName = UplinkMode.AWG.name)
+        assertTrue(awgConfig.isVpnAwgUplink)
+        assertTrue(awgConfig.isVpnAnyWarpUplink)
+        assertEquals("WARP AmneziaWG (AWG)", awgConfig.vpnUplinkMode.displayName)
 
         // Backward-compatible alias for WARP_CASCADE
-        val cascadeConfig = ProxyConfig(uplinkModeName = UplinkMode.WARP_CASCADE.name)
-        assertTrue(cascadeConfig.isMasqueUplink)
-        assertTrue(cascadeConfig.isAnyWarpUplink)
+        val cascadeConfig = ProxyConfig(vpnUplinkModeName = UplinkMode.WARP_CASCADE.name)
+        assertTrue(cascadeConfig.isVpnWarpCascadeUplink)
+        assertTrue(cascadeConfig.isVpnAnyWarpUplink)
     }
 
     @Test

@@ -154,6 +154,7 @@ object WorkerFailoverManager {
         if (networkGeneration != app.proxyServer.currentProfileGeneration.get()) return@withLock
         if (observedAtMs <= lastObservationMs) return@withLock
 
+
         val activeId = app.prefsManager.getActiveWorkerId()
         val allWorkers = app.prefsManager.getDeveloperWorkers() + app.prefsManager.getCustomWorkers()
         // A late result from the previous worker must never penalize the new one.
@@ -177,10 +178,13 @@ object WorkerFailoverManager {
             snapshot.jitterMs > 60L || snapshot.bufferbloatMs >= 120L || environment.congested
         if (!switchPolicy.observe(activeId, networkGeneration, degraded, observedAtMs)) return@withLock
 
+        val isCustomActive = !activeWorker.isDeveloperWorker
+
         if (!probe.success && record.state == CircuitState.OPEN) {
             triggerFailover(activeWorker, probe.failureType, allWorkers)
-        } else if (probe.success) {
-            // Only measured, meaningfully faster candidates may replace a working route.
+        } else if (probe.success && !isCustomActive) {
+            // Only measured, meaningfully faster candidates may replace a working route for developer workers.
+            // Custom user workers have absolute priority and must NOT be replaced by predictive degradation.
             val better = allWorkers.filter { candidate ->
                 val rec = circuitRecords[candidate.id]
                 val rtt = rec?.lastProbeRttMs
@@ -206,16 +210,21 @@ object WorkerFailoverManager {
             it.id != brokenWorker.id && switchPolicy.canSelect(it.id, now)
         }
 
+        // Если упал пользовательский воркер, в первую очередь ищем альтернативные пользовательские узлы
+        val isBrokenCustom = !brokenWorker.isDeveloperWorker
+        val customCandidates = candidates.filter { !it.isDeveloperWorker }
+        val poolToSearch = if (isBrokenCustom && customCandidates.isNotEmpty()) customCandidates else candidates
+
         // Вычисляем рейтинг кандидатов по формуле Quality Score
         var bestWorker: WorkerProfile? = null
         var highestScore = -1.0
 
-        val hotReserveCandidate = PredictivePreWarmManager.getNextFallbackWorker(brokenWorker.id, candidates)
+        val hotReserveCandidate = PredictivePreWarmManager.getNextFallbackWorker(brokenWorker.id, poolToSearch)
         if (hotReserveCandidate != null && circuitRecords[hotReserveCandidate.id]?.state != CircuitState.OPEN) {
             bestWorker = hotReserveCandidate
             AppLogger.i("WorkerFailover", "Failover: selected pre-warmed hot reserve worker '${bestWorker.name}'")
         } else {
-            for (candidate in candidates) {
+            for (candidate in poolToSearch) {
                 val rec = circuitRecords.getOrPut(candidate.id) {
                     WorkerCircuitRecord(workerId = candidate.id, domain = candidate.domain)
                 }
@@ -230,14 +239,16 @@ object WorkerFailoverManager {
         }
 
         if (bestWorker == null) {
-            bestWorker = candidates.firstOrNull { circuitRecords[it.id]?.state != CircuitState.OPEN }
+            bestWorker = poolToSearch.firstOrNull { circuitRecords[it.id]?.state != CircuitState.OPEN }
+                ?: candidates.firstOrNull { circuitRecords[it.id]?.state != CircuitState.OPEN }
         }
 
         if (bestWorker != null) {
             val selected = bestWorker
             val switched = app.proxyServer.networkStabilizationGate.tryChange {
                 if (app.prefsManager.getActiveWorkerId() != brokenWorker.id) return@tryChange false
-                app.prefsManager.setActiveWorkerId(selected.id)
+                // fromUserAction = false: не перезаписываем постоянный выбор пользователя (user_primary_worker_id)
+                app.prefsManager.setActiveWorkerId(selected.id, fromUserAction = false)
                 switchPolicy.switched(brokenWorker.id, now)
                 lastFailoverTimestampMs = System.currentTimeMillis()
                 true
@@ -297,6 +308,14 @@ object WorkerFailoverManager {
                     if (res.first == WorkerStatus.ONLINE && res.second != null) {
                         record.recordSuccess(res.second!!)
                         AppLogger.i("WorkerFailover", "Worker '${worker.name}' confirmed relay contract (RTT: ${res.second}ms). Released from quarantine.")
+
+                        // Если восстановился исходный primary воркер пользователя, переключаемся обратно!
+                        val currentState = _failoverState.value
+                        if (currentState.isFailoverActive && currentState.originalPrimaryWorkerId == worker.id) {
+                            AppLogger.i("WorkerFailover", "Original primary worker '${worker.name}' recovered! Reverting failover.")
+                            app.prefsManager.setActiveWorkerId(worker.id, fromUserAction = false)
+                            _failoverState.value = FailoverState(isFailoverActive = false)
+                        }
                     } else {
                         val fType = when (res.first) {
                             WorkerStatus.RATE_LIMITED_429 -> FailureType.RATE_LIMITED_429
@@ -309,6 +328,11 @@ object WorkerFailoverManager {
                 }
             }
         }
+    }
+
+    fun onProxyStopped() {
+        stopRecoveryWatchdog()
+        _failoverState.value = FailoverState(isFailoverActive = false)
     }
 
     /**

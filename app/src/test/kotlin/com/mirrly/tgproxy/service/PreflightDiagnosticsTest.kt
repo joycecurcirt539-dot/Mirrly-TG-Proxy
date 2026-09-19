@@ -131,4 +131,30 @@ class PreflightDiagnosticsTest {
         assertEquals(42L, res.rttMs)
         assertFalse(res.isFromHotReserve)
     }
+
+    @Test
+    fun testCustomWorkerIsNotDeveloperWorker() {
+        val custom = WorkerProfile(id = "cust-1", name = "My Personal CF", domain = "custom.workers.dev", isDeveloperWorker = false)
+        val dev = WorkerProfile(id = "dev_default", name = "Mirrly Primary", domain = "mirrly.workers.dev", isDeveloperWorker = true)
+        assertFalse(custom.isDeveloperWorker)
+        assertTrue(dev.isDeveloperWorker)
+    }
+
+    @Test
+    fun testHotReserveWorkerFallbackPreservesRouteTopology() {
+        val custom = WorkerProfile(id = "cust-1", name = "My Personal CF", domain = "custom.workers.dev", isDeveloperWorker = false)
+        val dev1 = WorkerProfile(id = "dev_default", name = "Mirrly Primary", domain = "mirrly.workers.dev", isDeveloperWorker = true)
+        val dev2 = WorkerProfile(id = "dev_alpha", name = "Mirrly Alpha", domain = "alpha.workers.dev", isDeveloperWorker = true)
+
+        val routes = HotReserveRoutes(
+            validatedAtTimestampMs = System.currentTimeMillis(),
+            bestWorkerId = custom.id,
+            fallbackWorkerIds = listOf(dev1.id, dev2.id)
+        )
+        PredictivePreWarmManager.updateHotReserve(routes)
+
+        assertEquals("cust-1", PredictivePreWarmManager.getHotReserve().bestWorkerId)
+        val fallback = PredictivePreWarmManager.getNextFallbackWorker("cust-1", listOf(custom, dev1, dev2))
+        assertEquals("dev_default", fallback?.id)
+    }
 }
