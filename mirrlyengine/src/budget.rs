@@ -120,6 +120,31 @@ pub struct DialPermit {
     inner: Arc<DialBudgetInner>,
 }
 
+struct WaitingGuard {
+    inner: Arc<DialBudgetInner>,
+    category: FlowCategory,
+    armed: bool,
+}
+impl WaitingGuard {
+    fn new(inner: Arc<DialBudgetInner>, category: FlowCategory) -> Self { Self { inner, category, armed: true } }
+    fn disarm(&mut self) { self.armed = false; }
+}
+impl Drop for WaitingGuard {
+    fn drop(&mut self) {
+        if !self.armed { return; }
+        let inner = self.inner.clone(); let category = self.category;
+        crate::runtime().spawn(async move {
+            let mut state = inner.state.lock().await;
+            match category {
+                FlowCategory::UserFlow => state.waiting_user = state.waiting_user.saturating_sub(1),
+                FlowCategory::Recovery => state.waiting_recovery = state.waiting_recovery.saturating_sub(1),
+                FlowCategory::Background => state.waiting_background = state.waiting_background.saturating_sub(1),
+            }
+            inner.notify.notify_waiters();
+        });
+    }
+}
+
 impl Drop for DialPermit {
     fn drop(&mut self) {
         let inner = self.inner.clone();
@@ -285,9 +310,10 @@ impl DialBudgetManager {
                 match category {
                     FlowCategory::UserFlow => state.waiting_user += 1,
                     FlowCategory::Recovery => state.waiting_recovery += 1,
-                    FlowCategory::Background => state.waiting_background += 1,
+                FlowCategory::Background => state.waiting_background += 1,
                 }
             }
+            let mut waiting_guard = WaitingGuard::new(self.inner.clone(), category);
 
             // Await notification, cancellation, or generation change
             let notified = self.inner.notify.notified();
@@ -295,13 +321,6 @@ impl DialBudgetManager {
             if let Some(token) = cancel_token {
                 tokio::select! {
                     _ = token.cancelled() => {
-                        let mut state = self.inner.state.lock().await;
-                        match category {
-                            FlowCategory::UserFlow => state.waiting_user = state.waiting_user.saturating_sub(1),
-                            FlowCategory::Recovery => state.waiting_recovery = state.waiting_recovery.saturating_sub(1),
-                            FlowCategory::Background => state.waiting_background = state.waiting_background.saturating_sub(1),
-                        }
-                        self.inner.notify.notify_waiters();
                         return Err(BudgetError::Cancelled);
                     }
                     _ = notified => {
@@ -314,6 +333,7 @@ impl DialBudgetManager {
 
             // Decrement waiting counter before retrying loop
             {
+                waiting_guard.disarm();
                 let mut state = self.inner.state.lock().await;
                 match category {
                     FlowCategory::UserFlow => state.waiting_user = state.waiting_user.saturating_sub(1),

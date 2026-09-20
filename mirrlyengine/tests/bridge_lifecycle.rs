@@ -340,6 +340,26 @@ async fn cancellation_between_write_iterations_is_retained() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn idle_bridge_waits_for_transport_heartbeat_instead_of_twenty_second_cutoff() {
+    let started = tokio::time::Instant::now();
+    let activity = BridgeActivity::with_transport_health(move || (started.elapsed(), false));
+    let cancel = CancellationToken::new();
+    let wait_cancel = cancel.clone();
+    let task = tokio::spawn(async move {
+        activity.wait(std::future::pending::<()>(), &wait_cancel).await
+    });
+    tokio::task::yield_now().await;
+    // Power-saving mode sends its first ping only after 60 seconds.
+    for _ in 0..65 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished(), "bridge must defer to the transport's pong deadline");
+    }
+    cancel.cancel();
+    assert_eq!(task.await.unwrap().unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+}
+
+#[tokio::test(start_paused = true)]
 async fn ten_minutes_idle_with_pong_does_not_timeout() {
     let last_pong = std::sync::Arc::new(parking_lot::Mutex::new(tokio::time::Instant::now()));
     let last_pong_cb = last_pong.clone();
@@ -412,4 +432,3 @@ async fn profile_aware_absolute_idle_timeout_retires_abandoned_flow() {
         std::io::ErrorKind::TimedOut
     );
 }
-

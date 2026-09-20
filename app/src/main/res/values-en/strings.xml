@@ -287,6 +287,7 @@
     <string name="settings_anycast_obfuscation">Anycast Obfuscation</string>
     <string name="settings_unregistered_autoreg">Not registered (auto-provision)</string>
     <string name="settings_btn_refresh">Refresh</string>
+    <string name="settings_btn_change_secret">Change key</string>
     <string name="settings_btn_create">Create</string>
     <string name="settings_reg_details">Registration Details</string>
     <string name="settings_amnezia_copied">AmneziaWG config copied</string>
@@ -2048,4 +2049,55 @@ Download latest Mirrly TG Proxy build:
     <string name="settings_doh_safe_summary">Secure DNS (DoH) active. Trusted upstream servers (%1$d enabled).</string>
     <string name="settings_doh_expand_expert">Show all providers and speed test</string>
     <string name="settings_doh_collapse_expert">Collapse provider list</string>
+
+    <!-- Settings mode toggle -->
+    <string name="settings_mode_expert">EXPERT</string>
+    <string name="settings_mode_simple">SIMPLE</string>
+
+    <!-- VPN status badges -->
+    <string name="vpn_status_active_badge">ACTIVE</string>
+    <string name="vpn_status_inactive_badge">INACTIVE</string>
+
+    <!-- VPN stats labels -->
+    <string name="vpn_active_flows_label">Active Flows</string>
+    <string name="vpn_network_gen_label">Network Gen</string>
+    <string name="vpn_select_protocol_btn">Select VPN Protocol</string>
+
+    <!-- VPN DNS in tunnel -->
+    <string name="vpn_dns_tunnel_title">DNS Routing in Tunnel</string>
+    <string name="vpn_dns_tunnel_desc">1.1.1.1, 8.8.8.8 via secured DoH gateway</string>
+
+    <!-- Generic badges -->
+    <string name="badge_secured_short">Secured</string>
+    <string name="badge_disabled_caps">DISABLED</string>
+
+    <!-- Split tunnel -->
+    <string name="vpn_app_filter_mode_label">App Filter Mode</string>
+    <string name="action_configure_arrow">Configure →</string>
+    <string name="vpn_selected_count">Selected: %1$d of %2$d</string>
+
+    <!-- Section headers -->
+    <string name="settings_vpn_uplink_section">VPN TUNNEL PROTOCOL (UPLINK)</string>
+    <string name="settings_mtproto_routing_section">MTPROTO ROUTING</string>
+    <string name="settings_mtproto_routing_title">Direct Anycast Transport to Telegram DC</string>
+    <string name="settings_mtproto_routing_body">MTProto traffic is routed via Flowseal Anycast CDN directly to Telegram data centers, bypassing intermediate workers and third-party proxies.</string>
+
+    <!-- VPN Protocol selector dialog -->
+    <string name="vpn_device_tunnel_inactive">Device tunneling via %1$s</string>
+    <string name="vpn_protocol_warp_cascade_desc">MASQUE (QUIC) + AWG failover • Dual Anycast</string>
+    <string name="vpn_protocol_vless_desc">Anycast CDN • TLS 1.3 traffic masquerade</string>
+    <string name="vpn_protocol_masque_desc">IETF RFC 9484 CONNECT-UDP over HTTP/3 • QUIC</string>
+    <string name="vpn_protocol_awg_desc">AmneziaWG with junk packet obfuscation • Anycast</string>
+    <string name="vpn_protocol_dialog_title">Mirrly VPN Protocol</string>
+    <string name="vpn_protocol_dialog_desc">Select protocol for system tunnel:</string>
+    <string name="vpn_select_protocol_short">Select Protocol</string>
+
+    <!-- Cloudflare Deploy -->
+    <string name="cf_deploy_token_saved">Token saved</string>
+    <string name="cf_deploy_subdomain_activated">Subdomain %1$s.workers.dev activated</string>
+    <string name="cf_deploy_subdomain_reg_error">Subdomain registration error</string>
+    <string name="cf_deploy_invalid_token">Invalid token</string>
+    <string name="cf_session_reset">Cloudflare session reset</string>
+    <string name="cf_account_session_status">Session Status</string>
+    <string name="error_open_browser">Failed to open browser</string>
 </resources>

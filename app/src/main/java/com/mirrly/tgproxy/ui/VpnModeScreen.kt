@@ -783,7 +783,7 @@ fun VpnInfoWidget(
                 val noticeText = if (isActive) {
                     stringResource(R.string.status_vpn_system_connected_desc)
                 } else {
-                    "Туннелирование устройства через ${vpnUplinkMode.displayName}"
+                    stringResource(R.string.vpn_device_tunnel_inactive, vpnUplinkMode.displayName)
                 }
                 Text(
                     text = noticeText,
@@ -917,27 +917,32 @@ fun VpnProtocolSelectorDialog(
     var selectedMode by remember(currentMode) { mutableStateOf(currentMode) }
     val vpnState by com.mirrly.tgproxy.service.MirrlyVpnService.vpnState.collectAsState()
 
-    val protocols = remember {
+    val descWarpCascade = stringResource(R.string.vpn_protocol_warp_cascade_desc)
+    val descVless = stringResource(R.string.vpn_protocol_vless_desc)
+    val descMasque = stringResource(R.string.vpn_protocol_masque_desc)
+    val descAwg = stringResource(R.string.vpn_protocol_awg_desc)
+
+    val protocols = remember(descWarpCascade, descVless, descMasque, descAwg) {
         listOf(
             Triple(
                 com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
                 "WARP Cascade",
-                "MASQUE (QUIC) + AWG отказоустойчивость • Dual Anycast"
+                descWarpCascade
             ),
             Triple(
                 com.mirrly.tgproxy.core.UplinkMode.VLESS,
                 "VLESS over WS",
-                "Anycast CDN • TLS 1.3 маскировка трафика"
+                descVless
             ),
             Triple(
                 com.mirrly.tgproxy.core.UplinkMode.MASQUE,
                 "WARP MASQUE",
-                "IETF RFC 9484 CONNECT-UDP по HTTP/3 • QUIC"
+                descMasque
             ),
             Triple(
                 com.mirrly.tgproxy.core.UplinkMode.AWG,
                 "WARP AWG",
-                "AmneziaWG с обфускацией мусорных пакетов • Anycast"
+                descAwg
             )
         )
     }
@@ -987,7 +992,7 @@ fun VpnProtocolSelectorDialog(
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Протокол Mirrly VPN",
+                            text = stringResource(R.string.vpn_protocol_dialog_title),
                             color = TextWhite,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
@@ -995,7 +1000,7 @@ fun VpnProtocolSelectorDialog(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Выберите протокол для системного туннеля:",
+                            text = stringResource(R.string.vpn_protocol_dialog_desc),
                             color = TextMuted,
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center
@@ -1191,7 +1196,7 @@ fun VpnInDevDialog(
                                     }
                             ) {
                                 Text(
-                                    text = "Выбрать протокол",
+                                    text = stringResource(R.string.vpn_select_protocol_short),
                                     color = TextWhite,
                                     fontSize = 12.5.sp,
                                     fontWeight = FontWeight.SemiBold,

@@ -737,6 +737,10 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         effectiveNetworkProfile = effectiveNetworkProfile
             .withEnvironment(target)
             .withRuntime(screenOn, powerSaveMode)
+        if (isNativeRunning) {
+            try { NativeProxy.setNetworkProfileJson(effectiveNetworkProfile.toJsonString()) }
+            catch (t: Throwable) { AppLogger.w("LocalProxyServer", "Failed to update native network environment: ${t.message}") }
+        }
     }
 
     fun updateScreenPowerMode(screenOn: Boolean, powerSaveMode: Boolean) {
@@ -762,9 +766,10 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     fun nextGeneration(): Long {
         val gen = currentProfileGeneration.incrementAndGet()
+        effectiveNetworkProfile = effectiveNetworkProfile.withGeneration(gen)
         if (isNativeRunning) {
             try {
-                NativeProxy.setNetworkGeneration(gen)
+                NativeProxy.setNetworkProfileJson(effectiveNetworkProfile.toJsonString())
             } catch (t: Throwable) {
                 AppLogger.w("LocalProxyServer", "Failed to update native network generation: ${t.message}")
             }
@@ -784,6 +789,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         if (target == "DISCONNECTED") return
         val gen = nextGeneration()
         setNetworkInterface(isMobile, isScreenOn)
+        resumeNetworkMonitoring()
         try {
             DohResolver.setNetworkGeneration(gen)
             DohResolver.clearCache()
@@ -814,6 +820,16 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     fun handleNetworkResumed(isMobile: Boolean = false, isScreenOn: Boolean = true) {
         setNetworkInterface(isMobile, isScreenOn)
+        resumeNetworkMonitoring()
+        measurePingAsync()
+    }
+
+    /** A validated network is usable again; preserve established bridges. */
+    fun resumeNetworkMonitoring() {
+        // The caller schedules the probe after updating the network generation.
+        // Leaving dormancy through the legacy setter would reset all connections.
+        pingEngine.setDormant(false, probeImmediately = false)
+        activeLivenessProbe.isDormant = false
     }
 
     fun getEffectiveMtprotoStandby(isMobile: Boolean = false): Int = config.getEffectiveMtprotoStandby(isMobile)

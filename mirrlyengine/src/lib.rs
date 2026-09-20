@@ -455,8 +455,7 @@ pub extern "C" fn WarmupWsPool() {
 /// Clears transient cooldowns caused by phone sleep, triggers MTProto prewarm and wakes timers.
 #[no_mangle]
 pub extern "C" fn OnScreenWakeup() {
-    crate::linfo!("OnScreenWakeup: triggering predictive wake and clearing stale circuit cooldowns");
-    cfproxy::clear_cfproxy_429_cooldowns();
+    crate::linfo!("OnScreenWakeup: triggering predictive wake and preserving endpoint rate-limit quarantine");
     cfproxy::clear_all_recovery_cooldowns();
 
     let cell = state_cell();

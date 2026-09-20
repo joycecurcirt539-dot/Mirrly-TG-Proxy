@@ -298,7 +298,7 @@ class PingEngine(
      * Переводит PingEngine в режим глубокого энергосбережения при полном отсутствии сети
      * или мгновенно пробуждает при восстановлении интернет-соединения.
      */
-    fun setDormant(dormant: Boolean) {
+    fun setDormant(dormant: Boolean, probeImmediately: Boolean = true) {
         isDormant = dormant
         if (dormant) {
             currentSnapshot = currentSnapshot.copy(
@@ -312,7 +312,7 @@ class PingEngine(
                     detail = "Связь с сетью потеряна. Ожидание подключения..."
                 )
             )
-        } else {
+        } else if (probeImmediately) {
             // При пробуждении запускаем немедленную быструю пробу
             scope.launch {
                 triggerSingleProbe()

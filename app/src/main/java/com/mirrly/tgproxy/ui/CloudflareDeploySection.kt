@@ -1228,7 +1228,7 @@ fun CloudflareDeploySection(
                                     val checkRes = CloudflareApiClient.verifyToken(cleanToken)
                                     if (checkRes.isFailure) {
                                         isVerifying = false
-                                        val err = checkRes.exceptionOrNull()?.message ?: "Недействительный токен"
+                                        val err = checkRes.exceptionOrNull()?.message ?: context.getString(R.string.cf_deploy_invalid_token)
                                         Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                                         return@launch
                                     }
@@ -1258,7 +1258,7 @@ fun CloudflareDeploySection(
                                     accountId = accId
                                     accountName = accLabel
                                     subdomain = sub
-                                    Toast.makeText(context, "Токен сохранен", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.cf_deploy_token_saved), Toast.LENGTH_SHORT).show()
 
                                     if (sub.isEmpty()) {
                                         showSubdomainDialog = true
@@ -1370,10 +1370,10 @@ fun CloudflareDeploySection(
                                         prefs.setCloudflareSubdomain(registered)
                                         subdomain = registered
                                         showSubdomainDialog = false
-                                        Toast.makeText(context, "Поддомен $registered.workers.dev активирован", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.cf_deploy_subdomain_activated, registered), Toast.LENGTH_SHORT).show()
                                         refreshWorkersList()
                                     } else {
-                                        val err = res.exceptionOrNull()?.message ?: "Ошибка регистрации поддомена"
+                                        val err = res.exceptionOrNull()?.message ?: context.getString(R.string.cf_deploy_subdomain_reg_error)
                                         Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                                     }
                                 }
@@ -1388,7 +1388,7 @@ fun CloudflareDeploySection(
                             if (isSavingSub) {
                                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                             } else {
-                                Text(text = "Сохранить", color = Color.White, fontSize = 11.5.sp)
+                                Text(text = stringResource(R.string.action_save), color = Color.White, fontSize = 11.5.sp)
                             }
                         }
                     }
@@ -1427,7 +1427,7 @@ fun CloudflareDeploySection(
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.height(34.dp)
                 ) {
-                    Text(text = "Удалить", color = Color.White, fontSize = 11.5.sp)
+                    Text(text = stringResource(R.string.action_delete), color = Color.White, fontSize = 11.5.sp)
                 }
             },
             dismissButton = {
@@ -1620,7 +1620,7 @@ fun CloudflareDeploySection(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "Статус сессии",
+                                            text = stringResource(R.string.cf_account_session_status),
                                             color = TextMuted,
                                             fontSize = 11.5.sp
                                         )
@@ -1685,7 +1685,7 @@ fun CloudflareDeploySection(
                                         accountId = ""
                                         subdomain = ""
                                         cfWorkers = emptyList()
-                                        Toast.makeText(context, "Сессия Cloudflare сброшена", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.cf_session_reset), Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier
                                         .fillMaxWidth()

@@ -346,6 +346,8 @@ pub struct RawWebSocket {
 
 #[derive(Debug)]
 struct HeartbeatState {
+    // Only received frames prove peer liveness. Successful local writes can
+    // continue into TCP buffers after the return path has disappeared.
     last_frame_activity: Instant,
     awaiting_pong: Option<(u64, Instant)>,
 }
@@ -470,7 +472,12 @@ impl RawWebSocket {
             };
 
             match action {
-                1 => self.send_heartbeat_ping().await?,
+                1 => {
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Ok(()),
+                        result = self.send_heartbeat_ping() => result?,
+                    }
+                }
                 2 => {
                     crate::recovery::record(
                         &self.recovery_scope,
@@ -551,7 +558,6 @@ impl RawWebSocket {
         if data.len() <= MAX_FRAME_PAYLOAD as usize {
             let frame = build_frame(OP_BINARY, data, true);
             self.write_frame(&frame, WS_WRITE_TIMEOUT).await?;
-            self.record_frame_activity();
             Ok(())
         } else {
             // RFC 6455 Fragmented message if payload exceeds max frame limit
@@ -574,7 +580,6 @@ impl RawWebSocket {
                     }
                 }
             }
-            self.record_frame_activity();
             Ok(())
         }
     }
@@ -619,9 +624,6 @@ impl RawWebSocket {
                 }
             }
         }
-        if !parts.is_empty() {
-            self.record_frame_activity();
-        }
         Ok(())
     }
 
@@ -649,11 +651,16 @@ impl RawWebSocket {
     }
 
     async fn write_frame(&self, frame: &[u8], timeout: Duration) -> Result<(), WsError> {
-        let mut writer = self.writer.lock().await;
+        // Include queueing behind an upload in the deadline: control frames
+        // must not wait forever for a busy writer.
+        let write = async {
+            let mut writer = self.writer.lock().await;
+            writer.write_all(frame).await
+        };
         let res = if timeout > Duration::ZERO {
-            tokio::time::timeout(timeout, writer.write_all(frame)).await
+            tokio::time::timeout(timeout, write).await
         } else {
-            Ok(writer.write_all(frame).await)
+            Ok(write.await)
         };
         match res {
             Ok(Ok(())) => Ok(()),

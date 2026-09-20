@@ -73,6 +73,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -1357,7 +1358,7 @@ private fun SettingsTopBar(
                                 .background(if (isAdvancedMode) ActiveGreenLed else InactiveGrayLed)
                         )
                         Text(
-                            text = if (isAdvancedMode) "ОПЫТНЫЙ" else "ПРОСТОЙ",
+                            text = if (isAdvancedMode) stringResource(R.string.settings_mode_expert) else stringResource(R.string.settings_mode_simple),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 0.8.sp,
@@ -1566,9 +1567,9 @@ private fun SettingsVpnStatusOverviewSection(
             ) {
                 Text(
                     text = when (vpnState) {
-                        com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED -> "АКТИВЕН"
-                        com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTING -> "ПОДКЛЮЧЕНИЕ..."
-                        else -> "НЕ АКТИВЕН"
+                        com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED -> stringResource(R.string.vpn_status_active_badge)
+                        com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTING -> stringResource(R.string.status_connecting_caps)
+                        else -> stringResource(R.string.vpn_status_inactive_badge)
                     },
                     color = if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) ActiveGreenLed else vpnColors.primary,
                     fontSize = 10.sp,
@@ -1616,7 +1617,7 @@ private fun SettingsVpnStatusOverviewSection(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text(text = "Активные потоки", color = TextMuted, fontSize = 11.sp)
+                        Text(text = stringResource(R.string.vpn_active_flows_label), color = TextMuted, fontSize = 11.sp)
                         Text(
                             text = "${vpnStatus.activeTcpFlows} TCP  •  ${vpnStatus.activeUdpSessions} UDP",
                             color = TextWhite,
@@ -1625,7 +1626,7 @@ private fun SettingsVpnStatusOverviewSection(
                         )
                     }
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(text = "Поколение сети", color = TextMuted, fontSize = 11.sp)
+                        Text(text = stringResource(R.string.vpn_network_gen_label), color = TextMuted, fontSize = 11.sp)
                         Text(
                             text = "gen-${vpnStatus.generation}",
                             color = vpnColors.primary,
@@ -1661,11 +1662,13 @@ private fun SettingsVpnStatusOverviewSection(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Выбрать протокол VPN",
+                                text = stringResource(R.string.vpn_select_protocol_btn),
                                 color = vpnColors.primary,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -1867,13 +1870,13 @@ private fun SettingsVpnCoreSection(
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                         Text(
-                            text = "DNS маршрутизация в туннеле",
+                            text = stringResource(R.string.vpn_dns_tunnel_title),
                             color = TextWhite,
                             fontWeight = FontWeight.Medium,
                             fontSize = 13.sp
                         )
                         Text(
-                            text = "1.1.1.1, 8.8.8.8 через защищенный DoH шлюз",
+                            text = stringResource(R.string.vpn_dns_tunnel_desc),
                             color = TextMuted,
                             fontSize = 11.sp
                         )
@@ -1886,7 +1889,7 @@ private fun SettingsVpnCoreSection(
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = "Защищен",
+                            text = stringResource(R.string.badge_secured_short),
                             color = ActiveGreenLed,
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Medium
@@ -1954,7 +1957,7 @@ private fun SettingsVpnSplitTunnelSection(
                     .padding(horizontal = 7.dp, vertical = 2.5.dp)
             ) {
                 Text(
-                    text = if (isEnabled) "АКТИВЕН" else "ВЫКЛЮЧЕН",
+                    text = if (isEnabled) stringResource(R.string.vpn_status_active_badge) else stringResource(R.string.badge_disabled_caps),
                     color = if (isEnabled) vpnColors.primary else TextMuted,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
@@ -1980,7 +1983,7 @@ private fun SettingsVpnSplitTunnelSection(
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                         Text(
-                            text = "Раздельное туннелирование",
+                            text = stringResource(R.string.vpn_splittunnel_title),
                             color = TextWhite,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.5.sp
@@ -2009,7 +2012,7 @@ private fun SettingsVpnSplitTunnelSection(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "Режим фильтрации приложений",
+                            text = stringResource(R.string.vpn_app_filter_mode_label),
                             color = TextMuted,
                             fontSize = 11.sp
                         )
@@ -2096,7 +2099,7 @@ private fun SettingsVpnSplitTunnelSection(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "Настроить →",
+                                    text = stringResource(R.string.action_configure_arrow),
                                     color = vpnColors.primary,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
@@ -2205,7 +2208,7 @@ fun SplitTunnelAppsDialog(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Выбрано: ${currentSelection.size} из ${installedApps.size}",
+                                text = stringResource(R.string.vpn_selected_count, currentSelection.size, installedApps.size),
                                 color = vpnColors.primary,
                                 fontSize = 11.5.sp
                             )
@@ -2577,7 +2580,7 @@ private fun SettingsNetworkSection(
                                     )
                                     SettingsSafetyBadge(
                                         level = SettingsSafetyLevel.SAFE,
-                                        customLabel = "АКТИВЕН"
+                                        customLabel = stringResource(R.string.vpn_status_active_badge)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(3.dp))
@@ -2586,6 +2589,24 @@ private fun SettingsNetworkSection(
                                     color = TextMuted,
                                     fontSize = 11.5.sp,
                                     lineHeight = 16.sp
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = {
+                                onRefreshSecret()
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }) {
+                                Text(
+                                    text = stringResource(R.string.settings_btn_change_secret),
+                                    color = ActiveGreenLed,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
                         }
@@ -2713,7 +2734,7 @@ private fun SettingsNetworkSection(
                                     ) {
                                         Icon(
                                             painter = painterResource(id = R.drawable.ic_refresh),
-                                            contentDescription = null,
+                                            contentDescription = stringResource(R.string.settings_btn_change_secret),
                                             tint = TextWhite,
                                             modifier = Modifier.size(14.dp)
                                         )
@@ -2725,6 +2746,7 @@ private fun SettingsNetworkSection(
                                 value = secretText,
                                 onSecretChange,
                                 singleLine = true,
+                                readOnly = true,
                                 visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
                                 textStyle = TextStyle(
                                     color = TextWhite,
@@ -4278,11 +4300,13 @@ private fun SettingsUplinkWarpSection(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "ПРОТОКОЛ ТУННЕЛЯ VPN (UPLINK)",
+                    text = stringResource(R.string.settings_vpn_uplink_section),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
-                    color = TextMuted
+                    color = TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 InfoButton { onInfoClick("uplink_modes_info") }
             }
@@ -6893,11 +6917,13 @@ private fun SettingsMtprotoCdnOverviewCard() {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "МАРШРУТИЗАЦИЯ MTPROTO",
+                    text = stringResource(R.string.settings_mtproto_routing_section),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.3.sp,
-                    color = TextMuted
+                    color = TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 SettingsSafetyBadge(level = SettingsSafetyLevel.SAFE)
             }
@@ -6931,16 +6957,17 @@ private fun SettingsMtprotoCdnOverviewCard() {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "Прямой Anycast-транспорт к Telegram DC",
+                    text = stringResource(R.string.settings_mtproto_routing_title),
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite
                 )
                 Text(
-                    text = "Трафик MTProto маршрутизируется через защищенный Anycast CDN Flowseal напрямую в дата-центры Telegram без промежуточных воркеров и сторонних прокси.",
+                    text = stringResource(R.string.settings_mtproto_routing_body),
                     fontSize = 11.5.sp,
                     lineHeight = 16.sp,
-                    color = TextMuted
+                    color = TextMuted,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

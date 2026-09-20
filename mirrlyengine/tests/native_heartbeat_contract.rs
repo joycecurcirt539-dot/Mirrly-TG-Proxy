@@ -71,10 +71,8 @@ async fn active_frames_suppress_ping_and_pong_uses_same_five_tuple() {
     });
 
     for _ in 0..4 {
-        ws.send(b"active").await.unwrap();
-        let (opcode, payload) = read_frame(&mut server).await;
-        assert_eq!(opcode, OP_BINARY);
-        assert_eq!(payload, b"active");
+        server.write_all(&[0x82, 6, b'a', b'c', b't', b'i', b'v', b'e']).await.unwrap();
+        assert_eq!(ws.recv().await.unwrap(), b"active");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert!(
@@ -131,6 +129,42 @@ async fn missing_pong_detects_blackhole() {
         .expect("blackhole must trip pong deadline")
         .unwrap()
         .unwrap_err();
+    assert!(matches!(error, WsError::Other(message) if message.contains("pong deadline")));
+    assert!(ws.is_closed());
+}
+
+#[tokio::test]
+async fn continuous_upload_does_not_hide_a_dead_return_path() {
+    let (client, mut server) = socket_pair().await;
+    let ws = Arc::new(RawWebSocket::from_plain_stream_for_heartbeat_test(client));
+    let cancel = CancellationToken::new();
+    let heartbeat_ws = ws.clone();
+    let heartbeat_cancel = cancel.clone();
+    let heartbeat = tokio::spawn(async move {
+        heartbeat_ws.run_heartbeat_for_test(
+            heartbeat_cancel,
+            Duration::from_millis(80),
+            Duration::from_millis(60),
+            Duration::from_millis(5),
+        ).await
+    });
+    let upload_ws = ws.clone();
+    let upload = tokio::spawn(async move {
+        while upload_ws.send(b"media").await.is_ok() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    });
+    let peer = tokio::spawn(async move {
+        loop {
+            let (opcode, _) = read_frame(&mut server).await;
+            assert!(opcode == OP_PING || opcode == OP_BINARY);
+        }
+    });
+    let result = tokio::time::timeout(Duration::from_secs(2), heartbeat).await;
+    cancel.cancel();
+    upload.abort();
+    peer.abort();
+    let error = result.expect("uploads must not suppress heartbeat").unwrap().unwrap_err();
     assert!(matches!(error, WsError::Other(message) if message.contains("pong deadline")));
     assert!(ws.is_closed());
 }

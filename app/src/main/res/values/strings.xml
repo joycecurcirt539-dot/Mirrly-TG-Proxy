@@ -287,6 +287,7 @@
     <string name="settings_anycast_obfuscation">Anycast обфускация</string>
     <string name="settings_unregistered_autoreg">Не зарегистрирован (авторегистрация)</string>
     <string name="settings_btn_refresh">Обновить</string>
+    <string name="settings_btn_change_secret">Сменить ключ</string>
     <string name="settings_btn_create">Создать</string>
     <string name="settings_reg_details">Детали регистрации</string>
     <string name="settings_amnezia_copied">Конфиг AmneziaWG скопирован</string>
@@ -2057,4 +2058,55 @@
     <string name="settings_doh_safe_summary">Защищенный DNS (DoH) активен. Проверенные быстрые серверы (%1$d активны).</string>
     <string name="settings_doh_expand_expert">Показать всех провайдеров и тест скорости</string>
     <string name="settings_doh_collapse_expert">Свернуть список провайдеров</string>
+
+    <!-- Settings mode toggle -->
+    <string name="settings_mode_expert">ОПЫТНЫЙ</string>
+    <string name="settings_mode_simple">ПРОСТОЙ</string>
+
+    <!-- VPN status badges -->
+    <string name="vpn_status_active_badge">АКТИВЕН</string>
+    <string name="vpn_status_inactive_badge">НЕ АКТИВЕН</string>
+
+    <!-- VPN stats labels -->
+    <string name="vpn_active_flows_label">Активные потоки</string>
+    <string name="vpn_network_gen_label">Поколение сети</string>
+    <string name="vpn_select_protocol_btn">Выбрать протокол VPN</string>
+
+    <!-- VPN DNS in tunnel -->
+    <string name="vpn_dns_tunnel_title">DNS маршрутизация в туннеле</string>
+    <string name="vpn_dns_tunnel_desc">1.1.1.1, 8.8.8.8 через защищенный DoH шлюз</string>
+
+    <!-- Generic badges -->
+    <string name="badge_secured_short">Защищен</string>
+    <string name="badge_disabled_caps">ВЫКЛЮЧЕН</string>
+
+    <!-- Split tunnel -->
+    <string name="vpn_app_filter_mode_label">Режим фильтрации приложений</string>
+    <string name="action_configure_arrow">Настроить →</string>
+    <string name="vpn_selected_count">Выбрано: %1$d из %2$d</string>
+
+    <!-- Section headers -->
+    <string name="settings_vpn_uplink_section">ПРОТОКОЛ ТУННЕЛЯ VPN (UPLINK)</string>
+    <string name="settings_mtproto_routing_section">МАРШРУТИЗАЦИЯ MTPROTO</string>
+    <string name="settings_mtproto_routing_title">Прямой Anycast-транспорт к Telegram DC</string>
+    <string name="settings_mtproto_routing_body">Трафик MTProto маршрутизируется через защищенный Anycast CDN Flowseal напрямую в дата-центры Telegram без промежуточных воркеров и сторонних прокси.</string>
+
+    <!-- VPN Protocol selector dialog -->
+    <string name="vpn_device_tunnel_inactive">Туннелирование устройства через %1$s</string>
+    <string name="vpn_protocol_warp_cascade_desc">MASQUE (QUIC) + AWG отказоустойчивость • Dual Anycast</string>
+    <string name="vpn_protocol_vless_desc">Anycast CDN • TLS 1.3 маскировка трафика</string>
+    <string name="vpn_protocol_masque_desc">IETF RFC 9484 CONNECT-UDP по HTTP/3 • QUIC</string>
+    <string name="vpn_protocol_awg_desc">AmneziaWG с обфускацией мусорных пакетов • Anycast</string>
+    <string name="vpn_protocol_dialog_title">Протокол Mirrly VPN</string>
+    <string name="vpn_protocol_dialog_desc">Выберите протокол для системного туннеля:</string>
+    <string name="vpn_select_protocol_short">Выбрать протокол</string>
+
+    <!-- Cloudflare Deploy -->
+    <string name="cf_deploy_token_saved">Токен сохранен</string>
+    <string name="cf_deploy_subdomain_activated">Поддомен %1$s.workers.dev активирован</string>
+    <string name="cf_deploy_subdomain_reg_error">Ошибка регистрации поддомена</string>
+    <string name="cf_deploy_invalid_token">Недействительный токен</string>
+    <string name="cf_session_reset">Сессия Cloudflare сброшена</string>
+    <string name="cf_account_session_status">Статус сессии</string>
+    <string name="error_open_browser">Не удалось открыть браузер</string>
 </resources>

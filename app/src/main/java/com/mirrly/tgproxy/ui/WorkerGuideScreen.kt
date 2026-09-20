@@ -220,7 +220,7 @@ fun WorkerGuideScreen(
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://dash.cloudflare.com/?to=/:account/workers-and-pages/create/worker"))
             context.startActivity(intent)
         } catch (_: Exception) {
-            Toast.makeText(context, "Не удалось открыть браузер", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.error_open_browser), Toast.LENGTH_SHORT).show()
         }
     }
 

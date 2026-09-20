@@ -12,6 +12,19 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 
+async fn read_exact_bounded(
+    client: &mut TcpStream,
+    buf: &mut [u8],
+    cancel: &CancellationToken,
+    timeout: Duration,
+) -> bool {
+    tokio::select! {
+        _ = cancel.cancelled() => false,
+        result = tokio::time::timeout(timeout, client.read_exact(buf)) =>
+            matches!(result, Ok(Ok(_))),
+    }
+}
+
 pub async fn run_socks5_server(
     host: String,
     port: u16,
@@ -140,17 +153,17 @@ async fn handle_socks5_client(mut client: TcpStream, cancel: CancellationToken) 
         }
         let ulen = auth_ver_ulen[1] as usize;
         let mut uname_buf = vec![0u8; ulen];
-        if client.read_exact(&mut uname_buf).await.is_err() {
+        if !read_exact_bounded(&mut client, &mut uname_buf, &cancel, Duration::from_secs(5)).await {
             return;
         }
 
         let mut plen_buf = [0u8; 1];
-        if client.read_exact(&mut plen_buf).await.is_err() {
+        if !read_exact_bounded(&mut client, &mut plen_buf, &cancel, Duration::from_secs(5)).await {
             return;
         }
         let plen = plen_buf[0] as usize;
         let mut pass_buf = vec![0u8; plen];
-        if client.read_exact(&mut pass_buf).await.is_err() {
+        if !read_exact_bounded(&mut client, &mut pass_buf, &cancel, Duration::from_secs(5)).await {
             return;
         }
 
@@ -184,12 +197,12 @@ async fn handle_socks5_client(mut client: TcpStream, cancel: CancellationToken) 
             }
             let ulen = auth_ver_ulen[1] as usize;
             let mut uname_buf = vec![0u8; ulen];
-            let _ = client.read_exact(&mut uname_buf).await;
+            if !read_exact_bounded(&mut client, &mut uname_buf, &cancel, Duration::from_secs(5)).await { return; }
             let mut plen_buf = [0u8; 1];
-            let _ = client.read_exact(&mut plen_buf).await;
+            if !read_exact_bounded(&mut client, &mut plen_buf, &cancel, Duration::from_secs(5)).await { return; }
             let plen = plen_buf[0] as usize;
             let mut pass_buf = vec![0u8; plen];
-            let _ = client.read_exact(&mut pass_buf).await;
+            if !read_exact_bounded(&mut client, &mut pass_buf, &cancel, Duration::from_secs(5)).await { return; }
             if client.write_all(&[0x01, 0x00]).await.is_err() {
                 return;
             }
@@ -425,22 +438,23 @@ pub enum WorkerProtocol {
     V2Ack,
 }
 
-static WORKER_PROTO_CACHE: Lazy<parking_lot::RwLock<std::collections::HashMap<String, WorkerProtocol>>> =
+const WORKER_PROTO_CACHE_TTL: Duration = Duration::from_secs(10 * 60);
+static WORKER_PROTO_CACHE: Lazy<parking_lot::RwLock<std::collections::HashMap<String, (WorkerProtocol, Instant)>>> =
     Lazy::new(|| parking_lot::RwLock::new(std::collections::HashMap::new()));
 
 pub fn get_worker_protocol(worker: &str) -> WorkerProtocol {
     let key = crate::cfproxy::canonical_cfproxy_cooldown_key(worker);
-    WORKER_PROTO_CACHE
-        .read()
-        .get(&key)
-        .copied()
-        .unwrap_or(WorkerProtocol::Auto)
+    let cache = WORKER_PROTO_CACHE.read();
+    match cache.get(&key).copied() {
+        Some((protocol, marked_at)) if marked_at.elapsed() < WORKER_PROTO_CACHE_TTL => protocol,
+        _ => WorkerProtocol::Auto,
+    }
 }
 
 pub fn mark_worker_protocol(worker: &str, proto: WorkerProtocol) {
     let key = crate::cfproxy::canonical_cfproxy_cooldown_key(worker);
     if !key.is_empty() {
-        WORKER_PROTO_CACHE.write().insert(key, proto);
+        WORKER_PROTO_CACHE.write().insert(key, (proto, Instant::now()));
     }
 }
 
@@ -934,9 +948,10 @@ pub(crate) async fn socks5_acquire_cf_ws(
     if let Some(fh) = fast_handle {
         let tx_fp = tx.clone();
         let cancel_fp = race_cancel.clone();
+        let fast_cancel_fp = fast_cancel.clone();
         race_handles.push(tokio::spawn(async move {
             tokio::select! {
-                _ = cancel_fp.cancelled() => {}
+                _ = cancel_fp.cancelled() => { fast_cancel_fp.cancel(); }
                 res = fh => {
                     if let Ok(Ok((ws, winner))) = res {
                         if !cancel_fp.is_cancelled() {

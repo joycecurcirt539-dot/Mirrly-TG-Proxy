@@ -110,14 +110,13 @@ impl BridgeActivity {
                             }
                         } else {
                             if let Some(ref checker) = state.transport_checker {
-                                let (transport_idle, closed) = checker();
+                                let (_, closed) = checker();
                                 if closed {
                                     Some(std::io::ErrorKind::ConnectionReset)
-                                } else if transport_idle >= Duration::from_secs(20) {
-                                    // Transport heartbeat stall: no PONG or frame for over 20s (blackhole)
-                                    Some(std::io::ErrorKind::TimedOut)
                                 } else {
-                                    // Transport health is active (pongs/frames fresh).
+                                    // The transport owns its heartbeat deadline. A separate
+                                    // 20s cutoff would kill healthy sockets before their
+                                    // profile's first ping (20-60s) and bypass recovery.
                                     // Data idle != dead: keep flow open up to profile-aware absolute timeout.
                                     let abs_timeout = crate::config::profile_aware_absolute_idle_timeout();
                                     if state.last_data.elapsed() >= abs_timeout {

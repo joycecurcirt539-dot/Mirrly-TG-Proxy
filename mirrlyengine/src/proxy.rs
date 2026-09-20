@@ -337,7 +337,7 @@ impl WsPool {
                 let now = now_unix();
                 let ws_arc = Arc::new(ws);
                 let mut q = state.queue.lock().await;
-                if q.len() < 8 {
+                if self.generation.load(Ordering::SeqCst) == gen && !cancel.is_cancelled() && q.len() < 8 {
                     q.push_back(PoolEntry {
                         ws: ws_arc,
                         domain: dom,
@@ -1176,7 +1176,10 @@ pub async fn handle_client(
             "{}: FakeTLS handshake detected (0x16 0x03 0x01/0x03)",
             label
         );
-        if let Err(e) = crate::faketls::handle_fake_tls_handshake(&mut conn, &initial_5).await {
+        if let Err(e) = tokio::time::timeout(
+            Duration::from_secs(10),
+            crate::faketls::handle_fake_tls_handshake(&mut conn, &initial_5),
+        ).await.unwrap_or_else(|_| Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "FakeTLS handshake timeout"))) {
             ldebug!("{}: FakeTLS handshake failed: {}", label, e);
             STATS.connections_bad.fetch_add(1, Ordering::Relaxed);
             return;

@@ -127,6 +127,7 @@ class ProxyForegroundService : Service() {
                         // already-started engine. It is not a handover and must
                         // not advance generation or reset live sockets.
                         server.setNetworkInterface(isMobile, isScreenOn = isScreenOn)
+                        server.resumeNetworkMonitoring()
                     } else {
                         server.handleNetworkChanged(
                             newType = newType,
@@ -135,6 +136,8 @@ class ProxyForegroundService : Service() {
                             isScreenOn = isScreenOn
                         )
                     }
+
+                    WorkerFailoverManager.startRecoveryWatchdogIfNeeded()
 
                     if (oldType == "Wi-Fi" && (newType.contains("Mobile") || newType.contains("Cellular"))) {
                         val stats = server.stats
@@ -161,6 +164,7 @@ class ProxyForegroundService : Service() {
                     val isMobile = networkType.contains("Mobile", ignoreCase = true) ||
                         networkType.contains("Cellular", ignoreCase = true)
                     server.handleNetworkResumed(isMobile, isScreenOn = isScreenOn)
+                    WorkerFailoverManager.startRecoveryWatchdogIfNeeded()
                 }
             },
             onNetworkProfileChanged = { environment ->
