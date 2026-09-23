@@ -361,6 +361,15 @@ pub struct HeartbeatPolicy {
 impl HeartbeatPolicy {
     pub fn effective() -> Self {
         let profile = crate::network_profile::get_profile();
+        if profile.websocket_keep_alive_seconds > 0 {
+            let idle = Duration::from_secs(profile.websocket_keep_alive_seconds.clamp(15, 60));
+            return Self {
+                idle_before_ping: idle,
+                // Do not let a user-selected interval make failure detection
+                // excessively slow; this only controls idle PING cadence.
+                pong_deadline: Duration::from_secs((idle.as_secs() / 2).clamp(8, 15)),
+            };
+        }
         match (profile.power_save_mode, profile.screen_on, profile.cellular) {
             (true, _, _) => Self {
                 idle_before_ping: Duration::from_secs(60),

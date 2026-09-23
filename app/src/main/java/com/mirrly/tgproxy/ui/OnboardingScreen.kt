@@ -148,10 +148,12 @@ fun OnboardingScreen(
             .fillMaxSize()
             .background(Color.Transparent)
             .pointerInput(Unit) {
-                // Перехватываем и поглощаем все клики и жесты, блокируя кликабельность подлежащего экрана
+                // Consume after child controls have processed the event. Consuming on the
+                // Main pass prevented clickable cards and navigation buttons from receiving
+                // their taps on some devices (notably Android 14 / One UI).
                 awaitPointerEventScope {
                     while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Main)
+                        val event = awaitPointerEvent(PointerEventPass.Final)
                         event.changes.forEach { it.consume() }
                     }
                 }
@@ -478,6 +480,14 @@ private fun StepLanguageSelection(
             subtitle = stringResource(R.string.onboarding_lang_en_desc),
             isSelected = (currentLang == "en"),
             onClick = { onSelect("en") }
+        )
+
+        LanguageCardItem(
+            code = "FA",
+            title = stringResource(R.string.onboarding_lang_fa),
+            subtitle = stringResource(R.string.onboarding_lang_fa_desc),
+            isSelected = (currentLang == "fa"),
+            onClick = { onSelect("fa") }
         )
     }
 }

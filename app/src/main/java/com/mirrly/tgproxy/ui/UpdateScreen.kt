@@ -404,7 +404,7 @@ fun UpdateScreen(
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = "CPU: ${primaryAbiStr.uppercase()}",
+                            text = devicePrimaryType.title,
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
@@ -469,29 +469,6 @@ fun UpdateScreen(
                                     fontSize = 14.sp,
                                     color = TextWhite
                                 )
-                                Text(
-                                    text = "(${selectedApkType.shortName})",
-                                    fontSize = 11.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = TextMuted
-                                )
-                                if (isCurrentRecommended) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(5.dp))
-                                            .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), RoundedCornerShape(5.dp))
-                                            .padding(horizontal = 5.dp, vertical = 1.dp)
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.update_badge_recommended),
-                                            fontSize = 7.5.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = ActiveGreenLed,
-                                            letterSpacing = 0.4.sp
-                                        )
-                                    }
-                                }
                             }
 
                             val sizeStr = if (currentSelectedAsset != null && currentSelectedAsset.sizeBytes > 0) {
@@ -507,17 +484,38 @@ fun UpdateScreen(
                             )
                         }
 
-                        // Right Chip: "Select ▾"
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.White.copy(alpha = 0.05f),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+                        // Keep the recommendation above the action so both remain readable.
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            if (isCurrentRecommended) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(ActiveGreenLed.copy(alpha = 0.12f))
+                                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), RoundedCornerShape(5.dp))
+                                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.update_badge_recommended),
+                                        fontSize = 7.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = ActiveGreenLed,
+                                        letterSpacing = 0.4.sp
+                                    )
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.White.copy(alpha = 0.05f),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
                             ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
                                 Text(
                                     text = stringResource(R.string.update_btn_select),
                                     fontSize = 11.sp,
@@ -530,6 +528,7 @@ fun UpdateScreen(
                                     tint = TextMuted,
                                     modifier = Modifier.size(12.dp)
                                 )
+                                }
                             }
                         }
                     }

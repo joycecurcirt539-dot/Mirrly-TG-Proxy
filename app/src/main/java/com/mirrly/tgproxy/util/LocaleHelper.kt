@@ -31,6 +31,7 @@ object LocaleHelper {
     const val LANG_SYSTEM = "system"
     const val LANG_RU = "ru"
     const val LANG_EN = "en"
+    const val LANG_FA = "fa"
 
     fun getSystemLocale(): Locale {
         return try {
@@ -49,6 +50,7 @@ object LocaleHelper {
         return when (langCode) {
             LANG_RU -> Locale("ru")
             LANG_EN -> Locale("en")
+            LANG_FA -> Locale("fa", "IR")
             else -> getSystemLocale()
         }
     }

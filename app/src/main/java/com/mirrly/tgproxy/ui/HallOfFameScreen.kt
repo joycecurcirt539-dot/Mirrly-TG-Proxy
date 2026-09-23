@@ -239,6 +239,15 @@ private val ContributorsList = listOf(
         githubUrl = "https://github.com/40OIL"
     ),
     Contributor(
+        id = "crazyghostrider",
+        name = "CrazyGhostRider",
+        handle = "@CrazyGhostRider",
+        roleRes = R.string.fame_c_crazyghostrider_role,
+        contributionRes = R.string.fame_c_crazyghostrider_contrib,
+        tier = ContributorTier.BUG_HUNTER,
+        githubUrl = "https://github.com/CrazyGhostRider"
+    ),
+    Contributor(
         id = "mslight",
         name = "MSLight",
         handle = "@MSLight",

@@ -19,6 +19,8 @@
     <string name="onboarding_lang_ru_desc">Русский язык интерфейса</string>
     <string name="onboarding_lang_en">English</string>
     <string name="onboarding_lang_en_desc">English interface language</string>
+    <string name="onboarding_lang_fa">فارسی</string>
+    <string name="onboarding_lang_fa_desc">زبان فارسی (Persian)</string>
 
     <string name="onboarding_step_about_title">О ПРОЕКТЕ MIRRLY TG PROXY</string>
     <string name="onboarding_step_about_desc">Высокоскоростной прокси-клиент нового поколения для обхода блокировок и ускорения Telegram.</string>
@@ -46,6 +48,7 @@
     <string name="settings_language_system">Авто (Системный)</string>
     <string name="settings_language_ru">Русский</string>
     <string name="settings_language_en">English</string>
+    <string name="settings_language_fa">فارسی</string>
     <string name="settings_onboarding_replay">Обучение при первом запуске</string>
     <string name="settings_onboarding_replay_desc">Повторно просмотреть вводный экран и краткое руководство</string>
 
@@ -97,6 +100,10 @@
     <string name="status_vpn_disconnecting">ОТКЛЮЧЕНИЕ VPN...</string>
     <string name="status_vpn_system_mode_desc">Режим всей системы • Нажмите для подключения</string>
     <string name="status_vpn_system_connected_desc">Системный туннель активен • Cloudflare Anycast</string>
+    <string name="status_vpn_in_dev">VPN В РАЗРАБОТКЕ</string>
+    <string name="status_vpn_in_dev_desc">Модуль в разработке • Нажмите для информации</string>
+    <string name="vpn_in_dev_card_title">VPN в разработке</string>
+    <string name="vpn_in_dev_card_desc">Модуль системного VPN находится в разработке и временно не работает. Для защиты трафика используйте MTProto или SOCKS5.</string>
     <string name="vpn_permission_denied">Разрешение на системный VPN отклонено</string>
     <string name="uplink_mtproto_flowseal_secured">MTProto Anycast Flowseal • Защищено</string>
     <string name="uplink_mtproto_direct_secured">MTProto Direct (Fake-TLS) • Защищено</string>
@@ -590,6 +597,7 @@
     <string name="speed_test_dialog_title">Тест скорости сети</string>
     <string name="speed_test_dialog_badge">В разработке</string>
     <string name="speed_test_dialog_desc">Модуль комплексного замера пропускной способности, пинга и сетевой стабильности туннеля временно скрыт на период оптимизации и будет доступен в следующем обновлении.</string>
+    <string name="home_speed_test_hint">Замерьте скорость и стабильность туннеля</string>
     <string name="action_understood">ПОНЯТНО</string>
     <string name="unofficial_dialog_category">ПРЕДУПРЕЖДЕНИЕ БЕЗОПАСНОСТИ</string>
     <string name="unofficial_dialog_title">Неофициальная или измененная сборка</string>
@@ -977,6 +985,8 @@
     <string name="fame_c_liveonloan_contrib">Автор Issue #14. Обнаружил визуальный дефект перекрытия кнопок управления таймером сна системной панелью навигации на Realme GT7 (Android 16), послуживший основой для редизайна экрана таймера в v1.1.8.1.</string>
     <string name="fame_c_40oil_role">Охотник за багами &amp; Диагностика UI</string>
     <string name="fame_c_40oil_contrib">Автор Issue #22. Выявил критический дефект верстки модальных диалогов импорта воркера (Samsung Galaxy A55), при котором кнопка «Сохранить» перекрывалась 3-кнопочной панелью навигации Android, что привело к масштабному редизайну безопасных отступов.</string>
+    <string name="fame_c_crazyghostrider_role">Охотник за багами</string>
+    <string name="fame_c_crazyghostrider_contrib">Выявил дефекты стабильности туннеля и помог в оптимизации сетевых алгоритмов.</string>
     <string name="fame_c_mslight_role">Инициатор интернационализации</string>
     <string name="fame_c_mslight_contrib">Автор Issue #23. Инициировал глобальную интернационализацию интерфейса приложения и внедрение полноценной английской локализации (English translation).</string>
     <string name="fame_c_aseptronn_role">Участник локализации &amp; Сообщество</string>
@@ -1073,7 +1083,7 @@
     <string name="speed_test_stat_upload">ИСХОДЯЩАЯ</string>
     <string name="speed_test_stat_uploaded_mb">%1$d МБ отправлено</string>
     <string name="speed_test_stat_upload_channel">Канал отдачи</string>
-    <string name="speed_test_chart_header">ДИНАМИКА СКОРОСТИ В РЕАЛЬНОМ ВРЕМЕНИ</string>
+    <string name="speed_test_chart_header">ДИНАМИКА СКОРОСТИ</string>
     <string name="speed_test_chart_peak">Пик: %1$s Мбит/с</string>
     <string name="speed_test_report_header">ОЦЕНКА КАЧЕСТВА КАНАЛА</string>
     <string name="speed_test_suit_chats">Текстовые чаты и стикеры</string>
@@ -1445,18 +1455,28 @@
     <string name="wa_info_burn_rate_desc">КАК РАССЧИТЫВАЕТСЯ:\n• Среднее количество создаваемых запросов в час за выбранный интервал времени.\n\nПРОГНОЗИРОВАНИЕ:\n• Позволяет оценить суточную нагрузку на квоту при текущей интенсивности использования Telegram.</string>
     <string name="wa_info_reset_timer_title">Ежедневный сброс квоты</string>
     <string name="wa_info_reset_timer_desc">ПРАВИЛА CLOUDFLARE:\n• Все суточные счетчики бесплатных воркеров Cloudflare обнуляются ровно в 00:00:00 UTC.\n\nТАЙМЕР:\n• Отображает точное время в часах и минутах, оставшееся до следующего обнуления квоты Cloudflare.</string>
-    <string name="wa_info_mtproto_dc_traffic_title">Распределение трафика по Дата-Центрам Telegram</string>
-    <string name="wa_info_mtproto_dc_traffic_desc">КАК РАБОТАЕТ МАРШРУТИЗАЦИЯ:\n• Telegram разделяет трафик между 5 основными кластерами дата-центров (DC1–DC5) и сетью распределенных кэш-узлов FlowSeal CDN.\n• DC 2 (Амстердам): чаты, синхронизация сообщений, авторизация и контакты.\n• DC 4 (Амстердам): личные медиафайлы, голосовые и видеосообщения.\n• CDN FlowSeal: 20 гео-распределенных кэш-серверов для быстрой доставки тяжелого публичного контента каналов.</string>
-    <string name="wa_info_mtproto_cdn_title">Сеть CDN FlowSeal (20 узлов кэширования)</string>
-    <string name="wa_info_mtproto_cdn_desc">НАЗНАЧЕНИЕ КЭШ-НОД:\n• Публичные видеофайлы и медиа из крупных каналов кэшируются на 20 CDN-нодах Telegram.\n• Это снижает задержку загрузки видео и разгружает центральный дата-центр DC 4.</string>
-    <string name="wa_info_mtproto_affinity_title">Балансировщик пула сокетов (DC-Affinity)</string>
-    <string name="wa_info_mtproto_affinity_desc">АДАПТИВНАЯ КОНЦЕНТРАЦИЯ РЕСУРСОВ:\n• Движок динамически выделяет сокеты WSS-пула под тот дата-центр, с которым прямо сейчас идет наиболее интенсивный обмен данными.\n• При паузах в активности сокеты переводятся в режим энергосбережения по закону экспоненциального затухания.</string>
-    <string name="wa_info_mtproto_dialects_title">Протокольные транспорты MTProto (Dialects)</string>
-    <string name="wa_info_mtproto_dialects_desc">ТИПЫ ТРАНСПОРТА TELEGRAM:\n• Intermediate (0xee): основной скоростной транспорт обмена сообщениями.\n• Padded Intermediate (0xdd): рандомизированный транспорт с плавающим паддингом для защиты от DPI-блокировок.\n• Abridged (0xef): ультра-компактный транспорт для служебных синхронизаций.</string>
-    <string name="wa_info_mtproto_multiplexing_title">Эффективность WSS-мультиплексирования</string>
-    <string name="wa_info_mtproto_multiplexing_desc" formatted="false">КАК ЭКОНОМИТСЯ КВОТА:\n• Коэффициент показывает, сколько сотен пакетов и сообщений MTProto было передано внутри одной открытой WSS-сессии.\n• Позволяет обслуживать активное общение без лишних затрат суточных запросов к Cloudflare.</string>
-    <string name="wa_info_mtproto_entropy_title">Математическая модель энтропии пула и затухания</string>
-    <string name="wa_info_mtproto_entropy_desc" formatted="false">1. ШЕННОНОВСКАЯ ЭНТРОПИЯ ПУЛА (H):\n• Формула: H = -∑ p_i * ln(p_i), где p_i — доля нагрузки i-го дата-центра.\n• H &lt; 0.60: Высокая концентрация (Single-DC Affinity). Вся емкость сосредоточена на одном DC (например, чтение текстового чата в DC2). Максимальная экономия батареи и сокетов.\n• 0.60 ≤ H ≤ 1.30: Сбалансированный режим (Dual Affinity). Параллельный обмен с DC2 (сообщения) и DC4 (медиа) или FlowSeal CDN.\n• H &gt; 1.30: Высокодисперсный режим (Multi-Cluster Burst). Одновременная синхронизация, звонки и скачивание контента по всей географии Telegram.\n\n2. ЭКСПОНЕНЦИАЛЬНОЕ ЗАТУХАНИЕ АКТИВНОСТИ:\n• Формула: Weight(DC) = (sqrt(Bytes) / 100 + Conns * 25 + 1.0) * exp(-Δt / 60).\n• Период полураспада T½ = 60 секунд. Каждую минуту бездействия вес активности DC уменьшается вдвое.\n• При достижении порога неактивности (&gt;180с) сокет автоматически закрывается или переводится в режим ожидания (Sleep Mode).</string>
+    <string name="wa_mtproto_traffic_title">ТРАФИК MTPROTO (СУММАРНО)</string>
+    <string name="wa_mtproto_rx_title">Входящий (Download)</string>
+    <string name="wa_mtproto_tx_title">Исходящий (Upload)</string>
+    <string name="wa_mtproto_speed_rx">Скорость приема</string>
+    <string name="wa_mtproto_speed_tx">Скорость отдачи</string>
+    <string name="wa_mtproto_pool_card_title">ПУЛ ГОТОВЫХ СОЕДИНЕНИЙ</string>
+    <string name="wa_mtproto_active_clients">Клиентских сокетов</string>
+    <string name="wa_mtproto_active_tunnels">WSS туннелей</string>
+    <string name="wa_mtproto_pool_slots">Горячих слотов в пуле</string>
+    <string name="wa_mtproto_pool_ready_status">Hot Standby активен</string>
+    <string name="wa_mtproto_tunnel_card_title">ПАРАМЕТРЫ ТУННЕЛЯ FAKETLS</string>
+    <string name="wa_mtproto_tunnel_port">Локальный порт</string>
+    <string name="wa_mtproto_tunnel_sni">SNI / Маскировка</string>
+    <string name="wa_mtproto_tunnel_proto">Протокол и шифрование</string>
+    <string name="wa_mtproto_tunnel_rtt">Задержка канала (RTT)</string>
+
+    <string name="wa_info_mtproto_traffic_title">Трафик MTProto</string>
+    <string name="wa_info_mtproto_traffic_desc" formatted="false">КАК РАБОТАЕТ:\n• Отображает суммарный объем данных, переданных через локальный FakeTLS MTProto-релей.\n• Включает сообщения, фото, видеозаписи, документы и голосовые сообщения Telegram.</string>
+    <string name="wa_info_mtproto_pool_title">Горячий пул соединений MTProto</string>
+    <string name="wa_info_mtproto_pool_desc" formatted="false">КАК РАБОТАЕТ:\n• Ядро прокси поддерживает предсозданные WSS-туннели (Hot Standby) к облачному аплинку.\n• Когда мессенджер запрашивает новый чат или скачивание файла, готовый туннель выделяется мгновенно — без ожидания сетевого TCP и TLS рукопожатия.</string>
+    <string name="wa_info_mtproto_tunnel_title">Параметры туннеля FakeTLS</string>
+    <string name="wa_info_mtproto_tunnel_desc" formatted="false">КАК РАБОТАЕТ:\n• Локальный слушатель прокси работает на порту 1080 (127.0.0.1).\n• Трафик маскируется под защищенный TLS 1.3 поток с валидным SNI, предотвращая блокировки DPI операторов связи.</string>
     <string name="wa_quota_title">РАСХОД КВОТЫ CLOUDFLARE</string>
     <string name="wa_unit_requests">запросов</string>
     <string name="wa_quota_percent_limit">%1$s%% лимита</string>
@@ -1657,6 +1677,16 @@
     <string name="nd_speedtest_title">Тест скорости туннеля</string>
     <string name="nd_speedtest_desc">Замер Download, Upload, Ping и Jitter через Cloudflare</string>
     <string name="nd_speedtest_in_dev">В РАЗРАБОТКЕ</string>
+    <string name="nd_speedtest_action_run">ЗАПУСТИТЬ</string>
+    <string name="nd_hero_mtproto_pool_title">ПУЛ ПОТОКОВ</string>
+    <string name="nd_hero_mtproto_slots_val">%1$d слота (FakeTLS)</string>
+    <string name="nd_hero_mtproto_slots_desc">Hot Standby готов</string>
+    <string name="nd_ready_socks5_direct_stream">Прямой TCP-поток</string>
+    <string name="nd_ready_socks5_buffer">TCP буфер 2 МБ</string>
+    <string name="nd_calls_unsupported_mtproto">Недоступно в MTProto</string>
+    <string name="nd_badge_socks5_only">ТОЛЬКО SOCKS5</string>
+    <string name="nd_info_mtproto_pool_title">Горячий пул соединений MTProto</string>
+    <string name="nd_info_mtproto_pool_desc" formatted="false">КАК РАБОТАЕТ:\n• Для максимальной скорости передачи и отклика Telegram ядро поддерживает горячий пул предсозданных FakeTLS соединений к дата-центрам (DC 1–5).\n• При скачивании больших файлов и медиа соединения выделяются из пула мгновенно без затрат времени на новое TLS-рукопожатие.\n\nВАЖНО О ЗВОНКАХ:\n• Архитектура протокола MTProto в Telegram не поддерживает голосовые и видеозвонки. Для полноценной поддержки звонков включите режим SOCKS5.</string>
     <string name="nd_network_path_title">СЕТЕВОЙ ТРАКТ И ЗАДЕРЖКА</string>
     <string name="nd_rtt_title">Задержка туннеля (EWMA RTT)</string>
     <string name="nd_badge_excellent">Отлично</string>

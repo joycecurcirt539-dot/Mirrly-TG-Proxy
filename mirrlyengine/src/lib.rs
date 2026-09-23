@@ -630,6 +630,32 @@ pub unsafe extern "C" fn SetCfProxyConfig(enabled: c_int, c_user_domain: *const 
     });
 }
 
+/// Promotes a preflight-verified Flowseal Anycast domain for one Telegram DC.
+/// The balancer normalizes `kws{dc}.domain:443` into its base domain; it keeps
+/// the remaining CDN candidates available for the normal Happy Eyeballs race.
+#[no_mangle]
+pub unsafe extern "C" fn PromoteCfproxyDomainForDc(
+    dc_id: c_int,
+    is_media: c_int,
+    c_domain: *const c_char,
+) -> c_int {
+    if !(1..=5).contains(&dc_id) {
+        return 0;
+    }
+    let domain = cstr_to_string(c_domain);
+    if domain.trim().is_empty() {
+        return 0;
+    }
+
+    generation_guard::change_config(|| {
+        crate::balancer::BALANCER
+            .write()
+            .update_domain_for_dc(dc_id, is_media != 0, &domain);
+    });
+    crate::linfo!("MTProto Anycast candidate promoted for DC{}: {}", dc_id, domain);
+    1
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn SetWorkerProtocol(c_domain: *const c_char, proto_ver: c_int) {
     let domain = cstr_to_string(c_domain);

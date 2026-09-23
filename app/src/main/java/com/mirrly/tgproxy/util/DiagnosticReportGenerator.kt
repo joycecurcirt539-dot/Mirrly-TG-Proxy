@@ -26,6 +26,32 @@ import java.util.Locale
 object DiagnosticReportGenerator {
 
     /**
+     * The configured uplink is not always the path used by a proxy mode. In
+     * particular, MTProto deliberately bypasses the selected SOCKS5 Worker and
+     * uses the Flowseal Anycast CDN pool instead.
+     */
+    internal data class EffectiveRoute(
+        val uplink: String,
+        val description: String,
+        val usesWorker: Boolean
+    )
+
+    internal fun effectiveRouteFor(isSocks5Mode: Boolean): EffectiveRoute =
+        if (isSocks5Mode) {
+            EffectiveRoute(
+                uplink = "WORKER",
+                description = "Cloudflare Worker WSS",
+                usesWorker = true
+            )
+        } else {
+            EffectiveRoute(
+                uplink = "ANYCAST_CDN",
+                description = "MTProto → Flowseal Anycast CDN → Telegram",
+                usesWorker = false
+            )
+        }
+
+    /**
      * Формирует анонимизированный диагностический Markdown-отчёт,
      * полностью безопасный для публикации в публичных GitHub Issues.
      */
@@ -66,6 +92,7 @@ object DiagnosticReportGenerator {
         val hasIpv6 = checkIpv6Available()
         val yesStr = if (isRussian) "Да" else "Yes"
         val noStr = if (isRussian) "Нет" else "No"
+        val effectiveRoute = effectiveRouteFor(config.isSocks5Mode)
 
         val sb = StringBuilder()
         if (isRussian) {
@@ -89,10 +116,16 @@ object DiagnosticReportGenerator {
 
             sb.append("#### 3. Конфигурация прокси и туннеля\n")
             sb.append("- **Режим**: `").append(if (config.isSocks5Mode) "SOCKS5 (:10808)" else "MTProto (:1080)").append("`\n")
-            sb.append("- **Uplink**: `").append(config.uplinkMode.name).append("`\n")
+            sb.append("- **Фактический uplink**: `").append(effectiveRoute.uplink).append("`\n")
+            sb.append("- **Маршрут**: `").append(effectiveRoute.description).append("`\n")
             sb.append("- **Статус сервиса**: `").append(if (server.isRunning) "АКТИВЕН" else "ОСТАНОВЛЕН").append("`\n")
             sb.append("- **Uptime**: `").append(server.uptimeSeconds).append(" сек`\n")
-            sb.append("- **Активный узел/воркер**: `").append(sanitizeWorkerDomain(app.prefsManager.getActiveWorker().name)).append("`\n")
+            if (effectiveRoute.usesWorker) {
+                sb.append("- **Активный Worker**: `").append(sanitizeWorkerDomain(app.prefsManager.getActiveWorker().name)).append("`\n")
+            } else {
+                sb.append("- **Выбранный Worker**: `не используется в MTProto`\n")
+            }
+            sb.append("- **Активный транспорт**: `").append(stats.activeCascadeStage).append("`\n")
             sb.append("- **TCP_NODELAY**: `").append(config.tcpNoDelayModeName).append("`\n")
             sb.append("- **Пресет скорости**: `").append(config.speedPresetName).append("`\n\n")
 
@@ -119,15 +152,19 @@ object DiagnosticReportGenerator {
                 sb.append("\n")
             }
 
-            val failover = WorkerFailoverManager.failoverState.value
-            val activeWorker = app.prefsManager.getActiveWorker()
             sb.append("#### 6. Статус отказоустойчивости (Failover)\n")
-            sb.append("- **Текущий узел**: `").append(sanitizeWorkerDomain(activeWorker.domain)).append("`\n")
-            sb.append("- **Активен резерв**: `").append(if (failover.isFailoverActive) yesStr else noStr).append("`\n")
-            if (failover.lastEvent != null) {
-                sb.append("- **Последнее переключение**: `").append(failover.lastEvent.fromWorkerName)
-                    .append(" -> ").append(failover.lastEvent.toWorkerName).append("`\n")
-                sb.append("- **Причина**: `").append(failover.lastEvent.reason.description).append("`\n")
+            if (effectiveRoute.usesWorker) {
+                val failover = WorkerFailoverManager.failoverState.value
+                val activeWorker = app.prefsManager.getActiveWorker()
+                sb.append("- **Текущий Worker**: `").append(sanitizeWorkerDomain(activeWorker.domain)).append("`\n")
+                sb.append("- **Активен резерв**: `").append(if (failover.isFailoverActive) yesStr else noStr).append("`\n")
+                if (failover.lastEvent != null) {
+                    sb.append("- **Последнее переключение**: `").append(failover.lastEvent.fromWorkerName)
+                        .append(" -> ").append(failover.lastEvent.toWorkerName).append("`\n")
+                    sb.append("- **Причина**: `").append(failover.lastEvent.reason.description).append("`\n")
+                }
+            } else {
+                sb.append("- **Worker failover**: `не применяется: MTProto не использует Worker`\n")
             }
             sb.append("\n")
 
@@ -154,10 +191,16 @@ object DiagnosticReportGenerator {
 
             sb.append("#### 3. Proxy and Tunnel Configuration\n")
             sb.append("- **Mode**: `").append(if (config.isSocks5Mode) "SOCKS5 (:10808)" else "MTProto (:1080)").append("`\n")
-            sb.append("- **Uplink**: `").append(config.uplinkMode.name).append("`\n")
+            sb.append("- **Effective Uplink**: `").append(effectiveRoute.uplink).append("`\n")
+            sb.append("- **Route**: `").append(effectiveRoute.description).append("`\n")
             sb.append("- **Service Status**: `").append(if (server.isRunning) "ACTIVE" else "STOPPED").append("`\n")
             sb.append("- **Uptime**: `").append(server.uptimeSeconds).append(" sec`\n")
-            sb.append("- **Active Node/Worker**: `").append(sanitizeWorkerDomain(app.prefsManager.getActiveWorker().name)).append("`\n")
+            if (effectiveRoute.usesWorker) {
+                sb.append("- **Active Worker**: `").append(sanitizeWorkerDomain(app.prefsManager.getActiveWorker().name)).append("`\n")
+            } else {
+                sb.append("- **Selected Worker**: `not used by MTProto`\n")
+            }
+            sb.append("- **Active Transport**: `").append(stats.activeCascadeStage).append("`\n")
             sb.append("- **TCP_NODELAY**: `").append(config.tcpNoDelayModeName).append("`\n")
             sb.append("- **Speed Preset**: `").append(config.speedPresetName).append("`\n\n")
 
@@ -184,15 +227,19 @@ object DiagnosticReportGenerator {
                 sb.append("\n")
             }
 
-            val failover = WorkerFailoverManager.failoverState.value
-            val activeWorker = app.prefsManager.getActiveWorker()
             sb.append("#### 6. Failover Status\n")
-            sb.append("- **Current Node**: `").append(sanitizeWorkerDomain(activeWorker.domain)).append("`\n")
-            sb.append("- **Standby Active**: `").append(if (failover.isFailoverActive) yesStr else noStr).append("`\n")
-            if (failover.lastEvent != null) {
-                sb.append("- **Last Switch**: `").append(failover.lastEvent.fromWorkerName)
-                    .append(" -> ").append(failover.lastEvent.toWorkerName).append("`\n")
-                sb.append("- **Reason**: `").append(failover.lastEvent.reason.description).append("`\n")
+            if (effectiveRoute.usesWorker) {
+                val failover = WorkerFailoverManager.failoverState.value
+                val activeWorker = app.prefsManager.getActiveWorker()
+                sb.append("- **Current Worker**: `").append(sanitizeWorkerDomain(activeWorker.domain)).append("`\n")
+                sb.append("- **Standby Active**: `").append(if (failover.isFailoverActive) yesStr else noStr).append("`\n")
+                if (failover.lastEvent != null) {
+                    sb.append("- **Last Switch**: `").append(failover.lastEvent.fromWorkerName)
+                        .append(" -> ").append(failover.lastEvent.toWorkerName).append("`\n")
+                    sb.append("- **Reason**: `").append(failover.lastEvent.reason.description).append("`\n")
+                }
+            } else {
+                sb.append("- **Worker Failover**: `not applicable: MTProto does not use Workers`\n")
             }
             sb.append("\n")
 

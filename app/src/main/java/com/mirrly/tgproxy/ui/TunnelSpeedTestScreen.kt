@@ -25,6 +25,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -84,12 +85,6 @@ fun TunnelSpeedTestScreen(
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
     val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
     val testState by engine.liveState.collectAsState()
-    val historyRecords by SpeedTestHistoryManager.historyFlow.collectAsState()
-
-    var selectedTab by remember { mutableIntStateOf(1) } // 0 = Speed Test (in dev), 1 = History
-    var showInDevDialog by remember { mutableStateOf(false) }
-    var showClearHistoryDialog by remember { mutableStateOf(false) }
-
     val targetDomain = if (isSocks5) {
         val custom = app.config.customCfDomain.trim()
         if (custom.isNotEmpty()) custom else activeWorker.domain
@@ -115,147 +110,101 @@ fun TunnelSpeedTestScreen(
         }
     }
 
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.TopCenter
-    ) {
-        Column(
+    Box(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(
             modifier = Modifier
                 .adaptiveContainerWidth(600.dp)
                 .fillMaxHeight()
-                .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
+                .align(Alignment.TopCenter)
                 .padding(
-                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
+                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 10.dp
                 )
-                .adaptiveContentPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .adaptiveContentPadding()
         ) {
-            // ── SEGMENTED TAB SWITCHER ──
-            SpeedTestSegmentedTabs(
-                selectedTab = selectedTab,
-                historyCount = historyRecords.size,
-                isSocks5 = isSocks5,
-                onTabSelected = { newTab ->
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    if (newTab == 0) {
-                        showInDevDialog = true
-                    } else {
-                        selectedTab = newTab
-                    }
-                }
-            )
+            val compact = maxHeight < 690.dp
+            val sectionGap = if (compact) 5.dp else 8.dp
 
-            // ── TAB CONTENT ──
-            AnimatedContent(
-                targetState = selectedTab,
-                transitionSpec = {
-                    if (targetState > initialState) {
-                        slideInHorizontally { width -> width / 4 } + fadeIn() togetherWith
-                                slideOutHorizontally { width -> -width / 4 } + fadeOut()
-                    } else {
-                        slideInHorizontally { width -> -width / 4 } + fadeIn() togetherWith
-                                slideOutHorizontally { width -> width / 4 } + fadeOut()
-                    }
-                },
-                label = "speedTabAnimation"
-            ) { currentTab ->
-                if (currentTab == 0) {
-                    // TAB 0: LIVE TEST VIEW
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        // 1. Target Node Info Bar
-                        SpeedTestHeaderCard(
-                            targetDomain = if (activeWorker.isDeveloperWorker && isSocks5) activeWorker.name else targetDomain,
-                            edgeColo = testState.edgeColo,
-                            isSocks5 = isSocks5
-                        )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = if (compact) 8.dp else 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                SpeedTestHeaderCard(
+                    targetDomain = if (activeWorker.isDeveloperWorker && isSocks5) activeWorker.name else targetDomain,
+                    edgeColo = testState.edgeColo,
+                    isSocks5 = isSocks5,
+                    compact = compact
+                )
 
-                        // 2. Sequential Phase Stepper (Ping -> DL -> UL -> Score)
-                        SpeedTestPhaseStepper(
-                            stage = testState.stage,
-                            isSocks5 = isSocks5
-                        )
+                Spacer(modifier = Modifier.height(sectionGap))
 
-                        // 3. Hero Speedometer Gauge
-                        SpeedometerGauge(
-                            currentSpeedMbps = testState.currentSpeedMbps,
-                            stage = testState.stage,
-                            progress = testState.progress,
-                            isSocks5 = isSocks5
-                        )
+                SpeedTestPhaseStepper(
+                    stage = testState.stage,
+                    isSocks5 = isSocks5,
+                    compact = compact
+                )
 
-                        // 4. 4-Tile Live Metrics Grid
-                        SpeedMetricsGrid(
-                            state = testState,
-                            isSocks5 = isSocks5
-                        )
-
-                        // 5. Live Waveform / Sparkline Chart
-                        val safePoints = testState.sparklinePoints.filter { it.isFinite() && it >= 0f }
-                        if (safePoints.size >= 2 || testState.stage == SpeedTestStage.COMPLETED) {
-                            SpeedWaveformCard(
-                                points = safePoints,
-                                peakSpeed = testState.peakSpeedMbps,
-                                isSocks5 = isSocks5
-                            )
-                        }
-
-                        // 6. Telegram Service Suitability Report (on completion)
-                        if (testState.stage == SpeedTestStage.COMPLETED) {
-                            TelegramSuitabilityCard(
-                                report = testState.suitability,
-                                grade = testState.qualityGrade,
-                                isSocks5 = isSocks5
-                            )
-                        }
-
-                        // 7. Error Notice if test encountered failure
-                        if (testState.stage == SpeedTestStage.ERROR && testState.errorDetail != null) {
-                            SpeedTestErrorCard(
-                                errorMessage = testState.errorDetail ?: stringResource(R.string.speed_test_error_conn)
-                            )
-                        }
-
-                        // 8. Start / Stop / Retest Action Button
-                        SpeedTestActionButton(
-                            stage = testState.stage,
-                            isSocks5 = isSocks5,
-                            onStart = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                engine.startTest(targetDomain, socks5Port)
-                            },
-                            onStop = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                engine.cancelTest()
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
-                } else {
-                    // TAB 1: HISTORY VIEW
-                    SpeedTestHistoryView(
-                        historyRecords = historyRecords,
-                        isSocks5 = isSocks5,
-                        onClearAll = { showClearHistoryDialog = true },
-                        onDeleteItem = { id ->
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            SpeedTestHistoryManager.deleteRecord(id)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    SpeedometerGauge(
+                        currentSpeedMbps = if (testState.stage == SpeedTestStage.COMPLETED) {
+                            testState.downloadSpeedMbps
+                        } else {
+                            testState.currentSpeedMbps
                         },
-                        onStartTestClick = {
-                            selectedTab = 0
+                        stage = testState.stage,
+                        progress = testState.progress,
+                        isSocks5 = isSocks5,
+                        compact = compact,
+                        onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            engine.startTest(targetDomain, socks5Port)
+                            if (engine.isRunning) {
+                                engine.cancelTest()
+                            } else {
+                                engine.startTest(targetDomain, socks5Port)
+                            }
                         }
                     )
                 }
+
+                Spacer(modifier = Modifier.height(sectionGap))
+
+                SpeedMetricsGrid(
+                    state = testState,
+                    isSocks5 = isSocks5,
+                    compact = compact
+                )
+
+                Spacer(modifier = Modifier.height(sectionGap))
+
+                when {
+                    testState.stage == SpeedTestStage.COMPLETED -> CompactSpeedTestResult(
+                        state = testState,
+                        isSocks5 = isSocks5,
+                        compact = compact
+                    )
+                    testState.stage == SpeedTestStage.ERROR && testState.errorDetail != null -> SpeedTestErrorCard(
+                        errorMessage = testState.errorDetail ?: stringResource(R.string.speed_test_error_conn)
+                    )
+                    else -> {
+                        val safePoints = testState.sparklinePoints.filter { it.isFinite() && it >= 0f }
+                        if (safePoints.size >= 2) {
+                            SpeedWaveformCard(
+                                points = safePoints,
+                                peakSpeed = testState.peakSpeedMbps,
+                                isSocks5 = isSocks5,
+                                compact = true
+                            )
+                        }
+                    }
+                }
+
             }
         }
 
@@ -265,26 +214,6 @@ fun TunnelSpeedTestScreen(
             isSocks5 = isSocks5
         )
 
-        // Floating Cyber Particles
-        CyberParticlesOverlay(modifier = Modifier.fillMaxSize())
-
-        // Clear History Confirmation Dialog
-        if (showClearHistoryDialog) {
-            ClearSpeedHistoryDialog(
-                onDismiss = { showClearHistoryDialog = false },
-                onConfirm = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    SpeedTestHistoryManager.clearHistory()
-                    showClearHistoryDialog = false
-                }
-            )
-        }
-
-        if (showInDevDialog) {
-            SpeedTestInDevDialog(
-                onDismiss = { showInDevDialog = false }
-            )
-        }
     }
 }
 
@@ -402,7 +331,8 @@ private fun SpeedTestSegmentedTabs(
 @Composable
 private fun SpeedTestPhaseStepper(
     stage: SpeedTestStage,
-    isSocks5: Boolean
+    isSocks5: Boolean,
+    compact: Boolean = false
 ) {
     val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
 
@@ -422,93 +352,91 @@ private fun SpeedTestPhaseStepper(
         SpeedTestStage.CANCELLED, SpeedTestStage.ERROR -> 0
     }
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White.copy(alpha = 0.025f),
-        border = BorderStroke(1.dp, Color(0xFF1E2333))
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(if (compact) 42.dp else 48.dp)
     ) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val nodeY = if (compact) 10.dp.toPx() else 12.dp.toPx()
+            repeat(3) { index ->
+                val startX = size.width * ((index * 2 + 1) / 8f)
+                val endX = size.width * ((index * 2 + 3) / 8f)
+                val completed = activeStep > index + 1 || stage == SpeedTestStage.COMPLETED
+                drawLine(
+                    color = if (completed) accentColor.copy(alpha = 0.72f) else Color.White.copy(alpha = 0.10f),
+                    start = Offset(startX + 11.dp.toPx(), nodeY),
+                    end = Offset(endX - 11.dp.toPx(), nodeY),
+                    strokeWidth = 1.2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .fillMaxHeight(),
+            verticalAlignment = Alignment.Top
         ) {
-            phases.forEachIndexed { index, (stepNum, stepTitle) ->
+            phases.forEach { (stepNum, stepTitle) ->
                 val isCompleted = activeStep > stepNum || stage == SpeedTestStage.COMPLETED
                 val isActive = activeStep == stepNum && stage != SpeedTestStage.COMPLETED
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 4.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(if (compact) 20.dp else 24.dp)
+                            .clip(CircleShape)
+                            .background(
+                                when {
+                                    isCompleted -> accentColor
+                                    isActive -> accentColor.copy(alpha = 0.18f)
+                                    else -> Color.Transparent
+                                }
+                            )
+                            .border(
+                                width = if (isActive) 1.5.dp else 1.dp,
+                                color = when {
+                                    isCompleted || isActive -> accentColor
+                                    else -> Color.White.copy(alpha = 0.16f)
+                                },
+                                shape = CircleShape
+                            )
                     ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    when {
-                                        isCompleted -> accentColor
-                                        isActive -> accentColor.copy(alpha = 0.20f)
-                                        else -> Color(0xFF161B26)
-                                    }
-                                )
-                                .border(
-                                    1.dp,
-                                    when {
-                                        isCompleted -> accentColor
-                                        isActive -> accentColor
-                                        else -> Color(0xFF263045)
-                                    },
-                                    CircleShape
-                                )
-                        ) {
-                            if (isCompleted) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_check),
-                                    contentDescription = null,
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                            } else {
-                                Text(
-                                    text = "$stepNum",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isActive) accentColor else TextMuted
-                                )
-                            }
+                        if (isCompleted) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_check),
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(if (compact) 11.dp else 13.dp)
+                            )
+                        } else {
+                            Text(
+                                text = "$stepNum",
+                                fontSize = if (compact) 9.sp else 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isActive) accentColor else TextMuted.copy(alpha = 0.65f)
+                            )
                         }
-
-                        Text(
-                            text = stepTitle,
-                            fontSize = 10.sp,
-                            fontWeight = if (isActive || isCompleted) FontWeight.Bold else FontWeight.Medium,
-                            color = when {
-                                isActive -> accentColor
-                                isCompleted -> TextWhite
-                                else -> TextMuted
-                            }
-                        )
                     }
 
-                    if (index < phases.size - 1) {
-                        val isLineDone = activeStep > stepNum
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(2.dp)
-                                .padding(horizontal = 8.dp)
-                                .background(
-                                    if (isLineDone) accentColor.copy(alpha = 0.8f) else Color(0xFF1E2333)
-                                )
-                        )
-                    }
+                    Text(
+                        text = stepTitle,
+                        fontSize = if (compact) 8.sp else 9.sp,
+                        fontWeight = if (isActive || isCompleted) FontWeight.Bold else FontWeight.Medium,
+                        color = when {
+                            isActive -> accentColor
+                            isCompleted -> TextWhite.copy(alpha = 0.88f)
+                            else -> TextMuted.copy(alpha = 0.58f)
+                        },
+                        maxLines = 1
+                    )
                 }
             }
         }
@@ -584,87 +512,56 @@ private fun SpeedTestTopBar(
 private fun SpeedTestHeaderCard(
     targetDomain: String,
     edgeColo: String,
-    isSocks5: Boolean
+    isSocks5: Boolean,
+    compact: Boolean = false
 ) {
     val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
 
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.03f))
-            .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(18.dp))
-            .padding(14.dp)
+            .height(if (compact) 28.dp else 32.dp)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(accentColor.copy(alpha = 0.12f))
-                        .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_diag_worker),
-                        contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+            Icon(
+                painter = painterResource(id = R.drawable.ic_diag_worker),
+                contentDescription = null,
+                tint = accentColor,
+                modifier = Modifier.size(if (compact) 12.dp else 14.dp)
+            )
+            Text(
+                text = targetDomain,
+                fontSize = if (compact) 9.5.sp else 10.5.sp,
+                color = TextWhite.copy(alpha = 0.82f),
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
 
-                Column {
-                    Text(
-                        text = stringResource(R.string.speed_test_tunnel_node),
-                        fontSize = 11.sp,
-                        color = TextMuted,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = targetDomain,
-                        fontSize = 13.5.sp,
-                        color = TextWhite,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF0F172A),
-                border = BorderStroke(1.dp, Color(0xFF1E293B))
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(if (edgeColo != "—") ActiveGreenLed else TextMuted)
-                    )
-                    Text(
-                        text = "POP: $edgeColo",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = if (edgeColo != "—") TextWhite else TextMuted
-                    )
-                }
-            }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(5.dp)
+                    .clip(CircleShape)
+                    .background(if (edgeColo != "—") ActiveGreenLed else TextMuted.copy(alpha = 0.55f))
+            )
+            Text(
+                text = "POP $edgeColo",
+                fontSize = if (compact) 8.5.sp else 9.5.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                color = if (edgeColo != "—") TextWhite.copy(alpha = 0.78f) else TextMuted.copy(alpha = 0.62f)
+            )
         }
     }
 }
@@ -674,12 +571,18 @@ private fun SpeedometerGauge(
     currentSpeedMbps: Double,
     stage: SpeedTestStage,
     progress: Float,
-    isSocks5: Boolean
+    isSocks5: Boolean,
+    compact: Boolean = false,
+    onClick: () -> Unit
 ) {
     val primaryAccent = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
     val secondaryAccent = if (isSocks5) Color(0xFF7C4DFF) else Color(0xFF00E5FF)
+    val hotAccent = if (isSocks5) Color(0xFFFF4FD8) else Color(0xFF00E5FF)
+    val isTesting = stage == SpeedTestStage.PING ||
+        stage == SpeedTestStage.DOWNLOAD ||
+        stage == SpeedTestStage.UPLOAD ||
+        stage == SpeedTestStage.ANALYSIS
 
-    // Safe clamped speed (Guards against NaN or Infinity)
     val safeSpeed = if (currentSpeedMbps.isFinite() && currentSpeedMbps >= 0.0) currentSpeedMbps else 0.0
     val maxGaugeSpeed = 120.0
     val targetFraction = (safeSpeed / maxGaugeSpeed).coerceIn(0.0, 1.0).toFloat()
@@ -690,149 +593,246 @@ private fun SpeedometerGauge(
         label = "gaugeFraction"
     )
 
+    val motion = rememberInfiniteTransition(label = "speedCoreMotion")
+    val orbitRotation by motion.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (isTesting) 4300 else 9000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "speedOrbitRotation"
+    )
+    val counterRotation by motion.animateFloat(
+        initialValue = 360f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (isTesting) 6100 else 12000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "speedCounterRotation"
+    )
+    val breathe by motion.animateFloat(
+        initialValue = 0.72f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "speedCoreBreathe"
+    )
+    val energyLevel = if (isTesting) 1f else 0.55f
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 7.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.size(230.dp)
-        ) {
-            Canvas(modifier = Modifier.size(210.dp)) {
-                val center = Offset(size.width / 2f, size.height / 2f)
-                val radius = size.width / 2f - 16.dp.toPx()
-
-                // Background track arc (135 deg to 405 deg = 270 deg sweep)
-                drawArc(
-                    color = Color(0xFF1E2333).copy(alpha = 0.6f),
-                    startAngle = 135f,
-                    sweepAngle = 270f,
-                    useCenter = false,
-                    topLeft = Offset(center.x - radius, center.y - radius),
-                    size = Size(radius * 2, radius * 2),
-                    style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round)
+            modifier = Modifier
+                .size(if (compact) 218.dp else 270.dp)
+                .clip(CircleShape)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick
                 )
-
-                // Active speed glow arc (Clamped)
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val center = Offset(size.width / 2f, size.height / 2f)
+                val outerRadius = size.minDimension * 0.445f
+                val progressRadius = size.minDimension * 0.375f
+                val innerRadius = size.minDimension * 0.292f
                 val safeAnimFrac = if (animatedFraction.isFinite()) animatedFraction.coerceIn(0f, 1f) else 0f
                 val activeSweep = (270f * safeAnimFrac).coerceIn(0f, 270f)
 
-                if (activeSweep > 0.5f) {
+                // Soft energy atmosphere with no opaque dial background.
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            primaryAccent.copy(alpha = 0.12f * breathe * energyLevel),
+                            secondaryAccent.copy(alpha = 0.035f * energyLevel),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = outerRadius * 1.12f
+                    ),
+                    radius = outerRadius * 1.12f,
+                    center = center
+                )
+
+                // Free-floating orbital ribbons inherited from the main power button.
+                drawArc(
+                    color = primaryAccent.copy(alpha = 0.30f * breathe * energyLevel),
+                    startAngle = orbitRotation - 26f,
+                    sweepAngle = 78f,
+                    useCenter = false,
+                    topLeft = Offset(center.x - outerRadius, center.y - outerRadius),
+                    size = Size(outerRadius * 2f, outerRadius * 2f),
+                    style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round)
+                )
+                drawArc(
+                    color = hotAccent.copy(alpha = 0.22f * energyLevel),
+                    startAngle = counterRotation + 106f,
+                    sweepAngle = 48f,
+                    useCenter = false,
+                    topLeft = Offset(center.x - (outerRadius - 7.dp.toPx()), center.y - (outerRadius - 7.dp.toPx())),
+                    size = Size((outerRadius - 7.dp.toPx()) * 2f, (outerRadius - 7.dp.toPx()) * 2f),
+                    style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round)
+                )
+
+                // Spark constellation moving around the gauge.
+                repeat(18) { index ->
+                    val baseAngle = index * 20f + orbitRotation * if (index % 2 == 0) 0.18f else -0.11f
+                    val angleRad = Math.toRadians(baseAngle.toDouble())
+                    val radius = outerRadius + ((index % 3) - 1) * 3.dp.toPx()
+                    val sparkle = (0.22f + 0.42f * ((sin(angleRad + orbitRotation / 90f) + 1.0) / 2.0).toFloat()) * energyLevel
+                    val point = Offset(
+                        center.x + cos(angleRad).toFloat() * radius,
+                        center.y + sin(angleRad).toFloat() * radius
+                    )
+                    drawCircle(
+                        color = if (index % 4 == 0) hotAccent.copy(alpha = sparkle) else primaryAccent.copy(alpha = sparkle),
+                        radius = if (index % 6 == 0) 1.7.dp.toPx() else 0.85.dp.toPx(),
+                        center = point
+                    )
+                }
+
+                // Minimal segmented scale: inactive marks almost disappear into the background.
+                val segmentCount = 30
+                repeat(segmentCount) { index ->
+                    val segmentFraction = index.toFloat() / (segmentCount - 1)
+                    val segmentStart = 135f + segmentFraction * 270f
+                    val isLit = segmentFraction <= safeAnimFrac
+                    val segmentColor = when {
+                        !isLit -> Color.White.copy(alpha = 0.055f)
+                        segmentFraction > 0.82f -> Color(0xFFFFC857)
+                        segmentFraction > 0.56f -> hotAccent
+                        else -> primaryAccent
+                    }
+                    drawArc(
+                        color = segmentColor.copy(alpha = if (isLit) 0.90f else 0.055f),
+                        startAngle = segmentStart,
+                        sweepAngle = 5.6f,
+                        useCenter = false,
+                        topLeft = Offset(center.x - progressRadius, center.y - progressRadius),
+                        size = Size(progressRadius * 2f, progressRadius * 2f),
+                        style = Stroke(
+                            width = if (isLit) 4.8.dp.toPx() else 2.1.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                    )
+                }
+
+                // Thin continuous energy line underneath the luminous segments.
+                if (activeSweep > 0.4f) {
                     drawArc(
                         brush = Brush.sweepGradient(
-                            0.0f to secondaryAccent,
-                            0.5f to primaryAccent,
-                            1.0f to Color(0xFFFFB703),
+                            colors = listOf(secondaryAccent, primaryAccent, hotAccent, Color(0xFFFFC857)),
                             center = center
                         ),
                         startAngle = 135f,
                         sweepAngle = activeSweep,
                         useCenter = false,
-                        topLeft = Offset(center.x - radius, center.y - radius),
-                        size = Size(radius * 2, radius * 2),
-                        style = Stroke(width = 11.dp.toPx(), cap = StrokeCap.Round)
+                        topLeft = Offset(center.x - (progressRadius - 7.dp.toPx()), center.y - (progressRadius - 7.dp.toPx())),
+                        size = Size((progressRadius - 7.dp.toPx()) * 2f, (progressRadius - 7.dp.toPx()) * 2f),
+                        style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
 
-                // Dial tick marks
-                val tickCount = 11
-                for (i in 0 until tickCount) {
-                    val angleDeg = 135f + (270f * i / (tickCount - 1))
-                    val angleRad = Math.toRadians(angleDeg.toDouble())
-                    val innerR = radius - 13.dp.toPx()
-                    val outerR = radius - 6.dp.toPx()
+                // Breathing nucleus and rotating inner scan arc.
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            primaryAccent.copy(alpha = 0.10f * breathe),
+                            Color(0xFF0A0D15).copy(alpha = 0.22f),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = innerRadius
+                    ),
+                    radius = innerRadius,
+                    center = center
+                )
+                drawCircle(
+                    color = primaryAccent.copy(alpha = 0.16f + 0.12f * breathe),
+                    radius = innerRadius,
+                    center = center,
+                    style = Stroke(width = 1.dp.toPx())
+                )
+                drawArc(
+                    brush = Brush.sweepGradient(
+                        colors = listOf(Color.Transparent, primaryAccent.copy(alpha = 0.9f), Color.Transparent),
+                        center = center
+                    ),
+                    startAngle = counterRotation,
+                    sweepAngle = 96f,
+                    useCenter = false,
+                    topLeft = Offset(center.x - innerRadius, center.y - innerRadius),
+                    size = Size(innerRadius * 2f, innerRadius * 2f),
+                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                )
 
-                    val startX = center.x + (innerR * cos(angleRad)).toFloat()
-                    val startY = center.y + (innerR * sin(angleRad)).toFloat()
-                    val endX = center.x + (outerR * cos(angleRad)).toFloat()
-                    val endY = center.y + (outerR * sin(angleRad)).toFloat()
-
-                    val isHighlighted = (i.toFloat() / (tickCount - 1)) <= safeAnimFrac
-                    drawLine(
-                        color = if (isHighlighted) primaryAccent else Color(0xFF2B3548),
-                        start = Offset(startX, startY),
-                        end = Offset(endX, endY),
-                        strokeWidth = if (i % 2 == 0) 2.2.dp.toPx() else 1.2.dp.toPx(),
-                        cap = StrokeCap.Round
-                    )
+                // Bright progress head instead of a mechanical needle.
+                val headAngle = Math.toRadians((135f + activeSweep).toDouble())
+                val head = Offset(
+                    center.x + cos(headAngle).toFloat() * progressRadius,
+                    center.y + sin(headAngle).toFloat() * progressRadius
+                )
+                if (activeSweep > 0.4f) {
+                    drawCircle(primaryAccent.copy(alpha = 0.12f * breathe), 9.dp.toPx(), head)
+                    drawCircle(hotAccent.copy(alpha = 0.45f * breathe), 4.2.dp.toPx(), head)
+                    drawCircle(Color.White.copy(alpha = 0.95f), 1.7.dp.toPx(), head)
                 }
-
-                // Needle indicator (Clamped)
-                val needleAngle = 135f + activeSweep
-                val needleRad = Math.toRadians(needleAngle.toDouble())
-                val needleLen = radius - 18.dp.toPx()
-                val needleX = center.x + (needleLen * cos(needleRad)).toFloat()
-                val needleY = center.y + (needleLen * sin(needleRad)).toFloat()
-
-                drawLine(
-                    color = Color.White,
-                    start = center,
-                    end = Offset(needleX, needleY),
-                    strokeWidth = 2.8.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-
-                // Needle center hub
-                drawCircle(
-                    color = primaryAccent,
-                    radius = 7.dp.toPx(),
-                    center = center
-                )
-                drawCircle(
-                    color = Color(0xFF0F121C),
-                    radius = 3.5.dp.toPx(),
-                    center = center
-                )
             }
 
-            // Central Digital Speed Readout
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(top = 40.dp)
+                modifier = Modifier.padding(top = if (compact) 2.dp else 3.dp)
             ) {
-                Text(
+                RollingNumberText(
                     text = String.format(Locale.US, "%.1f", safeSpeed),
-                    fontSize = 40.sp,
+                    fontSize = if (compact) 29.sp else 34.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = (-0.5).sp,
                     color = TextWhite
                 )
                 Text(
                     text = stringResource(R.string.speed_test_mbps_unit),
-                    fontSize = 12.sp,
+                    fontSize = if (compact) 9.5.sp else 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = primaryAccent,
-                    letterSpacing = 1.sp
+                    color = primaryAccent.copy(alpha = 0.92f),
+                    letterSpacing = 1.6.sp
                 )
             }
         }
 
-        // Status description pill below gauge
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = primaryAccent.copy(alpha = 0.12f),
-            border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.35f))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-            ) {
-                if (stage == SpeedTestStage.PING || stage == SpeedTestStage.DOWNLOAD || stage == SpeedTestStage.UPLOAD || stage == SpeedTestStage.ANALYSIS) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(12.dp),
-                        strokeWidth = 2.dp,
-                        color = primaryAccent
-                    )
-                }
+            Box(
+                modifier = Modifier
+                    .size(if (isTesting) 6.dp else 4.dp)
+                    .clip(CircleShape)
+                    .background(primaryAccent.copy(alpha = if (isTesting) breathe else 0.55f))
+            )
+            Text(
+                text = stage.title.uppercase(),
+                fontSize = if (compact) 8.5.sp else 9.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextMuted.copy(alpha = 0.82f),
+                letterSpacing = 0.7.sp
+            )
+            if (!isTesting) {
                 Text(
-                    text = stage.title.uppercase(),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    letterSpacing = 0.8.sp
+                    text = "• НАЖМИТЕ НА СПИДОМЕТР",
+                    fontSize = if (compact) 7.5.sp else 8.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = primaryAccent.copy(alpha = 0.72f),
+                    letterSpacing = 0.45.sp
                 )
             }
         }
@@ -842,57 +842,118 @@ private fun SpeedometerGauge(
 @Composable
 private fun SpeedMetricsGrid(
     state: SpeedTestLiveState,
-    isSocks5: Boolean
+    isSocks5: Boolean,
+    compact: Boolean = false
 ) {
     val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(if (compact) 66.dp else 74.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .border(1.dp, accentColor.copy(alpha = 0.20f), RoundedCornerShape(15.dp)),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // Tile 1: Ping
-        MetricTile(
+        CompactMetricColumn(
             modifier = Modifier.weight(1f),
             iconRes = R.drawable.ic_diag_rtt,
             title = stringResource(R.string.speed_test_stat_ping),
-            value = if (state.pingMs > 0) stringResource(R.string.speed_test_stat_ping_ms, state.pingMs) else "—",
-            subValue = if (state.minPingMs > 0) stringResource(R.string.speed_test_stat_min_ping, state.minPingMs) else stringResource(R.string.speed_test_stat_rtt_delay),
-            accentColor = Color(0xFF38BDF8)
+            value = if (state.pingMs > 0) "${state.pingMs}" else "—",
+            unit = "мс",
+            accentColor = Color(0xFF38BDF8),
+            compact = compact
         )
-
-        // Tile 2: Jitter
-        MetricTile(
+        MetricDivider(compact)
+        CompactMetricColumn(
             modifier = Modifier.weight(1f),
             iconRes = R.drawable.ic_diag_jitter,
             title = stringResource(R.string.speed_test_stat_jitter),
-            value = if (state.pingMs > 0) stringResource(R.string.speed_test_stat_jitter_val, state.jitterMs) else "—",
-            subValue = if (state.jitterMs <= 15) stringResource(R.string.speed_test_stat_high_stability) else stringResource(R.string.speed_test_stat_jitter_variation),
-            accentColor = Color(0xFFB388FF)
+            value = if (state.pingMs > 0) "±${state.jitterMs}" else "—",
+            unit = "мс",
+            accentColor = Color(0xFFFF4FD8),
+            compact = compact
         )
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        // Tile 3: Download
-        MetricTile(
+        MetricDivider(compact)
+        CompactMetricColumn(
             modifier = Modifier.weight(1f),
             iconRes = R.drawable.ic_arrow_down,
             title = stringResource(R.string.speed_test_stat_download),
-            value = if (state.downloadSpeedMbps > 0) stringResource(R.string.speed_test_mbps_compact, String.format(Locale.US, "%.1f", state.downloadSpeedMbps)) else "—",
-            subValue = if (state.downloadedBytes > 0) stringResource(R.string.speed_test_stat_downloaded_mb, state.downloadedBytes / (1024 * 1024)) else stringResource(R.string.speed_test_stat_download_channel),
-            accentColor = accentColor
+            value = if (state.downloadSpeedMbps > 0) String.format(Locale.US, "%.1f", state.downloadSpeedMbps) else "—",
+            unit = stringResource(R.string.speed_test_mbps_unit),
+            accentColor = accentColor,
+            compact = compact
         )
-
-        // Tile 4: Upload
-        MetricTile(
+        MetricDivider(compact)
+        CompactMetricColumn(
             modifier = Modifier.weight(1f),
             iconRes = R.drawable.ic_arrow_up,
             title = stringResource(R.string.speed_test_stat_upload),
-            value = if (state.uploadSpeedMbps > 0) stringResource(R.string.speed_test_mbps_compact, String.format(Locale.US, "%.1f", state.uploadSpeedMbps)) else "—",
-            subValue = if (state.uploadedBytes > 0) stringResource(R.string.speed_test_stat_uploaded_mb, state.uploadedBytes / (1024 * 1024)) else stringResource(R.string.speed_test_stat_upload_channel),
-            accentColor = Color(0xFFFFB703)
+            value = if (state.uploadSpeedMbps > 0) String.format(Locale.US, "%.1f", state.uploadSpeedMbps) else "—",
+            unit = stringResource(R.string.speed_test_mbps_unit),
+            accentColor = Color(0xFFFFC857),
+            compact = compact
+        )
+    }
+}
+
+@Composable
+private fun RowScope.MetricDivider(compact: Boolean) {
+    Box(
+        modifier = Modifier
+            .width(1.dp)
+            .height(if (compact) 34.dp else 42.dp)
+            .background(Color.White.copy(alpha = 0.10f))
+    )
+}
+
+@Composable
+private fun CompactMetricColumn(
+    modifier: Modifier,
+    iconRes: Int,
+    title: String,
+    value: String,
+    unit: String,
+    accentColor: Color,
+    compact: Boolean
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 3.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = iconRes),
+                contentDescription = null,
+                tint = accentColor,
+                modifier = Modifier.size(if (compact) 10.dp else 11.dp)
+            )
+            Text(
+                text = title,
+                color = TextMuted.copy(alpha = 0.76f),
+                fontSize = if (compact) 7.sp else 8.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        RollingNumberText(
+            text = value,
+            color = TextWhite,
+            fontSize = if (compact) 13.sp else 15.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = (-0.3).sp
+        )
+        Text(
+            text = unit,
+            color = accentColor.copy(alpha = 0.78f),
+            fontSize = if (compact) 7.sp else 8.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
         )
     }
 }
@@ -904,16 +965,17 @@ private fun MetricTile(
     title: String,
     value: String,
     subValue: String,
-    accentColor: Color
+    accentColor: Color,
+    compact: Boolean = false
 ) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(Color.White.copy(alpha = 0.03f))
             .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(16.dp))
-            .padding(12.dp)
+            .padding(if (compact) 7.dp else 10.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -922,11 +984,11 @@ private fun MetricTile(
                     painter = painterResource(id = iconRes),
                     contentDescription = null,
                     tint = accentColor,
-                    modifier = Modifier.size(14.dp)
+                    modifier = Modifier.size(if (compact) 11.dp else 14.dp)
                 )
                 Text(
                     text = title,
-                    fontSize = 10.5.sp,
+                    fontSize = if (compact) 8.5.sp else 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextMuted,
                     letterSpacing = 1.sp
@@ -935,14 +997,14 @@ private fun MetricTile(
 
             Text(
                 text = value,
-                fontSize = 15.sp,
+                fontSize = if (compact) 12.5.sp else 14.5.sp,
                 fontWeight = FontWeight.Black,
                 color = TextWhite
             )
 
             Text(
                 text = subValue,
-                fontSize = 10.sp,
+                fontSize = if (compact) 8.5.sp else 9.5.sp,
                 color = TextMuted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -955,7 +1017,8 @@ private fun MetricTile(
 private fun SpeedWaveformCard(
     points: List<Float>,
     peakSpeed: Double,
-    isSocks5: Boolean
+    isSocks5: Boolean,
+    compact: Boolean = false
 ) {
     val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
     val safePoints = points.filter { it.isFinite() && it >= 0f }
@@ -966,9 +1029,9 @@ private fun SpeedWaveformCard(
             .clip(RoundedCornerShape(18.dp))
             .background(Color.White.copy(alpha = 0.03f))
             .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(18.dp))
-            .padding(14.dp)
+            .padding(if (compact) 8.dp else 11.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 7.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -976,25 +1039,38 @@ private fun SpeedWaveformCard(
             ) {
                 Text(
                     text = stringResource(R.string.speed_test_chart_header),
-                    fontSize = 10.5.sp,
+                    fontSize = if (compact) 9.sp else 9.5.sp,
                     fontWeight = FontWeight.Black,
-                    letterSpacing = 0.8.sp,
-                    color = TextMuted
+                    letterSpacing = 0.6.sp,
+                    color = TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
 
+                Spacer(modifier = Modifier.width(6.dp))
+
                 val safePeak = if (peakSpeed.isFinite() && peakSpeed >= 0) peakSpeed else 0.0
-                Text(
-                    text = stringResource(R.string.speed_test_chart_peak, String.format(Locale.US, "%.1f", safePeak)),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = accentColor
-                )
+                Surface(
+                    shape = RoundedCornerShape(5.dp),
+                    color = accentColor.copy(alpha = 0.12f),
+                    border = BorderStroke(0.8.dp, accentColor.copy(alpha = 0.35f))
+                ) {
+                    Text(
+                        text = stringResource(R.string.speed_test_chart_peak, String.format(Locale.US, "%.1f", safePeak)),
+                        fontSize = if (compact) 8.5.sp else 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor,
+                        maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
 
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp)
+                    .height(if (compact) 38.dp else 50.dp)
             ) {
                 if (safePoints.size < 2) return@Canvas
 
@@ -1036,6 +1112,132 @@ private fun SpeedWaveformCard(
                     style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SpeedTestReadyStrip(
+    stage: SpeedTestStage,
+    isSocks5: Boolean,
+    compact: Boolean
+) {
+    val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
+    val pulse = rememberInfiniteTransition(label = "readyStripPulse")
+    val pulseAlpha by pulse.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.95f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "readyStripAlpha"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(if (compact) 38.dp else 42.dp)
+            .clip(RoundedCornerShape(13.dp))
+            .border(1.dp, accentColor.copy(alpha = 0.18f), RoundedCornerShape(13.dp)),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(accentColor.copy(alpha = pulseAlpha))
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = stage.title.uppercase(),
+            color = TextWhite.copy(alpha = 0.82f),
+            fontSize = if (compact) 9.sp else 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.7.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun CompactSpeedTestResult(
+    state: SpeedTestLiveState,
+    isSocks5: Boolean,
+    compact: Boolean
+) {
+    val accentColor = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
+    val report = state.suitability
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(if (compact) 66.dp else 74.dp),
+        shape = RoundedCornerShape(15.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.24f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = if (compact) 9.dp else 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            val gradeText = state.qualityGrade.substringBefore(" (").trim()
+            val gradeFontSize = when {
+                gradeText.length >= 14 -> if (compact) 6.4.sp else 7.2.sp
+                gradeText.length >= 10 -> if (compact) 7.0.sp else 8.0.sp
+                gradeText.length >= 7  -> if (compact) 8.2.sp else 9.2.sp
+                else                   -> if (compact) 10.0.sp else 11.5.sp
+            }
+            Box(
+                modifier = Modifier
+                    .size(if (compact) 46.dp else 52.dp)
+                    .clip(CircleShape)
+                    .border(1.5.dp, accentColor.copy(alpha = 0.72f), CircleShape)
+                    .padding(horizontal = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = gradeText,
+                    color = accentColor,
+                    fontSize = gradeFontSize,
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    letterSpacing = if (gradeText.length >= 10) (-0.4).sp else (-0.1).sp
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.speed_test_report_header),
+                    color = TextWhite.copy(alpha = 0.88f),
+                    fontSize = if (compact) 8.5.sp else 9.5.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.6.sp,
+                    maxLines = 1
+                )
+                Text(
+                    text = report.summary,
+                    color = TextMuted,
+                    fontSize = if (compact) 9.sp else 10.5.sp,
+                    lineHeight = if (compact) 11.sp else 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Icon(
+                painter = painterResource(id = R.drawable.ic_stat_proxy_connected),
+                contentDescription = null,
+                tint = accentColor.copy(alpha = 0.75f),
+                modifier = Modifier.size(if (compact) 17.dp else 20.dp)
+            )
         }
     }
 }
@@ -1169,6 +1371,7 @@ private fun SpeedTestErrorCard(
 private fun SpeedTestActionButton(
     stage: SpeedTestStage,
     isSocks5: Boolean,
+    compact: Boolean = false,
     onStart: () -> Unit,
     onStop: () -> Unit
 ) {
@@ -1183,11 +1386,11 @@ private fun SpeedTestActionButton(
     Surface(
         onClick = if (isTesting) onStop else onStart,
         shape = RoundedCornerShape(16.dp),
-        color = if (isTesting) Color(0xFFEF4444).copy(alpha = 0.15f) else accentColor.copy(alpha = 0.15f),
-        border = BorderStroke(1.dp, if (isTesting) Color(0xFFEF4444) else accentColor),
+        color = Color.Transparent,
+        border = BorderStroke(1.2.dp, if (isTesting) Color(0xFFEF4444) else accentColor.copy(alpha = 0.82f)),
         modifier = Modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(if (compact) 44.dp else 50.dp)
             .springPress()
     ) {
         Row(
@@ -1641,4 +1844,3 @@ private fun ClearSpeedHistoryDialog(
         }
     }
 }
-

@@ -256,7 +256,7 @@ pub fn interleave_ips(v6: Vec<IpAddr>, v4: Vec<IpAddr>) -> Vec<IpAddr> {
             }
         }
     }
-    interleaved
+    crate::network_profile::filter_ip_family(interleaved)
 }
 
 // ---------------------------------------------------------------------------
@@ -283,7 +283,7 @@ pub async fn resolve_dual_stack(domain: &str, scope: DnsScope) -> Result<Vec<IpA
 
     // 1. Direct numeric IP check (0 ms, immediate return)
     if let Ok(ip) = domain.parse::<IpAddr>() {
-        return Ok(vec![ip]);
+        return Ok(crate::network_profile::filter_ip_family(vec![ip]));
     }
 
     // 2. Cache hit check (MOB-022: validated against current network generation & negative TTL)
@@ -314,7 +314,7 @@ pub async fn resolve_dual_stack(domain: &str, scope: DnsScope) -> Result<Vec<IpA
                         entry.resolver_source,
                         entry.network_generation
                     );
-                    return Ok(entry.ips.clone());
+                return Ok(crate::network_profile::filter_ip_family(entry.ips.clone()));
                 }
             }
         }
@@ -400,7 +400,7 @@ async fn resolve_dual_stack_uncached(domain: &str, scope: DnsScope) -> Result<Ve
                     return Err(DnsError::NxDomain(domain.to_string()));
                 }
                 if !entry.ips.is_empty() && (scope != DnsScope::UserInTunnel || entry.is_secure) {
-                    return Ok(entry.ips.clone());
+                    return Ok(crate::network_profile::filter_ip_family(entry.ips.clone()));
                 }
             }
         }
@@ -569,7 +569,7 @@ async fn resolve_dual_stack_uncached(domain: &str, scope: DnsScope) -> Result<Ve
                 network_generation: current_gen,
             },
         );
-        return Ok(interleaved);
+        return Ok(crate::network_profile::filter_ip_family(interleaved));
     }
 
     // If explicit NXDOMAIN returned and no addresses found (MOB-022: negative cache for 15s to prevent storm)

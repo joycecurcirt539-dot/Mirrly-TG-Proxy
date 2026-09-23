@@ -733,21 +733,26 @@ fun SleepTimerDialog(
                                 letterSpacing = 0.6.sp
                             )
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                ScheduleDaysMode.entries.forEach { mode ->
-                                    PresetChip(
-                                        title = stringResource(mode.titleRes).substringBefore(" ("),
-                                        isSelected = scheduleConfig.daysMode == mode,
-                                        activeColor = accentColor,
-                                        modifier = Modifier.weight(1f)
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ScheduleDaysMode.entries.chunked(2).forEach { modesRow ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        scheduleConfig = scheduleConfig.copy(daysMode = mode)
-                                        app.prefsManager.saveScheduleConfig(scheduleConfig)
-                                        ScheduleManager.syncSchedule(context)
+                                        modesRow.forEach { mode ->
+                                            PresetChip(
+                                                title = stringResource(mode.titleRes).substringBefore(" ("),
+                                                isSelected = scheduleConfig.daysMode == mode,
+                                                activeColor = accentColor,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                scheduleConfig = scheduleConfig.copy(daysMode = mode)
+                                                app.prefsManager.saveScheduleConfig(scheduleConfig)
+                                                ScheduleManager.syncSchedule(context)
+                                            }
+                                        }
+                                        if (modesRow.size == 1) Spacer(modifier = Modifier.weight(1f))
                                     }
                                 }
                             }

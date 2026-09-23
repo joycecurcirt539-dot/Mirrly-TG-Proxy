@@ -8,7 +8,7 @@
 
 <br/>
 
-**[ 🇷🇺 Русский ](README.md)** &nbsp;|&nbsp; **[ 🇬🇧 English ](README_EN.md)**
+**[ 🇷🇺 Русский ](README.md)** &nbsp;|&nbsp; **[ 🇬🇧 English ](README_EN.md)** &nbsp;|&nbsp; **[ 🇮🇷 فارسی ](README_FA.md)**
 
 <br/>
 
@@ -19,8 +19,8 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_&_WARP-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Version](https://img.shields.io/badge/Релиз-v2.0.0-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
-[![Language](https://img.shields.io/badge/Язык-RU_%7C_EN-1E293B?logo=translate&logoColor=26A5E4)](#7-интерфейс-приложения)
+[![Version](https://img.shields.io/badge/Релиз-v2.0.0.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Language](https://img.shields.io/badge/Язык-RU_%7C_EN_%7C_FA-1E293B?logo=translate&logoColor=26A5E4)](#7-интерфейс-приложения)
 [![Genesis](https://img.shields.io/badge/Генезис-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Stars](https://img.shields.io/github/stars/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=F5A623)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
@@ -74,7 +74,9 @@
 
 **Mirrly TG Proxy** — бесплатное Android-приложение с открытым исходным кодом, выполняющее роль локального шлюза проксирования трафика Telegram. Приложение решает проблему нестабильной связи, блокировок протоколов, замедления медиафайлов и фильтрации DPI со стороны интернет-провайдеров и мобильных операторов.
 
-Приложение **не использует** системный интерфейс `VpnService` для проксирования Telegram и **не перехватывает** трафик сторонних программ устройства. Соединение Telegram направляется через локальный сетевой сокет (`127.0.0.1:1443` для MTProto или `127.0.0.1:10808` для SOCKS5) на высокопроизводительное нативное ядро `mirrlyengine` (Rust/Tokio). Ядро инкапсулирует пакеты в защищенные внешние туннели и передает их в дата-центры Telegram через инфраструктуру Cloudflare Edge, персональные Cloudflare Workers, VLESS или кастомные туннели.
+Приложение **не использует** системный интерфейс `VpnService` для проксирования Telegram и **не перехватывает** трафик сторонних программ устройства. Соединение Telegram направляется через локальный сетевой сокет (`127.0.0.1:1443` для MTProto или `127.0.0.1:10808` для SOCKS5) на нативное ядро `mirrlyengine` (Rust/Tokio) и передаётся в дата-центры Telegram через Anycast CDN или Cloudflare Worker.
+
+> **VPN-режим находится в разработке и пока не предназначен для использования.** VLESS, WARP, MASQUE, AWG и каскадные VPN-маршруты не являются рабочими функциями текущего релиза.
 
 ---
 
@@ -84,11 +86,8 @@
 * **Два локальных протокола Telegram**:
   * *MTProto* (порт `1443`): FakeTLS маскировка `ee` / `dd`, пул постоянных соединений `WsPool` и прямое взаимодействие с Anycast CDN.
   * *SOCKS5* (порт `10808`): прозрачный TCP-релей с субнегоциацией логина и пароля (RFC 1928 / RFC 1929), поддержкой доменных имен, IPv4/IPv6, передачи голосовых и видеозвонков.
-* **Стабильные режимы восходящего канала (Uplinks)**:
+* **Стабильный режим восходящего канала (Uplink)**:
   * `WORKER`: туннелирование через Cloudflare Worker по протоколу WebSocket TLS 1.3 на порт 443 с фильтрацией Anti-Open-Relay.
-  * `VLESS`: протокол VLESS over WebSocket с маскировкой под HTTPS-трафик на порт 443, поддержкой пула CDN-доменов и Reality.
-  * `SOCKS5`: прямое туннелирование TCP-потоков через защищенные релеи.
-  * `HYBRID`: автоматическое резервирование соединения при недоступности основного узла.
 * **Сетевой стек и стабильность**:
   * *DC-Affinity Engine*: привязка сессий Telegram к дата-центрам DC1–DC5 для исключения повторных рукопожатий.
   * *Политика доверия (Trust Policy)*: изоляция персональных VPS-конфигураций от утечки на публичные релеи (`allowPublicRelayFallbackForPrivateVps`).
@@ -105,15 +104,8 @@
   * *Доменная классификация ошибок (Error Taxonomy)*: понятные тексты для пользователей и машиночитаемые коды для логов.
   * *Проверка подлинности обновлений*: нативная C++ NDK верификация цифровой подписи APK (`SignatureVerifier`) и парсинг контрольных сумм SHA-256 в `UpdateChecker`.
 
-#### 2. Функционал на стадии тестирования (Экспериментально / зависит от провайдера)
-* **Режим MASQUE (Anycast HTTP/3)**: прямое туннелирование через Cloudflare WARP (`CONNECT-UDP` и QUIC-дейтаграммы). Зависит от доступности UDP/Anycast у конкретного оператора связи.
-* **Режим AWG (AmneziaWG Anycast)**: обфусцированный WireGuard для обхода DPI (`H1..H4`, `Jc`, инициализация `I1`, поддержка кастомных INI-конфигураций).
-* **Каскадный режим (WARP_CASCADE)**: интеллектуальная цепочка переключений `MASQUE` -> `AWG` -> `Worker WSS`.
-* **WARP Pipeline Profiler**: инструментальный замер миллисекундных задержек 4 фаз подключения.
-* **Менеджер аккаунтов WARP**: регистрация учетных данных и сканирование Anycast-эндпоинтов на стороне клиента.
-
-#### 3. В разработке (Превью)
-* **Системный VPN-режим (VpnService)**: графический интерфейс с кинетическим орбитальным кольцом для будущего перехвата общесистемного трафика (в текущем релизе проксирование Telegram полностью автономно и не требует системного VPN).
+#### 2. В разработке
+* **Системный VPN и VPN-аплинки**: VLESS, WARP, MASQUE, AWG и каскадные маршруты находятся в разработке и не готовы к использованию.
 * **Встроенный замер скорости (SpeedTest)**: модуль измерения пропускной способности соединения внутри приложения.
 
 ---
@@ -134,12 +126,11 @@
 2. Обрабатываются команды:
    * `CONNECT (0x01)`: проксирование TCP-потоков чатов, каналов, ботов и загрузки медиафайлов;
    * `UDP ASSOCIATE (0x03)`: туннелирование UDP-дейтаграмм для голосовых и видеозвонков Telegram VoIP.
-3. Диспетчер маршрутизации `RouteSupervisor` направляет поток в выбранный восходящий транспорт (Uplink):
-   * **`WORKER`**: туннелирование через WebSocket TLS 1.3 на персональный Cloudflare Worker (или пул разработчика), который открывает прямое TCP-соединение с целевым DC через API `cloudflare:sockets`;
-   * **`VLESS`**: передача данных по протоколу VLESS over WebSocket (TLS 1.3 :443) или Reality напрямую на личный VPS или CDN;
-   * **`MASQUE`** *(в тестировании)*: Anycast туннелирование через HTTP/3 QUIC (`CONNECT-UDP`) с встроенным стеком TCP/IP `smoltcp` в сеть Cloudflare WARP;
-   * **`AWG`** *(в тестировании)*: обфусцированный WireGuard Anycast с защитой от сигнатурного анализа DPI (`I1`, `Jc`, `H1..H4`) и стеком `smoltcp`;
-   * **`WARP_CASCADE` / `HYBRID`**: интеллектуальное переключение между протоколами при деградации радиоканала или блокировках.
+3. Диспетчер направляет поток через Cloudflare Worker по WebSocket TLS 1.3; VPN-аплинки находятся в разработке и в этот маршрут не входят.
+
+### Звонки Telegram
+
+Звонки поддерживаются только через SOCKS5. На каждом устройстве участников звонка должен быть настроен и активен прокси с TCP-соединением; в настройках Telegram обязательно включите опцию «Использовать прокси для звонков». Работа звонков зависит от сетей и ограничений операторов, поэтому не гарантирована для всех собеседников. MTProto-режим звонки не поддерживает.
 
 ---
 
@@ -150,11 +141,6 @@
 | Режим (`UplinkMode`) | Статус | Протокол и порт | Описание и назначение |
 | :--- | :--- | :--- | :--- |
 | **`WORKER`** | **Стабильно** | WebSocket TLS 1.3 (`:443`) | Трафик инкапсулируется в WebSocket к Cloudflare Worker, где через `cloudflare:sockets` открывается TCP-сокет к дата-центрам или VoIP-узлам Telegram. Защищен правилами Anti-Open-Relay. |
-| **`VLESS`** | **Стабильно** | VLESS WSS TLS 1.3 (`:443`) | Протокол VLESS с маскировкой под стандартный HTTPS-трафик на порт 443. Поддерживает пулы доменов CDN, кастомные VPS и технологию Reality. |
-| **`HYBRID`** | **Стабильно** | WSS + Резерв | Основным каналом выступает Cloudflare Worker WSS. При возникновении ошибок или исчерпании суточного лимита (HTTP 429) соединение прозрачно переключается на резервный канал. |
-| **`MASQUE`** | **Тестирование** | HTTP/3 QUIC (`:443`) | Прямое Anycast туннелирование через архитектуру Cloudflare WARP MASQUE (`CONNECT-UDP`) с юзерспейс-стеком `smoltcp`. Зависит от доступности UDP у оператора связи. |
-| **`AWG`** | **Тестирование** | WireGuard UDP | Обфусцированный WireGuard Anycast с защитой от сигнатурного анализа DPI (`H1..H4`, `Jc`, `I1`) и стеком `smoltcp`. Доступна загрузка кастомных конфигураций INI для собственных серверов. |
-| **`WARP_CASCADE`** | **Тестирование** | MASQUE + AWG + WSS | Интеллектуальный каскадный режим: приоритетный запуск MASQUE с автоматическим переходом на AWG при блокировке UDP и аварийным возвратом на Worker WSS. |
 
 ---
 
@@ -180,7 +166,7 @@
 
 ### Разделение настроек (Simple vs Advanced Settings UX)
 * **Простой режим (Simple Mode — по умолчанию)**: лаконичный интерфейс без инженерной терминологии. Содержит только выбор режима прокси (MTProto / SOCKS5), выбор аплинка, таймер сна, расписание работы, автозапуск при загрузке устройства, выбор языка и темы.
-* **Продвинутый режим (Advanced Mode)**: активируется переключателем внизу экрана настроек. Открывает секции тонкой настройки сокетов (`TCP_NODELAY`: Авто / Вкл / Выкл), управление буферами сокетов, емкостью пула WebSocket, параметрами Happy Eyeballs, ручным вводом Anycast IP и кастомных параметров AWG/VLESS.
+* **Продвинутый режим (Advanced Mode)**: активируется переключателем внизу экрана настроек и открывает настройки сокетов (`TCP_NODELAY`), буферов, WebSocket-пула и Happy Eyeballs.
 
 ### Безопасный диагностический отчёт (Zero Secret Leak)
 * Формирование структурированного отчёта о состоянии устройства и сетевого стека в моноширинном формате на экране `DiagnosticReportScreen`.
@@ -194,7 +180,6 @@
   * `DNS_RESOLUTION_UNAVAILABLE` — сбой резолвинга доменных имен;
   * `SOCKS5_AUTH_REJECTED` — ошибка аутентификации пользователя SOCKS5 (RFC 1929);
   * `CLOUDFLARE_EDGE_BLOCKED` — сброс соединения на уровне DPI провайдера;
-  * `WARP_HANDSHAKE_TIMEOUT` — блокировка UDP-пакетов WireGuard;
   * `NETWORK_INTERFACE_DOWN` — полное отключение сетевых интерфейсов устройства.
 
 ### Потоковый контроль медиа и видео (Bounded Flow Control)
@@ -249,31 +234,17 @@ flowchart TD
     subgraph Uplinks ["3. Восходящие каналы (Uplinks)"]
         Uplink_Anycast_Direct["Anycast CDN Flowseal<br/>(kws1..kws5.web.telegram.org:443)<br/>Без расхода квоты Cloudflare Workers"]
         Uplink_Worker["Cloudflare Worker WSS<br/>(Личный воркер / пул разработчика)<br/>API cloudflare:sockets"]
-        Uplink_Vless["VLESS over WSS & Reality<br/>(Кастомный VPS / CDN пул)"]
-        Uplink_Masque["WARP MASQUE (HTTP/3 Anycast :443)<br/>smoltcp TCP/IP стек"]
-        Uplink_Awg["WARP AmneziaWG (UDP Anycast / VPS)<br/>Обфускация I1 / Jc / H1..H4"]
-        Uplink_Cascade["WARP Cascade / Hybrid<br/>Автоматический failover"]
 
         WsPool ===>|Прямое MTProto WSS| Uplink_Anycast_Direct
         Supervisor -->|Режим WORKER| Uplink_Worker
-        Supervisor -->|Режим VLESS| Uplink_Vless
-        Supervisor -->|Режим MASQUE| Uplink_Masque
-        Supervisor -->|Режим AWG| Uplink_Awg
-        Supervisor -->|Режим WARP_CASCADE| Uplink_Cascade
     end
 
     subgraph Infrastructure ["4. Внешняя сетевая инфраструктура"]
         CF_CDN["Cloudflare Anycast CDN Edge<br/>(300+ локаций по миру)"]
         CF_Worker_Runtime["Cloudflare Worker Edge Runtime<br/>(TCP Sockets via cloudflare:sockets)"]
-        Private_VPS["Персональный VPS / VLESS Server"]
-        WARP_Anycast["Cloudflare WARP Anycast Network"]
 
         Uplink_Anycast_Direct --> CF_CDN
         Uplink_Worker --> CF_Worker_Runtime
-        Uplink_Vless --> Private_VPS
-        Uplink_Masque --> WARP_Anycast
-        Uplink_Awg --> WARP_Anycast
-        Uplink_Cascade --> CF_Worker_Runtime
     end
 
     subgraph TelegramCloud ["5. Инфраструктура серверов Telegram"]
@@ -283,9 +254,6 @@ flowchart TD
         CF_CDN -->|Прямой Web TCP Socket| TG_DC
         CF_Worker_Runtime -->|Защищенный TCP Socket| TG_DC
         CF_Worker_Runtime -->|VoIP TCP/UDP Relay| TG_VoIP
-        Private_VPS -->|Прямой сокет| TG_DC
-        WARP_Anycast -->|Anycast IP Routing| TG_DC
-        WARP_Anycast -->|Anycast IP Routing| TG_VoIP
     end
 ```
 
@@ -308,7 +276,7 @@ flowchart TD
 * **Главный экран (`HomeScreen`)**: центральная кнопка управления прокси, статус подключения, кольцо качества сети, переключатель режимов MTProto / SOCKS5, кнопка быстрого перехода «В Telegram» и лаконичная карточка активного маршрута (`Cloudflare WSS · Защищено`).
 * **Экран настроек (`SettingsScreen`)**:
   * *Простой режим*: выбор режима прокси, аплинка, таймер сна, расписание работы, автозапуск при включении устройства, выбор языка и темы.
-  * *Продвинутый режим*: параметры сокетов `TCP_NODELAY`, буферы сокетов, емкость WebSocket-пула, параметры Anycast WARP, кастомные конфигурации AWG/VLESS.
+  * *Продвинутый режим*: параметры сокетов `TCP_NODELAY`, буферы сокетов и емкость WebSocket-пула.
 * **Экран первого запуска (`OnboardingScreen`)**: пошаговый интерактивный мастер для быстрой начальной настройки.
 * **Официальный Telegram-канал (`TelegramChannelScreen`)**: информация о сообществе проекта и прямая ссылка на канал `@WhyOkyHb`.
 * **Менеджер воркеров (`WorkerManagerScreen`)**: список добавленных воркеров Cloudflare с замером пинга, статусными кодами (включая HTTP 429), вкладка сканера QR-кодов CameraX + Google ML Kit и вкладка генератора QR-кодов для обмена узлами.
@@ -345,7 +313,6 @@ flowchart TD
 | Параметр | По умолчанию | Описание |
 | :--- | :--- | :--- |
 | `proxyModeName` | `MTPROTO` | Активный локальный режим: `MTPROTO` или `SOCKS5` |
-| `uplinkModeName` | `WORKER` | Режим восходящего канала: `WORKER`, `VLESS`, `HYBRID`, `MASQUE`, `AWG`, `WARP_CASCADE` |
 | `bindHost` / `bindPort` | `127.0.0.1:1443` | Локальный IP-адрес и порт для MTProto |
 | `socks5Port` | `10808` | Локальный TCP-порт для SOCKS5 |
 | `socks5Username` / `socks5Password` | `""` | Учетные данные SOCKS5-аутентификации (RFC 1929) |
@@ -357,8 +324,6 @@ flowchart TD
 | `useDefaultWorkerSocks5` | `true` | Использование пула воркеров разработчика при отсутствии личного домена |
 | `isBatteryGuardEnabled` | `false` | Автоматическое отключение при критическом разряде аккумулятора |
 | `batteryGuardThreshold` | `15` | Порог срабатывания защиты аккумулятора (в процентах) |
-| `awgStrategyName` | `BALANCED` | Пресет обфускации AmneziaWG: `FAST`, `BALANCED`, `DEEP_STEALTH`, `CUSTOM` |
-| `awgCustomIni` | `""` | Пользовательская конфигурация AmneziaWG INI для личного VPS |
 | `allowPublicRelayFallbackForPrivateVps` | `false` | Запрет перенаправления приватного VPS на публичные релеи |
 | `autostartOnBoot` | `false` | Автозапуск прокси-службы при загрузке системы Android |
 | `verboseLogs` | `true` | Подробная запись сетевых событий в журнал |
@@ -521,7 +486,7 @@ chmod +x tools/build/build_native.sh
 | **`v1.1.8.1`** | Редизайн таймера сна | Нормализация доменов воркеров, Pre-Flight проверка узлов, обновленный диалог таймера сна. |
 | **`v1.1.8.2`** | ML Kit и изоляция | Аппаратный сканер QR-кодов Google ML Kit, генератор фирменных QR-кодов, изоляция секретного ключа MTProto, WebPKI сертификаты. |
 | **`v1.1.8.3`** | Спидтест и расписание | Тест скорости туннеля, субнегоциация SOCKS5 RFC 1929, планировщик по дням недели, спящий режим Deep Dormancy при офлайне. |
-| **`v2.0.0`** | Мульти-аплинк и FSM сети | Мульти-аплинк супервизор `RouteSupervisor` (Cloudflare Worker WSS, VLESS over WSS & Reality, SOCKS5, HYBRID, экспериментальные MASQUE, AWG, Cascade), дискретный FSM сети (`NORMAL`, `DEGRADED`, `RECOVERING`) с защитой от флэппинга, Network Generation Guard, Bounded Flow Control 4 МБ, экспресс-анализ Smart Connect, двухуровневые настройки (Simple/Advanced), экран первого запуска Onboarding, экран Telegram-канала `@WhyOkyHb`, безопасный диагностический отчёт (`Zero Secret Leak`), Error Taxonomy, полная английская и русская локализация, исправление TypeScript в воркере и превью системного VPN-режима. |
+| **`v2.0.0`** | FSM сети и UI | Дискретный FSM сети (`NORMAL`, `DEGRADED`, `RECOVERING`), Network Generation Guard, Bounded Flow Control 4 МБ, экспресс-анализ Smart Connect, двухуровневые настройки, Onboarding, безопасный диагностический отчёт и локализация. VPN-режим остаётся в разработке. |
 
 ---
 
@@ -548,6 +513,7 @@ chmod +x tools/build/build_native.sh
 * **[BbIBux](https://github.com/BbIBux)** — диагностика загрузки медиафайлов MTProto на операторах Т2 и Ростелеком, улучшение прозрачности диалогов (Issues #11, #12, #17).
 * **[ustiprog](https://github.com/ustiprog)** — инициатива внедрения постоянного таймера сна (Auto-Stop on Start) и предоставление детальной телеметрии разряда аккумулятора при отсутствии интернета, послужившей основой режима Deep Dormancy (Issue #21).
 * **[40OIL](https://github.com/40OIL)** — выявление дефекта перекрытия кнопок модальных окон системной трехкнопочной навигацией Android на Samsung Galaxy A55, инициировавшее аудит отступов (Issue #22).
+* **[CrazyGhostRider](https://github.com/CrazyGhostRider)** — воспроизводимый отчёт о зависании первого запуска при выборе языка на Samsung S21 Ultra с Android 14, позволивший исправить обработку касаний и смены локали в онбординге (Issue #29).
 * **[VikKalm](https://github.com/VikKalm)** — телеметрия и локализация блокировок воркеров на Android 13 arm64-v8a (Issue #6).
 * **[liveonloan](https://github.com/liveonloan)** — обнаружение визуального бага перекрытия элементов управления на Realme GT7 (Issue #14).
 * **[Dimaakaj](https://github.com/Dimaakaj)** — обнаружение синтаксической ошибки TypeScript `ts(2554)` в вызове `serverWs.accept()` в скрипте Cloudflare Worker, восстановившее деплой через веб-интерфейс Cloudflare.

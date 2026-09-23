@@ -102,7 +102,9 @@ data class NetworkProfile(
     val powerSaveMode: Boolean = false,
     val powerMode: NetworkPowerMode = NetworkPowerMode.ACTIVE,
     val transportSli: TransportSli = TransportSli(),
-    val happyEyeballsDelayMs: Long = 200L
+    val happyEyeballsDelayMs: Long = 200L,
+    val ipFamilyPreference: String = IpFamilyPreference.DUAL_STACK.name,
+    val webSocketKeepAliveSeconds: Int = 30
 ) {
     val isMobile: Boolean
         get() = cellular || transport == NetworkTransport.CELLULAR
@@ -177,6 +179,8 @@ data class NetworkProfile(
         put("power_mode", profile.powerMode.name)
         put("transport_sli", profile.transportSli.toJson())
         put("happy_eyeballs_delay_ms", profile.happyEyeballsDelayMs)
+        put("ip_family_preference", profile.ipFamilyPreference)
+        put("websocket_keep_alive_seconds", profile.webSocketKeepAliveSeconds)
     }.toString()
 
     companion object {
@@ -203,7 +207,9 @@ data class NetworkProfile(
                 }.getOrDefault(NetworkPowerMode.ACTIVE),
                 transportSli = json.optJSONObject("transport_sli")?.let(TransportSli::fromJson)
                     ?: TransportSli(),
-                happyEyeballsDelayMs = json.optLong("happy_eyeballs_delay_ms", 200L)
+                happyEyeballsDelayMs = json.optLong("happy_eyeballs_delay_ms", 200L),
+                ipFamilyPreference = json.optString("ip_family_preference", IpFamilyPreference.DUAL_STACK.name),
+                webSocketKeepAliveSeconds = json.optInt("websocket_keep_alive_seconds", 30)
             ).normalized()
         }
     }

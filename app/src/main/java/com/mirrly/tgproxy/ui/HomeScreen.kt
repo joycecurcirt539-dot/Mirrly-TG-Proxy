@@ -779,16 +779,7 @@ fun HomeScreen(
                             ) {
                                 if (activeTab == HomeScreenTab.VPN) {
                                     HapticHelper.performTapClick(context)
-                                    if (vpnState == VpnUiState.CONNECTED || vpnState == VpnUiState.CONNECTING) {
-                                        com.mirrly.tgproxy.service.MirrlyVpnService.stop(context)
-                                    } else {
-                                        val prepareIntent = com.mirrly.tgproxy.service.MirrlyVpnService.prepare(context)
-                                        if (prepareIntent != null) {
-                                            vpnLauncher.launch(prepareIntent)
-                                        } else {
-                                            com.mirrly.tgproxy.service.MirrlyVpnService.start(context)
-                                        }
-                                    }
+                                    showVpnInDevDialog = true
                                     return@clickable
                                 }
                                 if (pendingState != null || isSwitching) return@clickable
@@ -917,12 +908,7 @@ fun HomeScreen(
                                     ) {}
 
                                     Text(
-                                        text = when (vpnState) {
-                                            VpnUiState.CONNECTED -> stringResource(R.string.status_vpn_enabled)
-                                            VpnUiState.CONNECTING -> stringResource(R.string.status_vpn_connecting)
-                                            VpnUiState.DISCONNECTING -> stringResource(R.string.status_vpn_disconnecting)
-                                            VpnUiState.DISCONNECTED -> stringResource(R.string.status_vpn_disabled)
-                                        },
+                                        text = stringResource(R.string.status_vpn_in_dev),
                                         color = if (vpnState == VpnUiState.CONNECTED) TextWhite else TextMuted,
                                         fontSize = if (isCompactHeight) 13.5.sp else 14.5.sp,
                                         fontWeight = FontWeight.Bold,
@@ -933,7 +919,7 @@ fun HomeScreen(
                         }
 
                         Text(
-                            text = if (vpnState == VpnUiState.CONNECTED) stringResource(R.string.status_vpn_system_connected_desc) else stringResource(R.string.status_vpn_system_mode_desc),
+                            text = stringResource(R.string.status_vpn_in_dev_desc),
                             color = TextMuted,
                             fontSize = if (isCompactHeight) 11.sp else 11.5.sp,
                             fontWeight = FontWeight.Medium,
@@ -950,29 +936,76 @@ fun HomeScreen(
 
                         Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
 
-                        VpnInfoWidget(
-                            isCompact = isCompactHeight,
-                            vpnState = vpnState,
-                            vpnColors = systemVpnColors,
-                            vpnUplinkMode = vpnUplinkMode,
-                            onTap = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                showVpnInDevDialog = true
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
-
-                        VpnActionDock(
-                            onTapProtocol = {
+                        Surface(
+                            onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 showVpnInDevDialog = true
                             },
-                            onTapKillSwitch = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                showVpnInDevDialog = true
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF1E293B).copy(alpha = 0.35f),
+                            border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.35f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFFB74D).copy(alpha = 0.12f))
+                                        .border(1.dp, Color(0xFFFFB74D).copy(alpha = 0.45f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_settings),
+                                        contentDescription = null,
+                                        tint = Color(0xFFFFB74D),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.vpn_in_dev_card_title),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextWhite
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFFFFB74D).copy(alpha = 0.16f),
+                                            border = BorderStroke(0.6.dp, Color(0xFFFFB74D).copy(alpha = 0.50f))
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.settings_vpn_in_dev_badge),
+                                                fontSize = 8.5.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = Color(0xFFFFB74D),
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = stringResource(R.string.vpn_in_dev_card_desc),
+                                        fontSize = 11.5.sp,
+                                        color = TextMuted,
+                                        lineHeight = 15.sp
+                                    )
+                                }
                             }
-                        )
+                        }
                     } else {
                         // SOCKS5 Uplink / Worker Info Notice (Smooth expanding/shrinking from center with staggered delay)
                         AnimatedVisibility(

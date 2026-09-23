@@ -383,9 +383,6 @@ class ProxyStats {
         val deltaRx = if (currRecv > lastBytesRecv) currRecv - lastBytesRecv else 0L
         val deltaTx = if (currSent > lastBytesSent) currSent - lastBytesSent else 0L
 
-        if (deltaRx > 0L || deltaTx > 0L) {
-            distributeTrafficToDcEngine(deltaRx, deltaTx)
-        }
 
         if (currRecv >= lastBytesRecv) {
             val rawRx = ((currRecv - lastBytesRecv) / dt).toLong().coerceAtLeast(0)
@@ -411,67 +408,6 @@ class ProxyStats {
         lastBytesRecv = currRecv
         lastBytesSent = currSent
         lastCheckTime = now
-    }
-
-    private fun distributeTrafficToDcEngine(deltaRx: Long, deltaTx: Long) {
-        val totalDelta = deltaRx + deltaTx
-        if (totalDelta <= 0L) return
-
-        // 1. Оценка пакетов и протокольных диалектов MTProto
-        val estimatedPackets = (totalDelta / 1200L).coerceAtLeast(1L)
-        val intermPkts = (estimatedPackets * 0.88).toLong().coerceAtLeast(1L)
-        val paddedPkts = (estimatedPackets * 0.10).toLong().coerceAtLeast(0L)
-        val abridgedPkts = (estimatedPackets - intermPkts - paddedPkts).coerceAtLeast(0L)
-
-        dcAffinityEngine.recordTransportDialect("intermediate", intermPkts)
-        if (paddedPkts > 0) dcAffinityEngine.recordTransportDialect("padded", paddedPkts)
-        if (abridgedPkts > 0) dcAffinityEngine.recordTransportDialect("abridged", abridgedPkts)
-
-        // 2. Распределение трафика по DC:
-        // Если всплеск > 32 КБ -> Загрузка медиа (DC4 и FlowSeal CDN)
-        // Если поток умеренный (< 32 КБ) -> Обмен чатами и синхронизация (DC2)
-        if (deltaRx > 32_000L) {
-            val dc4Rx = (deltaRx * 0.55).toLong()
-            val cdnRx = (deltaRx * 0.30).toLong()
-            val dc2Rx = (deltaRx * 0.12).toLong()
-            val otherRx = deltaRx - dc4Rx - cdnRx - dc2Rx
-
-            val dc4Tx = (deltaTx * 0.40).toLong()
-            val dc2Tx = (deltaTx * 0.50).toLong()
-            val otherTx = deltaTx - dc4Tx - dc2Tx
-
-            dcAffinityEngine.recordTraffic(4, dc4Rx, dc4Tx)
-            dcAffinityEngine.recordTraffic(100, cdnRx, 0L)
-            dcAffinityEngine.recordTraffic(2, dc2Rx, dc2Tx)
-            if (otherRx > 0 || otherTx > 0) {
-                dcAffinityEngine.recordTraffic(1, otherRx / 2, otherTx / 2)
-                dcAffinityEngine.recordTraffic(5, otherRx - otherRx / 2, otherTx - otherTx / 2)
-            }
-        } else {
-            val dc2Rx = (deltaRx * 0.70).toLong()
-            val dc4Rx = (deltaRx * 0.18).toLong()
-            val cdnRx = (deltaRx * 0.08).toLong()
-            val otherRx = deltaRx - dc2Rx - dc4Rx - cdnRx
-
-            val dc2Tx = (deltaTx * 0.80).toLong()
-            val dc4Tx = (deltaTx * 0.15).toLong()
-            val otherTx = deltaTx - dc2Tx - dc4Tx
-
-            dcAffinityEngine.recordTraffic(2, dc2Rx, dc2Tx)
-            dcAffinityEngine.recordTraffic(4, dc4Rx, dc4Tx)
-            if (cdnRx > 0) dcAffinityEngine.recordTraffic(100, cdnRx, 0L)
-            if (otherRx > 0 || otherTx > 0) {
-                dcAffinityEngine.recordTraffic(1, otherRx / 2, otherTx / 2)
-                dcAffinityEngine.recordTraffic(5, otherRx - otherRx / 2, otherTx - otherTx / 2)
-            }
-        }
-
-        // 3. Синхронизация активных сокетов
-        val active = activeConnections.get().coerceAtLeast(0)
-        val dc2Conns = if (active > 1) active - 1 else if (active == 1) 1 else 0
-        val dc4Conns = if (active > 1) 1 else 0
-        dcAffinityEngine.setActiveConnections(2, dc2Conns)
-        dcAffinityEngine.setActiveConnections(4, dc4Conns)
     }
 
     companion object {

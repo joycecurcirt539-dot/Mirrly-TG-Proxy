@@ -607,7 +607,7 @@ fun CameraQrScannerView(
         if (cameraControl != null) {
             Surface(
                 shape = CircleShape,
-                color = if (isTorchOn) activeAccentColor else AmoledSurfaceLow.copy(alpha = 0.75f),
+                color = Color.Transparent,
                 border = BorderStroke(1.dp, if (isTorchOn) activeAccentColor else AmoledBorder),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -624,7 +624,7 @@ fun CameraQrScannerView(
                             id = if (isTorchOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off
                         ),
                         contentDescription = if (isTorchOn) stringResource(R.string.qr_scanner_torch_off) else stringResource(R.string.qr_scanner_torch_on),
-                        tint = if (isTorchOn) Color(0xFF090D16) else TextWhite,
+                        tint = if (isTorchOn) activeAccentColor else TextWhite,
                         modifier = Modifier.size(19.dp)
                     )
                 }

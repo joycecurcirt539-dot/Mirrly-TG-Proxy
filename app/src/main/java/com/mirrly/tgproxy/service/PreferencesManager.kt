@@ -151,6 +151,9 @@ class PreferencesManager(private val context: Context) {
         val tcpNoDelayModeName = com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO.name
         val tcpNoDelay = true
         val bufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
+        val happyEyeballsDelayMs = prefs.getLong("happy_eyeballs_delay_ms", defaults.happyEyeballsDelayMs)
+        val ipFamilyPreferenceName = prefs.getString("ip_family_preference", defaults.ipFamilyPreferenceName) ?: defaults.ipFamilyPreferenceName
+        val webSocketKeepAliveSeconds = prefs.getInt("socket_keep_alive_seconds", defaults.webSocketKeepAliveSeconds)
         val socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
         val socks5Username = prefs.getString("socks5_username", defaults.socks5Username) ?: defaults.socks5Username
         val socks5Password = secretPrefs.getString("socks5_password", null) ?: prefs.getString("socks5_password", defaults.socks5Password) ?: defaults.socks5Password
@@ -239,6 +242,9 @@ class PreferencesManager(private val context: Context) {
             tcpNoDelayModeName = tcpNoDelayModeName,
             tcpNoDelay = tcpNoDelay,
             bufferSizeBytes = bufferSizeBytes,
+            happyEyeballsDelayMs = happyEyeballsDelayMs,
+            ipFamilyPreferenceName = ipFamilyPreferenceName,
+            webSocketKeepAliveSeconds = webSocketKeepAliveSeconds,
             socks5Port = socks5Port,
             socks5Username = socks5Username,
             socks5Password = socks5Password,
@@ -350,6 +356,9 @@ class PreferencesManager(private val context: Context) {
             .putString("tcp_nodelay_mode", config.tcpNoDelayModeName)
             .putBoolean("tcp_nodelay", config.tcpNoDelay)
             .putInt("buffer_size_bytes", config.bufferSizeBytes)
+            .putLong("happy_eyeballs_delay_ms", config.happyEyeballsDelayMs)
+            .putString("ip_family_preference", config.ipFamilyPreferenceName)
+            .putInt("socket_keep_alive_seconds", config.webSocketKeepAliveSeconds)
             .putInt("socks5_port", config.socks5Port)
             .putString("socks5_username", config.socks5Username)
             .putBoolean("use_default_worker_socks5", config.useDefaultWorkerSocks5)
@@ -1041,7 +1050,10 @@ class PreferencesManager(private val context: Context) {
     fun setAppLanguage(langCode: String) {
         prefs.edit().putString("app_language", langCode).apply()
         _appLanguageFlow.value = langCode
-        com.mirrly.tgproxy.util.LocaleHelper.applyLocale(context, langCode)
+        // MainActivity observes appLanguageFlow and supplies a localized Compose context.
+        // Mutating Resources here during a click can invalidate the active composition and
+        // leave the first-run onboarding controls unresponsive on Android 14.
+        java.util.Locale.setDefault(com.mirrly.tgproxy.util.LocaleHelper.getTargetLocale(langCode))
     }
 
     // ── Advanced / Expert Mode Settings ──────────────────────────────────────
@@ -1088,6 +1100,9 @@ class PreferencesManager(private val context: Context) {
         config.tcpNoDelayModeName = com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO.name
         config.tcpNoDelay = true
         config.bufferSizeBytes = 262144
+        config.happyEyeballsDelayMs = 200L
+        config.ipFamilyPreferenceName = com.mirrly.tgproxy.core.IpFamilyPreference.DUAL_STACK.name
+        config.webSocketKeepAliveSeconds = 30
         config.warpUserEndpointOverride = ""
     }
 

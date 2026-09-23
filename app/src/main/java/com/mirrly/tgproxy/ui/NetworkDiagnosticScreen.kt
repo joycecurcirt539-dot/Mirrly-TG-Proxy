@@ -175,6 +175,7 @@ fun NetworkDiagnosticScreen(
             "active_worker" to Pair(R.string.nd_info_active_worker_title, R.string.nd_info_active_worker_desc),
             "protocol_mode" to Pair(R.string.nd_info_protocol_mode_title, R.string.nd_info_protocol_mode_desc),
             "mos" to Pair(R.string.nd_info_mos_title, R.string.nd_info_mos_desc),
+            "mtproto_pool" to Pair(R.string.nd_info_mtproto_pool_title, R.string.nd_info_mtproto_pool_desc),
             "bufferbloat" to Pair(R.string.nd_info_bufferbloat_title, R.string.nd_info_bufferbloat_desc),
             "math_model" to Pair(R.string.nd_info_math_model_title, R.string.nd_info_math_model_desc),
             "cf_quota" to Pair(R.string.nd_info_cf_quota_title, R.string.nd_info_cf_quota_desc)
@@ -275,7 +276,7 @@ fun NetworkDiagnosticScreen(
                     }
                 }
 
-                // 2. RIGHT HERO CARD: CALLS & VIDEO
+                // 2. RIGHT HERO CARD: CALLS & VIDEO (SOCKS5) OR THREAD POOL (MTPROTO)
                 val mosColor = when {
                     mosScore >= 4.20 -> Color(0xFF00FF87)
                     mosScore >= 3.80 -> Color(0xFF38BDF8)
@@ -292,7 +293,7 @@ fun NetworkDiagnosticScreen(
                         .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(20.dp))
                         .clickable {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            infoKey = "mos"
+                            infoKey = if (isSocks5) "mos" else "mtproto_pool"
                         }
                         .padding(14.dp)
                 ) {
@@ -307,41 +308,73 @@ fun NetworkDiagnosticScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = stringResource(R.string.nd_calls_video_title),
+                                text = if (isSocks5) stringResource(R.string.nd_calls_video_title) else stringResource(R.string.nd_hero_mtproto_pool_title),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 1.1.sp,
                                 color = TextMuted
                             )
-                            InfoButton { infoKey = "mos" }
+                            InfoButton { infoKey = if (isSocks5) "mos" else "mtproto_pool" }
                         }
 
-                        LiquidWaveQualityCircle(
-                            score = callScore,
-                            isProxyActive = isProxyActive,
-                            isSocks5 = isSocks5,
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                infoKey = "mos"
-                            },
-                            modifier = Modifier.size(64.dp)
-                        )
+                        if (isSocks5) {
+                            LiquidWaveQualityCircle(
+                                score = callScore,
+                                isProxyActive = isProxyActive,
+                                isSocks5 = true,
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    infoKey = "mos"
+                                },
+                                modifier = Modifier.size(64.dp)
+                            )
 
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = if (isProxyActive) String.format(java.util.Locale.US, "%.2f MOS", mosScore) else "—",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Black,
-                                color = TextWhite
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = if (isProxyActive) String.format(java.util.Locale.US, "%.2f MOS", mosScore) else "—",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = TextWhite
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (isProxyActive) mosGrade else stringResource(R.string.nd_stopped),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = mosColor,
+                                    maxLines = 1
+                                )
+                            }
+                        } else {
+                            val poolScore = if (isProxyActive) (poolSize * 25).coerceIn(25, 100) else 0
+                            val poolColor = if (isProxyActive) Color(0xFF00FF87) else TextMuted
+                            LiquidWaveQualityCircle(
+                                score = poolScore,
+                                isProxyActive = isProxyActive,
+                                isSocks5 = false,
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    infoKey = "mtproto_pool"
+                                },
+                                modifier = Modifier.size(64.dp)
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = if (isProxyActive) mosGrade else stringResource(R.string.nd_stopped),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = mosColor,
-                                maxLines = 1
-                            )
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = if (isProxyActive) stringResource(R.string.nd_hero_mtproto_slots_val, poolSize) else "—",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = TextWhite
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (isProxyActive) stringResource(R.string.nd_hero_mtproto_slots_desc) else stringResource(R.string.nd_stopped),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = poolColor,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
                 }
@@ -409,7 +442,7 @@ fun NetworkDiagnosticScreen(
                             border = BorderStroke(1.dp, speedTestAccent.copy(alpha = 0.5f))
                         ) {
                             Text(
-                                text = stringResource(R.string.nd_speedtest_in_dev),
+                                text = stringResource(R.string.nd_speedtest_action_run),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Black,
                                 color = speedTestAccent,
@@ -432,6 +465,7 @@ fun NetworkDiagnosticScreen(
                 mosScore = mosScore,
                 lastFailureType = lastFailureType,
                 isProxyActive = isProxyActive,
+                isSocks5 = isSocks5,
                 onInfoClick = { infoKey = "smart_insights" }
             )
 
@@ -457,6 +491,7 @@ fun NetworkDiagnosticScreen(
                 mosScore = mosScore,
                 poolSize = poolSize,
                 isProxyActive = isProxyActive,
+                isSocks5 = isSocks5,
                 onItemClick = { key -> infoKey = key },
                 onInfoClick = { infoKey = "readiness_grid" }
             )
@@ -533,15 +568,27 @@ fun NetworkDiagnosticScreen(
                             else -> Color(0xFFFF0055)
                         }
 
-                        DiagnosticMetricRow(
-                            iconRes = R.drawable.ic_diag_voip,
-                            iconColor = Color(0xFF38BDF8),
-                            title = stringResource(R.string.nd_calls_quality_title),
-                            value = if (isProxyActive && pingMs > 0) "${String.format(java.util.Locale.US, "%.2f", mosScore)} / 4.50 (${mosGrade})" else "—",
-                            badgeText = if (isProxyActive && pingMs > 0) (if (isCallRecommended) stringResource(R.string.nd_badge_hd_voice) else stringResource(R.string.nd_badge_noise)) else stringResource(R.string.nd_badge_waiting),
-                            badgeColor = if (isProxyActive && pingMs > 0) mosBadgeColor else Color(0xFF38BDF8),
-                            onInfoClick = { infoKey = "mos" }
-                        )
+                        if (isSocks5) {
+                            DiagnosticMetricRow(
+                                iconRes = R.drawable.ic_diag_voip,
+                                iconColor = Color(0xFF38BDF8),
+                                title = stringResource(R.string.nd_calls_quality_title),
+                                value = if (isProxyActive && pingMs > 0) "${String.format(java.util.Locale.US, "%.2f", mosScore)} / 4.50 (${mosGrade})" else "—",
+                                badgeText = if (isProxyActive && pingMs > 0) (if (isCallRecommended) stringResource(R.string.nd_badge_hd_voice) else stringResource(R.string.nd_badge_noise)) else stringResource(R.string.nd_badge_waiting),
+                                badgeColor = if (isProxyActive && pingMs > 0) mosBadgeColor else Color(0xFF38BDF8),
+                                onInfoClick = { infoKey = "mos" }
+                            )
+                        } else {
+                            DiagnosticMetricRow(
+                                iconRes = R.drawable.ic_diag_voip,
+                                iconColor = TextMuted,
+                                title = stringResource(R.string.nd_calls_quality_title),
+                                value = stringResource(R.string.nd_calls_unsupported_mtproto),
+                                badgeText = stringResource(R.string.nd_badge_socks5_only),
+                                badgeColor = Color(0xFF818CF8),
+                                onInfoClick = { infoKey = "mos" }
+                            )
+                        }
                     }
                 }
             }
@@ -692,71 +739,6 @@ fun NetworkDiagnosticScreen(
                                     infoKey = "cf_quota"
                                 }
                             }
-                        )
-                    }
-                }
-            }
-
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF161A26)))
-
-            // ── SECTION 4: MATHEMATICAL MODEL SQI ──
-            Column(
-                modifier = Modifier.staggeredEntrance(index = 4),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.nd_math_model_title),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.3.sp,
-                        color = TextMuted
-                    )
-                    InfoButton { infoKey = "math_model" }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Transparent)
-                        .border(1.dp, Color(0xFF1E2333), RoundedCornerShape(20.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            infoKey = "math_model"
-                        }
-                        .padding(16.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_diag_formula),
-                                contentDescription = null,
-                                tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = stringResource(R.string.nd_nonlinear_title),
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                        }
-
-                        Text(
-                            text = stringResource(R.string.nd_nonlinear_desc),
-                            color = TextMuted,
-                            fontSize = 12.sp,
-                            lineHeight = 16.5.sp
                         )
                     }
                 }
@@ -1311,6 +1293,7 @@ fun ContentReadinessGrid(
     mosScore: Double,
     poolSize: Int,
     isProxyActive: Boolean,
+    isSocks5: Boolean,
     onItemClick: (String) -> Unit,
     onInfoClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -1356,15 +1339,17 @@ fun ContentReadinessGrid(
         else -> Color(0xFFFF0055)
     }
 
-    // 3. Heavy files and 4K
+    // 3. Heavy files and 4K (SOCKS5: direct TCP stream; MTProto: standby pool)
     val filesStatus = when {
         !isProxyActive -> stringResource(R.string.nd_proxy_stopped)
+        isSocks5 -> if (bufferbloatMs <= 25) stringResource(R.string.nd_ready_socks5_direct_stream) else stringResource(R.string.nd_ready_standard_stream)
         bufferbloatMs <= 25 && poolSize >= 4 -> stringResource(R.string.nd_ready_turbo_stream, poolSize)
         bufferbloatMs <= 75 -> stringResource(R.string.nd_ready_standard_stream)
         else -> stringResource(R.string.nd_ready_queue_limit)
     }
     val filesBadge = when {
         !isProxyActive -> stringResource(R.string.nd_stopped)
+        isSocks5 -> if (bufferbloatMs <= 25) stringResource(R.string.nd_ready_socks5_buffer) else "Balanced"
         bufferbloatMs <= 25 -> stringResource(R.string.nd_ready_2mb_buffer)
         bufferbloatMs <= 75 -> "Balanced"
         else -> "Bufferbloat"
@@ -1376,9 +1361,10 @@ fun ContentReadinessGrid(
         else -> Color(0xFFFFB703)
     }
 
-    // 4. Calls and video
+    // 4. Calls and video (SOCKS5 only; MTProto does not support VoIP)
     val callsStatus = when {
         !isProxyActive -> stringResource(R.string.nd_proxy_stopped)
+        !isSocks5 -> stringResource(R.string.nd_calls_unsupported_mtproto)
         mosScore >= 4.20 -> "HD Voice (Opus 48k)"
         mosScore >= 3.80 -> stringResource(R.string.nd_ready_good_clarity)
         mosScore >= 3.10 -> stringResource(R.string.nd_ready_acceptable_audio)
@@ -1386,6 +1372,7 @@ fun ContentReadinessGrid(
     }
     val callsBadge = when {
         !isProxyActive -> stringResource(R.string.nd_stopped)
+        !isSocks5 -> stringResource(R.string.nd_badge_socks5_only)
         mosScore >= 4.20 -> "HD 1080p"
         mosScore >= 3.80 -> "HD 720p"
         mosScore >= 3.10 -> stringResource(R.string.nd_ready_sd_call)
@@ -1393,6 +1380,7 @@ fun ContentReadinessGrid(
     }
     val callsBadgeColor = when {
         !isProxyActive -> TextMuted
+        !isSocks5 -> Color(0xFF818CF8)
         mosScore >= 4.20 -> Color(0xFF00FF87)
         mosScore >= 3.80 -> Color(0xFF38BDF8)
         mosScore >= 3.10 -> Color(0xFFFFB703)
@@ -1672,7 +1660,7 @@ fun HopByHopBottleneckRadar(
                 ) {
                     HopNode(
                         label = stringResource(R.string.nd_hop_client),
-                        subLabel = ":10808",
+                        subLabel = if (isSocks5) ":10808" else ":1080",
                         state = hop1State,
                         primaryColor = primaryColor,
                         onClick = { onHopClick("hop_device") }
@@ -1704,7 +1692,7 @@ fun HopByHopBottleneckRadar(
                     HopLink(isActive = isProxyActive, isAlert = hop5State >= 2)
                     HopNode(
                         label = "Telegram",
-                        subLabel = "DC1-5",
+                        subLabel = if (isSocks5) "DC + VoIP" else "DC 1–5",
                         state = hop5State,
                         primaryColor = primaryColor,
                         onClick = { onHopClick("hop_tg_dc") }
@@ -1827,6 +1815,7 @@ fun SmartNetworkInsightsCard(
     mosScore: Double,
     lastFailureType: FailureType,
     isProxyActive: Boolean,
+    isSocks5: Boolean,
     onInfoClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1850,7 +1839,9 @@ fun SmartNetworkInsightsCard(
         )
         jitterMs > 35L -> Triple(
             stringResource(R.string.nd_insight_jitter_title),
-            stringResource(R.string.nd_insight_jitter_desc, jitterMs),
+            if (isSocks5) stringResource(R.string.nd_insight_jitter_desc, jitterMs)
+            else stringResource(R.string.nd_insight_jitter_desc, jitterMs)
+                .replace("Для стабильных голосовых и видеозвонков без прерываний", "Для быстрой и стабильной передачи медиа"),
             Color(0xFFFFB703)
         )
         bufferbloatMs >= 100L -> Triple(
@@ -1868,14 +1859,15 @@ fun SmartNetworkInsightsCard(
             stringResource(R.string.nd_insight_loss_desc, 100 - successRate),
             Color(0xFFFF0055)
         )
-        mosScore < 3.80 -> Triple(
+        isSocks5 && mosScore < 3.80 -> Triple(
             stringResource(R.string.nd_insight_calls_title),
             stringResource(R.string.nd_insight_calls_desc, String.format(java.util.Locale.US, "%.2f", mosScore)),
             Color(0xFFFFB703)
         )
         else -> Triple(
             stringResource(R.string.nd_insight_ideal_title),
-            stringResource(R.string.nd_insight_ideal_desc, healthScore),
+            if (isSocks5) stringResource(R.string.nd_insight_ideal_desc, healthScore)
+            else stringResource(R.string.nd_insight_ideal_desc, healthScore).replace(" и кристально чистым звонкам", ""),
             Color(0xFF00FF87)
         )
     }

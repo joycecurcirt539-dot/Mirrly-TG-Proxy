@@ -570,30 +570,14 @@ fun WorkerManagerScreen(
                                             }
 
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    Text(
-                                                        text = stringResource(R.string.cf_deploy_quick_banner_title),
-                                                        color = TextWhite,
-                                                        fontSize = 13.sp,
-                                                        fontWeight = FontWeight.SemiBold
-                                                    )
-                                                    Surface(
-                                                        shape = RoundedCornerShape(4.dp),
-                                                        color = Color(0xFFF38020).copy(alpha = 0.15f),
-                                                        border = BorderStroke(0.5.dp, Color(0xFFF38020).copy(alpha = 0.45f))
-                                                    ) {
-                                                        Text(
-                                                            text = "Cloudflare",
-                                                            color = Color(0xFFF38020),
-                                                            fontSize = 9.5.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                        )
-                                                    }
-                                                }
+                                                Text(
+                                                    text = stringResource(R.string.cf_deploy_quick_banner_title),
+                                                    color = TextWhite,
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
                                                 Text(
                                                     text = stringResource(R.string.cf_deploy_quick_banner_desc),
                                                     color = TextMuted,
@@ -1155,7 +1139,9 @@ fun WorkerManagerScreen(
 
                                 // 3 Fixed-Width Segmented Filter Chips + Add Button
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -1164,7 +1150,7 @@ fun WorkerManagerScreen(
                                         count = allWorkers.size,
                                         isSelected = selectedFilter == WmWorkerFilterType.ALL,
                                         activeColor = activeProtoColor,
-                                        modifier = Modifier.weight(0.9f),
+                                        modifier = Modifier.width(76.dp),
                                         onClick = {
                                             selectedFilter = WmWorkerFilterType.ALL
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1175,7 +1161,7 @@ fun WorkerManagerScreen(
                                         count = devWorkers.size,
                                         isSelected = selectedFilter == WmWorkerFilterType.DEVELOPER,
                                         activeColor = activeProtoColor,
-                                        modifier = Modifier.weight(1.05f),
+                                        modifier = Modifier.width(94.dp),
                                         onClick = {
                                             selectedFilter = WmWorkerFilterType.DEVELOPER
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1186,7 +1172,7 @@ fun WorkerManagerScreen(
                                         count = customWorkers.size,
                                         isSelected = selectedFilter == WmWorkerFilterType.CUSTOM,
                                         activeColor = activeProtoColor,
-                                        modifier = Modifier.weight(1.05f),
+                                        modifier = Modifier.width(94.dp),
                                         onClick = {
                                             selectedFilter = WmWorkerFilterType.CUSTOM
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1294,7 +1280,7 @@ fun WorkerManagerScreen(
                         ManagerSection.SCANNER -> {
                             Surface(
                                 shape = RoundedCornerShape(11.dp),
-                                color = AmoledSurfaceLow,
+                                color = Color.Transparent,
                                 border = BorderStroke(1.dp, AmoledBorder),
                                 modifier = Modifier.fillMaxWidth().height(34.dp)
                             ) {
@@ -1602,6 +1588,9 @@ private fun GlassWorkerCard(
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isCf) Color(0xFFF38020) else TextMuted,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
                             )
                         }
@@ -2974,7 +2963,7 @@ private fun ScannerWorkerContent(
         // Camera Viewport Card
         Surface(
             shape = RoundedCornerShape(26.dp),
-            color = AmoledSurfaceLow.copy(alpha = 0.92f),
+            color = Color.Transparent,
             border = BorderStroke(1.2.dp, activeAccentColor.copy(alpha = 0.45f)),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -3003,7 +2992,7 @@ private fun ScannerWorkerContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(260.dp)
-                            .background(AmoledSurface, RoundedCornerShape(20.dp))
+                            .background(Color.Transparent, RoundedCornerShape(20.dp))
                             .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(20.dp))
                             .padding(20.dp)
                     ) {
@@ -3071,7 +3060,7 @@ private fun ScannerWorkerContent(
         // Quick Action: Paste from clipboard
         Surface(
             shape = RoundedCornerShape(14.dp),
-            color = AmoledSurfaceLow,
+            color = Color.Transparent,
             border = BorderStroke(1.dp, AmoledBorder),
             modifier = Modifier
                 .fillMaxWidth()

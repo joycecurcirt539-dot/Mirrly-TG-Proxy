@@ -23,6 +23,7 @@ import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.DnsScope
 import com.mirrly.tgproxy.core.DohResolver
+import com.mirrly.tgproxy.core.NativeProxy
 import com.mirrly.tgproxy.core.PingEngine
 import com.mirrly.tgproxy.core.PingProbeResult
 import com.mirrly.tgproxy.core.ProxyConfig
@@ -198,6 +199,19 @@ object PreflightDiagnosticsEngine {
         val bestDc = responsiveDcs.firstOrNull()?.first ?: (candidates.firstOrNull() ?: "kws2.web.telegram.org:443")
         val bestRtt = responsiveDcs.firstOrNull()?.second?.rawRttMs ?: -1L
         val fallbackDcs = responsiveDcs.map { it.first }.filter { it != bestDc }
+
+        // The Rust balancer accepts a full kws{dc}.domain:port candidate and
+        // normalizes it to the Flowseal base domain. Pin only a route that was
+        // actually reachable; the normal CDN race remains the fallback.
+        val promoted = if (bestRtt > 0) {
+            NativeProxy.promoteMtprotoAnycastDomain(dcId = 2, domain = bestDc)
+        } else {
+            false
+        }
+        AppLogger.i(
+            TAG,
+            "MTProto Anycast preflight winner: $bestDc (${if (bestRtt > 0) "${bestRtt}ms" else "unverified"}), applied=$promoted"
+        )
 
         PredictivePreWarmManager.updateHotReserve(
             HotReserveRoutes(

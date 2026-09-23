@@ -4,11 +4,11 @@
 
 # Mirrly TG Proxy for Android
 
-**Local routing gateway for Telegram powered by the native Rust engine (mirrlyengine) with MTProto, SOCKS5, and multi-uplink tunneling support (Cloudflare Worker WSS, WARP MASQUE HTTP/3, AmneziaWG, VLESS, WARP Cascade) without system VPN**
+**Local Telegram routing gateway powered by the native Rust engine (mirrlyengine), with MTProto and SOCKS5 support**
 
 <br/>
 
-**[ 🇷🇺 Русский ](README.md)** &nbsp;|&nbsp; **[ 🇬🇧 English ](README_EN.md)**
+**[ 🇷🇺 Русский ](README.md)** &nbsp;|&nbsp; **[ 🇬🇧 English ](README_EN.md)** &nbsp;|&nbsp; **[ 🇮🇷 فارسی ](README_FA.md)**
 
 <br/>
 
@@ -19,8 +19,8 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_&_WARP-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Release](https://img.shields.io/badge/Release-v2.0.0-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
-[![Language](https://img.shields.io/badge/Language-RU_%7C_EN-1E293B?logo=translate&logoColor=26A5E4)](#7-application-ui)
+[![Release](https://img.shields.io/badge/Release-v2.0.0.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Language](https://img.shields.io/badge/Language-RU_%7C_EN_%7C_FA-1E293B?logo=translate&logoColor=26A5E4)](#7-application-ui)
 [![Genesis](https://img.shields.io/badge/Genesis-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Stars](https://img.shields.io/github/stars/joycecurcirt539-dot/Mirrly-TG-Proxy?color=1E293B&logo=github&logoColor=F5A623)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/stargazers)
@@ -35,7 +35,7 @@
 [![Terms](https://img.shields.io/badge/TERMS-1E293B)](TERMS_OF_USE.md)
 [![License](https://img.shields.io/badge/GPLv3-1E293B)](LICENSE)
 
-*Telegram traffic routing powered by the native mirrlyengine core (Rust/Tokio). Supports MTProto and SOCKS5 protocols, multi-uplink architecture (Cloudflare Worker WSS, VLESS, WARP MASQUE HTTP/3, AmneziaWG, WARP Cascade), discrete FSM network stabilization, 4 MB buffer flow control, and secure preflight diagnostics. Runs locally on the device without root privileges and without creating a system VPN tunnel.*
+*Telegram traffic routing powered by the native mirrlyengine core (Rust/Tokio). Supports MTProto and SOCKS5, network stabilization, bounded flow control, and secure preflight diagnostics. Runs locally on the device without root privileges and without creating a system VPN tunnel.*
 
 <br/>
 
@@ -74,7 +74,9 @@
 
 **Mirrly TG Proxy** is a free and open-source Android application serving as a high-performance local proxy gateway for Telegram traffic. The application addresses unstable connectivity, protocol throttling, media download slowdowns, and DPI filtering imposed by ISPs and mobile carriers.
 
-The app **does not use** the system `VpnService` for routing Telegram and **does not intercept** third-party device traffic. Telegram connects to a local socket on the device (`127.0.0.1:1443` for MTProto or `127.0.0.1:10808` for SOCKS5) handled by the native `mirrlyengine` core (Rust/Tokio). The engine encapsulates packets into secure external tunnels and relays them to Telegram data centers via Cloudflare Edge Anycast, private Cloudflare Workers, VLESS, or custom tunnels.
+The app **does not use** the system `VpnService` for routing Telegram and **does not intercept** third-party device traffic. Telegram connects to a local socket on the device (`127.0.0.1:1443` for MTProto or `127.0.0.1:10808` for SOCKS5) handled by the native `mirrlyengine` core (Rust/Tokio) and relayed through Cloudflare Edge Anycast or a Cloudflare Worker.
+
+> **VPN mode is under development and must not be used yet.** VLESS, WARP, MASQUE, AWG, and cascade VPN routes are not working features of the current release.
 
 ---
 
@@ -84,11 +86,8 @@ The app **does not use** the system `VpnService` for routing Telegram and **does
 * **Dual Local Protocols for Telegram**:
   * *MTProto* (port `1443`): FakeTLS domain masquerading (`ee` / `dd`), persistent connection pool (`WsPool`), and direct interaction with Anycast CDN.
   * *SOCKS5* (port `10808`): Transparent TCP relay with username/password subnegotiation (RFC 1928 / RFC 1929), domain name resolution, IPv4/IPv6 support, and voice/video calls.
-* **Stable Uplink Modes**:
+* **Stable Uplink Mode**:
   * `WORKER`: Tunneling via Cloudflare Worker over WebSocket TLS 1.3 on port 443 with Anti-Open-Relay security rules.
-  * `VLESS`: VLESS over WebSocket masqueraded as standard HTTPS traffic on port 443, supporting CDN domain pools and Reality.
-  * `SOCKS5`: Direct TCP stream relaying through secure upstreams.
-  * `HYBRID`: Automatic connection failover when the primary upstream becomes unavailable.
 * **Networking & Stability Core**:
   * *Telegram DC-Affinity Engine*: Direct session routing to Telegram DCs (DC1–DC5) preventing repeated cryptographic handshakes.
   * *Trust Policy & Node Isolation*: Isolation of private VPS configurations from public relay fallback (`allowPublicRelayFallbackForPrivateVps`).
@@ -105,15 +104,8 @@ The app **does not use** the system `VpnService` for routing Telegram and **does
   * *Error Taxonomy*: User-friendly localization and machine-readable error codes for logs.
   * *Cryptographic Integrity Verification*: Native C++ NDK signature validation (`SignatureVerifier`) and automated SHA-256 hash checks via `UpdateChecker`.
 
-#### 2. Experimental Features (In Testing / ISP Dependent)
-* **MASQUE Mode (Anycast HTTP/3)**: Direct tunneling via Cloudflare WARP using `CONNECT-UDP` and QUIC datagrams. Dependent on UDP/Anycast reachability on the local carrier.
-* **AWG Mode (AmneziaWG Anycast)**: Obfuscated WireGuard Anycast designed to bypass DPI (`H1..H4`, `Jc`, `I1` initialization, custom INI import for private VPS).
-* **WARP Cascade Mode (`WARP_CASCADE`)**: Intelligent fallback sequence: `MASQUE` -> `AWG` -> `Worker WSS`.
-* **WARP Pipeline Profiler**: Millisecond-precision latency profiling across 4 tunnel startup phases.
-* **WARP Account Manager**: Client-side device registration and Anycast endpoint scanning.
-
-#### 3. In Active Development (Preview)
-* **System VPN Mode (`VpnModeScreen` / `MirrlyVpnService`)**: Kinetic UI preview with orbital ring animation for future device-wide traffic protection (Telegram proxying remains completely autonomous and does not require system VPN).
+#### 2. In Development
+* **System VPN and VPN uplinks**: VLESS, WARP, MASQUE, AWG, and cascade routes are under development and not ready for use.
 * **In-App Speed Test (`TunnelSpeedTestScreen` / `SpeedTestInDevDialog`)**: Built-in throughput measurement module.
 
 ---
@@ -134,12 +126,11 @@ The application operates two independent local gateways powered by the native **
 2. Supported commands:
    * `CONNECT (0x01)`: Proxies TCP streams for chats, channels, bots, and media downloads;
    * `UDP ASSOCIATE (0x03)`: Tunnels UDP datagrams for Telegram VoIP audio and video calls.
-3. The `RouteSupervisor` dispatcher routes the stream into the active Uplink transport:
-   * **`WORKER`**: Encapsulates TCP into WebSocket TLS 1.3 to a personal Cloudflare Worker (or developer pool), which opens raw TCP sockets to target DCs via the `cloudflare:sockets` API;
-   * **`VLESS`**: Relays traffic over VLESS WebSocket (TLS 1.3 :443) or Reality directly to a private VPS or CDN;
-   * **`MASQUE`** *(in testing)*: Anycast tunneling via HTTP/3 QUIC (`CONNECT-UDP`) with an embedded `smoltcp` userspace TCP/IP stack into Cloudflare WARP;
-   * **`AWG`** *(in testing)*: Obfuscated WireGuard Anycast designed to bypass DPI (`I1`, `Jc`, `H1..H4`) with the `smoltcp` stack;
-   * **`WARP_CASCADE` / `HYBRID`**: Intelligent multi-stage fallback across transports during radio degradation or ISP blocks.
+3. The dispatcher relays the stream through Cloudflare Worker WSS; VPN uplinks are under development and are not part of this route.
+
+### Telegram Calls
+
+Calls are supported only through SOCKS5. Every call participant must have an active proxy with a TCP connection and must enable “Use proxy for calls” in Telegram. Calls can depend on each participant's network and carrier restrictions, so they are not guaranteed to work for everyone. MTProto mode does not support calls.
 
 ---
 
@@ -150,11 +141,6 @@ In SOCKS5 mode, the `RouteSupervisor` module in `mirrlyengine` manages the follo
 | Mode (`UplinkMode`) | Status | Protocol & Port | Description |
 | :--- | :--- | :--- | :--- |
 | **`WORKER`** | **Stable** | WebSocket TLS 1.3 (`:443`) | Traffic is encapsulated into WebSocket to Cloudflare Worker, where `cloudflare:sockets` opens direct TCP sockets to Telegram DCs and VoIP reflectors. Protected by Anti-Open-Relay filters. |
-| **`VLESS`** | **Stable** | VLESS WSS TLS 1.3 (`:443`) | VLESS protocol disguised as standard HTTPS traffic on port 443. Supports CDN domain pools, private VPS endpoints, and Reality. |
-| **`HYBRID`** | **Stable** | WSS + Failover | Primary connection via Cloudflare Worker WSS with seamless automatic failover if upstream errors or rate limits (HTTP 429) occur. |
-| **`MASQUE`** | **Testing** | HTTP/3 QUIC (`:443`) | Direct Anycast tunneling via Cloudflare WARP MASQUE (`CONNECT-UDP`) with userspace `smoltcp` stack. Dependent on UDP reachability. |
-| **`AWG`** | **Testing** | WireGuard UDP | Obfuscated WireGuard Anycast designed to bypass DPI (`H1..H4`, `Jc`, `I1`) with `smoltcp` stack. Supports custom INI imports for private servers. |
-| **`WARP_CASCADE`** | **Testing** | MASQUE + AWG + WSS | Multi-tier failover cascade: priority start with MASQUE, automatic switch to AWG on UDP drop, and emergency fallback to Worker WSS. |
 
 ---
 
@@ -180,7 +166,7 @@ Performs a fast 2–3 second validation sequence upon activation:
 
 ### Dual-Level Settings (Simple vs Advanced UX)
 * **Simple Mode (Default)**: Clean interface focused on core preferences: proxy mode (MTProto / SOCKS5), uplink selector, sleep timer, scheduler, auto-start on boot, language, and theme.
-* **Advanced Mode**: Toggleable mode providing full control over socket flags (`TCP_NODELAY`: Auto / On / Off), buffer tuning, WebSocket pool capacity, Happy Eyeballs parameters, Anycast IP overrides, and custom AWG/VLESS parameters.
+* **Advanced Mode**: Toggleable socket tuning for `TCP_NODELAY`, buffers, WebSocket pool capacity, and Happy Eyeballs parameters.
 
 ### Secure Diagnostic Report (Zero Secret Leak)
 * Monospace configuration report generation via `DiagnosticReportScreen`.
@@ -194,7 +180,6 @@ Performs a fast 2–3 second validation sequence upon activation:
   * `DNS_RESOLUTION_UNAVAILABLE` — Domain resolution failure;
   * `SOCKS5_AUTH_REJECTED` — RFC 1929 authentication error;
   * `CLOUDFLARE_EDGE_BLOCKED` — Upstream TCP reset at carrier DPI level;
-  * `WARP_HANDSHAKE_TIMEOUT` — WireGuard UDP packets dropped;
   * `NETWORK_INTERFACE_DOWN` — All device network interfaces offline.
 
 ### Bounded Flow Control for High-Bandwidth Media
@@ -249,31 +234,17 @@ flowchart TD
     subgraph Uplinks ["3. Uplink Transports"]
         Uplink_Anycast_Direct["Anycast CDN Flowseal<br/>(kws1..kws5.web.telegram.org:443)<br/>Zero Cloudflare Worker Quota"]
         Uplink_Worker["Cloudflare Worker WSS<br/>(Private Worker / Developer Pool)<br/>cloudflare:sockets API"]
-        Uplink_Vless["VLESS over WSS & Reality<br/>(Custom VPS / CDN Pool)"]
-        Uplink_Masque["WARP MASQUE (HTTP/3 Anycast :443)<br/>smoltcp TCP/IP Stack"]
-        Uplink_Awg["WARP AmneziaWG (UDP Anycast / VPS)<br/>Obfuscation I1 / Jc / H1..H4"]
-        Uplink_Cascade["WARP Cascade / Hybrid<br/>Automatic Failover"]
 
         WsPool ===>|Direct MTProto WSS| Uplink_Anycast_Direct
         Supervisor -->|WORKER Mode| Uplink_Worker
-        Supervisor -->|VLESS Mode| Uplink_Vless
-        Supervisor -->|MASQUE Mode| Uplink_Masque
-        Supervisor -->|AWG Mode| Uplink_Awg
-        Supervisor -->|WARP_CASCADE Mode| Uplink_Cascade
     end
 
     subgraph Infrastructure ["4. External Network Infrastructure"]
         CF_CDN["Cloudflare Anycast CDN Edge<br/>(300+ PoPs worldwide)"]
         CF_Worker_Runtime["Cloudflare Worker Edge Runtime<br/>(TCP Sockets via cloudflare:sockets)"]
-        Private_VPS["Private VPS / VLESS Server"]
-        WARP_Anycast["Cloudflare WARP Anycast Network"]
 
         Uplink_Anycast_Direct --> CF_CDN
         Uplink_Worker --> CF_Worker_Runtime
-        Uplink_Vless --> Private_VPS
-        Uplink_Masque --> WARP_Anycast
-        Uplink_Awg --> WARP_Anycast
-        Uplink_Cascade --> CF_Worker_Runtime
     end
 
     subgraph TelegramCloud ["5. Telegram Server Infrastructure"]
@@ -283,9 +254,6 @@ flowchart TD
         CF_CDN -->|Direct Web TCP Socket| TG_DC
         CF_Worker_Runtime -->|Secure TCP Socket| TG_DC
         CF_Worker_Runtime -->|VoIP TCP/UDP Relay| TG_VoIP
-        Private_VPS -->|Direct Socket| TG_DC
-        WARP_Anycast -->|Anycast IP Routing| TG_DC
-        WARP_Anycast -->|Anycast IP Routing| TG_VoIP
     end
 ```
 
@@ -308,7 +276,7 @@ The user interface is built with Jetpack Compose featuring adaptive layouts (`Ad
 * **Home Screen (`HomeScreen`)**: Master toggle button, real-time connection status, quality circle ring, MTProto/SOCKS5 mode switch, one-click "To Telegram" button, and concise route status badge (`Cloudflare WSS · Protected`).
 * **Settings Screen (`SettingsScreen`)**:
   * *Simple Mode*: Proxy protocol selection, uplink selector, sleep timer, schedule timer, boot autostart, language selector, and theme.
-  * *Advanced Mode*: Socket tuning (`TCP_NODELAY`), buffer sizes, WebSocket pool capacity, Anycast WARP parameters, and custom AWG/VLESS parameters.
+  * *Advanced Mode*: Socket tuning (`TCP_NODELAY`), buffer sizes, and WebSocket pool capacity.
 * **Onboarding Screen (`OnboardingScreen`)**: Step-by-step introductory wizard for new users.
 * **Official Telegram Channel (`TelegramChannelScreen`)**: Community screen with direct link to `@WhyOkyHb`.
 * **Worker Manager (`WorkerManagerScreen`)**: Cloudflare worker list with latency probes, status codes (including HTTP 429), CameraX + Google ML Kit QR scanner, and link generator.
@@ -345,7 +313,6 @@ Core parameters defined in [ProxyConfig.kt](core/src/main/kotlin/com/mirrly/tgpr
 | Parameter | Default | Description |
 | :--- | :--- | :--- |
 | `proxyModeName` | `MTPROTO` | Active local proxy mode: `MTPROTO` or `SOCKS5` |
-| `uplinkModeName` | `WORKER` | Uplink transport: `WORKER`, `VLESS`, `HYBRID`, `MASQUE`, `AWG`, `WARP_CASCADE` |
 | `bindHost` / `bindPort` | `127.0.0.1:1443` | Local IP address and port for MTProto |
 | `socks5Port` | `10808` | Local TCP port for SOCKS5 |
 | `socks5Username` / `socks5Password` | `""` | SOCKS5 credentials (RFC 1929) |
@@ -357,8 +324,6 @@ Core parameters defined in [ProxyConfig.kt](core/src/main/kotlin/com/mirrly/tgpr
 | `useDefaultWorkerSocks5` | `true` | Fallback to developer worker pool when no custom domain is configured |
 | `isBatteryGuardEnabled` | `false` | Automatic shutdown on low battery |
 | `batteryGuardThreshold` | `15` | Battery threshold percentage for shutdown |
-| `awgStrategyName` | `BALANCED` | AmneziaWG obfuscation preset: `FAST`, `BALANCED`, `DEEP_STEALTH`, `CUSTOM` |
-| `awgCustomIni` | `""` | Custom AmneziaWG INI configuration for private VPS |
 | `allowPublicRelayFallbackForPrivateVps` | `false` | Prevent private VPS traffic from routing to public relays |
 | `autostartOnBoot` | `false` | Auto-launch proxy service on Android system boot |
 | `verboseLogs` | `true` | Detailed network logging |
@@ -521,7 +486,7 @@ Project started on **July 27, 2026** with the `v1.0.0` release. Key development 
 | **`v1.1.8.1`** | Sleep Timer Redesign | Worker domain normalization, pre-flight probe, redesigned sleep dialog. |
 | **`v1.1.8.2`** | ML Kit & Isolation | CameraX + Google ML Kit QR scanner, stylized QR generator, secret key isolation, WebPKI certificates. |
 | **`v1.1.8.3`** | Speed Test & Schedule | Tunnel speed test, SOCKS5 RFC 1929 subnegotiation, weekly scheduler, Deep Dormancy offline power saving. |
-| **`v2.0.0`** | Multi-Uplink & Network FSM | `RouteSupervisor` multi-uplink engine (Worker WSS, VLESS over WSS & Reality, SOCKS5, HYBRID, experimental MASQUE/AWG/Cascade), discrete FSM network stabilization (`NORMAL`, `DEGRADED`, `RECOVERING`) with anti-flapping, Network Generation Guard, Bounded Flow Control 4 MB, Pre-flight Smart Connect, Simple/Advanced settings, Onboarding wizard, official Telegram channel screen `@WhyOkyHb`, safe diagnostic report (`Zero Secret Leak`), Error Taxonomy, full English and Russian localization, TypeScript worker fix, and system VPN preview. |
+| **`v2.0.0`** | Network FSM & UI | Discrete network FSM (`NORMAL`, `DEGRADED`, `RECOVERING`), Network Generation Guard, 4 MB bounded flow control, Smart Connect preflight, settings, onboarding, safe diagnostics, and localization. VPN mode remains under development. |
 
 ---
 
@@ -548,6 +513,7 @@ Project started on **July 27, 2026** with the `v1.0.0` release. Key development 
 * **[BbIBux](https://github.com/BbIBux)** — MTProto media download diagnostics on T2 and Rostelecom carriers, dialog transparency improvements (Issues #11, #12, #17).
 * **[ustiprog](https://github.com/ustiprog)** — Auto-Stop on Start sleep timer initiative and telemetry for offline battery drain leading to Deep Dormancy (Issue #21).
 * **[40OIL](https://github.com/40OIL)** — Discovery of 3-button system navigation bar overlap on Samsung Galaxy A55, leading to comprehensive window inset audit (Issue #22).
+* **[CrazyGhostRider](https://github.com/CrazyGhostRider)** — Reproducible first-run language-selection freeze report on Samsung S21 Ultra / Android 14, enabling fixes to onboarding touch handling and locale changes (Issue #29).
 * **[VikKalm](https://github.com/VikKalm)** — Telemetry and localization of worker blockages on Android 13 arm64-v8a (Issue #6).
 * **[liveonloan](https://github.com/liveonloan)** — UI overlap defect report on Realme GT7 (Issue #14).
 * **[Dimaakaj](https://github.com/Dimaakaj)** — Identification of TypeScript `ts(2554)` syntax error in `serverWs.accept()` call within Cloudflare Worker script, restoring web dashboard deployment.

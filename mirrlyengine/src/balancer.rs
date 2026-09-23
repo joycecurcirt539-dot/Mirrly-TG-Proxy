@@ -545,6 +545,20 @@ mod tests {
     }
 
     #[test]
+    fn promoted_anycast_candidate_is_prioritized_for_its_dc_only() {
+        let mut balancer = Balancer::new();
+        balancer.update_domains_list(&["fallback.example".to_string()]);
+
+        assert!(balancer.update_domain_for_dc(2, false, "kws2.fast.example:443"));
+
+        assert_eq!(
+            balancer.get_domains_for_dc(2, false).first().map(String::as_str),
+            Some("fast.example")
+        );
+        assert!(balancer.get_domains_for_dc(4, false).is_empty());
+    }
+
+    #[test]
     fn test_balancer_per_dc_isolation_no_leakage_from_dc2() {
         let mut b = Balancer::new();
         let domains = vec![

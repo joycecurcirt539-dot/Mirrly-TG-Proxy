@@ -18,6 +18,23 @@ import org.junit.Test
 class DiagnosticReportGeneratorTest {
 
     @Test
+    fun effectiveRouteUsesAnycastForMtprotoInsteadOfSelectedWorker() {
+        val route = DiagnosticReportGenerator.effectiveRouteFor(isSocks5Mode = false)
+
+        assertEquals("ANYCAST_CDN", route.uplink)
+        assertFalse(route.usesWorker)
+        assertTrue(route.description.contains("Flowseal"))
+    }
+
+    @Test
+    fun effectiveRouteUsesWorkerForSocks5() {
+        val route = DiagnosticReportGenerator.effectiveRouteFor(isSocks5Mode = true)
+
+        assertEquals("WORKER", route.uplink)
+        assertTrue(route.usesWorker)
+    }
+
+    @Test
     fun testSanitizeWorkerDomainReplacesPersonalPrefix() {
         val domain = "my-secret-team.workers.dev"
         val sanitized = DiagnosticReportGenerator.sanitizeWorkerDomain(domain)

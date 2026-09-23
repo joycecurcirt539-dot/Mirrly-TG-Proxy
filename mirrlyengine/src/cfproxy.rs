@@ -702,7 +702,7 @@ pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
 
     // 1. Direct IP check
     if let Ok(ip) = domain.parse::<IpAddr>() {
-        return vec![ip];
+        return crate::network_profile::filter_ip_family(vec![ip]);
     }
 
     // 2. Cache hit (0 ms, MOB-022: validated against current network generation & negative TTL)
@@ -713,7 +713,7 @@ pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
                 return Vec::new();
             }
             if !entry.ips.is_empty() {
-                return entry.ips;
+                return crate::network_profile::filter_ip_family(entry.ips);
             }
         }
     }
@@ -722,11 +722,12 @@ pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
     let expected = crate::generation_guard::snapshot();
     let domain_key = format!("{}:{}:{}:{}", expected.network, expected.profile, expected.config, domain);
     let domain_task = domain.to_string();
-    crate::budget::DNS_SINGLEFLIGHT
+    let resolved = crate::budget::DNS_SINGLEFLIGHT
         .execute(domain_key, || async move {
             resolve_dual_stack_ips_uncached(&domain_task, expected).await
         })
-        .await
+        .await;
+    crate::network_profile::filter_ip_family(resolved)
 }
 
 async fn query_cf_doh_type(

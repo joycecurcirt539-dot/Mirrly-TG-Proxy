@@ -3,6 +3,7 @@ use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
+use std::net::IpAddr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -51,6 +52,10 @@ pub struct NetworkProfile {
     pub transport_sli: TransportSli,
     /// Committed by the Kotlin FSM together with socket options; 0 is legacy mode.
     pub happy_eyeballs_delay_ms: u64,
+    /// DUAL_STACK, IPV4_ONLY, or IPV6_FIRST. Committed by the advanced UI.
+    pub ip_family_preference: String,
+    /// Explicit WebSocket idle interval, in seconds. Zero is legacy adaptive mode.
+    pub websocket_keep_alive_seconds: u64,
 }
 
 impl Default for NetworkProfile {
@@ -73,6 +78,8 @@ impl Default for NetworkProfile {
             power_mode: "ACTIVE".to_string(),
             transport_sli: TransportSli::default(),
             happy_eyeballs_delay_ms: 0,
+            ip_family_preference: "DUAL_STACK".to_string(),
+            websocket_keep_alive_seconds: 30,
         }
     }
 }
@@ -89,6 +96,8 @@ impl NetworkProfile {
             || self.roaming != previous.roaming
             || self.power_mode != previous.power_mode
             || self.happy_eyeballs_delay_ms != previous.happy_eyeballs_delay_ms
+            || self.ip_family_preference != previous.ip_family_preference
+            || self.websocket_keep_alive_seconds != previous.websocket_keep_alive_seconds
     }
 
     fn normalized(mut self) -> Self {
@@ -127,6 +136,12 @@ impl NetworkProfile {
         } else {
             "ACTIVE".to_string()
         };
+        self.ip_family_preference = match self.ip_family_preference.trim().to_ascii_uppercase().as_str() {
+            "IPV4_ONLY" => "IPV4_ONLY".to_string(),
+            "IPV6_FIRST" => "IPV6_FIRST".to_string(),
+            _ => "DUAL_STACK".to_string(),
+        };
+        self.websocket_keep_alive_seconds = self.websocket_keep_alive_seconds.clamp(15, 60);
         self
     }
 }
@@ -173,6 +188,24 @@ pub fn get_profile() -> NetworkProfile {
 
 pub fn current_generation() -> u64 {
     EFFECTIVE_NETWORK_PROFILE.read().generation
+}
+
+/// Filters every outbound resolver result at the engine boundary. This applies
+/// equally to MTProto, SOCKS5 Worker WSS, VLESS and VPN dial paths.
+pub fn filter_ip_family(ips: Vec<IpAddr>) -> Vec<IpAddr> {
+    match get_profile().ip_family_preference.as_str() {
+        "IPV4_ONLY" => ips.into_iter().filter(|ip| ip.is_ipv4()).collect(),
+        "IPV6_FIRST" => {
+            let mut v6 = Vec::new();
+            let mut v4 = Vec::new();
+            for ip in ips {
+                if ip.is_ipv6() { v6.push(ip) } else { v4.push(ip) }
+            }
+            v6.extend(v4);
+            v6
+        }
+        _ => ips,
+    }
 }
 
 pub fn get_profile_json() -> String {

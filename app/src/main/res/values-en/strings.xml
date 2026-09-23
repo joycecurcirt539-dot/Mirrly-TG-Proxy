@@ -19,6 +19,8 @@
     <string name="onboarding_lang_ru_desc">Russian interface language</string>
     <string name="onboarding_lang_en">English</string>
     <string name="onboarding_lang_en_desc">English interface language</string>
+    <string name="onboarding_lang_fa">فارسی</string>
+    <string name="onboarding_lang_fa_desc">Persian language</string>
 
     <string name="onboarding_step_about_title">ABOUT MIRRLY TG PROXY</string>
     <string name="onboarding_step_about_desc">Next-generation high-speed proxy client for bypassing restrictions and accelerating Telegram.</string>
@@ -46,6 +48,7 @@
     <string name="settings_language_system">Auto (System)</string>
     <string name="settings_language_ru">Russian</string>
     <string name="settings_language_en">English</string>
+    <string name="settings_language_fa">فارسی</string>
     <string name="settings_onboarding_replay">First-launch tutorial</string>
     <string name="settings_onboarding_replay_desc">Replay introductory walkthrough and quick start guide</string>
 
@@ -97,6 +100,10 @@
     <string name="status_vpn_disconnecting">DISCONNECTING VPN...</string>
     <string name="status_vpn_system_mode_desc">Whole-device mode • Tap to connect</string>
     <string name="status_vpn_system_connected_desc">System tunnel active • Cloudflare Anycast</string>
+    <string name="status_vpn_in_dev">VPN IN DEVELOPMENT</string>
+    <string name="status_vpn_in_dev_desc">Module in development • Tap for details</string>
+    <string name="vpn_in_dev_card_title">VPN in Development</string>
+    <string name="vpn_in_dev_card_desc">System VPN module is under active development and is not operational. Use MTProto or SOCKS5 to protect traffic.</string>
     <string name="vpn_permission_denied">VPN system permission denied</string>
     <string name="uplink_mtproto_flowseal_secured">MTProto Anycast Flowseal • Secured</string>
     <string name="uplink_mtproto_direct_secured">MTProto Direct (Fake-TLS) • Secured</string>
@@ -581,6 +588,7 @@ AVAILABLE PROFILES:
     <string name="speed_test_dialog_title">Network Speed Test</string>
     <string name="speed_test_dialog_badge">In Development</string>
     <string name="speed_test_dialog_desc">Comprehensive throughput, latency, and stability benchmark module is temporarily hidden for performance tuning and will be enabled in the upcoming update.</string>
+    <string name="home_speed_test_hint">Measure tunnel speed and latency stability</string>
     <string name="action_understood">UNDERSTOOD</string>
     <string name="unofficial_dialog_category">SECURITY WARNING</string>
     <string name="unofficial_dialog_title">Unofficial or Modified Build</string>
@@ -968,6 +976,8 @@ The project runs exclusively locally on your device, ensuring maximum connection
     <string name="fame_c_liveonloan_contrib">Author of Issue #14. Discovered navigation bar overlay bug on Realme GT7 (Android 16), prompting sleep timer redesign in v1.1.8.1.</string>
     <string name="fame_c_40oil_role">Bug Hunter &amp; UI Diagnostics</string>
     <string name="fame_c_40oil_contrib">Author of Issue #22. Discovered critical navigation insets clipping bug in worker import dialogs (Samsung Galaxy A55) where the Save button was covered by Android 3-button navigation, prompting a complete bottom safe-area overhaul.</string>
+    <string name="fame_c_crazyghostrider_role">Bug Hunter</string>
+    <string name="fame_c_crazyghostrider_contrib">Identified tunnel stability issues and assisted in network algorithm optimization.</string>
     <string name="fame_c_mslight_role">Internationalization Initiator</string>
     <string name="fame_c_mslight_contrib">Author of Issue #23. Initiated international localization of the application and integration of the comprehensive English language translation.</string>
     <string name="fame_c_aseptronn_role">Localization Contributor &amp; Community</string>
@@ -1064,7 +1074,7 @@ The project runs exclusively locally on your device, ensuring maximum connection
     <string name="speed_test_stat_upload">UPLOAD</string>
     <string name="speed_test_stat_uploaded_mb">%1$d MB sent</string>
     <string name="speed_test_stat_upload_channel">Upload link</string>
-    <string name="speed_test_chart_header">REAL-TIME SPEED DYNAMICS</string>
+    <string name="speed_test_chart_header">SPEED DYNAMICS</string>
     <string name="speed_test_chart_peak">Peak: %1$s Mbps</string>
     <string name="speed_test_report_header">LINK QUALITY ASSESSMENT</string>
     <string name="speed_test_suit_chats">Text chats &amp; stickers</string>
@@ -1436,18 +1446,28 @@ Download latest Mirrly TG Proxy build:
     <string name="wa_info_burn_rate_desc">HOW IT IS CALCULATED:\n• Average number of generated requests per hour over the selected time interval.\n\nFORECASTING:\n• Allows estimating daily quota consumption under current Telegram usage intensity.</string>
     <string name="wa_info_reset_timer_title">Daily Quota Reset</string>
     <string name="wa_info_reset_timer_desc">CLOUDFLARE RULES:\n• All daily counters for free Cloudflare workers reset at exactly 00:00:00 UTC.\n\nTIMER:\n• Displays the exact hours and minutes remaining until the next Cloudflare quota reset.</string>
-    <string name="wa_info_mtproto_dc_traffic_title">Telegram DC Traffic Distribution</string>
-    <string name="wa_info_mtproto_dc_traffic_desc">HOW ROUTING WORKS:\n• Telegram splits traffic across 5 core data center clusters (DC1–DC5) and the distributed FlowSeal CDN cache network.\n• DC 2 (Amsterdam): chats, message synchronization, authorization, and contacts.\n• DC 4 (Amsterdam): private media files, voice and video messages.\n• FlowSeal CDN: 20 geo-distributed cache servers for high-speed delivery of heavy public channel content.</string>
-    <string name="wa_info_mtproto_cdn_title">FlowSeal CDN Network (20 Cache Nodes)</string>
-    <string name="wa_info_mtproto_cdn_desc">PURPOSE OF CACHE NODES:\n• Public video files and media from large channels are cached on 20 Telegram CDN nodes.\n• This reduces video download latency and offloads the central DC 4 data center.</string>
-    <string name="wa_info_mtproto_affinity_title">Socket Pool Balancer (DC-Affinity)</string>
-    <string name="wa_info_mtproto_affinity_desc">ADAPTIVE RESOURCE CONCENTRATION:\n• The engine dynamically allocates WSS pool sockets to the data center with the heaviest current data exchange.\n• During activity pauses, sockets transition into power-saving mode according to exponential decay.</string>
-    <string name="wa_info_mtproto_dialects_title">MTProto Protocol Transports (Dialects)</string>
-    <string name="wa_info_mtproto_dialects_desc">TELEGRAM TRANSPORT TYPES:\n• Intermediate (0xee): primary high-speed transport for message exchange.\n• Padded Intermediate (0xdd): randomized transport with floating padding to defeat DPI blocking.\n• Abridged (0xef): ultra-compact transport for background synchronization.</string>
-    <string name="wa_info_mtproto_multiplexing_title">WSS Multiplexing Efficiency</string>
-    <string name="wa_info_mtproto_multiplexing_desc" formatted="false">HOW QUOTA IS SAVED:\n• The ratio indicates how many hundreds of MTProto packets and messages were transmitted inside a single open WSS session.\n• Allows sustaining heavy communication without wasting daily Cloudflare requests.</string>
-    <string name="wa_info_mtproto_entropy_title">Pool Entropy &amp; Decay Mathematical Model</string>
-    <string name="wa_info_mtproto_entropy_desc" formatted="false">1. SHANNON POOL ENTROPY (H):\n• Formula: H = -∑ p_i * ln(p_i), where p_i is the load share of the i-th data center.\n• H &lt; 0.60: High concentration (Single-DC Affinity). Entire capacity focused on one DC (e.g., text chat reading on DC2). Maximum battery and socket savings.\n• 0.60 ≤ H ≤ 1.30: Balanced mode (Dual Affinity). Parallel exchange with DC2 (messages) and DC4 (media) or FlowSeal CDN.\n• H &gt; 1.30: High-dispersion mode (Multi-Cluster Burst). Simultaneous synchronization, calls, and downloads across all Telegram clusters.\n\n2. EXPONENTIAL ACTIVITY DECAY:\n• Formula: Weight(DC) = (sqrt(Bytes) / 100 + Conns * 25 + 1.0) * exp(-Δt / 60).\n• Half-life T½ = 60 seconds. Every minute of inactivity cuts the DC activity weight in half.\n• Upon reaching inactivity threshold (&gt;180s), the socket is automatically closed or switched to standby sleep mode.</string>
+    <string name="wa_mtproto_traffic_title">MTPROTO TRAFFIC (TOTAL)</string>
+    <string name="wa_mtproto_rx_title">Inbound (Download)</string>
+    <string name="wa_mtproto_tx_title">Outbound (Upload)</string>
+    <string name="wa_mtproto_speed_rx">Download speed</string>
+    <string name="wa_mtproto_speed_tx">Upload speed</string>
+    <string name="wa_mtproto_pool_card_title">HOT CONNECTION POOL</string>
+    <string name="wa_mtproto_active_clients">Client sockets</string>
+    <string name="wa_mtproto_active_tunnels">WSS tunnels</string>
+    <string name="wa_mtproto_pool_slots">Hot standby pool slots</string>
+    <string name="wa_mtproto_pool_ready_status">Hot Standby active</string>
+    <string name="wa_mtproto_tunnel_card_title">FAKETLS TUNNEL PARAMETERS</string>
+    <string name="wa_mtproto_tunnel_port">Local port</string>
+    <string name="wa_mtproto_tunnel_sni">SNI / Cloaking</string>
+    <string name="wa_mtproto_tunnel_proto">Protocol &amp; encryption</string>
+    <string name="wa_mtproto_tunnel_rtt">Channel latency (RTT)</string>
+
+    <string name="wa_info_mtproto_traffic_title">MTProto Traffic</string>
+    <string name="wa_info_mtproto_traffic_desc" formatted="false">HOW IT WORKS:\n• Displays total volume of data transmitted via the local FakeTLS MTProto relay.\n• Includes Telegram messages, photos, videos, documents, and voice messages.</string>
+    <string name="wa_info_mtproto_pool_title">MTProto Hot Connection Pool</string>
+    <string name="wa_info_mtproto_pool_desc" formatted="false">HOW IT WORKS:\n• Proxy core maintains pre-established WSS tunnels (Hot Standby) to the cloud uplink.\n• When Telegram requests a new chat or file download, an available tunnel is allocated instantly — eliminating TCP and TLS handshake delays.</string>
+    <string name="wa_info_mtproto_tunnel_title">FakeTLS Tunnel Parameters</string>
+    <string name="wa_info_mtproto_tunnel_desc" formatted="false">HOW IT WORKS:\n• Local proxy listener runs on port 1080 (127.0.0.1).\n• Traffic is disguised as secure TLS 1.3 stream with valid SNI, circumventing operator DPI filtering.</string>
     <string name="wa_quota_title">CLOUDFLARE QUOTA USAGE</string>
     <string name="wa_unit_requests">requests</string>
     <string name="wa_quota_percent_limit">%1$s%% of limit</string>
@@ -1648,6 +1668,16 @@ Download latest Mirrly TG Proxy build:
     <string name="nd_speedtest_title">Tunnel Speed Test</string>
     <string name="nd_speedtest_desc">Measure Download, Upload, Ping and Jitter via Cloudflare</string>
     <string name="nd_speedtest_in_dev">IN DEVELOPMENT</string>
+    <string name="nd_speedtest_action_run">RUN</string>
+    <string name="nd_hero_mtproto_pool_title">STREAM POOL</string>
+    <string name="nd_hero_mtproto_slots_val">%1$d slots (FakeTLS)</string>
+    <string name="nd_hero_mtproto_slots_desc">Hot Standby ready</string>
+    <string name="nd_ready_socks5_direct_stream">Direct TCP stream</string>
+    <string name="nd_ready_socks5_buffer">TCP buffer 2 MB</string>
+    <string name="nd_calls_unsupported_mtproto">Not supported in MTProto</string>
+    <string name="nd_badge_socks5_only">SOCKS5 ONLY</string>
+    <string name="nd_info_mtproto_pool_title">MTProto Hot Connection Pool</string>
+    <string name="nd_info_mtproto_pool_desc" formatted="false">HOW IT WORKS:\n• For maximum transfer speed and Telegram responsiveness, the engine maintains a hot pool of pre-established FakeTLS connections to data centers (DC 1–5).\n• When downloading heavy files and media, connections are assigned from the pool instantly without TLS handshake latency.\n\nIMPORTANT ABOUT CALLS:\n• Telegram MTProto protocol architecture does not support voice and video calls. For voice and video calls support, switch to SOCKS5 mode.</string>
     <string name="nd_network_path_title">NETWORK PATH &amp; LATENCY</string>
     <string name="nd_rtt_title">Tunnel Latency (EWMA RTT)</string>
     <string name="nd_badge_excellent">Excellent</string>

@@ -49,7 +49,8 @@ object ConnectionHealthEngine {
         jitterMs: Long,
         successRatePercent: Int,
         lastFailureType: FailureType = FailureType.NONE,
-        isFailoverActive: Boolean = false
+        isFailoverActive: Boolean = false,
+        isSocks5: Boolean = false
     ): ConnectionHealthReport {
         if (smoothedPingMs <= 0L && successRatePercent <= 0) {
             return ConnectionHealthReport(
@@ -105,8 +106,12 @@ object ConnectionHealthEngine {
 
         val finalChatScore = chatComposite.roundToInt().coerceIn(0, 100)
 
-        // 3. Overall combined scoring for Home screen (80% chats/media, 20% calls)
-        val finalTotalScore = ((finalChatScore * 0.80) + (callScore * 0.20)).roundToInt().coerceIn(0, 100)
+        // 3. Overall combined scoring (SOCKS5 accounts for 20% calls; MTProto is 100% chats/media)
+        val finalTotalScore = if (isSocks5) {
+            ((finalChatScore * 0.80) + (callScore * 0.20)).roundToInt().coerceIn(0, 100)
+        } else {
+            finalChatScore
+        }
 
         val chatVerdict = when {
             finalChatScore >= 90 -> "Ideal for media"

@@ -72,6 +72,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -240,6 +243,9 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
 
                 // Formatted body content with transparent glass cards & left-aligned text
                 FormattedInfoBody(body = body)
+
+                // Keep the final card clear of the navigation area and fading edge.
+                Spacer(modifier = Modifier.height(72.dp))
             }
 
             // Top Header with Back Button (pinned at top left over blurred background)
@@ -269,109 +275,177 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
 
 @Composable
 private fun FormattedInfoBody(body: String) {
-    val blocks = remember(body) { body.split("\n\n") }
+    val sections = remember(body) { parseInfoSections(body) }
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        blocks.forEach { block ->
-            val trimmed = block.trim()
-            if (trimmed.isEmpty()) return@forEach
-
-            val lines = trimmed.lines()
-            val firstLine = lines.firstOrNull() ?: ""
-            val isHeaderBlock = firstLine.endsWith(":") ||
-                                (firstLine.length > 2 && firstLine == firstLine.uppercase(java.util.Locale.ROOT))
-
-            if (isHeaderBlock && lines.size > 1) {
-                // Render section block in a transparent container
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, AmoledBorder),
-                    modifier = Modifier.fillMaxWidth()
+        sections.forEachIndexed { index, section ->
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
-                        val headerColor = ActiveGreenLed
-                        Text(
-                            text = firstLine,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = headerColor,
-                            letterSpacing = 0.5.sp,
-                            textAlign = TextAlign.Start
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = ActiveGreenLed.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
+                        ) {
+                            Text(
+                                text = (index + 1).toString().padStart(2, '0'),
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Black,
+                                color = ActiveGreenLed,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
 
-                        val contentLines = lines.drop(1)
-                        contentLines.forEach { line ->
-                            val lineTrimmed = line.trim()
-                            if (lineTrimmed.startsWith("• ")) {
-                                InfoBulletItem(text = lineTrimmed.removePrefix("• ").trim())
-                            } else if (lineTrimmed.isNotEmpty()) {
-                                Text(
-                                    text = lineTrimmed,
-                                    fontSize = 13.sp,
-                                    color = TextWhite.copy(alpha = 0.88f),
-                                    lineHeight = 19.sp,
-                                    textAlign = TextAlign.Start
-                                )
-                            }
+                        section.heading?.let { heading ->
+                            Text(
+                                text = heading,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ActiveGreenLed,
+                                letterSpacing = 0.35.sp,
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
-                }
-            } else if (trimmed.contains("\n• ") || trimmed.startsWith("• ")) {
-                // Bullet items block in transparent container
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, AmoledBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        lines.forEach { line ->
-                            val lineTrimmed = line.trim()
-                            if (lineTrimmed.startsWith("• ")) {
-                                InfoBulletItem(text = lineTrimmed.removePrefix("• ").trim())
-                            } else if (lineTrimmed.isNotEmpty()) {
-                                Text(
-                                    text = lineTrimmed,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = TextWhite.copy(alpha = 0.92f),
-                                    lineHeight = 19.sp,
-                                    textAlign = TextAlign.Start
-                                )
-                            }
+
+                    section.lines.forEach { line ->
+                        when {
+                            isInfoHeading(line) -> Text(
+                                text = line.trim().trimEnd(':'),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ActiveGreenLed.copy(alpha = 0.9f),
+                                letterSpacing = 0.3.sp
+                            )
+                            line.startsWith("• ") || line.startsWith("- ") -> InfoBulletItem(
+                                text = line.drop(2).trim()
+                            )
+                            else -> InfoParagraph(text = line)
                         }
                     }
-                }
-            } else {
-                // General text paragraph in transparent card
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, AmoledBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = trimmed,
-                        fontSize = 13.sp,
-                        color = TextWhite.copy(alpha = 0.88f),
-                        lineHeight = 19.sp,
-                        textAlign = TextAlign.Start,
-                        modifier = Modifier.padding(14.dp)
-                    )
                 }
             }
         }
     }
+}
+
+internal data class InfoSection(
+    val heading: String?,
+    val lines: List<String>
+)
+
+internal fun parseInfoSections(body: String): List<InfoSection> {
+    val normalized = body
+        .replace("\\n", "\n")
+        .replace("\r\n", "\n")
+        .replace('\r', '\n')
+        .trim()
+        .let(::restoreCollapsedInfoMarkup)
+
+    if (normalized.isEmpty()) return emptyList()
+
+    val parsed = mutableListOf<InfoSection>()
+    var heading: String? = null
+    val content = mutableListOf<String>()
+
+    fun flush() {
+        if (heading != null || content.isNotEmpty()) {
+            parsed += InfoSection(heading, content.toList())
+        }
+        heading = null
+        content.clear()
+    }
+
+    normalized.lines().forEach { rawLine ->
+        val line = rawLine.trim()
+        when {
+            line.isEmpty() -> {
+                if (content.isNotEmpty()) flush()
+            }
+            isInfoHeading(line) -> {
+                flush()
+                heading = line.trimEnd(':').trim()
+            }
+            else -> content += line
+        }
+    }
+    flush()
+
+    val nonEmpty = parsed.filter { it.heading != null || it.lines.isNotEmpty() }
+    if (nonEmpty.size <= 5) return nonEmpty
+
+    val firstFour = nonEmpty.take(4)
+    val tail = nonEmpty.drop(4)
+    val tailLines = buildList {
+        tail.forEachIndexed { index, section ->
+            if (index > 0) section.heading?.let { add("$it:") }
+            addAll(section.lines)
+        }
+    }
+    return firstFour + InfoSection(tail.firstOrNull()?.heading, tailLines)
+}
+
+/**
+ * Older settings resources used visual XML line breaks instead of escaped \n.
+ * AAPT collapses those breaks into spaces, so recover only the explicit markup
+ * that survives compilation: bullet characters and uppercase section labels.
+ */
+private fun restoreCollapsedInfoMarkup(value: String): String {
+    val withBullets = value.replace(Regex("\\s*•\\s*"), "\n• ")
+    val inlineUppercaseHeading = Regex(
+        """([.!?])\s+((?:\d+\.\s*)?[\p{Lu}\d][\p{Lu}\p{M}\d\s&+()/.–—-]{2,95}:)(?=\s|\n)"""
+    )
+    return withBullets
+        .replace(inlineUppercaseHeading) { match ->
+            "${match.groupValues[1]}\n\n${match.groupValues[2].trim()}\n"
+        }
+        .replace(Regex("\n{3,}"), "\n\n")
+        .trim()
+}
+
+private fun isInfoHeading(line: String): Boolean {
+    val candidate = line.trim()
+    if (candidate.isEmpty() || candidate.startsWith("•") || candidate.startsWith("-")) return false
+    if (candidate.length > 96) return false
+    val letters = candidate.filter { it.isLetter() }
+    val isUppercase = letters.length >= 3 && letters == letters.uppercase(java.util.Locale.ROOT)
+    return candidate.endsWith(":") || isUppercase
+}
+
+@Composable
+private fun InfoParagraph(text: String) {
+    val colonIndex = text.indexOf(':').takeIf { it in 1..42 }
+    val annotated = buildAnnotatedString {
+        if (colonIndex != null) {
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = TextWhite)) {
+                append(text.substring(0, colonIndex + 1))
+            }
+            append(text.substring(colonIndex + 1))
+        } else {
+            append(text)
+        }
+    }
+    Text(
+        text = annotated,
+        fontSize = 13.sp,
+        color = TextWhite.copy(alpha = 0.86f),
+        lineHeight = 19.sp,
+        textAlign = TextAlign.Start
+    )
 }
 
 @Composable
@@ -387,14 +461,9 @@ private fun InfoBulletItem(text: String) {
                 .size(5.dp)
                 .background(ActiveGreenLed, CircleShape)
         )
-        Text(
-            text = text,
-            fontSize = 13.sp,
-            color = TextWhite.copy(alpha = 0.88f),
-            lineHeight = 18.5.sp,
-            textAlign = TextAlign.Start,
-            modifier = Modifier.weight(1f)
-        )
+        Box(modifier = Modifier.weight(1f)) {
+            InfoParagraph(text = text)
+        }
     }
 }
 
@@ -545,17 +614,14 @@ fun SettingsScreen(
 
     var activeProtocolMode by rememberSaveable {
         mutableStateOf(
-            if (initialIsVpn) SettingsProtocolMode.VPN
-            else if (isSocks5) SettingsProtocolMode.SOCKS5
+            if (isSocks5) SettingsProtocolMode.SOCKS5
             else SettingsProtocolMode.MTPROTO
         )
     }
     var showVpnInDevDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(isSocks5) {
-        if (activeProtocolMode != SettingsProtocolMode.VPN) {
-            activeProtocolMode = if (isSocks5) SettingsProtocolMode.SOCKS5 else SettingsProtocolMode.MTPROTO
-        }
+        activeProtocolMode = if (isSocks5) SettingsProtocolMode.SOCKS5 else SettingsProtocolMode.MTPROTO
     }
 
     var selectedSpeedPresetName by remember { mutableStateOf(config.speedPresetName) }
@@ -780,6 +846,10 @@ fun SettingsScreen(
                     vpnColors = systemVpnColors,
                     onInfoClick = { infoKey = "protocols_info" },
                     onModeSelect = { mode ->
+                        if (mode == SettingsProtocolMode.VPN) {
+                            showVpnInDevDialog = true
+                            return@SettingsProtocolSection
+                        }
                         activeProtocolMode = mode
                         when (mode) {
                             SettingsProtocolMode.MTPROTO -> {
@@ -792,10 +862,7 @@ fun SettingsScreen(
                                     com.mirrly.tgproxy.service.ProtocolSwitchManager.switchProtocol(context, ProxyMode.SOCKS5)
                                 }
                             }
-                            SettingsProtocolMode.VPN -> {
-                                // Switch to VPN mode preview with dev notice
-                                showVpnInDevDialog = true
-                            }
+                            SettingsProtocolMode.VPN -> {}
                         }
                     }
                 )
@@ -804,69 +871,71 @@ fun SettingsScreen(
 
                 when (activeProtocolMode) {
                     SettingsProtocolMode.VPN -> {
-                        SettingsVpnDevBanner(vpnColors = systemVpnColors)
-
-                        SettingsVpnStatusOverviewSection(
-                            vpnColors = systemVpnColors,
-                            vpnState = vpnState,
-                            onOpenVpnDialog = { showVpnInDevDialog = true }
-                        )
-
-                        SettingsDivider()
-
-                        SettingsVpnCoreSection(
-                            vpnColors = systemVpnColors,
-                            mtu = vpnMtu,
-                            onMtuSelect = { newMtu ->
-                                app.prefsManager.setVpnMtu(newMtu)
-                                config.vpnMtu = newMtu
-                                app.saveConfig()
-                                if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
-                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                        Surface(
+                            onClick = { showVpnInDevDialog = true },
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF1E293B).copy(alpha = 0.35f),
+                            border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFFB74D).copy(alpha = 0.12f))
+                                        .border(1.dp, Color(0xFFFFB74D).copy(alpha = 0.45f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_settings),
+                                        contentDescription = null,
+                                        tint = Color(0xFFFFB74D),
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                 }
-                            },
-                            blockQuic = vpnBlockQuic,
-                            onToggleBlockQuic = { blocked ->
-                                app.prefsManager.setVpnBlockQuic(blocked)
-                                config.vpnBlockQuic = blocked
-                                app.saveConfig()
-                                if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
-                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
-                                }
-                            },
-                            blockIpv6Leaks = vpnBlockIpv6Leaks,
-                            onToggleBlockIpv6Leaks = { blocked ->
-                                app.prefsManager.setVpnBlockIpv6Leaks(blocked)
-                                config.vpnBlockIpv6Leaks = blocked
-                                app.saveConfig()
-                                if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
-                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
-                                }
-                            },
-                            onInfoClick = { infoKey = it }
-                        )
 
-                        SettingsDivider()
-
-                        SettingsVpnSplitTunnelSection(
-                            vpnColors = systemVpnColors,
-                            isEnabled = vpnSplitTunnelEnabled,
-                            onToggleEnabled = { enabled ->
-                                app.prefsManager.setVpnSplitTunnelEnabled(enabled)
-                                if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
-                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.vpn_in_dev_card_title),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextWhite
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFFFFB74D).copy(alpha = 0.16f),
+                                            border = BorderStroke(0.6.dp, Color(0xFFFFB74D).copy(alpha = 0.50f))
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.settings_vpn_in_dev_badge),
+                                                fontSize = 8.5.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = Color(0xFFFFB74D),
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = stringResource(R.string.vpn_in_dev_card_desc),
+                                        fontSize = 11.5.sp,
+                                        color = TextMuted,
+                                        lineHeight = 15.sp
+                                    )
                                 }
-                            },
-                            isAllowlist = vpnSplitTunnelAllowlist,
-                            onToggleAllowlist = { allowlist ->
-                                app.prefsManager.setVpnSplitTunnelAllowlist(allowlist)
-                                if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
-                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
-                                }
-                            },
-                            packageCount = vpnSplitTunnelPackages.size,
-                            onOpenAppPicker = { showSplitTunnelAppsDialog = true }
-                        )
+                            }
+                        }
                     }
                     SettingsProtocolMode.MTPROTO -> {
                         SettingsNetworkSection(
@@ -1374,7 +1443,7 @@ private fun SettingsTopBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             SettingsCategory.values().forEach { category ->
@@ -1413,12 +1482,12 @@ private fun SettingsTopBar(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 7.dp),
+                            .padding(vertical = 7.dp, horizontal = 1.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = stringResource(category.titleRes),
-                            fontSize = 11.5.sp,
+                            fontSize = 10.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = chipText,
                             maxLines = 1,
@@ -2510,13 +2579,13 @@ private fun SettingsNetworkSection(
                         .padding(14.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
                                 Row(
+                                    modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
@@ -2526,6 +2595,8 @@ private fun SettingsNetworkSection(
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 13.5.sp
                                     )
+                                    InfoButton { onInfoClick("port") }
+                                    Spacer(modifier = Modifier.weight(1f))
                                     SettingsSafetyBadge(
                                         level = SettingsSafetyLevel.SAFE,
                                         customLabel = stringResource(R.string.settings_port_default_badge)
@@ -2539,77 +2610,34 @@ private fun SettingsNetworkSection(
                                     lineHeight = 16.sp
                                 )
                             }
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(1.dp, AmoledBorder),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onEnableAdvancedMode()
-                                    }
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.settings_btn_configure_expert),
-                                    color = ActiveGreenLed,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                )
-                            }
                         }
 
                         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.settings_secret_hex),
-                                        color = TextWhite,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 13.5.sp
-                                    )
-                                    SettingsSafetyBadge(
-                                        level = SettingsSafetyLevel.SAFE,
-                                        customLabel = stringResource(R.string.vpn_status_active_badge)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(
-                                    text = stringResource(R.string.settings_secret_safe_desc),
-                                    color = TextMuted,
-                                    fontSize = 11.5.sp,
-                                    lineHeight = 16.sp
-                                )
-                            }
+                            Text(
+                                text = stringResource(R.string.settings_secret_hex),
+                                color = TextWhite,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.5.sp
+                            )
+                            InfoButton { onInfoClick("secret") }
+                            Spacer(modifier = Modifier.weight(1f))
+                            SettingsSafetyBadge(
+                                level = SettingsSafetyLevel.SAFE,
+                                customLabel = stringResource(R.string.vpn_status_active_badge)
+                            )
                         }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TextButton(onClick = {
-                                onRefreshSecret()
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            }) {
-                                Text(
-                                    text = stringResource(R.string.settings_btn_change_secret),
-                                    color = ActiveGreenLed,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
+                        Text(
+                            text = stringResource(R.string.settings_secret_safe_desc),
+                            color = TextMuted,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp
+                        )
                     }
                 }
             } else {
@@ -2803,6 +2831,7 @@ private fun SettingsNetworkSection(
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 13.5.sp
                                     )
+                                    InfoButton { onInfoClick("port") }
                                     SettingsSafetyBadge(
                                         level = SettingsSafetyLevel.SAFE,
                                         customLabel = stringResource(R.string.settings_port_default_badge)
@@ -2814,25 +2843,6 @@ private fun SettingsNetworkSection(
                                     color = TextMuted,
                                     fontSize = 11.5.sp,
                                     lineHeight = 16.sp
-                                )
-                            }
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(1.dp, AmoledBorder),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onEnableAdvancedMode()
-                                    }
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.settings_btn_configure_expert),
-                                    color = Socks5Accent,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 )
                             }
                         }
@@ -3348,53 +3358,20 @@ private fun SettingsAdvancedModeToggleCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
+            Row(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(end = 12.dp)
+                    .padding(end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_advanced_mode_title),
-                        color = TextWhite,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                    InfoButton { onInfoClick("advanced_mode") }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(
-                                if (isAdvancedMode) ActiveGreenLed.copy(alpha = 0.15f)
-                                else Color.White.copy(alpha = 0.06f)
-                            )
-                            .border(
-                                1.dp,
-                                if (isAdvancedMode) ActiveGreenLed.copy(alpha = 0.4f)
-                                else AmoledBorder,
-                                RoundedCornerShape(6.dp)
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = if (isAdvancedMode) "EXPERT" else "SIMPLE",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Black,
-                            color = if (isAdvancedMode) ActiveGreenLed else TextMuted,
-                            letterSpacing = 0.8.sp
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(3.dp))
                 Text(
-                    text = stringResource(R.string.settings_advanced_mode_desc),
-                    color = TextMuted,
-                    fontSize = 11.5.sp,
-                    lineHeight = 15.sp
+                    text = stringResource(R.string.settings_advanced_mode_title),
+                    color = TextWhite,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
                 )
+                InfoButton { onInfoClick("advanced_mode") }
             }
             InertialSpringSwitch(
                 checked = isAdvancedMode,
@@ -3468,11 +3445,11 @@ private fun SettingsAdvancedEngineeringSection(
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     val app = MirrlyApplication.instance
-    var happyEyeballsDelay by remember { mutableStateOf(app.prefsManager.getHappyEyeballsDelayMs()) }
-    var ipFamilyPref by remember { mutableStateOf(app.prefsManager.getIpFamilyPreference()) }
+    var happyEyeballsDelay by remember { mutableStateOf(config.happyEyeballsDelayMs) }
+    var ipFamilyPref by remember { mutableStateOf(config.ipFamilyPreferenceName) }
     var customAnycastEndpoint by remember { mutableStateOf(config.warpUserEndpointOverride) }
     var bufferSize by remember { mutableStateOf(config.bufferSizeBytes) }
-    var keepAliveSeconds by remember { mutableStateOf(app.prefsManager.getSocketKeepAliveSeconds()) }
+    var keepAliveSeconds by remember { mutableStateOf(config.webSocketKeepAliveSeconds) }
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 3),
@@ -3563,7 +3540,8 @@ private fun SettingsAdvancedEngineeringSection(
                                 ) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     happyEyeballsDelay = delayMs
-                                    app.prefsManager.setHappyEyeballsDelayMs(delayMs)
+                                    app.proxyServer.applyAdvancedNetworkSettings(happyEyeballsDelayMs = delayMs)
+                                    app.saveConfig()
                                 }
                                 .padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center
@@ -3649,7 +3627,11 @@ private fun SettingsAdvancedEngineeringSection(
                                 ) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     ipFamilyPref = prefKey
-                                    app.prefsManager.setIpFamilyPreference(prefKey)
+                                    config.ipFamilyPreferenceName = prefKey
+                                    app.proxyServer.applyAdvancedNetworkSettings(
+                                        ipFamilyPreference = config.ipFamilyPreference
+                                    )
+                                    app.saveConfig()
                                 }
                                 .padding(vertical = 8.dp, horizontal = 2.dp),
                             contentAlignment = Alignment.Center
@@ -3709,6 +3691,9 @@ private fun SettingsAdvancedEngineeringSection(
                         onValueChange = { newValue ->
                             customAnycastEndpoint = newValue
                             config.warpUserEndpointOverride = newValue.trim()
+                            if (config.isVpnAnyWarpUplink) {
+                                app.proxyServer.applyWarpEndpoint(config.warpUserEndpointOverride)
+                            }
                             app.saveConfig()
                         },
                         singleLine = true,
@@ -3750,6 +3735,9 @@ private fun SettingsAdvancedEngineeringSection(
                                 .clickable {
                                     customAnycastEndpoint = ""
                                     config.warpUserEndpointOverride = ""
+                                    if (config.isVpnAnyWarpUplink) {
+                                        app.proxyServer.applyWarpEndpoint(config.warpPeerEndpoint)
+                                    }
                                     app.saveConfig()
                                 }
                                 .padding(horizontal = 10.dp, vertical = 9.dp),
@@ -3833,7 +3821,7 @@ private fun SettingsAdvancedEngineeringSection(
                                 ) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     bufferSize = sizeBytes
-                                    config.bufferSizeBytes = sizeBytes
+                                    app.proxyServer.applyBufferSizeBytes(sizeBytes)
                                     app.saveConfig()
                                 }
                                 .padding(vertical = 8.dp),
@@ -3917,7 +3905,8 @@ private fun SettingsAdvancedEngineeringSection(
                                 ) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     keepAliveSeconds = seconds
-                                    app.prefsManager.setSocketKeepAliveSeconds(seconds)
+                                    app.proxyServer.applyAdvancedNetworkSettings(webSocketKeepAliveSeconds = seconds)
+                                    app.saveConfig()
                                 }
                                 .padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center
@@ -3945,11 +3934,13 @@ private fun SettingsAdvancedEngineeringSection(
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     app.prefsManager.resetAdvancedSettingsToDefaults(config)
                     app.saveConfig()
-                    happyEyeballsDelay = app.prefsManager.getHappyEyeballsDelayMs()
-                    ipFamilyPref = app.prefsManager.getIpFamilyPreference()
+                    app.proxyServer.applyAdvancedNetworkSettings()
+                    app.proxyServer.applyBufferSizeBytes(config.bufferSizeBytes)
+                    happyEyeballsDelay = config.happyEyeballsDelayMs
+                    ipFamilyPref = config.ipFamilyPreferenceName
                     customAnycastEndpoint = config.warpUserEndpointOverride
                     bufferSize = config.bufferSizeBytes
-                    keepAliveSeconds = app.prefsManager.getSocketKeepAliveSeconds()
+                    keepAliveSeconds = config.webSocketKeepAliveSeconds
                     onRestartProxy()
                     Toast.makeText(
                         context,
@@ -5793,15 +5784,20 @@ private fun SettingsSystemSection(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            // Two fixed, equal-width slots per row keep language controls compact on 320–360dp phones.
+            // A single four-item Row overflows as soon as a locale label becomes longer.
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(
                     "system" to stringResource(R.string.settings_language_system),
                     "ru" to stringResource(R.string.settings_language_ru),
-                    "en" to stringResource(R.string.settings_language_en)
-                ).forEach { (langCode, langLabel) ->
+                    "en" to stringResource(R.string.settings_language_en),
+                    "fa" to stringResource(R.string.settings_language_fa)
+                ).chunked(2).forEach { languageRow ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        languageRow.forEach { (langCode, langLabel) ->
                     val isSelected = currentAppLanguage == langCode
                     val chipBorder by animateColorAsState(
                         targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
@@ -5844,6 +5840,9 @@ private fun SettingsSystemSection(
                             maxLines = 1,
                             textAlign = TextAlign.Center
                         )
+                    }
+                        }
+                        if (languageRow.size == 1) Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -6298,6 +6297,11 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
         "doze_mode", "doze_mode_info" -> R.string.info_doze_mode_title to R.string.info_doze_mode_body
         "doh_providers", "doh_info" -> R.string.info_doh_title to R.string.info_doh_body
         "advanced_mode" -> R.string.settings_advanced_mode_title to R.string.settings_advanced_mode_desc
+        "happy_eyeballs" -> R.string.info_happy_eyeballs_title to R.string.info_happy_eyeballs_body
+        "ip_family" -> R.string.info_ip_family_title to R.string.info_ip_family_body
+        "warp_anycast" -> R.string.info_warp_anycast_title to R.string.info_warp_anycast_body
+        "socket_buffer" -> R.string.info_socket_buffer_title to R.string.info_socket_buffer_body
+        "ws_keepalive" -> R.string.info_ws_keepalive_title to R.string.info_ws_keepalive_body
         "vpn_core_info" -> R.string.vpn_architecture_title to R.string.vpn_splittunnel_desc
         else -> return
     }
@@ -6912,21 +6916,15 @@ private fun SettingsMtprotoCdnOverviewCard() {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.settings_mtproto_routing_section),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                SettingsSafetyBadge(level = SettingsSafetyLevel.SAFE)
-            }
+            Text(
+                text = stringResource(R.string.settings_mtproto_routing_section),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.3.sp,
+                color = TextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))

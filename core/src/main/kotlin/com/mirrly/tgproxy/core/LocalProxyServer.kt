@@ -92,6 +92,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 TgConstants.getWsDomains(2).firstOrNull() ?: ("kws2." + TgConstants.decodeCfDomain("virkgj.com"))
             }
         },
+        isSocks5Provider = { config.isSocks5Mode },
         onSelfHealingRequired = { failureType ->
             AppLogger.w("LocalProxyServer", "Watchdog: Зафиксирован сетевой сбой $failureType")
             when (failureType) {
@@ -225,6 +226,14 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     private fun performStart(cacheDir: File?): Boolean {
         stats.resetBaseline()
+
+        // Engineering settings are part of the connection contract: commit them
+        // before any protocol creates a native socket.
+        applyAdvancedNetworkSettings(
+            config.happyEyeballsDelayMs,
+            config.ipFamilyPreference,
+            config.webSocketKeepAliveSeconds
+        )
 
         if (cacheDir != null) {
             try {
@@ -695,6 +704,31 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             } catch (t: Throwable) {
                 AppLogger.w("LocalProxyServer", "setSocketBufferSizes failed: ${t.message}")
             }
+        }
+    }
+
+    /** Applies expert transport policy to every native protocol (MTProto, SOCKS5,
+     * Worker WSS, and VPN uplinks) without recreating the Android service. */
+    fun applyAdvancedNetworkSettings(
+        happyEyeballsDelayMs: Long = config.happyEyeballsDelayMs,
+        ipFamilyPreference: IpFamilyPreference = config.ipFamilyPreference,
+        webSocketKeepAliveSeconds: Int = config.webSocketKeepAliveSeconds
+    ) {
+        config.happyEyeballsDelayMs = happyEyeballsDelayMs.coerceIn(100L, 1000L)
+        config.ipFamilyPreference = ipFamilyPreference
+        config.webSocketKeepAliveSeconds = webSocketKeepAliveSeconds.coerceIn(15, 60)
+        effectiveNetworkProfile = effectiveNetworkProfile.copy(
+            happyEyeballsDelayMs = config.happyEyeballsDelayMs,
+            ipFamilyPreference = config.ipFamilyPreference.name,
+            webSocketKeepAliveSeconds = config.webSocketKeepAliveSeconds
+        ).normalized()
+        try {
+            // This is deliberately valid before start(): native configuration
+            // must be committed before the selected protocol opens its first socket.
+            NativeProxy.setNetworkProfileJson(effectiveNetworkProfile.toJsonString())
+            NativeProxy.setSocketBufferSizes(config.bufferSizeBytes, config.bufferSizeBytes)
+        } catch (t: Throwable) {
+            AppLogger.w("LocalProxyServer", "Failed to apply expert network settings: ${t.message}")
         }
     }
 

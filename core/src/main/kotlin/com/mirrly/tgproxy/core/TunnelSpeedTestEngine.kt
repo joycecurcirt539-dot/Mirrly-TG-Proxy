@@ -574,11 +574,11 @@ class TunnelSpeedTestEngine {
 
     private fun calculateQualityGrade(dlMbps: Double, ulMbps: Double, pingMs: Long): String {
         return when {
-            dlMbps >= 80.0 && pingMs <= 70 -> "Превосходно (до 4K UHD)"
-            dlMbps >= 40.0 && pingMs <= 120 -> "Отлично (Full HD 1080p)"
-            dlMbps >= 15.0 && pingMs <= 180 -> "Хорошо (HD 720p)"
-            dlMbps >= 5.0 -> "Удовлетворительно (Чаты и звонки)"
-            else -> "Низкая скорость"
+            dlMbps >= 80.0 && pingMs <= 70 -> "Отлично"
+            dlMbps >= 40.0 && pingMs <= 120 -> "Хорошо"
+            dlMbps >= 15.0 && pingMs <= 180 -> "Удовлетворительно"
+            dlMbps >= 5.0 -> "Слабо"
+            else -> "Плохо"
         }
     }
 

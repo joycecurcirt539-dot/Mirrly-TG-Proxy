@@ -34,6 +34,13 @@ enum class TcpNoDelayMode(val displayName: String) {
     OFF("ВЫКЛ")
 }
 
+/** Address-family policy for outbound tunnel dials. */
+enum class IpFamilyPreference {
+    DUAL_STACK,
+    IPV4_ONLY,
+    IPV6_FIRST
+}
+
 /**
  * Режимы восходящего канала (Uplink).
  * WORKER  — стандартная маршрутизация через Cloudflare Workers по протоколу WebSocket (TLS 443).
@@ -64,6 +71,9 @@ data class ProxyConfig(
     var tcpNoDelayModeName: String = TcpNoDelayMode.AUTO.name,
     var tcpNoDelay: Boolean = true,
     var bufferSizeBytes: Int = 262144, // 256KB default buffer
+    var happyEyeballsDelayMs: Long = 200L,
+    var ipFamilyPreferenceName: String = IpFamilyPreference.DUAL_STACK.name,
+    var webSocketKeepAliveSeconds: Int = 30,
     var socks5Port: Int = 10808,
     var socks5Username: String = "",
     var socks5Password: String = "",
@@ -152,6 +162,10 @@ data class ProxyConfig(
     var livenessProbeTimeoutMs: Int = 1500,
     var livenessProbeFailoverThreshold: Int = 2
 ) {
+    var ipFamilyPreference: IpFamilyPreference
+        get() = runCatching { IpFamilyPreference.valueOf(ipFamilyPreferenceName) }
+            .getOrDefault(IpFamilyPreference.DUAL_STACK)
+        set(value) { ipFamilyPreferenceName = value.name }
     val awgStrategy: AwgObfuscationStrategy
         get() = AwgObfuscationStrategy.fromName(awgStrategyName)
 

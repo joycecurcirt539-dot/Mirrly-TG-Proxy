@@ -51,11 +51,12 @@ class ResourceParityTest {
     }
 
     @Test
-    fun testLocalesConfigContainsRuAndEn() {
+    fun testLocalesConfigContainsRuEnAndFa() {
         val configFile = locateResFile("src/main/res/xml/locales_config.xml")
         val content = configFile.readText()
         assertTrue(content.contains("android:name=\"ru\""))
         assertTrue(content.contains("android:name=\"en\""))
+        assertTrue(content.contains("android:name=\"fa\""))
     }
 
     @Test
@@ -74,6 +75,19 @@ class ResourceParityTest {
 
         assertEquals("Missing keys in English strings.xml: $missingInEn", emptySet<String>(), missingInEn)
         assertEquals("Missing keys in Russian strings.xml: $missingInRu", emptySet<String>(), missingInRu)
+    }
+
+    @Test
+    fun testStringResourcesParityBetweenEnAndFa() {
+        val enFile = locateResFile("src/main/res/values-en/strings.xml")
+        val faFile = locateResFile("src/main/res/values-fa/strings.xml")
+        val enStrings = parseStringsXml(enFile)
+        val faStrings = parseStringsXml(faFile).toMutableMap().apply {
+            putAll(parseStringsXml(locateResFile("src/main/res/values-fa/language_strings.xml")))
+        }
+
+        assertEquals("Missing keys in Persian strings.xml: ${enStrings.keys - faStrings.keys}", emptySet<String>(), enStrings.keys - faStrings.keys)
+        assertEquals("Unexpected Persian-only keys in strings.xml: ${faStrings.keys - enStrings.keys}", emptySet<String>(), faStrings.keys - enStrings.keys)
     }
 
     @Test
@@ -130,6 +144,7 @@ class ResourceParityTest {
     fun testLocaleHelperLanguageResolution() {
         assertEquals("ru", LocaleHelper.getTargetLocale(LocaleHelper.LANG_RU).language)
         assertEquals("en", LocaleHelper.getTargetLocale(LocaleHelper.LANG_EN).language)
+        assertEquals("fa", LocaleHelper.getTargetLocale(LocaleHelper.LANG_FA).language)
         assertNotNull(LocaleHelper.getTargetLocale(LocaleHelper.LANG_SYSTEM))
     }
 }

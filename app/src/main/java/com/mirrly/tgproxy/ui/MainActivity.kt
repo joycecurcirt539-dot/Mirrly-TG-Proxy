@@ -69,6 +69,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -198,6 +200,7 @@ class MainActivity : ComponentActivity() {
             val currentLanguage by app.prefsManager.appLanguageFlow.collectAsState()
             val context = LocalContext.current
             val currentConfig = LocalConfiguration.current
+            val systemDensity = LocalDensity.current
 
             val targetLocale = remember(currentLanguage) {
                 com.mirrly.tgproxy.util.LocaleHelper.getTargetLocale(currentLanguage)
@@ -217,12 +220,25 @@ class MainActivity : ComponentActivity() {
             val localizedConfig = remember(currentConfig, targetLocale) {
                 Configuration(currentConfig).apply {
                     setLocale(targetLocale)
+                    // This product deliberately uses a dense, fixed visual scale.  Compose text
+                    // must not reflow cards or controls when Android's global font-size slider changes.
+                    fontScale = 1f
                 }
             }
+            // The visual system was designed around a 390dp phone.  On a 320–359dp
+            // viewport, reduce every dp/sp measurement together so fixed control rows
+            // retain their proportions instead of clipping or overlapping.
+            val compactScale = (currentConfig.screenWidthDp / 390f).coerceIn(0.82f, 1f)
+            val designDensity = remember(systemDensity.density, compactScale) {
+                Density(density = systemDensity.density * compactScale, fontScale = 1f)
+            }
+            val layoutDirection = if (targetLocale.language == "fa") LayoutDirection.Rtl else LayoutDirection.Ltr
 
             CompositionLocalProvider(
                 LocalConfiguration provides localizedConfig,
                 LocalContext provides localizedContext,
+                LocalDensity provides designDensity,
+                androidx.compose.ui.platform.LocalLayoutDirection provides layoutDirection,
                 LocalActivityResultRegistryOwner provides this@MainActivity
             ) {
                 MirrlyTheme {
@@ -378,7 +394,6 @@ class MainActivity : ComponentActivity() {
                 val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
                 var globalTouchPoint by remember { mutableStateOf<Offset?>(null) }
                 var isVpnTabActive by remember { mutableStateOf(false) }
-                var showSpeedTestInDevDialog by remember { mutableStateOf(false) }
                 var showOnboarding by rememberSaveable { mutableStateOf(!app.prefsManager.hasSeenOnboarding()) }
 
                 // Stable callbacks for child screens (Enables Smart Recomposition Skipping)
@@ -392,7 +407,7 @@ class MainActivity : ComponentActivity() {
                 val onOpenLicense = remember { { navigateTo("license") } }
                 val onOpenTerms = remember { { navigateTo("terms") } }
                 val onOpenDiagnostics = remember { { navigateTo("diagnostics") } }
-                val onOpenSpeedTest = remember { { showSpeedTestInDevDialog = true } }
+                val onOpenSpeedTest = remember { { navigateTo("speed_test") } }
                 val onOpenWorkerAnalytics = remember { { navigateTo("worker_analytics") } }
                 val onOpenHallOfFame = remember { { navigateTo("hall_of_fame") } }
                 val onOpenOnboarding = remember { { showOnboarding = true } }
@@ -1221,13 +1236,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    if (showSpeedTestInDevDialog) {
-                        SpeedTestInDevDialog(
-                            onDismiss = {
-                                showSpeedTestInDevDialog = false
-                            }
-                        )
-                    }
 
                     if (showOnboarding) {
                         OnboardingScreen(

@@ -41,6 +41,7 @@ interface ProxyLibrary : Library {
     fun SetTcpNoDelay(enabled: Int)
     fun SetCfProxyCacheDir(cacheDir: String)
     fun SetCfProxyConfig(enabled: Int, userDomain: String)
+    fun PromoteCfproxyDomainForDc(dcId: Int, isMedia: Int, domain: String): Int
     fun SetWorkerProtocol(domain: String, proto: Int)
     fun SetSecret(secret: String)
     fun SetSocks5Auth(username: String, password: String)
@@ -226,6 +227,20 @@ object NativeProxy {
             )
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [setCfProxyConfig]: ${t.message}", t)
+        }
+    }
+
+    /**
+     * Pins a preflight-verified Flowseal Anycast base domain for one Telegram
+     * DC. This is an MTProto CDN preference, never a Cloudflare Worker route.
+     */
+    fun promoteMtprotoAnycastDomain(dcId: Int, domain: String, isMedia: Boolean = false): Boolean {
+        if (dcId !in 1..5 || domain.isBlank()) return false
+        return try {
+            ProxyLibrary.INSTANCE.PromoteCfproxyDomainForDc(dcId, if (isMedia) 1 else 0, domain) != 0
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Не удалось применить Anycast-кандидат DC$dcId: ${t.message}")
+            false
         }
     }
 

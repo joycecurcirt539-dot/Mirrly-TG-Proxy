@@ -173,6 +173,7 @@ class PingEngine(
     private val networkGenerationProvider: () -> Long = { 1L },
     private val profileRevisionProvider: () -> Long = { 1L },
     private val configGenerationProvider: () -> Long = { 1L },
+    private val isSocks5Provider: () -> Boolean = { false },
     private val probeExecutor: (suspend (String) -> PingProbeResult)? = null,
     private val onSelfHealingRequired: ((FailureType) -> Unit)? = null
 ) {
@@ -489,7 +490,8 @@ class PingEngine(
             smoothedPingMs = smoothed,
             jitterMs = jitter,
             successRatePercent = successRate,
-            lastFailureType = lastFailureType
+            lastFailureType = lastFailureType,
+            isSocks5 = isSocks5Provider()
         )
 
         currentSnapshot = PingSnapshot(

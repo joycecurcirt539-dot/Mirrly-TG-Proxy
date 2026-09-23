@@ -64,6 +64,7 @@ mirrlyengine/target/
 
 # Scratch & Legacy analysis
 scratch/
+artifacts/
 legacy/
 mirrlyengine/legacy/
 
