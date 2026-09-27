@@ -97,7 +97,9 @@ object AppLogger {
         _logsFlow.value = logQueue.toList()
     }
 
-    fun d(tag: String, message: String) = log(LogLevel.INFO, tag, message)
+    fun d(tag: String, message: String) {
+        println("[$tag] $message")
+    }
     fun i(tag: String, message: String) = log(LogLevel.INFO, tag, message)
     fun w(tag: String, message: String, throwable: Throwable? = null) = log(LogLevel.WARN, tag, message)
     fun e(tag: String, message: String, throwable: Throwable? = null) {

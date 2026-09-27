@@ -188,14 +188,16 @@ data class DohProvider(
     val isDefaultEnabled: Boolean,
     val isGoogleStyle: Boolean = false,
     val acceptHeader: String = "application/dns-json",
-    val useDnsParam: Boolean = false
+    val useDnsParam: Boolean = false,
+    val isIranOnly: Boolean = false
 ) {
     constructor(
         name: String,
         endpointUrl: String,
         isGoogleStyle: Boolean = false,
         acceptHeader: String = "application/dns-json",
-        useDnsParam: Boolean = false
+        useDnsParam: Boolean = false,
+        isIranOnly: Boolean = false
     ) : this(
         id = name.lowercase().replace("-", "_").replace(" ", "_"),
         name = name,
@@ -204,7 +206,8 @@ data class DohProvider(
         isDefaultEnabled = true,
         isGoogleStyle = isGoogleStyle,
         acceptHeader = acceptHeader,
-        useDnsParam = useDnsParam
+        useDnsParam = useDnsParam,
+        isIranOnly = isIranOnly
     )
 }
 
@@ -304,7 +307,7 @@ object DohResolver {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    val ALL_PROVIDERS: List<DohProvider> = listOf(
+    val GLOBAL_PROVIDERS: List<DohProvider> = listOf(
         DohProvider(
             id = "adguard",
             name = "AdGuard DNS",
@@ -433,6 +436,90 @@ object DohResolver {
         )
     )
 
+    val IRAN_PROVIDERS: List<DohProvider> = listOf(
+        DohProvider(
+            id = "shecan",
+            name = "Shecan DNS (شکن)",
+            description = "Iranian anti-sanction and circumvention DNS (Tehran)",
+            endpointUrl = "https://free.shecan.ir/dns-query",
+            isDefaultEnabled = true,
+            acceptHeader = "application/dns-message",
+            useDnsParam = true,
+            isIranOnly = true
+        ),
+        DohProvider(
+            id = "electro",
+            name = "Electro DNS (الکترو)",
+            description = "Iranian gaming and bypass DNS (Electro TM)",
+            endpointUrl = "https://dns.electro.team/dns-query",
+            isDefaultEnabled = true,
+            acceptHeader = "application/dns-message",
+            useDnsParam = true,
+            isIranOnly = true
+        ),
+        DohProvider(
+            id = "doh_403",
+            name = "403 Online DNS (۴۰۳)",
+            description = "Anti-sanction resolver for developers in Iran",
+            endpointUrl = "https://dns.403.online/dns-query",
+            isDefaultEnabled = true,
+            acceptHeader = "application/dns-message",
+            useDnsParam = true,
+            isIranOnly = true
+        ),
+        DohProvider(
+            id = "radar_game",
+            name = "Radar Game DNS (رادار بازی)",
+            description = "Low-latency Iranian gaming DNS (رادار بازی)",
+            endpointUrl = "https://dns.radar.game/dns-query",
+            isDefaultEnabled = false,
+            acceptHeader = "application/dns-message",
+            useDnsParam = true,
+            isIranOnly = true
+        ),
+        DohProvider(
+            id = "begzar",
+            name = "Begzar DNS (بگذر)",
+            description = "Free anti-filter and anti-sanction DNS resolver",
+            endpointUrl = "https://dns.begzar.ir/dns-query",
+            isDefaultEnabled = false,
+            acceptHeader = "application/dns-message",
+            useDnsParam = true,
+            isIranOnly = true
+        ),
+        DohProvider(
+            id = "shelter",
+            name = "Shelter DNS (شلتر)",
+            description = "Iranian developer DNS for sanctioned services",
+            endpointUrl = "https://dns.shelter.ir/dns-query",
+            isDefaultEnabled = false,
+            acceptHeader = "application/dns-message",
+            useDnsParam = true,
+            isIranOnly = true
+        )
+    )
+
+    val ALL_PROVIDERS: List<DohProvider> = GLOBAL_PROVIDERS + IRAN_PROVIDERS
+
+    fun isIranOrEnglish(langCode: String): Boolean {
+        val clean = langCode.trim().lowercase()
+        if (clean == "fa" || clean.startsWith("fa") || clean == "en" || clean.startsWith("en")) return true
+        if (clean == "ru" || clean.startsWith("ru")) return false
+        val sysLang = java.util.Locale.getDefault().language.lowercase()
+        return sysLang.startsWith("fa") || sysLang.startsWith("en")
+    }
+
+    fun getAvailableProviders(langCode: String = ""): List<DohProvider> {
+        return if (isIranOrEnglish(langCode)) ALL_PROVIDERS else GLOBAL_PROVIDERS
+    }
+
+    fun getDefaultEnabledProviderIds(langCode: String = ""): Set<String> {
+        return getAvailableProviders(langCode)
+            .filter { it.isDefaultEnabled }
+            .map { it.id }
+            .toSet()
+    }
+
     fun buildDnsQueryPacket(domain: String, type: Int = 1): ByteArray {
         val stream = java.io.ByteArrayOutputStream(64)
         // Transaction ID: 0x0000
@@ -482,13 +569,13 @@ object DohResolver {
 
     fun isIpv6OnlyNetwork(): Boolean = ipv6OnlyNetwork.get()
 
-    val DEFAULT_ENABLED_PROVIDER_IDS: Set<String> = ALL_PROVIDERS
+    val DEFAULT_ENABLED_PROVIDER_IDS: Set<String> = GLOBAL_PROVIDERS
         .filter { it.isDefaultEnabled }
         .map { it.id }
         .toSet()
 
     val DEFAULT_PROVIDERS: List<DohProvider>
-        get() = ALL_PROVIDERS
+        get() = GLOBAL_PROVIDERS
 
     @Volatile
     private var activeProviderIds: Set<String> = DEFAULT_ENABLED_PROVIDER_IDS
@@ -497,15 +584,16 @@ object DohResolver {
         activeProviderIds = if (ids.isEmpty()) DEFAULT_ENABLED_PROVIDER_IDS else ids
     }
 
-    fun getActiveProviders(): List<DohProvider> {
+    fun getActiveProviders(langCode: String = ""): List<DohProvider> {
         val currentIds = activeProviderIds
-        val filtered = ALL_PROVIDERS.filter { currentIds.contains(it.id) }
-        return if (filtered.isNotEmpty()) filtered else ALL_PROVIDERS.filter { it.isDefaultEnabled }
+        val available = getAvailableProviders(langCode)
+        val filtered = available.filter { currentIds.contains(it.id) }
+        return if (filtered.isNotEmpty()) filtered else available.filter { it.isDefaultEnabled }
     }
 
     fun getActiveProviderIds(): Set<String> = activeProviderIds
 
-    fun getActiveEndpointsCsv(): String = getActiveProviders().joinToString(",") { it.endpointUrl }
+    fun getActiveEndpointsCsv(langCode: String = ""): String = getActiveProviders(langCode).joinToString(",") { it.endpointUrl }
 
     val CF_ANYCAST_FALLBACK_IPS: List<InetAddress> = listOf(
         "188.114.96.1",

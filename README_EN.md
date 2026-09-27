@@ -19,7 +19,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_&_WARP-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Release](https://img.shields.io/badge/Release-v2.0.0.2-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Release](https://img.shields.io/badge/Release-v2.0.0.3-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Language](https://img.shields.io/badge/Language-RU_%7C_EN_%7C_FA-1E293B?logo=translate&logoColor=26A5E4)](#7-application-ui)
 [![Genesis](https://img.shields.io/badge/Genesis-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
@@ -76,7 +76,7 @@
 
 The app **does not use** the system `VpnService` for routing Telegram and **does not intercept** third-party device traffic. Telegram connects to a local socket on the device (`127.0.0.1:1443` for MTProto or `127.0.0.1:10808` for SOCKS5) handled by the native `mirrlyengine` core (Rust/Tokio) and relayed through Cloudflare Edge Anycast or a Cloudflare Worker.
 
-> **VPN mode is under development and must not be used yet.** VLESS, WARP, MASQUE, AWG, and cascade VPN routes are not working features of the current release.
+> **System VPN mode is disabled and under active development.** VLESS, WARP, MASQUE, AWG, Proton, and cascade VPN routes do not function in the current release. The application is strictly designed for local Telegram proxying via MTProto (port 1443) and SOCKS5 (port 10808) without creating a system VPN tunnel and without capturing other device traffic.
 
 ---
 
@@ -97,7 +97,7 @@ The app **does not use** the system `VpnService` for routing Telegram and **does
   * *Smart Connect*: 2–3 second preflight diagnostic check before establishing connections.
 * **UI & Localization**:
   * *Dual-Level Settings*: Simple Mode for standard usage and Advanced Mode for socket tuning (`TCP_NODELAY`, socket buffers, TLS).
-  * *Full Bilingual Support*: Complete Russian and English localizations (`values-en`), per-app language selection on Android 13+ (`locales_config`).
+  * *Full Trilingual Support*: Complete Russian, English, and Persian (Farsi) localizations with native RTL layout support, plus per-app language selection on Android 13+ (`locales_config`).
   * *Onboarding Wizard*: Step-by-step introduction for first-time users.
   * *Official Telegram Channel*: Integrated screen for project community updates (`@WhyOkyHb`).
   * *Safe Diagnostic Report*: Monospace report generator with automatic token, password, and private domain redaction (`Zero Secret Leak`).
@@ -271,22 +271,22 @@ The app automatically detects installed Telegram clients and enables one-click c
 
 ## 7. Application UI
 
-The user interface is built with Jetpack Compose featuring adaptive layouts (`AdaptiveLayoutHelper`) and dual-language localization (Russian and English):
+The user interface is built with Jetpack Compose featuring adaptive layouts (`AdaptiveLayoutHelper`) and trilingual localization (Russian, English, and Persian/Farsi) with native RTL support:
 
 * **Home Screen (`HomeScreen`)**: Master toggle button, real-time connection status, quality circle ring, MTProto/SOCKS5 mode switch, one-click "To Telegram" button, and concise route status badge (`Cloudflare WSS · Protected`).
 * **Settings Screen (`SettingsScreen`)**:
   * *Simple Mode*: Proxy protocol selection, uplink selector, sleep timer, schedule timer, boot autostart, language selector, and theme.
   * *Advanced Mode*: Socket tuning (`TCP_NODELAY`), buffer sizes, and WebSocket pool capacity.
-* **Onboarding Screen (`OnboardingScreen`)**: Step-by-step introductory wizard for new users.
+* **Onboarding Screen (`OnboardingScreen`)**: Step-by-step introductory wizard for new users with instant language switching (RU, EN, FA) and freeze-free gesture handling on Samsung and Huawei devices.
 * **Official Telegram Channel (`TelegramChannelScreen`)**: Community screen with direct link to `@WhyOkyHb`.
-* **Worker Manager (`WorkerManagerScreen`)**: Cloudflare worker list with latency probes, status codes (including HTTP 429), CameraX + Google ML Kit QR scanner, and link generator.
+* **Worker Manager (`WorkerManagerScreen`)**: Cloudflare worker list with latency probes, status codes (including HTTP 429), CameraX + Google ML Kit QR scanner, and transparent styling in Share tab for quick config sharing.
 * **Worker Analytics (`WorkerAnalyticsScreen`)**: Interactive Bezier curve of daily Cloudflare quota utilization with touch-scrubber and quota reset countdown (00:00 UTC).
 * **Network Diagnostics (`NetworkDiagnosticScreen`)**: Comprehensive SQI metric breakdown (0–100%), RTT, jitter, delivery reliability, ITU-T G.107 MOS score, and one-tap access to diagnostic report generation.
 * **Diagnostic Report (`DiagnosticReportScreen`)**: Safe configuration viewer with automatic secret redaction and one-click GitHub Issue export.
-* **Session History (`HistoryScreen`)**: Connection session log with duration, traffic volume, and protocol usage.
-* **Event Log (`LogsScreen`)**: Real-time log viewer with line deduplication, level filtering, and file export.
+* **Session History (`HistoryScreen`)**: Compact two-line connection session log with start time, protocol (MTProto / SOCKS5), connection state, and transferred traffic (RX/TX).
+* **Event Log (`LogsScreen`)**: Minimalist AMOLED-styled log viewer with line deduplication, level filtering, and file export.
 * **Update Screen (`UpdateScreen`)**: GitHub API update checker, release changelog viewer, SHA-256 validation, and native NDK signature verification (`SignatureVerifier`).
-* **System VPN Screen (`VpnModeScreen`)**: Kinetic UI with orbital ring (preview mode in development).
+* **System VPN Screen (`VpnModeScreen`)**: Kinetic UI interface (in-development feature, system tunnel is inactive).
 * **Speed Test Screen (`TunnelSpeedTestScreen`)**: Tunnel throughput benchmark (preview mode in development).
 
 ---
@@ -487,6 +487,8 @@ Project started on **July 27, 2026** with the `v1.0.0` release. Key development 
 | **`v1.1.8.2`** | ML Kit & Isolation | CameraX + Google ML Kit QR scanner, stylized QR generator, secret key isolation, WebPKI certificates. |
 | **`v1.1.8.3`** | Speed Test & Schedule | Tunnel speed test, SOCKS5 RFC 1929 subnegotiation, weekly scheduler, Deep Dormancy offline power saving. |
 | **`v2.0.0`** | Network FSM & UI | Discrete network FSM (`NORMAL`, `DEGRADED`, `RECOVERING`), Network Generation Guard, 4 MB bounded flow control, Smart Connect preflight, settings, onboarding, safe diagnostics, and localization. VPN mode remains under development. |
+| **`v2.0.0.2`** | Localization & UI | Persian localization (Farsi) with full RTL support, dynamic font scaling in speed test quality gauge, isolation of in-development VPN screen. |
+| **`v2.0.0.3`** | Redesign & Stability | Minimalist AMOLED redesign of Session History and Logs screens, transparent cards and buttons in Share tab, elimination of first-launch and language selection freeze on Samsung One UI and Huawei EMUI/HarmonyOS, cleanup of redundant Cloudflare DNS logs, and fast SOCKS5 port recycling (`SO_REUSEPORT`). |
 
 ---
 
@@ -517,6 +519,7 @@ Project started on **July 27, 2026** with the `v1.0.0` release. Key development 
 * **[VikKalm](https://github.com/VikKalm)** — Telemetry and localization of worker blockages on Android 13 arm64-v8a (Issue #6).
 * **[liveonloan](https://github.com/liveonloan)** — UI overlap defect report on Realme GT7 (Issue #14).
 * **[Dimaakaj](https://github.com/Dimaakaj)** — Identification of TypeScript `ts(2554)` syntax error in `serverWs.accept()` call within Cloudflare Worker script, restoring web dashboard deployment.
+* **[creeepeeer](https://github.com/creeepeeer)** — Detailed diagnostic telemetry on mobile LTE/5G network under Android 16 (HONOR PTP-N29), contributing to SQI metrics and failover calibration (Issue #30).
 
 ### Community & Localization Contributors
 

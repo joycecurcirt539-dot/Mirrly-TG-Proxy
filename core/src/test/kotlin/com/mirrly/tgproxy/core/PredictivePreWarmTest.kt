@@ -122,5 +122,29 @@ class PredictivePreWarmTest {
             "SOCKS5 prewarm must be a safe no-op without generation change"
         )
     }
+
+    @Test
+    fun testPredictivePreWarmOnServiceStartDoesNotChangeGeneration() {
+        val config = ProxyConfig(bindHost = "127.0.0.1", bindPort = 19872)
+        val server = LocalProxyServer(config)
+        val initialGen = server.currentProfileGeneration.get()
+        org.junit.jupiter.api.assertDoesNotThrow {
+            server.predictivePreWarm("SERVICE_START")
+        }
+        org.junit.jupiter.api.Assertions.assertEquals(
+            initialGen,
+            server.currentProfileGeneration.get(),
+            "Service start prewarm must not increment generation"
+        )
+    }
+
+    @Test
+    fun testPredictivePreWarmOnScreenUnlockCallsNativeSafely() {
+        val config = ProxyConfig(bindHost = "127.0.0.1", bindPort = 19873)
+        val server = LocalProxyServer(config)
+        org.junit.jupiter.api.assertDoesNotThrow {
+            server.predictivePreWarm("ACTION_USER_PRESENT")
+        }
+    }
 }
 

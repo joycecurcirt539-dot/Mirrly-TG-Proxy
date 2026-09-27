@@ -8,7 +8,7 @@ object TgConstants {
     const val PROTO_TAG_POS = 56
     const val DC_IDX_POS = 60
 
-    const val DEFAULT_SOCKS5_DEV_WORKER = "mirrly-tg-proxy-worker.brawny-singer.workers.dev"
+    const val DEFAULT_SOCKS5_DEV_WORKER = "mirrly-tg-proxy-worker.rbmkagressive.workers.dev"
 
     const val CLOUDFLARE_WORKER_JS_CODE = """/**
  * Mirrly TG Proxy - Dedicated Cloudflare Worker for Telegram

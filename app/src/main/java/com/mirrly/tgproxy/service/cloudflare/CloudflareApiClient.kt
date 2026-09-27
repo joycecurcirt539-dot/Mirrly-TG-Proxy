@@ -485,6 +485,38 @@ object CloudflareApiClient {
     }
 
     /**
+     * Polls the deployed worker endpoint to ensure DNS and edge routing have propagated.
+     */
+    suspend fun verifyWorkerHealth(
+        domain: String,
+        maxWaitSeconds: Int = 8
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        val testUrl = "https://$domain/"
+        val request = Request.Builder()
+            .url(testUrl)
+            .header("User-Agent", "Mozilla/5.0 Mirrly-Worker-Verifier")
+            .get()
+            .build()
+
+        val deadline = System.currentTimeMillis() + (maxWaitSeconds * 1000L)
+        var lastError: Exception? = null
+
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                CloudflareNetworkClient.executeWithFallback(request).use { response ->
+                    if (response.code in 200..499) {
+                        return@withContext Result.success(true)
+                    }
+                }
+            } catch (e: Exception) {
+                lastError = e
+            }
+            kotlinx.coroutines.delay(1200L)
+        }
+        Result.failure(lastError ?: IOException("Узел еще распространяется в глобальной сети Cloudflare"))
+    }
+
+    /**
      * Diagnostic error formatter with Russian localization of common Cloudflare codes.
      */
     fun parseCloudflareError(rawBody: String, httpCode: Int): String {

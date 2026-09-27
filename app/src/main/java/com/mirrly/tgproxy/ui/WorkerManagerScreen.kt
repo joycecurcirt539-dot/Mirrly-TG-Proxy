@@ -109,6 +109,8 @@ import com.mirrly.tgproxy.core.WorkerStatus
 import com.mirrly.tgproxy.service.PreferencesManager
 import com.mirrly.tgproxy.service.WorkerPingTester
 import com.mirrly.tgproxy.ui.theme.*
+import com.mirrly.tgproxy.service.cloudflare.CloudflareApiClient
+import com.mirrly.tgproxy.service.cloudflare.CloudflareWorkerPayload
 import kotlinx.coroutines.launch
 
 enum class ManagerSection(@StringRes val titleRes: Int) {
@@ -118,11 +120,6 @@ enum class ManagerSection(@StringRes val titleRes: Int) {
     SCANNER(R.string.wm_tab_scanner)
 }
 
-private enum class WmWorkerFilterType {
-    ALL,
-    DEVELOPER,
-    CUSTOM
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -143,7 +140,11 @@ fun WorkerManagerScreen(
     val protoColors = LocalProtocolColors.current
     val activeProtoColor = protoColors.primary
 
-    var currentSection by remember(initialSection) { mutableStateOf(initialSection) }
+    val sections = remember { ManagerSection.values().toList() }
+
+    var currentSection by remember(initialSection) {
+        mutableStateOf(initialSection)
+    }
 
     // Workers State
     val activeWorkerId by prefs.activeWorkerIdFlow.collectAsState()
@@ -156,8 +157,8 @@ fun WorkerManagerScreen(
 
     val pingResults = remember { mutableStateMapOf<String, Pair<WorkerStatus, Long?>>() }
     var isPinging by remember { mutableStateOf(false) }
+    var updatingCardWorkerId by remember { mutableStateOf<String?>(null) }
 
-    var selectedFilter by remember { mutableStateOf(WmWorkerFilterType.ALL) }
     var isSearchVisible by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     val searchFocusRequester = remember { FocusRequester() }
@@ -171,8 +172,6 @@ fun WorkerManagerScreen(
 
     var headerHeightDp by remember { mutableStateOf(210.dp) }
 
-    val filterTypes = remember { listOf(WmWorkerFilterType.ALL, WmWorkerFilterType.DEVELOPER, WmWorkerFilterType.CUSTOM) }
-
     fun handleDismiss() {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         onBack()
@@ -184,14 +183,8 @@ fun WorkerManagerScreen(
 
     fun switchToNextSubTab() {
         if (currentSection == ManagerSection.WORKERS) {
-            val currentIndex = filterTypes.indexOf(selectedFilter)
-            if (currentIndex < filterTypes.size - 1) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                selectedFilter = filterTypes[currentIndex + 1]
-            } else {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                currentSection = ManagerSection.DEPLOY
-            }
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            currentSection = ManagerSection.DEPLOY
         } else if (currentSection == ManagerSection.DEPLOY) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             currentSection = ManagerSection.SHARE
@@ -202,13 +195,7 @@ fun WorkerManagerScreen(
     }
 
     fun switchToPreviousSubTab() {
-        if (currentSection == ManagerSection.WORKERS) {
-            val currentIndex = filterTypes.indexOf(selectedFilter)
-            if (currentIndex > 0) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                selectedFilter = filterTypes[currentIndex - 1]
-            }
-        } else if (currentSection == ManagerSection.DEPLOY) {
+        if (currentSection == ManagerSection.DEPLOY) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             currentSection = ManagerSection.WORKERS
         } else if (currentSection == ManagerSection.SHARE) {
@@ -290,21 +277,17 @@ fun WorkerManagerScreen(
         }
     }
 
-    // Filtered lists calculation
-    val allWorkers = remember(devWorkers, customWorkers) { devWorkers + customWorkers }
-    val filteredWorkers = remember(allWorkers, selectedFilter, searchQuery) {
+    // Worker list calculation (personal workers only)
+    val allWorkers = remember(customWorkers) { customWorkers }
+    val filteredWorkers = remember(allWorkers, searchQuery) {
         val trimmed = searchQuery.trim()
-        allWorkers.filter { worker ->
-            val matchesFilter = when (selectedFilter) {
-                WmWorkerFilterType.ALL -> true
-                WmWorkerFilterType.DEVELOPER -> worker.isDeveloperWorker
-                WmWorkerFilterType.CUSTOM -> !worker.isDeveloperWorker
-            }
-            val matchesQuery = if (trimmed.isEmpty()) true else {
+        if (trimmed.isEmpty()) {
+            allWorkers
+        } else {
+            allWorkers.filter { worker ->
                 worker.name.contains(trimmed, ignoreCase = true) ||
                         worker.domain.contains(trimmed, ignoreCase = true)
             }
-            matchesFilter && matchesQuery
         }
     }
 
@@ -316,12 +299,6 @@ fun WorkerManagerScreen(
     }
 
     val workersListState = rememberLazyListState()
-
-    LaunchedEffect(selectedFilter) {
-        if (workersListState.firstVisibleItemIndex > 0 || workersListState.firstVisibleItemScrollOffset > 0) {
-            workersListState.scrollToItem(0)
-        }
-    }
 
     val currentOnNextTab by rememberUpdatedState(::switchToNextSubTab)
     val currentOnPrevTab by rememberUpdatedState(::switchToPreviousSubTab)
@@ -473,42 +450,114 @@ fun WorkerManagerScreen(
                                 .padding(bottom = 40.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_shield),
-                                    contentDescription = null,
-                                    tint = TextMuted.copy(alpha = 0.4f),
-                                    modifier = Modifier.size(52.dp)
-                                )
-                                Text(
-                                    text = if (searchQuery.isNotEmpty()) stringResource(R.string.wm_nodes_not_found) else stringResource(R.string.wm_list_empty),
-                                    color = TextMuted,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                if (selectedFilter == WmWorkerFilterType.CUSTOM && customWorkers.isEmpty()) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = activeProtoColor.copy(alpha = 0.1f),
-                                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.35f)),
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .springPress(onClick = {
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                showAddDialog = true
-                                            })
+                            if (searchQuery.isNotEmpty()) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_shield),
+                                        contentDescription = null,
+                                        tint = TextMuted.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(52.dp)
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.wm_nodes_not_found),
+                                        color = TextMuted,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            } else {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFFF38020).copy(alpha = 0.08f),
+                                    border = BorderStroke(1.dp, Color(0xFFF38020).copy(alpha = 0.35f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 24.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(20.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFFF38020).copy(alpha = 0.15f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_info_circle),
+                                                contentDescription = null,
+                                                tint = Color(0xFFF38020),
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
                                         Text(
-                                            text = stringResource(R.string.wm_btn_add_short),
-                                            color = activeProtoColor,
-                                            fontSize = 12.5.sp,
+                                            text = stringResource(R.string.wm_dev_workers_removed_title),
                                             fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                            fontSize = 15.sp,
+                                            color = TextWhite,
+                                            textAlign = TextAlign.Center
                                         )
+                                        Text(
+                                            text = stringResource(R.string.wm_dev_workers_removed_reason),
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 12.5.sp,
+                                            color = TextWhite.copy(alpha = 0.85f),
+                                            textAlign = TextAlign.Center
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.wm_dev_workers_removed_desc),
+                                            fontSize = 12.sp,
+                                            color = TextMuted,
+                                            textAlign = TextAlign.Center,
+                                            lineHeight = 16.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Button(
+                                                onClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    currentSection = ManagerSection.DEPLOY
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF38020)),
+                                                shape = RoundedCornerShape(10.dp),
+                                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                                            ) {
+                                                Text(
+                                                    text = stringResource(R.string.wm_dev_workers_removed_btn),
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = activeProtoColor.copy(alpha = 0.12f),
+                                                border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.45f)),
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .springPress(onClick = {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        showAddDialog = true
+                                                    })
+                                            ) {
+                                                Text(
+                                                    text = stringResource(R.string.wm_btn_add_short),
+                                                    color = activeProtoColor,
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -597,6 +646,74 @@ fun WorkerManagerScreen(
                                 }
                             }
 
+                            // Notice that developer workers were removed
+                            item(key = "dev_workers_removed_banner") {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0xFFF38020).copy(alpha = 0.08f),
+                                        border = BorderStroke(1.dp, Color(0xFFF38020).copy(alpha = 0.35f)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                currentSection = ManagerSection.DEPLOY
+                                            }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(28.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color(0xFFF38020).copy(alpha = 0.15f))
+                                                    .border(1.dp, Color(0xFFF38020).copy(alpha = 0.4f), RoundedCornerShape(8.dp)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.ic_info_circle),
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFF38020),
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = stringResource(R.string.wm_dev_workers_removed_title),
+                                                    color = TextWhite,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = stringResource(R.string.wm_dev_workers_removed_reason),
+                                                    color = TextWhite.copy(alpha = 0.85f),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                Text(
+                                                    text = stringResource(R.string.wm_dev_workers_removed_desc),
+                                                    color = TextMuted,
+                                                    fontSize = 10.5.sp,
+                                                    lineHeight = 13.5.sp
+                                                )
+                                            }
+
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_chevron_right),
+                                                contentDescription = null,
+                                                tint = TextMuted,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
                             // Warning Card for 429 Rate Limit
                             if (hasRateLimitedWorkers) {
                                 item(key = "rate_limit_warning") {
@@ -672,6 +789,57 @@ fun WorkerManagerScreen(
                                         prefs.setActiveWorkerId(worker.id)
                                         Toast.makeText(context, context.getString(R.string.wm_toast_activated, worker.name), Toast.LENGTH_SHORT).show()
                                     },
+                                    onVisitSite = {
+                                        try {
+                                            val url = "https://${worker.domain}"
+                                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            context.startActivity(browserIntent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Не удалось открыть браузер", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    onToggleType = null,
+                                    onUpdateScript = if (!worker.isDeveloperWorker) {
+                                        {
+                                            val cfToken = prefs.getCloudflareToken()
+                                            val cfAccountId = prefs.getCloudflareAccountId()
+                                            if (cfToken.isNullOrBlank() || cfAccountId.isNullOrBlank()) {
+                                                Toast.makeText(context, "Для обновления скрипта авторизуйтесь в Cloudflare (вкладка Деплой)", Toast.LENGTH_LONG).show()
+                                                currentSection = ManagerSection.DEPLOY
+                                            } else {
+                                                updatingCardWorkerId = worker.id
+                                                scope.launch {
+                                                    val scriptName = if (worker.domain.contains(".workers.dev")) {
+                                                        worker.domain.substringBefore(".workers.dev").substringBefore(".")
+                                                    } else {
+                                                        worker.name.trim().lowercase().replace(Regex("[^a-z0-9_-]"), "-")
+                                                    }
+                                                    val scriptCode = CloudflareWorkerPayload.getWorkerScript(context)
+                                                    Toast.makeText(context, "Загрузка скрипта на Cloudflare...", Toast.LENGTH_SHORT).show()
+                                                    val deployRes = CloudflareApiClient.deployWorkerScript(
+                                                        cfToken,
+                                                        cfAccountId,
+                                                        scriptName,
+                                                        scriptCode,
+                                                        prefs
+                                                    )
+                                                    if (deployRes.isSuccess) {
+                                                        CloudflareApiClient.verifyWorkerHealth(worker.domain, maxWaitSeconds = 6)
+                                                        prefs.updateCustomWorkerScriptVersion(worker.domain, CloudflareWorkerPayload.SCRIPT_VERSION)
+                                                        refreshWorkers()
+                                                        Toast.makeText(context, context.getString(R.string.cf_deploy_toast_updated), Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        val err = deployRes.exceptionOrNull()?.message ?: "Ошибка загрузки"
+                                                        Toast.makeText(context, "Ошибка обновления: $err", Toast.LENGTH_LONG).show()
+                                                    }
+                                                    updatingCardWorkerId = null
+                                                }
+                                            }
+                                        }
+                                    } else null,
+                                    isUpdatingScript = updatingCardWorkerId == worker.id,
                                     onShare = if (!worker.isDeveloperWorker) {
                                         {
                                             selectedShareWorker = worker
@@ -689,9 +857,9 @@ fun WorkerManagerScreen(
 
                             // App Links Info Banner
                             item(key = "deep_link_perm_info") {
-                                Surface(
-                                    shape = RoundedCornerShape(13.dp),
-                                    color = Color.White.copy(alpha = 0.03f),
+                                    Surface(
+                                        shape = RoundedCornerShape(13.dp),
+                                        color = Color.White.copy(alpha = 0.03f),
                                     border = BorderStroke(1.dp, Color(0xFF1E283D)),
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -776,12 +944,12 @@ fun WorkerManagerScreen(
                                             }
                                         }
                                     }
-                                }
                             }
                         }
                     }
                 }
-                ManagerSection.DEPLOY -> {
+            }
+            ManagerSection.DEPLOY -> {
                     CloudflareDeploySection(
                         prefs = prefs,
                         activeProtoColor = activeProtoColor,
@@ -903,7 +1071,7 @@ fun WorkerManagerScreen(
                             Text(
                                 text = stringResource(R.string.wm_title),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp,
+                                fontSize = 17.sp,
                                 color = TextWhite,
                                 maxLines = 1,
                                 softWrap = false,
@@ -912,73 +1080,86 @@ fun WorkerManagerScreen(
                             Text(
                                 text = when (currentSection) {
                                     ManagerSection.DEPLOY -> stringResource(R.string.cf_deploy_header_subtitle)
-                                    else -> if (isSocks5) stringResource(R.string.wm_sub_socks5) else stringResource(R.string.wm_sub_mtproto)
+                                    else -> stringResource(R.string.wm_sub_socks5)
                                 },
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = if (currentSection == ManagerSection.DEPLOY) Color(0xFFF38020) else activeProtoColor
+                                color = if (currentSection == ManagerSection.DEPLOY) Color(0xFFF38020) else activeProtoColor,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     },
                     navigationIcon = {
-                        IconButton(onClick = {
-                            handleDismiss()
-                        }) {
+                        IconButton(
+                            onClick = { handleDismiss() },
+                            modifier = Modifier.size(38.dp)
+                        ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_arrow_left),
                                 contentDescription = stringResource(R.string.action_back),
                                 tint = TextWhite,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     },
                     actions = {
                         if (currentSection == ManagerSection.WORKERS) {
-                            // Analytics Chart Button
-                            if (onOpenAnalytics != null) {
-                                IconButton(onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onOpenAnalytics()
-                                }) {
+                                // Analytics Chart Button
+                                if (onOpenAnalytics != null) {
+                                    IconButton(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            onOpenAnalytics()
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_diag_formula),
+                                            contentDescription = stringResource(R.string.wm_desc_analytics),
+                                            tint = activeProtoColor,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
+                                }
+
+                                // Toggle Search Bar
+                                IconButton(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        if (isSearchVisible && searchQuery.isNotEmpty()) {
+                                            searchQuery = ""
+                                        }
+                                        isSearchVisible = !isSearchVisible
+                                        if (!isSearchVisible) {
+                                            keyboardController?.hide()
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
                                     Icon(
-                                        painter = painterResource(id = R.drawable.ic_diag_formula),
-                                        contentDescription = stringResource(R.string.wm_desc_analytics),
-                                        tint = activeProtoColor,
-                                        modifier = Modifier.size(20.dp)
+                                        painter = painterResource(id = R.drawable.ic_search),
+                                        contentDescription = stringResource(R.string.action_search),
+                                        tint = if (isSearchVisible || searchQuery.isNotEmpty()) activeProtoColor else TextWhite,
+                                        modifier = Modifier.size(19.dp)
                                     )
                                 }
-                            }
-
-                            // Toggle Search Bar
-                            IconButton(onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (isSearchVisible && searchQuery.isNotEmpty()) {
-                                    searchQuery = ""
-                                }
-                                isSearchVisible = !isSearchVisible
-                                if (!isSearchVisible) {
-                                    keyboardController?.hide()
-                                }
-                            }) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_search),
-                                    contentDescription = stringResource(R.string.action_search),
-                                    tint = if (isSearchVisible || searchQuery.isNotEmpty()) activeProtoColor else TextWhite,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
 
                             // Ping All Workers (ic_refresh with rotation)
-                            IconButton(onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                startPingAll()
-                            }) {
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    startPingAll()
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_refresh),
                                     contentDescription = stringResource(R.string.wm_desc_measure_ping),
                                     tint = if (isPinging) activeProtoColor else TextWhite,
                                     modifier = Modifier
-                                        .size(20.dp)
+                                        .size(19.dp)
                                         .rotate(pingRotation)
                                 )
                             }
@@ -987,8 +1168,7 @@ fun WorkerManagerScreen(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
 
-                // 4-Segment Primary Section Switcher Pill ([ Workers ] [ Share ] [ Scanner ] [ Guide ])
-                val sections = remember { ManagerSection.values() }
+                // Primary Section Switcher Pill
                 val sectionCapsuleHeight = 36.dp
                 val sectionInnerPadding = 3.dp
                 val selectedIndex = sections.indexOf(currentSection).coerceAtLeast(0)
@@ -1137,110 +1317,110 @@ fun WorkerManagerScreen(
                                     )
                                 }
 
-                                // 3 Fixed-Width Segmented Filter Chips + Add Button
+                                // Header bar: Personal Workers count badge + Add & Scanner buttons
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    SegmentedFilterChip(
-                                        title = stringResource(R.string.wm_filter_all),
-                                        count = allWorkers.size,
-                                        isSelected = selectedFilter == WmWorkerFilterType.ALL,
-                                        activeColor = activeProtoColor,
-                                        modifier = Modifier.width(76.dp),
-                                        onClick = {
-                                            selectedFilter = WmWorkerFilterType.ALL
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        }
-                                    )
-                                    SegmentedFilterChip(
-                                        title = stringResource(R.string.wm_filter_official),
-                                        count = devWorkers.size,
-                                        isSelected = selectedFilter == WmWorkerFilterType.DEVELOPER,
-                                        activeColor = activeProtoColor,
-                                        modifier = Modifier.width(94.dp),
-                                        onClick = {
-                                            selectedFilter = WmWorkerFilterType.DEVELOPER
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        }
-                                    )
-                                    SegmentedFilterChip(
-                                        title = stringResource(R.string.wm_filter_custom),
-                                        count = customWorkers.size,
-                                        isSelected = selectedFilter == WmWorkerFilterType.CUSTOM,
-                                        activeColor = activeProtoColor,
-                                        modifier = Modifier.width(94.dp),
-                                        onClick = {
-                                            selectedFilter = WmWorkerFilterType.CUSTOM
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        }
-                                    )
-
-                                    // Add worker button
                                     Surface(
-                                        shape = RoundedCornerShape(17.dp),
-                                        color = Color.Transparent,
-                                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.55f)),
-                                        modifier = Modifier
-                                            .height(34.dp)
-                                            .clip(RoundedCornerShape(17.dp))
-                                            .springPress(onClick = {
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                prefillDomain = ""
-                                                prefillName = ""
-                                                showAddDialog = true
-                                            })
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = activeProtoColor.copy(alpha = 0.10f),
+                                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.25f))
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxHeight()
-                                                .padding(horizontal = 10.dp),
-                                            contentAlignment = Alignment.Center
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Text(
-                                                text = stringResource(R.string.wm_btn_add),
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 11.5.sp,
-                                                color = activeProtoColor
+                                                text = stringResource(R.string.wm_filter_custom),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = TextWhite
                                             )
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = activeProtoColor.copy(alpha = 0.25f)
+                                            ) {
+                                                Text(
+                                                    text = "${customWorkers.size}",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = activeProtoColor,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                                )
+                                            }
                                         }
                                     }
 
-                                    // QR Scanner quick button
-                                    Surface(
-                                        shape = RoundedCornerShape(17.dp),
-                                        color = Color.Transparent,
-                                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.55f)),
-                                        modifier = Modifier
-                                            .height(34.dp)
-                                            .clip(RoundedCornerShape(17.dp))
-                                            .springPress(onClick = {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                currentSection = ManagerSection.SCANNER
-                                            })
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(
+                                        // Add worker button
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = activeProtoColor.copy(alpha = 0.12f),
+                                            border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.45f)),
                                             modifier = Modifier
-                                                .fillMaxHeight()
-                                                .padding(horizontal = 9.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                .height(34.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .springPress(onClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    prefillDomain = ""
+                                                    prefillName = ""
+                                                    showAddDialog = true
+                                                })
                                         ) {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_diag_worker),
-                                                contentDescription = stringResource(R.string.wm_tab_scanner),
-                                                tint = activeProtoColor,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                            Text(
-                                                text = stringResource(R.string.wm_btn_qr),
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 11.5.sp,
-                                                color = activeProtoColor
-                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .padding(horizontal = 12.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = stringResource(R.string.wm_btn_add),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = activeProtoColor
+                                                )
+                                            }
+                                        }
+
+                                        // QR Scanner quick button
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color.Transparent,
+                                            border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.35f)),
+                                            modifier = Modifier
+                                                .height(34.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .springPress(onClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    currentSection = ManagerSection.SCANNER
+                                                })
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .padding(horizontal = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.ic_diag_worker),
+                                                    contentDescription = stringResource(R.string.wm_tab_scanner),
+                                                    tint = activeProtoColor,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    text = stringResource(R.string.wm_btn_qr),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = activeProtoColor
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -1252,7 +1432,7 @@ fun WorkerManagerScreen(
                         ManagerSection.SHARE -> {
                             Surface(
                                 shape = RoundedCornerShape(11.dp),
-                                color = AmoledSurfaceLow,
+                                color = Color.Transparent,
                                 border = BorderStroke(1.dp, AmoledBorder),
                                 modifier = Modifier.fillMaxWidth().height(34.dp)
                             ) {
@@ -1313,6 +1493,7 @@ fun WorkerManagerScreen(
 
     if (showAddDialog) {
         AddWorkerDialog(
+            prefs = prefs,
             activeAccentColor = activeProtoColor,
             initialDomain = prefillDomain,
             initialName = prefillName,
@@ -1379,61 +1560,7 @@ fun WorkerManagerScreen(
     }
 }
 
-@Composable
-private fun SegmentedFilterChip(
-    title: String,
-    count: Int,
-    isSelected: Boolean,
-    activeColor: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val borderColor by animateColorAsState(
-        targetValue = if (isSelected) activeColor.copy(alpha = 0.85f) else Color(0xFF1E283D),
-        animationSpec = tween(180),
-        label = "chipBorder"
-    )
-    val titleColor by animateColorAsState(
-        targetValue = if (isSelected) activeColor else TextWhite.copy(alpha = 0.85f),
-        animationSpec = tween(180),
-        label = "chipTitle"
-    )
 
-    Surface(
-        shape = RoundedCornerShape(17.dp),
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, borderColor),
-        modifier = modifier
-            .height(34.dp)
-            .clip(RoundedCornerShape(17.dp))
-            .springPress(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 6.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = title,
-                color = titleColor,
-                fontSize = 11.5.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = count.toString(),
-                color = if (isSelected) activeColor else TextMuted,
-                fontSize = 10.5.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 1
-            )
-        }
-    }
-}
 
 
 
@@ -1449,6 +1576,10 @@ private fun GlassWorkerCard(
     activeAccentColor: Color,
     pingInfo: Pair<WorkerStatus, Long?>?,
     onSelect: () -> Unit,
+    onVisitSite: (() -> Unit)? = null,
+    onToggleType: (() -> Unit)? = null,
+    onUpdateScript: (() -> Unit)? = null,
+    isUpdatingScript: Boolean = false,
     onShare: (() -> Unit)?,
     onDelete: (() -> Unit)?
 ) {
@@ -1511,12 +1642,12 @@ private fun GlassWorkerCard(
     }
 
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = if (isActive) activeAccentColor.copy(alpha = 0.08f) else Color.Transparent,
+        shape = RoundedCornerShape(14.dp),
+        color = if (isActive) activeAccentColor.copy(alpha = 0.09f) else Color(0xFF0F1420).copy(alpha = 0.55f),
         border = BorderStroke(if (isActive) 1.2.dp else 1.dp, cardBorderColor),
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -1534,141 +1665,221 @@ private fun GlassWorkerCard(
                 } else null
             )
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Left block: Status Dot + Info Column
+            // Top Row: Status Dot + Name + Protocol Pill [Right: Ping Status + Active Badge]
             Row(
-                modifier = Modifier.weight(1f).padding(end = 8.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Status Indicator Dot
-                Box(
-                    modifier = Modifier
-                        .size(6.5.dp)
-                        .clip(CircleShape)
-                        .background(statusColor)
-                )
-
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Line 1: Worker Name + Badges
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    // Status Indicator Dot
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(statusColor)
+                    )
+
+                    // Worker Name
+                    Text(
+                        text = worker.name,
+                        color = TextWhite,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    // Protocol Tag Badge
+                    val protoBadgeColor = Color(0xFFA855F7)
+                    Surface(
+                        shape = RoundedCornerShape(5.dp),
+                        color = protoBadgeColor.copy(alpha = 0.14f),
+                        border = BorderStroke(0.8.dp, protoBadgeColor.copy(alpha = 0.45f))
                     ) {
                         Text(
-                            text = worker.name,
-                            color = TextWhite,
-                            fontSize = 13.sp,
+                            text = "Cloudflare Relay",
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
+                            color = protoBadgeColor,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
                         )
+                    }
 
-                        // Category Badge
-                        val isCf = worker.isCloudflarePersonal
+                    if (isActive) {
                         Surface(
-                            shape = RoundedCornerShape(4.5.dp),
-                            color = if (isCf) Color(0xFFF38020).copy(alpha = 0.12f) else Color.Transparent,
-                            border = BorderStroke(1.dp, if (isCf) Color(0xFFF38020).copy(alpha = 0.5f) else Color(0xFF1E283D))
+                            shape = RoundedCornerShape(5.dp),
+                            color = activeAccentColor.copy(alpha = 0.15f),
+                            border = BorderStroke(0.8.dp, activeAccentColor.copy(alpha = 0.50f))
                         ) {
                             Text(
-                                text = when {
-                                    worker.isDeveloperWorker -> stringResource(R.string.wm_badge_official)
-                                    isCf -> "Cloudflare"
-                                    else -> stringResource(R.string.wm_badge_custom)
-                                },
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isCf) Color(0xFFF38020) else TextMuted,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
+                                text = "АКТИВЕН",
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.5.sp,
+                                color = activeAccentColor,
+                                modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.5.dp)
                             )
                         }
                     }
+                }
 
-                    // Line 2: Subtitle / Domain
-                    if (worker.isDeveloperWorker) {
-                        Text(
-                            text = stringResource(R.string.wm_official_node_desc),
-                            color = TextMuted,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Normal
-                        )
-                    } else {
-                        Text(
-                            text = worker.domain,
-                            color = TextMuted,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                // Monospace Ping Status Badge
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = statusColor.copy(alpha = 0.10f),
+                    border = BorderStroke(0.7.dp, statusColor.copy(alpha = 0.30f))
+                ) {
+                    Text(
+                        text = statusText,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = statusColor,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
                 }
             }
 
-            // Right block: Monospace Ping + Actions (Share / Delete)
+            // Bottom Row: Domain / Subtitle [Right: Action Buttons]
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Monospace Ping Status
+                // Domain
                 Text(
-                    text = statusText,
-                    fontFamily = FontFamily.Monospace,
+                    text = if (worker.isDeveloperWorker) stringResource(R.string.wm_official_node_desc) else worker.domain,
+                    color = TextMuted,
                     fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = statusColor,
-                    modifier = Modifier.padding(end = if (onShare != null || onDelete != null) 2.dp else 0.dp)
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
                 )
 
-                if (onShare != null) {
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onShare()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = stringResource(R.string.wm_tab_share),
-                            tint = activeAccentColor,
-                            modifier = Modifier.size(11.5.dp)
-                        )
+                // Actions: Visit, Update Script, Share, Delete
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (onVisitSite != null) {
+                        Surface(
+                            shape = CircleShape,
+                            color = activeAccentColor.copy(alpha = 0.10f),
+                            border = BorderStroke(0.8.dp, activeAccentColor.copy(alpha = 0.30f)),
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onVisitSite()
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_globe),
+                                    contentDescription = "Открыть сайт",
+                                    tint = activeAccentColor,
+                                    modifier = Modifier.size(13.5.dp)
+                                )
+                            }
+                        }
                     }
-                }
 
-                if (onDelete != null) {
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onDelete()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_trash),
-                            contentDescription = stringResource(R.string.action_delete),
-                            tint = Color(0xFFEF4444),
-                            modifier = Modifier.size(11.5.dp)
-                        )
+                    if (onUpdateScript != null) {
+                        val isOutdated = worker.scriptVersion < CloudflareWorkerPayload.SCRIPT_VERSION
+                        val updateBtnColor = if (isOutdated) Color(0xFFF38020) else activeAccentColor
+                        Surface(
+                            shape = CircleShape,
+                            color = updateBtnColor.copy(alpha = if (isOutdated) 0.18f else 0.10f),
+                            border = BorderStroke(0.8.dp, updateBtnColor.copy(alpha = if (isOutdated) 0.50f else 0.30f)),
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .clickable(enabled = !isUpdatingScript) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onUpdateScript()
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (isUpdatingScript) {
+                                    CircularProgressIndicator(
+                                        color = Color(0xFFF38020),
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 1.5.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_refresh),
+                                        contentDescription = stringResource(R.string.cf_deploy_btn_update_script),
+                                        tint = updateBtnColor,
+                                        modifier = Modifier.size(13.5.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (onShare != null) {
+                        Surface(
+                            shape = CircleShape,
+                            color = activeAccentColor.copy(alpha = 0.10f),
+                            border = BorderStroke(0.8.dp, activeAccentColor.copy(alpha = 0.30f)),
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onShare()
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = stringResource(R.string.wm_tab_share),
+                                    tint = activeAccentColor,
+                                    modifier = Modifier.size(12.5.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (onDelete != null) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFEF4444).copy(alpha = 0.10f),
+                            border = BorderStroke(0.8.dp, Color(0xFFEF4444).copy(alpha = 0.30f)),
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onDelete()
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_trash),
+                                    contentDescription = stringResource(R.string.action_delete),
+                                    tint = Color(0xFFEF4444),
+                                    modifier = Modifier.size(12.5.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1681,6 +1892,7 @@ private fun GlassWorkerCard(
  */
 @Composable
 private fun AddWorkerDialog(
+    prefs: PreferencesManager? = null,
     activeAccentColor: Color,
     initialDomain: String = "",
     initialName: String = "",
@@ -2710,7 +2922,7 @@ private fun ShareWorkerContent(
             // QR Code Card in Liquid Glass Amoled Style
             Surface(
                 shape = RoundedCornerShape(26.dp),
-                color = AmoledSurfaceLow.copy(alpha = 0.92f),
+                color = Color.Transparent,
                 border = BorderStroke(1.2.dp, activeAccentColor.copy(alpha = 0.45f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -2727,7 +2939,7 @@ private fun ShareWorkerContent(
                     ) {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = activeAccentColor.copy(alpha = 0.12f),
+                            color = Color.Transparent,
                             border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.35f))
                         ) {
                             Text(
@@ -2764,7 +2976,7 @@ private fun ShareWorkerContent(
                     // Domain address badge
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = Color.White.copy(alpha = 0.04f),
+                        color = Color.Transparent,
                         border = BorderStroke(1.dp, Color(0xFF1E283D)),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2814,7 +3026,7 @@ private fun ShareWorkerContent(
                 // Share to Telegram / Social Apps
                 Surface(
                     shape = RoundedCornerShape(14.dp),
-                    color = activeAccentColor.copy(alpha = 0.16f),
+                    color = Color.Transparent,
                     border = BorderStroke(1.2.dp, activeAccentColor.copy(alpha = 0.7f)),
                     modifier = Modifier
                         .weight(1.3f)
@@ -2849,7 +3061,7 @@ private fun ShareWorkerContent(
                 // Copy Link
                 Surface(
                     shape = RoundedCornerShape(14.dp),
-                    color = AmoledSurfaceLow,
+                    color = Color.Transparent,
                     border = BorderStroke(1.dp, AmoledBorder),
                     modifier = Modifier
                         .weight(1f)
@@ -2886,7 +3098,7 @@ private fun ShareWorkerContent(
             // Info Card
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = Color.White.copy(alpha = 0.03f),
+                color = Color.Transparent,
                 border = BorderStroke(1.dp, AmoledBorder.copy(alpha = 0.6f)),
                 modifier = Modifier.fillMaxWidth()
             ) {

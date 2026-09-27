@@ -140,12 +140,15 @@ class ProxyForegroundService : Service() {
                     WorkerFailoverManager.startRecoveryWatchdogIfNeeded()
 
                     if (oldType == "Wi-Fi" && (newType.contains("Mobile") || newType.contains("Cellular"))) {
-                        val stats = server.stats
-                        val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
-                        if (totalBytes > 100_000L) {
-                            showToastOnMainThread(getString(R.string.toast_switched_to_mobile_with_bytes, humanBytes(totalBytes)))
-                        } else {
-                            showToastOnMainThread(getString(R.string.toast_switched_to_mobile))
+                        val isActuallyWifi = networkObserver?.isWifiActive() ?: false
+                        if (!isActuallyWifi) {
+                            val stats = server.stats
+                            val totalBytes = stats.totalBytesReceived.get() + stats.totalBytesSent.get()
+                            if (totalBytes > 100_000L) {
+                                showToastOnMainThread(getString(R.string.toast_switched_to_mobile_with_bytes, humanBytes(totalBytes)))
+                            } else {
+                                showToastOnMainThread(getString(R.string.toast_switched_to_mobile))
+                            }
                         }
                     }
 
@@ -238,9 +241,14 @@ class ProxyForegroundService : Service() {
 
         batteryGuardDismissedForThreshold = false
 
+        val initialStatusText = if (app.config.isSocks5Mode) {
+            getString(R.string.notif_service_socks5_active)
+        } else {
+            getString(R.string.notif_service_tg_active)
+        }
         val notification = NotificationHelper.buildNotification(
             context = this,
-            statusText = if (app.config.isSocks5Mode) getString(R.string.notif_service_socks5_active) else getString(R.string.notif_service_tg_active),
+            statusText = initialStatusText,
             speedText = getString(R.string.status_optimizing_route),
             statusIndicator = ProxyStatusIndicator.YELLOW
         )
@@ -293,24 +301,15 @@ class ProxyForegroundService : Service() {
                     AppLogger.w(TAG, "Pre-flight analysis exception: ${e.message}")
                     null
                 }
-                AppLogger.i(TAG, "Smart Connect pre-flight completed: ${preflightResult?.selectedRouteSummary}")
+                AppLogger.d(TAG, "Smart Connect pre-flight completed: ${preflightResult?.selectedRouteSummary}")
 
                 // 2. Запуск локального сервера с УЖЕ отобранным и проверенным узлом
                 val started = startServerWithProfiling(server, cacheDir, needsWarp = false)
                 if (started) {
                     // 3. Предварительный прогрев (Pre-Warm) туннеля для мгновенного отклика в Telegram
-                    if (!app.config.isSocks5Mode) {
-                        try {
-                            com.mirrly.tgproxy.core.NativeProxy.warmupWsPool()
-                        } catch (_: Exception) {}
-                    } else {
-                        val targetDomain = app.config.getEffectiveCfDomain()
-                        if (targetDomain.isNotBlank()) {
-                            try {
-                                com.mirrly.tgproxy.core.DohResolver.resolve(targetDomain)
-                            } catch (_: Exception) {}
-                        }
-                    }
+                    try {
+                        server.predictivePreWarm("SERVICE_START")
+                    } catch (_: Exception) {}
 
                     SessionHistoryManager.onSessionStarted(
                         presetName = getPresetShortName(app.config.speedPreset),
@@ -367,11 +366,7 @@ class ProxyForegroundService : Service() {
         val config = app.config
         val server = app.proxyServer
 
-        val tgUrl = if (config.isSocks5Mode) {
-            server.getTelegramSocks5Url()
-        } else {
-            server.getTelegramProxyUrl()
-        }
+        val tgUrl = server.getTelegramUrl()
         val label = if (config.isSocks5Mode) "tg://socks" else "tg://proxy"
 
         try {
@@ -643,18 +638,19 @@ class ProxyForegroundService : Service() {
                 }
             }
             else -> {
+                val routeLabel = "Flowseal Anycast CDN"
                 if (pingMs > 0) {
                     val indicator = if (quality == ConnectionQuality.POOR || pingMs > 600L) ProxyStatusIndicator.YELLOW else ProxyStatusIndicator.GREEN
                     Triple(
                         indicator,
                         getString(R.string.notif_title_template, protoLabel, getString(R.string.notif_status_active)),
-                        getString(R.string.notif_body_format, "CDN", pingDisplay, dlSpeed, ulSpeed, netName, timerSuffix)
+                        getString(R.string.notif_body_format, routeLabel, pingDisplay, dlSpeed, ulSpeed, netName, timerSuffix)
                     )
                 } else {
                     Triple(
                         ProxyStatusIndicator.GREEN,
                         getString(R.string.notif_title_template, protoLabel, getString(R.string.notif_status_active)),
-                        getString(R.string.notif_body_format, "CDN", getString(R.string.notif_status_tunnel_active), dlSpeed, ulSpeed, netName, timerSuffix)
+                        getString(R.string.notif_body_format, routeLabel, getString(R.string.notif_status_tunnel_active), dlSpeed, ulSpeed, netName, timerSuffix)
                     )
                 }
             }

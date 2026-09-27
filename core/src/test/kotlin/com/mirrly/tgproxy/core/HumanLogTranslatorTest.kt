@@ -30,7 +30,7 @@ class HumanLogTranslatorTest {
     fun testSocketPoolUpdate() {
         val raw = "Изменение пула сокетов → 8"
         val translated = HumanLogTranslator.translateToHumanRussian("LocalProxyServer", raw)
-        assertEquals("Пул сокетов обновлен (8 параллельных потоков)", translated)
+        assertEquals("Пул сокетов WsPool обновлен (8 предпрогретых сокетов)", translated)
     }
 
     @Test

@@ -37,10 +37,17 @@ interface ProxyLibrary : Library {
     fun StopProxy(): Int
     fun ResetNetworkSockets()
     fun EmergencyKillAllSockets()
-    fun SetPoolSize(size: Int)
+    fun SetPoolSize(size: Int): Int
     fun SetTcpNoDelay(enabled: Int)
     fun SetCfProxyCacheDir(cacheDir: String)
     fun SetCfProxyConfig(enabled: Int, userDomain: String)
+    fun SetEchEnabled(enabled: Int)
+    fun IsEchEnabled(): Int
+    fun SetCustomEchConfig(base64Config: String): Int
+    fun SetWsRandomizationEnabled(enabled: Int)
+        fun IsWsRandomizationEnabled(): Int
+        fun SetTlsRecordPaddingEnabled(enabled: Int)
+    fun IsTlsRecordPaddingEnabled(): Int
     fun PromoteCfproxyDomainForDc(dcId: Int, isMedia: Int, domain: String): Int
     fun SetWorkerProtocol(domain: String, proto: Int)
     fun SetSecret(secret: String)
@@ -129,12 +136,137 @@ interface ProxyLibrary : Library {
     fun GetDomainBalancerStatusJson(): Pointer?
     fun GetNodeIndependenceStatusJson(): Pointer?
     fun GetTlsObservabilityStatusJson(): Pointer?
+    fun StartVpn(tunFd: Int, verbose: Int): Int
+    fun StopVpn(): Int
+    fun GetVpnStatusJson(): Pointer?
+    fun SetVpnUplinkMode(mode: Int): Int
+    fun SetProtonConfig(
+        serverIp: String,
+        serverPort: Int,
+        peerPubKey: String,
+        privateKey: String,
+        clientIp: String,
+        dnsIp: String,
+        nodeName: String
+    ): Int
+    fun SetOperaVpnEndpoint(endpoint: String): Int
+    fun SetProtectSocketCallback(cb: ProtectCallback?): Unit
+}
+
+fun interface ProtectCallback : com.sun.jna.Callback {
+    fun invoke(fd: Int): Int
 }
 
 object NativeProxy {
     @Volatile
     var isStarted: Boolean = false
         private set
+
+    @Volatile
+    var isVpnStarted: Boolean = false
+        private set
+
+    private var activeProtectCallback: ProtectCallback? = null
+
+    fun setProtectCallback(onProtect: (Int) -> Boolean) {
+        try {
+            activeProtectCallback = ProtectCallback { fd ->
+                if (onProtect(fd)) 1 else 0
+            }
+            ProxyLibrary.INSTANCE.SetProtectSocketCallback(activeProtectCallback)
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой установки ProtectCallback: ${t.message}", t)
+        }
+    }
+
+    fun clearProtectCallback() {
+        try {
+            activeProtectCallback = null
+            ProxyLibrary.INSTANCE.SetProtectSocketCallback(null)
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой сброса ProtectCallback: ${t.message}", t)
+        }
+    }
+
+    fun startVpn(tunFd: Int, verbose: Boolean = false): Int {
+        return try {
+            val code = ProxyLibrary.INSTANCE.StartVpn(tunFd, if (verbose) 1 else 0)
+            if (code == 0) {
+                isVpnStarted = true
+            }
+            code
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [startVpn]: ${t.message}", t)
+            -1
+        }
+    }
+
+    fun stopVpn(): Int {
+        return try {
+            isVpnStarted = false
+            ProxyLibrary.INSTANCE.StopVpn()
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [stopVpn]: ${t.message}", t)
+            -1
+        }
+    }
+
+    fun getVpnStatusJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetVpnStatusJson() ?: return null
+            val json = ptr.getString(0, "UTF-8")
+            ProxyLibrary.INSTANCE.FreeString(ptr)
+            json
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [getVpnStatusJson]: ${t.message}", t)
+            null
+        }
+    }
+
+    fun setVpnUplinkMode(mode: UplinkMode): Int {
+        val nativeMode = when (mode) {
+            UplinkMode.AWG -> 0
+            UplinkMode.MASQUE, UplinkMode.WARP_CASCADE, UplinkMode.HYBRID -> 1
+            UplinkMode.OPERA -> 2
+            UplinkMode.PROTON -> 3
+            UplinkMode.VLESS -> 4
+            else -> 0
+        }
+        return try {
+            ProxyLibrary.INSTANCE.SetVpnUplinkMode(nativeMode)
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [SetVpnUplinkMode]: ${t.message}", t)
+            -1
+        }
+    }
+
+    fun setProtonConfig(
+        serverIp: String,
+        serverPort: Int,
+        peerPubKey: String,
+        privateKey: String,
+        clientIp: String = "10.2.0.2",
+        dnsIp: String = "10.2.0.1",
+        nodeName: String = "Proton Node"
+    ): Int {
+        return try {
+            ProxyLibrary.INSTANCE.SetProtonConfig(
+                serverIp, serverPort, peerPubKey, privateKey, clientIp, dnsIp, nodeName
+            )
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [SetProtonConfig]: ${t.message}", t)
+            -1
+        }
+    }
+
+    fun setOperaVpnEndpoint(endpoint: String): Int {
+        return try {
+            ProxyLibrary.INSTANCE.SetOperaVpnEndpoint(endpoint)
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "Сбой вызова FFI [SetOperaVpnEndpoint]: ${t.message}", t)
+            -1
+        }
+    }
 
     fun startProxy(host: String, port: Int, dcIps: String, secret: String, verbose: Int): Int {
         return try {
@@ -194,12 +326,20 @@ object NativeProxy {
         }
     }
 
-    fun setPoolSize(size: Int) {
-        if (!isStarted) return
-        try {
+    fun setPoolSize(size: Int): Int? {
+        if (!isStarted) return null
+        return try {
             ProxyLibrary.INSTANCE.SetPoolSize(size)
+        } catch (_: UnsatisfiedLinkError) {
+            // Плавный фоллбек для устаревших нативных библиотек
+            try {
+                ProxyLibrary.INSTANCE.SetMtprotoStandbyPerActiveSlot(size.coerceIn(1, 4))
+            } catch (_: Throwable) {
+                null
+            }
         } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [setPoolSize]: ${t.message}", t)
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [setPoolSize]: ${t.message}")
+            null
         }
     }
 
@@ -286,6 +426,7 @@ object NativeProxy {
                 UplinkMode.VLESS -> 3
                 UplinkMode.AWG -> 4
                 UplinkMode.WARP_CASCADE -> 5
+                else -> 0
             }
             ProxyLibrary.INSTANCE.SetUplinkMode(modeInt)
         } catch (t: Throwable) {
@@ -980,6 +1121,66 @@ object NativeProxy {
         val json = getTlsObservabilityStatusJson() ?: return null
         return TlsObservabilityStatus.fromJson(json)
     }
+
+    fun setEchEnabled(enabled: Boolean) {
+        try {
+            ProxyLibrary.INSTANCE.SetEchEnabled(if (enabled) 1 else 0)
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [SetEchEnabled]: ${t.message}", t)
+        }
+    }
+
+    fun isEchEnabled(): Boolean {
+        return try {
+            ProxyLibrary.INSTANCE.IsEchEnabled() != 0
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [IsEchEnabled]: ${t.message}", t)
+            true
+        }
+    }
+
+    fun setCustomEchConfig(base64: String): Boolean {
+        return try {
+            ProxyLibrary.INSTANCE.SetCustomEchConfig(base64) == 0
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [SetCustomEchConfig]: ${t.message}", t)
+            false
+        }
+    }
+
+    fun setWsRandomizationEnabled(enabled: Boolean) {
+        try {
+            ProxyLibrary.INSTANCE.SetWsRandomizationEnabled(if (enabled) 1 else 0)
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [SetWsRandomizationEnabled]: ${t.message}", t)
+        }
+    }
+
+    fun isWsRandomizationEnabled(): Boolean {
+        return try {
+            ProxyLibrary.INSTANCE.IsWsRandomizationEnabled() != 0
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [IsWsRandomizationEnabled]: ${t.message}", t)
+            true
+        }
+    }
+
+    fun setTlsRecordPaddingEnabled(enabled: Boolean) {
+        try {
+            ProxyLibrary.INSTANCE.SetTlsRecordPaddingEnabled(if (enabled) 1 else 0)
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [SetTlsRecordPaddingEnabled]: ${t.message}", t)
+        }
+    }
+
+    fun isTlsRecordPaddingEnabled(): Boolean {
+        return try {
+            ProxyLibrary.INSTANCE.IsTlsRecordPaddingEnabled() != 0
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [IsTlsRecordPaddingEnabled]: ${t.message}", t)
+            true
+        }
+    }
 }
 
 data class SocketBufferStatus(
@@ -1285,4 +1486,3 @@ data class TlsObservabilityStatus(
         }
     }
 }
-

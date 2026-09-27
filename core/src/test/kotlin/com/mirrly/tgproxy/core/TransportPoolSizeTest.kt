@@ -216,9 +216,10 @@ class TransportPoolSizeTest {
         val preferences = File("..", "app/src/main/java/com/mirrly/tgproxy/service/PreferencesManager.kt").canonicalFile.readText()
         val nativeRuntimeTest = File("..", "mirrlyengine/tests/transport_pool_contract.rs").canonicalFile.readText()
 
-        // 1. Rust exports the semantic setter and telemetry.
+        // 1. Rust exports the semantic setter, legacy pool size mapping, and telemetry.
         assertTrue(rustLib.contains("pub extern \"C\" fn GetTransportPoolStatusJson"))
         assertTrue(rustLib.contains("pub extern \"C\" fn SetMtprotoStandbyPerActiveSlot"))
+        assertTrue(rustLib.contains("pub extern \"C\" fn SetPoolSize"))
 
         // 2. Rust config содержит расчет effective_mtproto_standby и global_establishment_budget
         assertTrue(rustConfig.contains("pub fn effective_mtproto_standby"))
@@ -229,6 +230,8 @@ class TransportPoolSizeTest {
         // 3. Kotlin содержит соответствующие вызовы и структуры
         assertTrue(kotlinNativeProxy.contains("fun GetTransportPoolStatusJson(): Pointer?"))
         assertTrue(kotlinNativeProxy.contains("fun SetMtprotoStandbyPerActiveSlot(size: Int): Int"))
+        assertTrue(kotlinNativeProxy.contains("fun SetPoolSize(size: Int): Int"))
+        assertTrue(kotlinNativeProxy.contains("fun setPoolSize(size: Int)"))
         assertTrue(kotlinNativeProxy.contains("fun getTransportPoolStatus(): TransportPoolStatus?"))
         assertTrue(kotlinNativeProxy.contains("data class TransportPoolStatus("))
 

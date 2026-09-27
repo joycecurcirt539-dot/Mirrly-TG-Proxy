@@ -30,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import androidx.core.view.WindowCompat
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.NativeProxy
+import com.mirrly.tgproxy.service.DeveloperModeManager
 import android.view.WindowManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -244,6 +245,9 @@ fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
                 // Formatted body content with transparent glass cards & left-aligned text
                 FormattedInfoBody(body = body)
 
+                // Footnote section with glossary and simple language explanation of terms
+                InfoFootnoteCard(title = title, body = body)
+
                 // Keep the final card clear of the navigation area and fading edge.
                 Spacer(modifier = Modifier.height(72.dp))
             }
@@ -340,6 +344,349 @@ private fun FormattedInfoBody(body: String) {
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun InfoFootnoteCard(title: String, body: String) {
+    val combinedText = remember(title, body) { "$title $body".lowercase() }
+    val currentLang = remember {
+        val app = com.mirrly.tgproxy.MirrlyApplication.instance
+        app.prefsManager.getAppLanguage().lowercase().ifEmpty { "ru" }
+    }
+
+    val definitions = remember(combinedText, currentLang) {
+        getRelevantTermExplanations(combinedText, currentLang)
+    }
+
+    if (definitions.isEmpty()) return
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = ActiveGreenLed.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.45f))
+                ) {
+                    Text(
+                        text = when (currentLang) {
+                            "en" -> "FOOTNOTE: GLOSSARY"
+                            "fa" -> "یادداشت: واژه‌نامه اصطلاحات"
+                            else -> "СНОСКА: ПОЯСНЕНИЕ ТЕРМИНОВ"
+                        },
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 1.sp,
+                        color = ActiveGreenLed,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+
+                Text(
+                    text = when (currentLang) {
+                        "en" -> "Plain language explanation"
+                        "fa" -> "توضیح به زبان ساده"
+                        else -> "Понятным языком"
+                    },
+                    fontSize = 11.5.sp,
+                    color = TextMuted,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                definitions.forEach { item ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text(
+                            text = "•",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            color = ActiveGreenLed,
+                            modifier = Modifier.padding(top = 1.dp)
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = item.term,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = item.definition,
+                                fontSize = 12.sp,
+                                color = TextWhite.copy(alpha = 0.82f),
+                                lineHeight = 16.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+internal data class TermGlossaryItem(
+    val term: String,
+    val definition: String,
+    val keywords: List<String>
+)
+
+internal fun getRelevantTermExplanations(text: String, lang: String): List<TermGlossaryItem> {
+    val allTerms = when (lang) {
+        "en" -> listOf(
+            TermGlossaryItem(
+                term = "Proxy / Gateway",
+                definition = "A secure intermediate server routing Telegram data to bypass network restrictions without affecting other apps.",
+                keywords = listOf("proxy", "gateway", "relay", "port", "шлюз")
+            ),
+            TermGlossaryItem(
+                term = "MTProto",
+                definition = "Telegram's native encrypted protocol. Ideal for fast chat messaging, channels, and low data usage.",
+                keywords = listOf("mtproto", "1080", "1443")
+            ),
+            TermGlossaryItem(
+                term = "SOCKS5",
+                definition = "Universal network protocol supporting high-bandwidth audio/video calls and heavy media files.",
+                keywords = listOf("socks5", "10808")
+            ),
+            TermGlossaryItem(
+                term = "Worker (Cloudflare Worker)",
+                definition = "A cloud microserver receiving traffic from your phone and securely forwarding it to Telegram data centers.",
+                keywords = listOf("worker", "cloudflare", "domain")
+            ),
+            TermGlossaryItem(
+                term = "Uplink / Route",
+                definition = "The external server route (Cloudflare Worker, WARP, VLESS) through which the proxy reaches Telegram.",
+                keywords = listOf("uplink", "warp", "vless", "masque", "route")
+            ),
+            TermGlossaryItem(
+                term = "Ping (RTT) & Latency",
+                definition = "Round-trip time in milliseconds for a network signal. Lower numbers mean faster app responsiveness.",
+                keywords = listOf("ping", "rtt", "latency", "delay")
+            ),
+            TermGlossaryItem(
+                term = "Jitter",
+                definition = "Variation in ping delay over cellular networks. High jitter causes audio stutter and dropped calls.",
+                keywords = listOf("jitter", "variation")
+            ),
+            TermGlossaryItem(
+                term = "Traffic Cloaking (FakeTLS / Obfuscation)",
+                definition = "Disguising proxy data as normal HTTPS website browsing to prevent ISP deep packet inspection from blocking it.",
+                keywords = listOf("obfuscation", "faketls", "cloaking", "secret", "tls")
+            ),
+            TermGlossaryItem(
+                term = "DNS / DoH (DNS-over-HTTPS)",
+                definition = "Encrypted resolution of server IP addresses, protecting your DNS requests from ISP snooping and tampering.",
+                keywords = listOf("dns", "doh")
+            ),
+            TermGlossaryItem(
+                term = "Bufferbloat",
+                definition = "Sudden network lag spikes caused by overloaded router queues during large background file downloads.",
+                keywords = listOf("bufferbloat", "buffer")
+            ),
+            TermGlossaryItem(
+                term = "TCP_NODELAY",
+                definition = "Socket setting sending packets immediately instead of waiting to batch them, minimizing chat latency.",
+                keywords = listOf("tcp_nodelay", "nodelay")
+            ),
+            TermGlossaryItem(
+                term = "Happy Eyeballs",
+                definition = "Smart dual-stack algorithm testing IPv6 and IPv4 simultaneously, connecting to whichever responds first.",
+                keywords = listOf("happy eyeballs", "eyeballs", "ipv6", "ipv4")
+            ),
+            TermGlossaryItem(
+                term = "Connection Pool (WsPool)",
+                definition = "Pre-warmed open connections maintained in standby, removing cold-start dial delays when opening chats.",
+                keywords = listOf("pool", "wspool", "standby")
+            ),
+            TermGlossaryItem(
+                term = "Handshake",
+                definition = "Initial cryptographic security key exchange between smartphone and proxy before data transfer begins.",
+                keywords = listOf("handshake", "agreement")
+            ),
+            TermGlossaryItem(
+                term = "Multiplexing",
+                definition = "Streaming multiple data flows (text and media) through one shared secure tunnel without opening extra connections.",
+                keywords = listOf("multiplex", "mux", "stream")
+            )
+        )
+        "fa" -> listOf(
+            TermGlossaryItem(
+                term = "پروکسی / درگاه (Proxy)",
+                definition = "سرور واسط امنی که ترافیک تلگرام را بدون درگیر کردن کل سیستم به سرورها می‌رساند.",
+                keywords = listOf("proxy", "پروکسی", "درگاه", "پورت")
+            ),
+            TermGlossaryItem(
+                term = "پروتکل MTProto",
+                definition = "پروتکل اختصاصی و رمزنگاری‌شده تلگرام، ایده‌آل برای پیام‌های متنی، کانال‌ها و سرعت بالای چت.",
+                keywords = listOf("mtproto", "1080", "1443")
+            ),
+            TermGlossaryItem(
+                term = "پروتکل SOCKS5",
+                definition = "پروتکل همه‌منظوره شبکه مناسب برای تماس‌های صوتی و تصویری و دانلود بدون قطعی رسانه‌ها.",
+                keywords = listOf("socks5", "10808")
+            ),
+            TermGlossaryItem(
+                term = "ورکر (Cloudflare Worker)",
+                definition = "میکروسرور ابری که ترافیک گوشی را دریافت کرده و با امنیت کامل به دیتاسنترهای تلگرام هدایت می‌کند.",
+                keywords = listOf("worker", "ورکر", "کلودفلر", "دامنه")
+            ),
+            TermGlossaryItem(
+                term = "سرور بالادست (Uplink)",
+                definition = "مسیر یا سرور خروجی (ورکر کلودفلر، وارپ و غیره) که پروکسی از طریق آن به اینترنت متصل می‌شود.",
+                keywords = listOf("uplink", "وارپ", "بالادست", "مسیر")
+            ),
+            TermGlossaryItem(
+                term = "پینگ (RTT) و تأخیر",
+                definition = "مدت‌زمان رفت و برگشت داده بر حسب میلی‌ثانیه؛ عدد کمتر نشان‌دهنده سرعت و پاسخ‌دهی بهتر است.",
+                keywords = listOf("پینگ", "rtt", "تأخیر", "ping")
+            ),
+            TermGlossaryItem(
+                term = "نوسان پینگ (Jitter)",
+                definition = "تغییرات ناگهانی تأخیر در شبکه همراه؛ نوسان بالا باعث لکنت و قطعی صدا در تماس‌ها می‌شود.",
+                keywords = listOf("jitter", "نوسان")
+            ),
+            TermGlossaryItem(
+                term = "استتار ترافیک (FakeTLS / Obfuscation)",
+                definition = "شبیه‌سازی ترافیک پروکسی به عنوان وبگردی عادی و امن (HTTPS) برای جلوگیری از شناسایی و فیلترینگ.",
+                keywords = listOf("استتار", "faketls", "رمزنگاری", "tls", "مبدل")
+            ),
+            TermGlossaryItem(
+                term = "دی‌ان‌اس امن (DoH)",
+                definition = "یافتن آدرس‌های اینترنتی به صورت رمزنگاری‌شده تا اپراتور نتواند مسیرهای شما را شنود یا دستکاری کند.",
+                keywords = listOf("dns", "doh", "دی‌ان‌اس")
+            ),
+            TermGlossaryItem(
+                term = "بافر بلوت (Bufferbloat)",
+                definition = "کندی شدید اینترنت ناشی از پر شدن صف‌های داده مودم هنگام دانلود سنگین در پس‌زمینه.",
+                keywords = listOf("bufferbloat", "صف", "بافر")
+            ),
+            TermGlossaryItem(
+                term = "ارسال فوری (TCP_NODELAY)",
+                definition = "ارسال لحظه‌ای بسته‌ها بدون معطلی در بافر حافظه، جهت به حداقل رسیدن تأخیر پیام‌ها.",
+                keywords = listOf("tcp_nodelay", "nodelay")
+            ),
+            TermGlossaryItem(
+                term = "اتصال سریع (Happy Eyeballs)",
+                definition = "آزمایش هم‌زمان پروتکل‌های IPv6 و IPv4 و برقراری ارتباط با هر کدام که سریع‌تر پاسخ دهد.",
+                keywords = listOf("happy eyeballs", "ipv6", "ipv4")
+            ),
+            TermGlossaryItem(
+                term = "استخر اتصالات (WsPool)",
+                definition = "کانال‌های از پیش آماده در پس‌زمینه برای ارسال آنی پیام‌ها بدون تأخیر در اتصال مجدد.",
+                keywords = listOf("pool", "استخر", "wspool")
+            ),
+            TermGlossaryItem(
+                term = "توافق کلیدها (Handshake)",
+                definition = "مبادله امن کلیدهای رمزنگاری بین گوشی و سرور پیش از آغاز تبادل داده.",
+                keywords = listOf("handshake", "توافق")
+            )
+        )
+        else -> listOf(
+            TermGlossaryItem(
+                term = "Прокси / Шлюз (Proxy)",
+                definition = "Промежуточный узел, который безопасно перенаправляет трафик Telegram в обход ограничений, не влияя на другие приложения и не расходуя батарею.",
+                keywords = listOf("прокси", "релей", "proxy", "relay", "шлюз", "порт")
+            ),
+            TermGlossaryItem(
+                term = "MTProto",
+                definition = "Официальный защищенный протокол Telegram. Оптимален для мгновенной переписки, чтения каналов и экономии трафика.",
+                keywords = listOf("mtproto", "мтпрото", "1080", "1443")
+            ),
+            TermGlossaryItem(
+                term = "SOCKS5",
+                definition = "Универсальный сетевой протокол. Необходим для четких аудио/видеозвонков и быстрой загрузки больших медиафайлов.",
+                keywords = listOf("socks5", "сокс", "10808")
+            ),
+            TermGlossaryItem(
+                term = "Воркер (Cloudflare Worker)",
+                definition = "Облачный микросервер, принимающий трафик от смартфона и безопасно передающий его на дата-центры Telegram.",
+                keywords = listOf("воркер", "worker", "cloudflare", "домен")
+            ),
+            TermGlossaryItem(
+                term = "Аплинк / Сервер подключения",
+                definition = "Внешний маршрут (Cloudflare Worker, WARP, VLESS), через который приложение связывается с интернетом.",
+                keywords = listOf("аплинк", "uplink", "warp", "vless", "masque", "маршрут")
+            ),
+            TermGlossaryItem(
+                term = "Пинг (RTT) и Задержка",
+                definition = "Время в миллисекундах (мс), за которое сигнал доходит до сервера и возвращается. Чем меньше пинг, тем быстрее отклик.",
+                keywords = listOf("пинг", "rtt", "задержк", "latency", "ping")
+            ),
+            TermGlossaryItem(
+                term = "Джиттер (Колебание пинга)",
+                definition = "Нестабильность задержки сотовой связи. Высокий джиттер приводит к заиканиям и прерываниям звука в звонках.",
+                keywords = listOf("джиттер", "jitter", "разброс", "колебан")
+            ),
+            TermGlossaryItem(
+                term = "Маскировка (FakeTLS / Обфускация)",
+                definition = "Технология сокрытия прокси-трафика под обычный защищенный сайт (HTTPS), чтобы оператор связи не мог его заблокировать.",
+                keywords = listOf("маскировк", "обфус", "faketls", "tls", "секрет", "secret")
+            ),
+            TermGlossaryItem(
+                term = "DNS / DoH (Защищенный DNS)",
+                definition = "Зашифрованное определение IP-адресов серверов Telegram, предотвращающее перехват и блокировку запросов провайдером.",
+                keywords = listOf("dns", "doh", "днс")
+            ),
+            TermGlossaryItem(
+                term = "Буферблоат (Bufferbloat)",
+                definition = "Всплеск сетевой задержки из-за переполнения очередей в роутере во время фонового скачивания файлов.",
+                keywords = listOf("bufferbloat", "буферблоат", "очеред", "раздуван")
+            ),
+            TermGlossaryItem(
+                term = "Мгновенная отправка (TCP_NODELAY)",
+                definition = "Режим сокета, принуждающий смартфон отправлять пакеты сразу без ожидания буфера, исключая задержки в чатах.",
+                keywords = listOf("tcp_nodelay", "nodelay")
+            ),
+            TermGlossaryItem(
+                term = "Быстрый выбор адреса (Happy Eyeballs)",
+                definition = "Умный алгоритм, одновременно тестирующий адреса IPv6 и IPv4 и мгновенно подключающий тот, который ответит первым.",
+                keywords = listOf("happy eyeballs", "eyeballs", "ipv6", "ipv4")
+            ),
+            TermGlossaryItem(
+                term = "Пул соединений (WsPool)",
+                definition = "Набор заранее открытых каналов в режиме ожидания, исключающий задержки подключения при открытии новых чатов.",
+                keywords = listOf("пул", "wspool", "standby")
+            ),
+            TermGlossaryItem(
+                term = "Рукопожатие (Handshake)",
+                definition = "Начальное согласование секретных ключей шифрования между телефоном и сервером перед передачей сообщений.",
+                keywords = listOf("рукопожат", "handshake", "согласован")
+            ),
+            TermGlossaryItem(
+                term = "Мультиплексирование",
+                definition = "Передача нескольких потоков данных (текст и медиа) через один общий защищенный туннель без лишних подключений.",
+                keywords = listOf("мультиплекс", "mux", "поток")
+            )
+        )
+    }
+
+    val matched = allTerms.filter { item ->
+        item.keywords.any { text.contains(it) }
+    }
+
+    return if (matched.isNotEmpty()) {
+        matched.take(3)
+    } else {
+        allTerms.take(2)
     }
 }
 
@@ -608,24 +955,36 @@ fun SettingsScreen(
     var showSocks5Pass by remember { mutableStateOf(false) }
     var secretText by remember(config.secretHex) { mutableStateOf(config.secretHex) }
     var showSecret by remember { mutableStateOf(false) }
-    val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
+    val proxyMode by app.prefsManager.proxyModeFlow.collectAsState(initial = app.config.proxyMode)
+    val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState(initial = app.config.isSocks5Mode)
     val isSwitching by com.mirrly.tgproxy.service.ProtocolSwitchManager.isSwitching.collectAsState()
-    val selectedMode = if (isSocks5) ProxyMode.SOCKS5 else ProxyMode.MTPROTO
 
-    var activeProtocolMode by rememberSaveable {
+    var activeProtocolMode by remember(proxyMode, initialIsVpn) {
         mutableStateOf(
-            if (isSocks5) SettingsProtocolMode.SOCKS5
-            else SettingsProtocolMode.MTPROTO
+            if (initialIsVpn) {
+                SettingsProtocolMode.VPN
+            } else {
+                when (proxyMode) {
+                    ProxyMode.SOCKS5 -> SettingsProtocolMode.SOCKS5
+                    ProxyMode.MTPROTO -> SettingsProtocolMode.MTPROTO
+                }
+            }
         )
     }
     var showVpnInDevDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(isSocks5) {
-        activeProtocolMode = if (isSocks5) SettingsProtocolMode.SOCKS5 else SettingsProtocolMode.MTPROTO
+    LaunchedEffect(proxyMode, initialIsVpn) {
+        if (!initialIsVpn) {
+            activeProtocolMode = when (proxyMode) {
+                ProxyMode.SOCKS5 -> SettingsProtocolMode.SOCKS5
+                ProxyMode.MTPROTO -> SettingsProtocolMode.MTPROTO
+            }
+        }
     }
 
     var selectedSpeedPresetName by remember { mutableStateOf(config.speedPresetName) }
     val isAdvancedMode by app.prefsManager.advancedSettingsEnabledFlow.collectAsState()
+    val currentAppLanguage by app.prefsManager.appLanguageFlow.collectAsState()
     var autostart by remember { mutableStateOf(config.autostartOnBoot) }
     var infoKey by remember { mutableStateOf<String?>(null) }
     var pendingIssueRedirectUrl by remember { mutableStateOf<String?>(null) }
@@ -655,6 +1014,8 @@ fun SettingsScreen(
     val vpnSplitTunnelEnabled by app.prefsManager.vpnSplitTunnelEnabledFlow.collectAsState()
     val vpnSplitTunnelAllowlist by app.prefsManager.vpnSplitTunnelAllowlistFlow.collectAsState()
     val vpnSplitTunnelPackages by app.prefsManager.vpnSplitTunnelPackagesFlow.collectAsState()
+    val isDevVpnUnlocked by DeveloperModeManager.isDevVpnUnlocked.collectAsState()
+    var showVpnProtocolDialog by rememberSaveable { mutableStateOf(false) }
     var showSplitTunnelAppsDialog by rememberSaveable { mutableStateOf(false) }
     var warpProfile by remember { mutableStateOf(app.prefsManager.getWarpProfile()) }
     var isRegisteringWarp by remember { mutableStateOf(false) }
@@ -754,6 +1115,8 @@ fun SettingsScreen(
         }
     }
 
+
+
     LaunchedEffect(socks5UserText) {
         delay(600)
         val trimmed = socks5UserText.trim()
@@ -809,6 +1172,13 @@ fun SettingsScreen(
         )
     }
 
+    if (showVpnProtocolDialog) {
+        VpnProtocolSelectorDialog(
+            vpnColors = systemVpnColors,
+            onDismiss = { showVpnProtocolDialog = false }
+        )
+    }
+
     var selectedCategory by rememberSaveable { mutableStateOf(SettingsCategory.ALL) }
     val scrollState = rememberScrollState()
 
@@ -847,18 +1217,22 @@ fun SettingsScreen(
                     onInfoClick = { infoKey = "protocols_info" },
                     onModeSelect = { mode ->
                         if (mode == SettingsProtocolMode.VPN) {
-                            showVpnInDevDialog = true
+                            if (!isDevVpnUnlocked) {
+                                showVpnInDevDialog = true
+                                return@SettingsProtocolSection
+                            }
+                            activeProtocolMode = mode
                             return@SettingsProtocolSection
                         }
                         activeProtocolMode = mode
                         when (mode) {
                             SettingsProtocolMode.MTPROTO -> {
-                                if (isSocks5) {
+                                if (proxyMode != ProxyMode.MTPROTO) {
                                     com.mirrly.tgproxy.service.ProtocolSwitchManager.switchProtocol(context, ProxyMode.MTPROTO)
                                 }
                             }
                             SettingsProtocolMode.SOCKS5 -> {
-                                if (!isSocks5) {
+                                if (proxyMode != ProxyMode.SOCKS5) {
                                     com.mirrly.tgproxy.service.ProtocolSwitchManager.switchProtocol(context, ProxyMode.SOCKS5)
                                 }
                             }
@@ -871,70 +1245,103 @@ fun SettingsScreen(
 
                 when (activeProtocolMode) {
                     SettingsProtocolMode.VPN -> {
-                        Surface(
-                            onClick = { showVpnInDevDialog = true },
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color(0xFF1E293B).copy(alpha = 0.35f),
-                            border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.35f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        if (!isDevVpnUnlocked) {
+                            Surface(
+                                onClick = { showVpnInDevDialog = true },
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.35f),
+                                border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFFFB74D).copy(alpha = 0.12f))
-                                        .border(1.dp, Color(0xFFFFB74D).copy(alpha = 0.45f), CircleShape),
-                                    contentAlignment = Alignment.Center
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_settings),
-                                        contentDescription = null,
-                                        tint = Color(0xFFFFB74D),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFFFB74D).copy(alpha = 0.12f))
+                                            .border(1.dp, Color(0xFFFFB74D).copy(alpha = 0.45f), CircleShape),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Text(
-                                            text = stringResource(R.string.vpn_in_dev_card_title),
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = TextWhite
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_settings),
+                                            contentDescription = null,
+                                            tint = Color(0xFFFFB74D),
+                                            modifier = Modifier.size(20.dp)
                                         )
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = Color(0xFFFFB74D).copy(alpha = 0.16f),
-                                            border = BorderStroke(0.6.dp, Color(0xFFFFB74D).copy(alpha = 0.50f))
+                                    }
+
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             Text(
-                                                text = stringResource(R.string.settings_vpn_in_dev_badge),
-                                                fontSize = 8.5.sp,
-                                                fontWeight = FontWeight.Black,
-                                                color = Color(0xFFFFB74D),
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                text = stringResource(R.string.vpn_in_dev_card_title),
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextWhite
                                             )
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFFFFB74D).copy(alpha = 0.16f),
+                                                border = BorderStroke(0.6.dp, Color(0xFFFFB74D).copy(alpha = 0.50f))
+                                            ) {
+                                                Text(
+                                                    text = stringResource(R.string.settings_vpn_in_dev_badge),
+                                                    fontSize = 8.5.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = Color(0xFFFFB74D),
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                )
+                                            }
                                         }
+                                        Text(
+                                            text = stringResource(R.string.vpn_in_dev_card_desc),
+                                            fontSize = 11.5.sp,
+                                            color = TextMuted,
+                                            lineHeight = 15.sp
+                                        )
                                     }
-                                    Text(
-                                        text = stringResource(R.string.vpn_in_dev_card_desc),
-                                        fontSize = 11.5.sp,
-                                        color = TextMuted,
-                                        lineHeight = 15.sp
-                                    )
                                 }
                             }
+                        } else {
+                            SettingsVpnStatusOverviewSection(
+                                vpnColors = systemVpnColors,
+                                vpnState = vpnState,
+                                onOpenVpnDialog = { showVpnProtocolDialog = true }
+                            )
+
+                            SettingsDivider()
+
+                            SettingsVpnCoreSection(
+                                vpnColors = systemVpnColors,
+                                mtu = vpnMtu,
+                                onMtuSelect = { app.prefsManager.setVpnMtu(it) },
+                                blockQuic = vpnBlockQuic,
+                                onToggleBlockQuic = { app.prefsManager.setVpnBlockQuic(it) },
+                                blockIpv6Leaks = vpnBlockIpv6Leaks,
+                                onToggleBlockIpv6Leaks = { app.prefsManager.setVpnBlockIpv6Leaks(it) },
+                                onInfoClick = { key -> infoKey = key }
+                            )
+
+                            SettingsDivider()
+
+                            SettingsVpnSplitTunnelSection(
+                                vpnColors = systemVpnColors,
+                                isEnabled = vpnSplitTunnelEnabled,
+                                onToggleEnabled = { app.prefsManager.setVpnSplitTunnelEnabled(it) },
+                                isAllowlist = vpnSplitTunnelAllowlist,
+                                onToggleAllowlist = { app.prefsManager.setVpnSplitTunnelAllowlist(it) },
+                                packageCount = vpnSplitTunnelPackages.size,
+                                onOpenAppPicker = { showSplitTunnelAppsDialog = true }
+                            )
                         }
                     }
                     SettingsProtocolMode.MTPROTO -> {
@@ -1032,6 +1439,7 @@ fun SettingsScreen(
                         )
 
                     }
+
                 }
 
                 if (showUplinkDoh || showSystem || showMisc) {
@@ -1138,7 +1546,7 @@ fun SettingsScreen(
                             Toast.makeText(context, context.getString(R.string.toast_stop_proxy_reset_dns), Toast.LENGTH_SHORT).show()
                             return@SettingsDohSection
                         }
-                        val defaults = com.mirrly.tgproxy.core.DohResolver.DEFAULT_ENABLED_PROVIDER_IDS
+                        val defaults = com.mirrly.tgproxy.core.DohResolver.getDefaultEnabledProviderIds(currentAppLanguage)
                         enabledDohProviderIds = defaults
                         config.enabledDohProviderIds = defaults
                         app.saveConfig()
@@ -1152,7 +1560,8 @@ fun SettingsScreen(
                             Toast.makeText(context, context.getString(R.string.toast_stop_proxy_change_dns), Toast.LENGTH_SHORT).show()
                             return@SettingsDohSection
                         }
-                        val allIds = com.mirrly.tgproxy.core.DohResolver.ALL_PROVIDERS.map { it.id }.toSet()
+                        val visibleProviders = com.mirrly.tgproxy.core.DohResolver.getAvailableProviders(currentAppLanguage)
+                        val allIds = visibleProviders.map { it.id }.toSet()
                         enabledDohProviderIds = allIds
                         config.enabledDohProviderIds = allIds
                         app.saveConfig()
@@ -1163,19 +1572,21 @@ fun SettingsScreen(
                     benchmarkProgress = benchmarkProgress,
                     benchmarkResults = benchmarkResults,
                     benchmarkSummary = benchmarkSummary,
+                    currentAppLanguage = currentAppLanguage,
                     onStartBenchmark = {
                         if (isProxyRunning || server.isRunning) {
                             Toast.makeText(context, context.getString(R.string.toast_stop_proxy_start_benchmark), Toast.LENGTH_SHORT).show()
                             return@SettingsDohSection
                         }
                         if (isBenchmarkingDoh) return@SettingsDohSection
+                        val visibleProviders = com.mirrly.tgproxy.core.DohResolver.getAvailableProviders(currentAppLanguage)
                         isBenchmarkingDoh = true
-                        benchmarkProgress = Pair(0, com.mirrly.tgproxy.core.DohResolver.ALL_PROVIDERS.size)
+                        benchmarkProgress = Pair(0, visibleProviders.size)
                         benchmarkSummary = null
                         coroutineScope.launch {
                             try {
                                 val report = com.mirrly.tgproxy.core.DohBenchmarkEngine.benchmarkAll(
-                                    providers = com.mirrly.tgproxy.core.DohResolver.ALL_PROVIDERS,
+                                    providers = visibleProviders,
                                     onProgress = { current, total, result ->
                                         benchmarkProgress = Pair(current, total)
                                         benchmarkResults = benchmarkResults + (result.providerId to result)
@@ -1367,15 +1778,12 @@ private fun SettingsTopBar(
             .fillMaxWidth()
             .background(
                 brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Black.copy(alpha = 0.98f),
-                        Color.Black.copy(alpha = 0.95f),
-                        Color.Black.copy(alpha = 0.85f),
-                        Color.Black.copy(alpha = 0.00f)
-                    )
+                    0.0f to Color.Black,
+                    0.82f to Color.Black,
+                    1.0f to Color.Transparent
                 )
             )
-            .padding(bottom = 12.dp)
+            .padding(bottom = 14.dp)
     ) {
         TopAppBar(
             title = {
@@ -1780,7 +2188,6 @@ private fun SettingsVpnCoreSection(
                     letterSpacing = 1.3.sp,
                     color = TextMuted
                 )
-                SettingsSafetyBadge(level = SettingsSafetyLevel.EXPERT)
             }
             InfoButton { onInfoClick("vpn_core_info") }
         }
@@ -2005,7 +2412,6 @@ private fun SettingsVpnSplitTunnelSection(
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
-                SettingsSafetyBadge(level = SettingsSafetyLevel.SAFE)
             }
 
             Spacer(modifier = Modifier.width(8.dp))
@@ -2562,9 +2968,6 @@ private fun SettingsNetworkSection(
                 letterSpacing = 1.3.sp,
                 color = TextMuted
             )
-            SettingsSafetyBadge(
-                level = if (isAdvancedMode) SettingsSafetyLevel.EXPERT else SettingsSafetyLevel.SAFE
-            )
         }
 
         if (selectedMode == ProxyMode.MTPROTO) {
@@ -2596,11 +2999,6 @@ private fun SettingsNetworkSection(
                                         fontSize = 13.5.sp
                                     )
                                     InfoButton { onInfoClick("port") }
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    SettingsSafetyBadge(
-                                        level = SettingsSafetyLevel.SAFE,
-                                        customLabel = stringResource(R.string.settings_port_default_badge)
-                                    )
                                 }
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Text(
@@ -2626,11 +3024,6 @@ private fun SettingsNetworkSection(
                                 fontSize = 13.5.sp
                             )
                             InfoButton { onInfoClick("secret") }
-                            Spacer(modifier = Modifier.weight(1f))
-                            SettingsSafetyBadge(
-                                level = SettingsSafetyLevel.SAFE,
-                                customLabel = stringResource(R.string.vpn_status_active_badge)
-                            )
                         }
                         Text(
                             text = stringResource(R.string.settings_secret_safe_desc),
@@ -2664,7 +3057,6 @@ private fun SettingsNetworkSection(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(stringResource(R.string.settings_port_mtproto), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
-                                    SettingsSafetyBadge(level = SettingsSafetyLevel.EXPERT)
                                     InfoButton { onInfoClick("port") }
                                 }
                                 Text(
@@ -2728,7 +3120,6 @@ private fun SettingsNetworkSection(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(stringResource(R.string.settings_secret_hex), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
-                                    SettingsSafetyBadge(level = SettingsSafetyLevel.EXPERT)
                                     InfoButton { onInfoClick("secret") }
                                 }
 
@@ -2832,10 +3223,6 @@ private fun SettingsNetworkSection(
                                         fontSize = 13.5.sp
                                     )
                                     InfoButton { onInfoClick("port") }
-                                    SettingsSafetyBadge(
-                                        level = SettingsSafetyLevel.SAFE,
-                                        customLabel = stringResource(R.string.settings_port_default_badge)
-                                    )
                                 }
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Text(
@@ -2871,7 +3258,6 @@ private fun SettingsNetworkSection(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(stringResource(R.string.settings_port_socks5), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
-                                SettingsSafetyBadge(level = SettingsSafetyLevel.EXPERT)
                                 InfoButton { onInfoClick("port") }
                             }
                             Text(
@@ -2939,7 +3325,6 @@ private fun SettingsNetworkSection(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(stringResource(R.string.settings_socks5_auth_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
-                                SettingsSafetyBadge(level = SettingsSafetyLevel.EXPERT)
                                 InfoButton { onInfoClick("socks5_auth") }
                             }
 
@@ -3126,6 +3511,8 @@ private fun SettingsNetworkSection(
     }
 }
 
+
+
 @Composable
 private fun SettingsPerformanceSection(
     config: ProxyConfig,
@@ -3159,7 +3546,6 @@ private fun SettingsPerformanceSection(
                     letterSpacing = 1.3.sp,
                     color = TextMuted
                 )
-                SettingsSafetyBadge(level = SettingsSafetyLevel.SAFE)
             }
         }
 
@@ -3471,7 +3857,6 @@ private fun SettingsAdvancedEngineeringSection(
                     letterSpacing = 1.3.sp,
                     color = TextMuted
                 )
-                SettingsSafetyBadge(level = SettingsSafetyLevel.DANGER)
             }
         }
 
@@ -4126,42 +4511,143 @@ private fun SettingsWorkerSection(
 
 
 
+        // WSS Session Randomization Card (Cloudflare Worker dynamic WebSocket path & headers)
+        val isWsRandomizationEnabled by app.prefsManager.isWsRandomizationEnabledFlow.collectAsState()
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(18.dp))
                 .background(Color.Transparent)
-                .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
-                .padding(12.dp)
+                .border(1.dp, if (isWsRandomizationEnabled) ActiveGreenLed.copy(alpha = 0.35f) else AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
         ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(ActiveGreenLed.copy(alpha = 0.12f))
-                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.40f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                Row(
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = if (config.isSocks5Mode) "SOCKS5" else "MTPROTO",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = ActiveGreenLed,
-                        letterSpacing = 0.5.sp
-                    )
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isWsRandomizationEnabled) ActiveGreenLed.copy(alpha = 0.12f) else AmoledBorder.copy(alpha = 0.2f))
+                            .border(1.dp, if (isWsRandomizationEnabled) ActiveGreenLed.copy(alpha = 0.3f) else AmoledBorder, RoundedCornerShape(10.dp))
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_shield),
+                            contentDescription = null,
+                            tint = if (isWsRandomizationEnabled) ActiveGreenLed else TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_ws_randomization_title),
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite,
+                            lineHeight = 18.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_ws_randomization_desc),
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp,
+                            color = TextMuted
+                        )
+                    }
                 }
-                Text(
-                    text = if (config.isSocks5Mode) {
-                        stringResource(R.string.settings_cf_worker_desc_socks5)
-                    } else {
-                        stringResource(R.string.settings_cf_worker_desc_mtproto)
-                    },
-                    color = TextMuted,
-                    fontSize = 11.5.sp,
-                    lineHeight = 16.sp
+
+                InertialSpringSwitch(
+                    checked = isWsRandomizationEnabled,
+                    onCheckedChange = { checked ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        app.prefsManager.setWsRandomizationEnabled(checked)
+                        app.proxyServer.applyWsRandomizationEnabled(checked)
+                    }
+                )
+            }
+        }
+
+        // ECH (Encrypted Client Hello) Card
+        val isEchEnabled by app.prefsManager.isEchEnabledFlow.collectAsState()
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, if (isEchEnabled) ActiveGreenLed.copy(alpha = 0.35f) else AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isEchEnabled) ActiveGreenLed.copy(alpha = 0.12f) else AmoledBorder.copy(alpha = 0.2f))
+                            .border(1.dp, if (isEchEnabled) ActiveGreenLed.copy(alpha = 0.3f) else AmoledBorder, RoundedCornerShape(10.dp))
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_shield),
+                            contentDescription = null,
+                            tint = if (isEchEnabled) ActiveGreenLed else TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_ech_title),
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite,
+                            lineHeight = 18.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_ech_desc),
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp,
+                            color = TextMuted
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_ech_experimental_hint),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            color = Color(0xFFFBBF24).copy(alpha = 0.9f),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                InertialSpringSwitch(
+                    checked = isEchEnabled,
+                    onCheckedChange = { checked ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        app.prefsManager.setEchEnabled(checked)
+                        app.proxyServer.applyEchEnabled(checked)
+                    }
                 )
             }
         }
@@ -4363,6 +4849,29 @@ private fun SettingsUplinkWarpSection(
                     subtitle = stringResource(R.string.settings_anycast_obfuscation),
                     isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
                     onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                UplinkModeChip(
+                    mode = com.mirrly.tgproxy.core.UplinkMode.OPERA,
+                    displayName = "Opera VPN",
+                    badge = "HTTP CONNECT",
+                    subtitle = "DoH + Anycast",
+                    isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.OPERA,
+                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.OPERA) },
+                    modifier = Modifier.weight(1f)
+                )
+                UplinkModeChip(
+                    mode = com.mirrly.tgproxy.core.UplinkMode.PROTON,
+                    displayName = "Proton VPN",
+                    badge = "WireGuard",
+                    subtitle = "Бесплатные узлы",
+                    isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.PROTON,
+                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.PROTON) },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -5332,6 +5841,360 @@ private fun SettingsUplinkWarpSection(
                 }
             }
         }
+
+        // Card for Opera VPN Uplink
+        AnimatedVisibility(
+            visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.OPERA,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder),
+                modifier = Modifier.fillMaxWidth().animateContentSize()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(ActiveGreenLed.copy(alpha = 0.12f))
+                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(7.dp))
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_vpn),
+                                    contentDescription = null,
+                                    tint = ActiveGreenLed,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "Opera VPN Uplink",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Text(
+                                    text = "HTTP CONNECT + DoH RFC 8484",
+                                    fontSize = 10.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Доступные узлы Opera VPN:",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextMuted
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        operaNodes.forEach { node ->
+                            val isSelected = node.id == activeOperaNodeId
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSelected) ActiveGreenLed.copy(alpha = 0.15f) else Color.Transparent,
+                                border = BorderStroke(1.dp, if (isSelected) ActiveGreenLed.copy(alpha = 0.5f) else AmoledBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        activeOperaNodeId = node.id
+                                        config.operaVpnNodeId = node.id
+                                        config.operaVpnEndpoint = node.endpoint
+                                        app.saveConfig()
+                                        com.mirrly.tgproxy.core.NativeProxy.setOperaVpnEndpoint(node.endpoint)
+                                        Toast.makeText(context, "Узел Opera: ${node.name}", Toast.LENGTH_SHORT).show()
+                                    }
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = node.countryCode,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) ActiveGreenLed else TextWhite
+                                    )
+                                    Text(
+                                        text = node.name,
+                                        fontSize = 8.5.sp,
+                                        color = TextMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Эндпоинт узла", fontSize = 10.5.sp, color = TextMuted)
+                                Text(
+                                    config.operaVpnEndpoint.ifBlank { "77.111.247.139:443" },
+                                    fontSize = 10.5.sp,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ActiveGreenLed
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("DNS-резолвер", fontSize = 10.5.sp, color = TextMuted)
+                                Text(
+                                    "DoH RFC 8484 (порт 53 перехват)",
+                                    fontSize = 10.5.sp,
+                                    color = TextWhite
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Card for Proton VPN Uplink
+        AnimatedVisibility(
+            visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.PROTON,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            val protonNodes = remember {
+                val json = try {
+                    context.assets.open("proton_nodes.json").bufferedReader().use { it.readText() }
+                } catch (_: Exception) {
+                    null
+                }
+                com.mirrly.tgproxy.core.ProtonManager.loadNodes(json)
+            }
+            var activeProtonNodeName by remember { mutableStateOf(config.protonNodeName) }
+            var protonPrivKey by remember { mutableStateOf(config.protonPrivateKey) }
+
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder),
+                modifier = Modifier.fillMaxWidth().animateContentSize()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(ActiveGreenLed.copy(alpha = 0.12f))
+                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(7.dp))
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_shield),
+                                    contentDescription = null,
+                                    tint = ActiveGreenLed,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "Proton VPN Uplink",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Text(
+                                    text = "Бесплатные узлы WireGuard",
+                                    fontSize = 10.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Бесплатные серверы Proton VPN:",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextMuted
+                    )
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        protonNodes.chunked(3).forEach { rowNodes ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                rowNodes.forEach { node ->
+                                    val isSelected = node.name == activeProtonNodeName
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isSelected) ActiveGreenLed.copy(alpha = 0.15f) else Color.Transparent,
+                                        border = BorderStroke(1.dp, if (isSelected) ActiveGreenLed.copy(alpha = 0.5f) else AmoledBorder),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                activeProtonNodeName = node.name
+                                                com.mirrly.tgproxy.core.ProtonManager.applyNode(config, node)
+                                                app.saveConfig()
+                                                com.mirrly.tgproxy.core.NativeProxy.setProtonConfig(
+                                                    serverIp = config.protonServerIp,
+                                                    serverPort = config.protonServerPort,
+                                                    peerPubKey = config.protonServerPublicKey,
+                                                    privateKey = config.protonPrivateKey,
+                                                    clientIp = config.protonClientIp,
+                                                    dnsIp = config.protonDnsIp,
+                                                    nodeName = config.protonNodeName
+                                                )
+                                                Toast.makeText(context, "Выбран сервер: ${node.name}", Toast.LENGTH_SHORT).show()
+                                            }
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                text = "${node.country} (${node.city.ifBlank { node.name }})",
+                                                fontSize = 10.5.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) ActiveGreenLed else TextWhite,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = node.ip,
+                                                fontSize = 8.sp,
+                                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                                color = TextMuted
+                                            )
+                                        }
+                                    }
+                                }
+                                if (rowNodes.size < 3) {
+                                    Spacer(modifier = Modifier.weight((3 - rowNodes.size).toFloat()))
+                                }
+                            }
+                        }
+                    }
+
+                    // Key management
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Приватный ключ WireGuard", fontSize = 10.5.sp, color = TextMuted)
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = ActiveGreenLed.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
+                                    modifier = Modifier.clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        val newKey = com.mirrly.tgproxy.core.ProtonManager.generateWireGuardPrivateKey()
+                                        config.protonPrivateKey = newKey
+                                        protonPrivKey = newKey
+                                        app.saveConfig()
+                                        Toast.makeText(context, "Сгенерирован новый ключ WireGuard", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Text(
+                                        text = "Пересоздать ключ",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ActiveGreenLed,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Публичный ключ сервера", fontSize = 10.5.sp, color = TextMuted)
+                                Text(
+                                    if (config.protonServerPublicKey.length > 16) config.protonServerPublicKey.take(8) + "..." + config.protonServerPublicKey.takeLast(6) else config.protonServerPublicKey,
+                                    fontSize = 10.sp,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    color = TextWhite
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Клиентский адрес / DNS", fontSize = 10.5.sp, color = TextMuted)
+                                Text(
+                                    "${config.protonClientIp} / ${config.protonDnsIp}",
+                                    fontSize = 10.sp,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    color = ActiveGreenLed
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -5373,85 +6236,103 @@ private fun SettingsSystemSection(
                     letterSpacing = 1.3.sp,
                     color = TextMuted
                 )
-                SettingsSafetyBadge(level = SettingsSafetyLevel.SAFE)
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        // ── 1. АВТОМАТИЗАЦИЯ И ТАЙМЕРЫ (CARD) ──
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
         ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Autostart row
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(stringResource(R.string.settings_autostart_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    InfoButton { onInfoClick("autostart") }
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(stringResource(R.string.settings_autostart_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            InfoButton { onInfoClick("autostart") }
+                        }
+                        Text(stringResource(R.string.settings_autostart_desc), color = TextMuted, fontSize = 11.5.sp)
+                    }
+                    InertialSpringSwitch(
+                        checked = autostart,
+                        onCheckedChange = onAutostartChange
+                    )
                 }
-                Text(stringResource(R.string.settings_autostart_desc), color = TextMuted, fontSize = 11.5.sp)
-            }
-            InertialSpringSwitch(
-                checked = autostart,
-                onCheckedChange = onAutostartChange
-            )
-        }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onOpenSleepTimer()
-                }
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(stringResource(R.string.settings_sleep_timer_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                Text(
-                    text = if (timerState.isActive) stringResource(R.string.settings_sleep_timer_active, timerState.formatRemainingTime()) else stringResource(R.string.settings_sleep_timer_off),
-                    color = if (timerState.isActive) ActiveGreenLed else TextMuted,
-                    fontSize = 11.5.sp
-                )
-            }
-            Icon(
-                painter = painterResource(id = R.drawable.ic_timer),
-                contentDescription = null,
-                tint = if (timerState.isActive) ActiveGreenLed else TextMuted,
-                modifier = Modifier.size(20.dp)
-            )
-        }
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onOpenSchedule()
+                // Sleep timer row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenSleepTimer()
+                        }
+                        .padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(stringResource(R.string.settings_sleep_timer_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(
+                            text = if (timerState.isActive) stringResource(R.string.settings_sleep_timer_active, timerState.formatRemainingTime()) else stringResource(R.string.settings_sleep_timer_off),
+                            color = if (timerState.isActive) ActiveGreenLed else TextMuted,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_timer),
+                        contentDescription = null,
+                        tint = if (timerState.isActive) ActiveGreenLed else TextMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(stringResource(R.string.settings_schedule_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                Text(
-                    text = if (scheduleConfig.isEnabled) stringResource(R.string.settings_schedule_active, scheduleConfig.getSummaryText(context)) else stringResource(R.string.settings_schedule_off),
-                    color = if (scheduleConfig.isEnabled) ActiveGreenLed else TextMuted,
-                    fontSize = 11.5.sp
-                )
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+                // Schedule row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenSchedule()
+                        }
+                        .padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(stringResource(R.string.settings_schedule_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(
+                            text = if (scheduleConfig.isEnabled) stringResource(R.string.settings_schedule_active, scheduleConfig.getSummaryText(context)) else stringResource(R.string.settings_schedule_off),
+                            color = if (scheduleConfig.isEnabled) ActiveGreenLed else TextMuted,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        tint = if (scheduleConfig.isEnabled) ActiveGreenLed else TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
-            Icon(
-                painter = painterResource(id = R.drawable.ic_chevron_right),
-                contentDescription = null,
-                tint = if (scheduleConfig.isEnabled) ActiveGreenLed else TextMuted,
-                modifier = Modifier.size(18.dp)
-            )
         }
 
         // ── note note (BATTERY SAVER GUARD) ──
@@ -5734,28 +6615,38 @@ private fun SettingsSystemSection(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        // ── 5. ЭНЕРГОСБЕРЕЖЕНИЕ (CARD) ──
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
         ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(stringResource(R.string.settings_power_saver_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    InfoButton { onInfoClick("disable_animations") }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(stringResource(R.string.settings_power_saver_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        InfoButton { onInfoClick("disable_animations") }
+                    }
+                    Text(stringResource(R.string.settings_power_saver_desc), color = TextMuted, fontSize = 11.5.sp)
                 }
-                Text(stringResource(R.string.settings_power_saver_desc), color = TextMuted, fontSize = 11.5.sp)
+                InertialSpringSwitch(
+                    checked = disableAnimations,
+                    onCheckedChange = { newValue ->
+                        disableAnimations = newValue
+                        app.prefsManager.setAnimationsDisabled(newValue)
+                    }
+                )
             }
-            InertialSpringSwitch(
-                checked = disableAnimations,
-                onCheckedChange = { newValue ->
-                    disableAnimations = newValue
-                    app.prefsManager.setAnimationsDisabled(newValue)
-                }
-            )
         }
 
         // ── note note (APP LANGUAGE) ──
@@ -5848,86 +6739,85 @@ private fun SettingsSystemSection(
             }
         }
 
-        // ── note note ──
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, AmoledBorder),
+        // ── СПРАВКА И ДИАГНОСТИКА (CARD) ──
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onOpenOnboarding()
-                }
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(
-                        text = stringResource(R.string.settings_onboarding_replay),
-                        color = TextWhite,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.5.sp
-                    )
-                    Text(
-                        text = stringResource(R.string.settings_onboarding_replay_desc),
-                        color = TextMuted,
-                        fontSize = 11.5.sp
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Onboarding Replay
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenOnboarding()
+                        }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = stringResource(R.string.settings_onboarding_replay),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_onboarding_replay_desc),
+                            color = TextMuted,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_chevron_right),
-                    contentDescription = null,
-                    tint = TextMuted,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
 
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
 
-        // ── ДИАГНОСТИЧЕСКИЙ ОТЧЁТ (DIAGNOSTIC REPORT) ──
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, AmoledBorder),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onOpenDiagnosticReport()
-                }
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(
-                        text = stringResource(R.string.settings_tile_diagnostic_report_title),
-                        color = TextWhite,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.5.sp
+                // Diagnostic Report
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenDiagnosticReport()
+                        }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = stringResource(R.string.settings_tile_diagnostic_report_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_tile_diagnostic_report_desc),
+                            color = TextMuted,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(16.dp)
                     )
-                    Text(
-                        text = stringResource(R.string.settings_tile_diagnostic_report_desc),
-                        color = TextMuted,
-                        fontSize = 11.5.sp
-                    )
                 }
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_chevron_right),
-                    contentDescription = null,
-                    tint = TextMuted,
-                    modifier = Modifier.size(16.dp)
-                )
             }
         }
     }
@@ -6329,11 +7219,14 @@ private fun SettingsDohSection(
     benchmarkProgress: Pair<Int, Int>?,
     benchmarkResults: Map<String, com.mirrly.tgproxy.core.DohBenchmarkResult>,
     benchmarkSummary: String?,
+    currentAppLanguage: String = "system",
     onStartBenchmark: () -> Unit,
     onInfoClick: (String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
-    val allProviders = remember { com.mirrly.tgproxy.core.DohResolver.ALL_PROVIDERS }
+    val allProviders = remember(currentAppLanguage) {
+        com.mirrly.tgproxy.core.DohResolver.getAvailableProviders(currentAppLanguage)
+    }
     var isListExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(isBenchmarking) {
@@ -6388,7 +7281,7 @@ private fun SettingsDohSection(
                             }
                     ) {
                         Text(
-                            text = stringResource(R.string.doh_btn_enable_all, 14),
+                            text = stringResource(R.string.doh_btn_enable_all, allProviders.size),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (isProxyRunning) TextMuted else ActiveGreenLed,
@@ -6402,7 +7295,7 @@ private fun SettingsDohSection(
                         border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.30f))
                     ) {
                         Text(
-                            text = stringResource(R.string.doh_btn_enable_all_ok, 14),
+                            text = stringResource(R.string.doh_btn_enable_all_ok, allProviders.size),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = ActiveGreenLed,
@@ -6843,7 +7736,21 @@ private fun SettingsDohSection(
                                                 )
                                             }
                                         } else {
-                                            if (provider.id == "adguard" || provider.id == "dnssb" || provider.id == "nextdns" || provider.id == "controld" || provider.id == "quad9") {
+                                            if (provider.isIranOnly) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = Color(0xFF06B6D4).copy(alpha = 0.12f),
+                                                    border = BorderStroke(0.8.dp, Color(0xFF06B6D4).copy(alpha = 0.35f))
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.doh_status_iran_ok),
+                                                        fontSize = 8.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFF06B6D4),
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            } else if (provider.id == "adguard" || provider.id == "dnssb" || provider.id == "nextdns" || provider.id == "controld" || provider.id == "quad9") {
                                                 Surface(
                                                     shape = RoundedCornerShape(4.dp),
                                                     color = ActiveGreenLed.copy(alpha = 0.10f),

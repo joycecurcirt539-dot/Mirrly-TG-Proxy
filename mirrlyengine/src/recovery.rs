@@ -420,12 +420,13 @@ pub fn order_socket_addrs_for_host(
     let ipv6_failures = metrics.map(|m| m.ipv6_failures).unwrap_or(0);
     let ipv4_failures = metrics.map(|m| m.ipv4_failures).unwrap_or(0);
     let ipv6_only = is_ipv6_only_network();
+    let is_mobile = crate::config::MOBILE_NETWORK.load(Ordering::Relaxed);
 
     if ipv6_only || (ipv4_failures > 0 && ipv6_failures == 0) {
         // IPv6-only network or IPv4 broken -> place IPv6 first
         ordered.sort_by_key(|addr| addr.is_ipv4());
-    } else if ipv6_failures > 0 && ipv4_failures == 0 {
-        // Rapid IPv6 demotion: broken IPv6 is placed after IPv4
+    } else if is_mobile || (ipv6_failures > 0 && ipv4_failures == 0) {
+        // Rapid IPv6 demotion or cellular: working IPv4 is placed first
         ordered.sort_by_key(|addr| addr.is_ipv6());
     } else {
         // RFC 8305: By default in dual-stack networks, IPv6 is preferred.

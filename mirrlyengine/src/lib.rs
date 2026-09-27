@@ -20,6 +20,7 @@ pub mod timeline;
 pub mod tls_observability;
 pub mod vision;
 pub mod vless;
+pub mod vpn;
 pub mod ws;
 
 use config::*;
@@ -48,6 +49,57 @@ static STATE: OnceCell<Mutex<Option<ProxyState>>> = OnceCell::new();
 
 fn state_cell() -> &'static Mutex<Option<ProxyState>> {
     STATE.get_or_init(|| Mutex::new(None))
+}
+
+pub type ProtectCallback = extern "C" fn(c_int) -> c_int;
+static PROTECT_SOCKET_CB: parking_lot::RwLock<Option<ProtectCallback>> = parking_lot::RwLock::new(None);
+
+#[no_mangle]
+pub unsafe extern "C" fn SetProtectSocketCallback(cb: Option<ProtectCallback>) {
+    *PROTECT_SOCKET_CB.write() = cb;
+}
+
+pub fn protect_socket_fd(fd: std::os::raw::c_int) -> bool {
+    if let Some(cb) = *PROTECT_SOCKET_CB.read() {
+        cb(fd) != 0
+    } else {
+        true
+    }
+}
+
+pub(crate) fn bind_reuse_tcp(addr: &str) -> std::io::Result<tokio::net::TcpListener> {
+    let sock_addr: std::net::SocketAddr = addr
+        .parse()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+    let domain = if sock_addr.is_ipv6() {
+        socket2::Domain::IPV6
+    } else {
+        socket2::Domain::IPV4
+    };
+    let socket = socket2::Socket::new(domain, socket2::Type::STREAM, Some(socket2::Protocol::TCP))?;
+    let _ = socket.set_reuse_address(true);
+    #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+    {
+        let _ = socket.set_reuse_port(true);
+    }
+    socket.set_nonblocking(true)?;
+    socket.bind(&sock_addr.into())?;
+    socket.listen(1024)?;
+    let std_listener: std::net::TcpListener = socket.into();
+    tokio::net::TcpListener::from_std(std_listener)
+}
+
+#[allow(dead_code)]
+struct VpnState {
+    tun_fd: c_int,
+    handle: tokio::task::JoinHandle<()>,
+    cancel_token: CancellationToken,
+}
+
+static VPN_STATE: OnceCell<Mutex<Option<VpnState>>> = OnceCell::new();
+
+fn vpn_state_cell() -> &'static Mutex<Option<VpnState>> {
+    VPN_STATE.get_or_init(|| Mutex::new(None))
 }
 
 fn init_crypto_and_panic_hook() {
@@ -141,7 +193,7 @@ pub unsafe extern "C" fn StartProxy(
 
     let handle = rt.spawn(async move {
         let addr = format!("{}:{}", host_task, go_port);
-        match tokio::net::TcpListener::bind(&addr).await {
+        match bind_reuse_tcp(&addr) {
             Ok(listener) => {
                 let _ = tx.send(Ok(()));
                 if let Err(e) = run_proxy(
@@ -228,7 +280,7 @@ pub unsafe extern "C" fn StartSocks5Proxy(
 
     let handle = rt.spawn(async move {
         let addr = format!("{}:{}", host_task, go_port);
-        match tokio::net::TcpListener::bind(&addr).await {
+        match bind_reuse_tcp(&addr) {
             Ok(listener) => {
                 let _ = tx.send(Ok(()));
                 if let Err(e) = run_socks5_server(
@@ -324,6 +376,116 @@ pub extern "C" fn StopProxy() -> c_int {
 
     crate::linfo!("StopProxy: stopped successfully");
     0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn StartVpn(tun_fd: c_int, verbose: c_int) -> c_int {
+    init_crypto_and_panic_hook();
+
+    let cell = vpn_state_cell();
+    let mut guard = cell.lock();
+
+    if guard.is_some() {
+        return -1;
+    }
+
+    let is_verbose = verbose != 0;
+    init_logging(is_verbose);
+
+    let rt = runtime();
+    let cancel_token = CancellationToken::new();
+    let cancel_task = cancel_token.clone();
+
+    let handle = rt.spawn(async move {
+        if let Err(e) = vpn::run_vpn(tun_fd, cancel_task).await {
+            crate::lerror!("VPN fatal error: {}", e);
+        }
+    });
+
+    *guard = Some(VpnState {
+        tun_fd,
+        handle,
+        cancel_token,
+    });
+
+    crate::linfo!("StartVpn: native L3 VPN started with tun_fd={}", tun_fd);
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn StopVpn() -> c_int {
+    let cell = vpn_state_cell();
+    let mut guard = cell.lock();
+
+    if let Some(state) = guard.take() {
+        crate::linfo!("StopVpn: stopping native L3 VPN");
+        state.cancel_token.cancel();
+        0
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SetVpnUplinkMode(mode: c_int) -> c_int {
+    vpn::set_vpn_uplink_mode(mode);
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SetProtonConfig(
+    server_ip: *const c_char,
+    server_port: c_int,
+    peer_pub_key: *const c_char,
+    private_key: *const c_char,
+    client_ip: *const c_char,
+    dns_ip: *const c_char,
+    node_name: *const c_char,
+) -> c_int {
+    let sip = if !server_ip.is_null() { CStr::from_ptr(server_ip).to_str().unwrap_or("") } else { "" };
+    let ppub = if !peer_pub_key.is_null() { CStr::from_ptr(peer_pub_key).to_str().unwrap_or("") } else { "" };
+    let privk = if !private_key.is_null() { CStr::from_ptr(private_key).to_str().unwrap_or("") } else { "" };
+    let cip = if !client_ip.is_null() { CStr::from_ptr(client_ip).to_str().unwrap_or("") } else { "" };
+    let dip = if !dns_ip.is_null() { CStr::from_ptr(dns_ip).to_str().unwrap_or("") } else { "" };
+    let nname = if !node_name.is_null() { CStr::from_ptr(node_name).to_str().unwrap_or("") } else { "" };
+
+    config::set_proton_vpn_config(sip, server_port as u16, ppub, privk, cip, dip, nname);
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SetOperaVpnEndpoint(endpoint: *const c_char) -> c_int {
+    let ep = if !endpoint.is_null() { CStr::from_ptr(endpoint).to_str().unwrap_or("") } else { "" };
+    config::set_opera_vpn_config(true, true, ep);
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn GetVpnStatusJson() -> *mut c_char {
+    let cell = vpn_state_cell();
+    let is_running = cell.lock().is_some();
+    let up = crate::STATS.vpn_bytes_up.load(Ordering::Relaxed);
+    let down = crate::STATS.vpn_bytes_down.load(Ordering::Relaxed);
+    let pkts_up = crate::STATS.vpn_packets_up.load(Ordering::Relaxed);
+    let pkts_down = crate::STATS.vpn_packets_down.load(Ordering::Relaxed);
+    let awg_status = awg::get_awg_status();
+    let uplink_mode = vpn::get_vpn_uplink_mode();
+    let proton_count = crate::STATS.connections_proton.load(Ordering::Relaxed);
+
+    let json = serde_json::json!({
+        "is_running": is_running,
+        "bytes_up": up,
+        "bytes_down": down,
+        "packets_up": pkts_up,
+        "packets_down": pkts_down,
+        "uplink_mode": uplink_mode.as_str(),
+        "uplink_mode_id": uplink_mode as i32,
+        "proton_connections": proton_count,
+        "awg": awg_status
+    });
+
+    let s = CString::new(json.to_string()).unwrap_or_else(|_| CString::new("{}").unwrap());
+    s.into_raw()
 }
 
 #[no_mangle]
@@ -488,6 +650,28 @@ pub extern "C" fn SetMtprotoStandbyPerActiveSlot(size: c_int) -> c_int {
 }
 
 #[no_mangle]
+pub extern "C" fn SetPoolSize(size: c_int) -> c_int {
+    let standby = if size <= config::MTPROTO_MAX_STANDBY {
+        size
+    } else {
+        (size / 4).clamp(config::MTPROTO_MIN_STANDBY, config::MTPROTO_MAX_STANDBY)
+    };
+    let effective = SetMtprotoStandbyPerActiveSlot(standby);
+    crate::linfo!(
+        "SetPoolSize: requested={} mapped_standby={} effective={}",
+        size,
+        standby,
+        effective
+    );
+    effective
+}
+
+#[no_mangle]
+pub extern "C" fn set_pool_size(size: c_int) -> c_int {
+    SetPoolSize(size)
+}
+
+#[no_mangle]
 pub extern "C" fn SetIpv6OnlyNetwork(is_ipv6_only: c_int) {
     let flag = is_ipv6_only != 0;
     crate::recovery::set_ipv6_only_network(flag);
@@ -628,6 +812,63 @@ pub unsafe extern "C" fn SetCfProxyConfig(enabled: c_int, c_user_domain: *const 
         cfg.user_domain = user_domain.clone();
         cfg.active = user_domain;
     });
+}
+
+#[no_mangle]
+pub extern "C" fn SetEchEnabled(enabled: c_int) {
+    let flag = enabled != 0;
+    ws::set_ech_enabled(flag);
+    generation_guard::change_config(|| {});
+}
+
+#[no_mangle]
+pub extern "C" fn IsEchEnabled() -> c_int {
+    if ws::is_ech_enabled() {
+        1
+    } else {
+        0
+    }
+}
+
+
+#[no_mangle]
+pub extern "C" fn SetWsRandomizationEnabled(enabled: c_int) {
+    crate::ws::set_ws_randomization_enabled(enabled != 0);
+}
+
+#[no_mangle]
+pub extern "C" fn IsWsRandomizationEnabled() -> c_int {
+    if crate::ws::is_ws_randomization_enabled() { 1 } else { 0 }
+}
+
+#[no_mangle]
+pub extern "C" fn SetTlsRecordPaddingEnabled(enabled: c_int) {
+    let flag = enabled != 0;
+    ws::set_tls_record_padding_enabled(flag);
+    generation_guard::change_config(|| {});
+}
+
+#[no_mangle]
+pub extern "C" fn IsTlsRecordPaddingEnabled() -> c_int {
+    if ws::is_tls_record_padding_enabled() {
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SetCustomEchConfig(c_base64: *const c_char) -> c_int {
+    let b64 = cstr_to_string(c_base64);
+    if b64.trim().is_empty() {
+        return 0;
+    }
+    if ws::set_ech_config_base64(&b64) {
+        generation_guard::change_config(|| {});
+        1
+    } else {
+        0
+    }
 }
 
 /// Promotes a preflight-verified Flowseal Anycast domain for one Telegram DC.
@@ -1205,7 +1446,7 @@ pub unsafe extern "C" fn StartAwgSocks5Proxy(
 
     let handle = rt.spawn(async move {
         let addr = format!("{}:{}", host_task, go_port);
-        match tokio::net::TcpListener::bind(&addr).await {
+        match bind_reuse_tcp(&addr) {
             Ok(listener) => {
                 let _ = tx.send(Ok(()));
                 linfo!("AWG-SOCKS5 proxy listening on {}", addr);

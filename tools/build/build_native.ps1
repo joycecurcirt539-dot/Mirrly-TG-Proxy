@@ -1,3 +1,6 @@
+param(
+    [string]$SingleTarget = ""
+)
 # Mirrly TG Proxy - Portable Rust Native Engine Build Script (PowerShell)
 $ErrorActionPreference = "Stop"
 
@@ -96,6 +99,11 @@ $targets = @(
     @{ rust = "i686-linux-android"; jni = "x86" },
     @{ rust = "x86_64-linux-android"; jni = "x86_64" }
 )
+
+if ($SingleTarget) {
+    $targets = @($targets | Where-Object { $_.rust -eq $SingleTarget -or $_.jni -eq $SingleTarget })
+    Write-Host "Filtered to target: $SingleTarget (Count: $($targets.Count))" -ForegroundColor Yellow
+}
 
 # 3. Ensure Rust targets are installed
 $installedTargets = @(rustup target list --installed)

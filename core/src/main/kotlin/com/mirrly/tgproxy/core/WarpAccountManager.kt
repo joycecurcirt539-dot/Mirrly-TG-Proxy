@@ -305,9 +305,9 @@ object WarpAccountManager {
 
     private val workerClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(2000, TimeUnit.MILLISECONDS)
-            .readTimeout(2500, TimeUnit.MILLISECONDS)
-            .writeTimeout(2500, TimeUnit.MILLISECONDS)
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .writeTimeout(8, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
             .build()
     }
@@ -497,6 +497,8 @@ object WarpAccountManager {
 
         val effectiveWorker = workerDomain?.let { WorkerDomainNormalizer.sanitizeDomain(it) }?.ifEmpty { null }
             ?: REGISTRATION_WORKER_DOMAIN
+        val isExplicitCustomWorker = !workerDomain.isNullOrBlank() && workerDomain != REGISTRATION_WORKER_DOMAIN
+
         val bodyJson = JSONObject().apply {
             put("license", cleanKey)
         }.toString()
@@ -531,13 +533,13 @@ object WarpAccountManager {
                     }
                 }
             } catch (e: Exception) {
-                AppLogger.w(TAG, "Ошибка привязки WARP+ через воркер: ${e.message}")
+                AppLogger.w(TAG, "Ошибка привязки WARP+ через воркер ($effectiveWorker): ${e.message}")
                 if (lastError == null) lastError = e
             }
         }
 
         // 2. Попытка через WarpObfuscatedHttpClient (прямое подключение с обходом SNI-блокировок)
-        if (responseJson == null && lastError !is IllegalStateException) {
+        if (responseJson == null && !isExplicitCustomWorker && lastError !is IllegalStateException) {
             try {
                 val obfResp = WarpObfuscatedHttpClient.execute(
                     method = "PUT",
@@ -643,6 +645,7 @@ object WarpAccountManager {
 
         val effectiveWorker = workerDomain?.let { WorkerDomainNormalizer.sanitizeDomain(it) }?.ifEmpty { null }
             ?: REGISTRATION_WORKER_DOMAIN
+        val isExplicitCustomWorker = !workerDomain.isNullOrBlank() && workerDomain != REGISTRATION_WORKER_DOMAIN
         var responseJson: JSONObject? = null
         var lastError: Exception? = null
 
@@ -669,7 +672,7 @@ object WarpAccountManager {
         }
 
         // 2. Прямой обфусцированный GET с нарезкой SNI
-        if (responseJson == null) {
+        if (responseJson == null && !isExplicitCustomWorker) {
             try {
                 val obfResp = WarpObfuscatedHttpClient.execute(
                     method = "GET",
@@ -687,7 +690,7 @@ object WarpAccountManager {
         }
 
         // 3. Прямой GET
-        if (responseJson == null) {
+        if (responseJson == null && !isExplicitCustomWorker) {
             try {
                 val req = Request.Builder()
                     .url("$API_BASE_V4471/reg/$accountId/account")
@@ -755,6 +758,7 @@ object WarpAccountManager {
 
         val effectiveWorker = workerDomain?.let { WorkerDomainNormalizer.sanitizeDomain(it) }?.ifEmpty { null }
             ?: REGISTRATION_WORKER_DOMAIN
+        val isExplicitCustomWorker = !workerDomain.isNullOrBlank() && workerDomain != REGISTRATION_WORKER_DOMAIN
 
         // 1. Worker (выделенный регистрационный воркер для обхода блокировок api.cloudflareclient.com)
         if (!effectiveWorker.isNullOrBlank()) {
@@ -779,10 +783,20 @@ object WarpAccountManager {
                     if (resp.isSuccessful && !body.isNullOrBlank()) {
                         val parsed = try { JSONObject(body) } catch (_: Exception) { null }
                         if (parsed != null) return ApiCallResult(parsed, activeOperaEndpoint, null)
+                    } else if (!body.isNullOrBlank()) {
+                        val parsed = try { JSONObject(body) } catch (_: Exception) { null }
+                        val errors = parsed?.optJSONArray("errors")
+                        if (errors != null && errors.length() > 0) {
+                            val msg = errors.getJSONObject(0).optString("message", "Ошибка API Cloudflare")
+                            lastError = IllegalStateException(msg)
+                        }
                     }
                 }
             } catch (e: Exception) {
                 lastError = e
+            }
+            if (isExplicitCustomWorker) {
+                return ApiCallResult(null, activeOperaEndpoint, lastError)
             }
         }
 
@@ -1021,7 +1035,9 @@ object WarpAccountManager {
 
             val accountObj = regJson.optJSONObject("account")
             var activeLicenseKey = accountObj?.optString("license", "") ?: ""
-            var activeIsWarpPlus = accountObj?.optBoolean("warp_plus", false) ?: false
+            val accountType = accountObj?.optString("account_type", accountObj.optString("type", "free")) ?: "free"
+            val isFreeType = accountType.equals("free", ignoreCase = true)
+            var activeIsWarpPlus = if (isFreeType) false else (accountObj?.optBoolean("warp_plus", false) ?: false)
             val configObj = regJson.optJSONObject("config")
             val addressesObj = configObj?.optJSONObject("interface")?.optJSONObject("addresses")
             val clientIpv4 = addressesObj?.optString("v4", "172.16.0.2") ?: "172.16.0.2"
@@ -1085,7 +1101,7 @@ object WarpAccountManager {
             val clientCert = ""
 
             // 3. Привязка лицензии WARP+
-            var activeEntitlement = WarpEntitlement.fromType(accountObj?.optString("type", accountObj?.optString("account_type", "free")), activeIsWarpPlus)
+            var activeEntitlement = WarpEntitlement.fromType(accountType, activeIsWarpPlus)
             val effectiveLicenseKey = licenseKey?.trim()?.ifBlank { null } ?: activeLicenseKey.ifBlank { null }
 
             if (effectiveLicenseKey != null && accountId.isNotBlank() && token.isNotBlank()) {

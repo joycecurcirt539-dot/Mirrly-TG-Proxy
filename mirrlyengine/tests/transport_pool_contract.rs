@@ -2,7 +2,7 @@ use mirrlyengine::budget::DIAL_BUDGET;
 use mirrlyengine::config::{
     get_transport_pool_status, MOBILE_NETWORK, MTPROTO_STANDBY_PER_ACTIVE_SLOT_REQUESTED, STATS,
 };
-use mirrlyengine::SetMtprotoStandbyPerActiveSlot;
+use mirrlyengine::{SetMtprotoStandbyPerActiveSlot, SetPoolSize, set_pool_size};
 use std::sync::atomic::Ordering;
 
 #[test]
@@ -53,4 +53,10 @@ fn requested_effective_budget_and_socks_flows_share_one_contract() {
         DIAL_BUDGET.current_limits().0
     );
     assert_eq!(mobile.global_establishment_budget, 2);
+
+    // SetPoolSize & set_pool_size compatibility
+    MOBILE_NETWORK.store(false, Ordering::Relaxed);
+    assert_eq!(SetPoolSize(8), 2);
+    assert_eq!(SetPoolSize(16), 4);
+    assert_eq!(set_pool_size(3), 3);
 }

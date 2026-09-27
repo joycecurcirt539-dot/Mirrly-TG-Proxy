@@ -51,9 +51,11 @@ enum class UplinkMode(val displayName: String, val subtitle: String) {
     WORKER("Cloudflare Worker (WSS)", "Классический режим туннелирования. Надежный WebSocket-транспорт через Cloudflare Workers"),
     MASQUE("WARP MASQUE (HTTP/3)", "Прямой Anycast HTTP/3 через QUIC без прокси-воркеров и AmneziaWG"),
     HYBRID("Гибридный каскад (Worker + WARP)", "Основной Worker WSS с мгновенным подхватом через WARP при блокировках"),
-    VLESS("VLESS over WebSocket (CDN)", "VLESS через WSS TLS 1.3 на порт 443. 100% маскировка под обычный HTTPS"),
+    VLESS("VLESS Reality", "Прямой VLESS/Reality туннель с маскировкой под TLS 1.3"),
     AWG("WARP AmneziaWG (AWG)", "Замаскированный протокол WireGuard Anycast с защитой от блокировок через QUIC"),
-    WARP_CASCADE("WARP Cascade (MASQUE + AWG)", "Умный WARP: MASQUE с автоматическим failover на AWG и аварийным Worker WSS")
+    WARP_CASCADE("WARP Cascade (MASQUE + AWG)", "Умный WARP: MASQUE с автоматическим failover на AWG и аварийным Worker WSS"),
+    OPERA("Opera VPN", "HTTP CONNECT туннелирование через серверы Opera VPN"),
+    PROTON("Proton VPN", "Туннель WireGuard к бесплатным серверам Proton VPN")
 }
 
 data class ProxyConfig(
@@ -62,6 +64,9 @@ data class ProxyConfig(
     var secretHex: String = "dd00000000000000000000000000000000",
     var cfProxyEnabled: Boolean = true,
     var customCfDomain: String = "",
+    var isEchEnabled: Boolean = false,
+    var isTlsRecordPaddingEnabled: Boolean = true,
+    var isWsRandomizationEnabled: Boolean = true,
     var mtprotoStandbyPerActiveSlotValue: Int = 2,
     var isDcAuto: Boolean = true,
     var autostartOnBoot: Boolean = false,
@@ -160,7 +165,16 @@ data class ProxyConfig(
     var allowOperaDirectExit: Boolean = false,
     var isLivenessProbeEnabled: Boolean = false,
     var livenessProbeTimeoutMs: Int = 1500,
-    var livenessProbeFailoverThreshold: Int = 2
+    var livenessProbeFailoverThreshold: Int = 2,
+    // Параметры Proton VPN
+    var protonServerIp: String = "91.229.23.180",
+    var protonServerPort: Int = 51820,
+    var protonServerPublicKey: String = "jbTC1lYeHxiz1LNSJHQMKDTq6sHgcWxkBwXvt7GWo1E=",
+    var protonPrivateKey: String = "",
+    var protonClientIp: String = "10.2.0.2",
+    var protonDnsIp: String = "10.2.0.1",
+    var protonNodeCountry: String = "NL",
+    var protonNodeName: String = "NL-FREE#1"
 ) {
     var ipFamilyPreference: IpFamilyPreference
         get() = runCatching { IpFamilyPreference.valueOf(ipFamilyPreferenceName) }
@@ -251,6 +265,12 @@ data class ProxyConfig(
 
     val isVpnWorkerUplink: Boolean
         get() = false
+
+    val isVpnOperaUplink: Boolean
+        get() = vpnUplinkMode == UplinkMode.OPERA
+
+    val isVpnProtonUplink: Boolean
+        get() = vpnUplinkMode == UplinkMode.PROTON
 
     val isVpnAnyWarpUplink: Boolean
         get() = vpnUplinkMode == UplinkMode.MASQUE
@@ -434,7 +454,10 @@ data class ProxyConfig(
 
     /** Порт, который сейчас активен (зависит от режима). */
     val activePort: Int
-        get() = if (isSocks5Mode) socks5Port else bindPort
+        get() = when (proxyMode) {
+            ProxyMode.SOCKS5 -> socks5Port
+            ProxyMode.MTPROTO -> bindPort
+        }
 
     /**
      * Запрошенное количество сокетов ожидания (standby) на активный слот MTProto.
@@ -475,7 +498,10 @@ data class ProxyConfig(
         isRunning: Boolean,
         activeConnections: Int = 0
     ): TransportPoolStatus {
-        val transport = if (!isRunning) "idle" else if (isSocks5Mode) "socks5" else "mtproto"
+        val transport = if (!isRunning) "idle" else when (proxyMode) {
+            ProxyMode.SOCKS5 -> "socks5"
+            ProxyMode.MTPROTO -> "mtproto"
+        }
         val requested = mtprotoStandbyPerActiveSlot.coerceIn(1, 4)
         return TransportPoolStatus(
             transport = transport,

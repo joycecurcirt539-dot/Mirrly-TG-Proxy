@@ -143,7 +143,7 @@ object UpdateDownloader {
                     }
 
                     if (cacheMatches) {
-                        val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile, cacheShaList)
+                        val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile)
                         val isCurrentDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
                         val isAccepted = signatureStatus == SignatureStatus.OFFICIAL_RELEASE || (signatureStatus == SignatureStatus.DEBUG_BUILD && isCurrentDebug)
                         if (isAccepted) {
@@ -360,7 +360,7 @@ object UpdateDownloader {
 
 
                 // Step 4: Cryptographic signature verification of the downloaded APK BEFORE installation
-                val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile, effectiveShaList)
+                val signatureStatus = SignatureVerifier.verifyApkFile(context, destFile)
                 val isCurrentDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
                 val isAccepted = signatureStatus == SignatureStatus.OFFICIAL_RELEASE || (signatureStatus == SignatureStatus.DEBUG_BUILD && isCurrentDebug)
 

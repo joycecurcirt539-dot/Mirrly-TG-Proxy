@@ -38,10 +38,10 @@ pub const MAX_WS_OUTGOING_FRAME: usize = 32 * 1024;
 
 use once_cell::sync::Lazy;
 
-/// Physical TCP/TLS attempts, not logical domain races. Two simultaneous
-/// sockets preserve IPv4/IPv6 Happy Eyeballs without flooding a cellular radio.
+/// Physical TCP/TLS attempts, not logical domain races. Four simultaneous
+/// sockets preserve IPv4/IPv6 Happy Eyeballs for concurrent chat & media without flooding a cellular radio.
 static MOBILE_FULL_DIAL_SEM: Lazy<tokio::sync::Semaphore> =
-    Lazy::new(|| tokio::sync::Semaphore::new(2));
+    Lazy::new(|| tokio::sync::Semaphore::new(4));
 
 fn order_cipher_suites_for_profile(
     suites: &[rustls::SupportedCipherSuite],
@@ -132,6 +132,33 @@ pub fn build_tls_config_for_fingerprint(fp: &str) -> Arc<ClientConfig> {
     Arc::new(cfg)
 }
 
+pub fn build_tls_config_with_ech(
+    fp: &str,
+    ech_bytes: &[u8],
+) -> Result<Arc<ClientConfig>, rustls::Error> {
+    let mut root_store = RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+    let mut provider = rustls::crypto::ring::default_provider();
+    provider.cipher_suites = order_cipher_suites_for_profile(&provider.cipher_suites, fp);
+
+    let ech_list = rustls_pki_types::EchConfigListBytes::from(ech_bytes);
+    let ech_cfg = rustls::client::EchConfig::new(
+        ech_list,
+        rustls::crypto::aws_lc_rs::hpke::ALL_SUPPORTED_SUITES,
+    )?;
+
+    let mut cfg = ClientConfig::builder_with_provider(Arc::new(provider))
+        .with_ech(rustls::client::EchMode::Enable(ech_cfg))?
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+    cfg.resumption = rustls::client::Resumption::in_memory_sessions(128);
+
+    Ok(Arc::new(cfg))
+}
+
 pub static TLS_CONFIG_CHROME: Lazy<Arc<ClientConfig>> =
     Lazy::new(|| build_tls_config_for_fingerprint("chrome"));
 pub static TLS_CONFIG_FIREFOX: Lazy<Arc<ClientConfig>> =
@@ -194,6 +221,219 @@ pub fn get_tls_config_for_fingerprint(fp: &str) -> Arc<ClientConfig> {
 }
 
 pub static TLS_CONFIG: Lazy<Arc<ClientConfig>> = Lazy::new(|| TLS_CONFIG_CHROME.clone());
+
+// ---------------------------------------------------------------------------
+// Encrypted Client Hello (ECH) Configuration & Caching
+// ---------------------------------------------------------------------------
+
+pub static DEFAULT_CLOUDFLARE_ECH_CONFIG_BASE64: &str =
+    "AEX+DQBBQAAgACDkbcj5PV99YRoi17jXsrNp0J2+mM3t+uvgYSRwQeiNTgAEAAEAAQASY2xvdWRmbGFyZS1lY2guY29tAAA=";
+
+pub static ECH_ENABLED: AtomicBool = AtomicBool::new(false);
+pub static TLS_RECORD_PADDING_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub static WS_RANDOMIZATION_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub fn is_ws_randomization_enabled() -> bool {
+    WS_RANDOMIZATION_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_ws_randomization_enabled(enabled: bool) {
+    WS_RANDOMIZATION_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub const DYNAMIC_WS_PATHS: &[&str] = &[
+    "/apiws",
+    "/apiws/",
+    "/apiws/live",
+    "/apiws/feed",
+    "/apiws/sync",
+    "/apiws/v2",
+    "/apiws/chat",
+    "/apiws/stream",
+    "/apiws/events",
+    "/apiws/sub",
+    "/apiws/client",
+    "/apiws/data",
+    "/apiws/session",
+    "/apiws/ws",
+    "/apiws/hub",
+    "/apiws/msg",
+    "/apiws/push",
+    "/apiws/pipe",
+    "/apiws?v=1",
+    "/apiws?v=2",
+    "/apiws?v=3",
+    "/apiws?v=4",
+    "/apiws?v=5",
+    "/apiws?s=1",
+    "/apiws?s=2",
+    "/apiws?t=1",
+    "/apiws?lang=ru",
+    "/apiws?lang=en",
+    "/apiws?mode=1",
+    "/apiws?mode=2",
+];
+
+pub fn get_dynamic_ws_path(path: &str) -> String {
+    if !is_ws_randomization_enabled() {
+        if path.is_empty() {
+            return "/apiws".to_string();
+        }
+        return path.to_string();
+    }
+    if path.is_empty() || path == "/apiws" {
+        let idx = (rand::random::<u32>() as usize) % DYNAMIC_WS_PATHS.len();
+        DYNAMIC_WS_PATHS[idx].to_string()
+    } else {
+        path.to_string()
+    }
+}
+
+pub fn generate_browser_headers() -> String {
+    if !is_ws_randomization_enabled() {
+        return String::new();
+    }
+    let choice = (rand::random::<u32>() as usize) % 5;
+    match choice {
+        0 => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36\r\n\
+              Sec-CH-UA: \"Not(A:Brand\";v=\"99\", \"Google Chrome\";v=\"133\", \"Chromium\";v=\"133\"\r\n\
+              Sec-CH-UA-Mobile: ?0\r\n\
+              Sec-CH-UA-Platform: \"Windows\"\r\n\
+              Accept-Language: ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7\r\n\
+              Accept-Encoding: gzip, deflate, br, zstd\r\n\
+              Cache-Control: no-cache\r\n\
+              Pragma: no-cache\r\n".to_string(),
+        1 => "User-Agent: Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36\r\n\
+              Sec-CH-UA: \"Not(A:Brand\";v=\"99\", \"Google Chrome\";v=\"133\", \"Chromium\";v=\"133\"\r\n\
+              Sec-CH-UA-Mobile: ?1\r\n\
+              Sec-CH-UA-Platform: \"Android\"\r\n\
+              Accept-Language: ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7\r\n\
+              Accept-Encoding: gzip, deflate, br, zstd\r\n\
+              Cache-Control: no-cache\r\n\
+              Pragma: no-cache\r\n".to_string(),
+        2 => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0\r\n\
+              Accept-Language: ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3\r\n\
+              Accept-Encoding: gzip, deflate, br, zstd\r\n\
+              Cache-Control: no-cache\r\n\
+              Pragma: no-cache\r\n".to_string(),
+        3 => "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15\r\n\
+              Accept-Language: ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7\r\n\
+              Accept-Encoding: gzip, deflate, br\r\n\
+              Cache-Control: no-cache\r\n\
+              Pragma: no-cache\r\n".to_string(),
+        _ => "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36\r\n\
+              Sec-CH-UA: \"Not A(Brand\";v=\"8\", \"Chromium\";v=\"132\", \"Google Chrome\";v=\"132\"\r\n\
+              Sec-CH-UA-Mobile: ?0\r\n\
+              Sec-CH-UA-Platform: \"macOS\"\r\n\
+              Accept-Language: ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7\r\n\
+              Accept-Encoding: gzip, deflate, br, zstd\r\n\
+              Cache-Control: no-cache\r\n\
+              Pragma: no-cache\r\n".to_string(),
+    }
+}
+
+pub fn is_tls_record_padding_enabled() -> bool {
+    TLS_RECORD_PADDING_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_tls_record_padding_enabled(enabled: bool) {
+    TLS_RECORD_PADDING_ENABLED.store(enabled, Ordering::Relaxed);
+    crate::linfo!("TLS record padding & packet size randomization enabled: {}", enabled);
+}
+
+
+static DYNAMIC_ECH_BYTES: Lazy<parking_lot::RwLock<Option<Vec<u8>>>> =
+    Lazy::new(|| parking_lot::RwLock::new(None));
+
+static ECH_TLS_CONFIG_CHROME: Lazy<parking_lot::RwLock<Option<Arc<ClientConfig>>>> =
+    Lazy::new(|| parking_lot::RwLock::new(None));
+static ECH_TLS_CONFIG_FIREFOX: Lazy<parking_lot::RwLock<Option<Arc<ClientConfig>>>> =
+    Lazy::new(|| parking_lot::RwLock::new(None));
+static ECH_TLS_CONFIG_SAFARI: Lazy<parking_lot::RwLock<Option<Arc<ClientConfig>>>> =
+    Lazy::new(|| parking_lot::RwLock::new(None));
+
+pub fn is_ech_enabled() -> bool {
+    ECH_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_ech_enabled(enabled: bool) {
+    ECH_ENABLED.store(enabled, Ordering::Relaxed);
+    crate::linfo!("ECH (Encrypted Client Hello) enabled: {}", enabled);
+}
+
+pub fn set_ech_config_bytes(bytes: Vec<u8>) {
+    if bytes.is_empty() {
+        return;
+    }
+    crate::linfo!("Updated dynamic ECH config (len={})", bytes.len());
+    *DYNAMIC_ECH_BYTES.write() = Some(bytes);
+    invalidate_ech_tls_configs();
+}
+
+pub fn set_ech_config_base64(b64: &str) -> bool {
+    use base64::Engine;
+    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
+        if !bytes.is_empty() {
+            set_ech_config_bytes(bytes);
+            return true;
+        }
+    }
+    false
+}
+
+pub fn invalidate_ech_tls_configs() {
+    *ECH_TLS_CONFIG_CHROME.write() = None;
+    *ECH_TLS_CONFIG_FIREFOX.write() = None;
+    *ECH_TLS_CONFIG_SAFARI.write() = None;
+}
+
+pub fn get_effective_ech_bytes() -> Vec<u8> {
+    if let Some(ref bytes) = *DYNAMIC_ECH_BYTES.read() {
+        return bytes.clone();
+    }
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(DEFAULT_CLOUDFLARE_ECH_CONFIG_BASE64)
+        .unwrap_or_default()
+}
+
+pub fn get_ech_tls_config_for_fingerprint(fp: &str) -> Option<Arc<ClientConfig>> {
+    let lower = fp.trim().to_ascii_lowercase();
+    let lock = match lower.as_str() {
+        "firefox" => &ECH_TLS_CONFIG_FIREFOX,
+        "safari" | "ios" => &ECH_TLS_CONFIG_SAFARI,
+        _ => &ECH_TLS_CONFIG_CHROME,
+    };
+    {
+        if let Some(ref cfg) = *lock.read() {
+            return Some(cfg.clone());
+        }
+    }
+    let ech_bytes = get_effective_ech_bytes();
+    if ech_bytes.is_empty() {
+        return None;
+    }
+    match build_tls_config_with_ech(&lower, &ech_bytes) {
+        Ok(cfg) => {
+            *lock.write() = Some(cfg.clone());
+            Some(cfg)
+        }
+        Err(e) => {
+            crate::lwarn!("Failed to build ECH TLS config for fingerprint '{}': {}", lower, e);
+            None
+        }
+    }
+}
+
+pub fn get_effective_tls_config(fp: &str) -> Arc<ClientConfig> {
+    if is_ech_enabled() {
+        if let Some(cfg) = get_ech_tls_config_for_fingerprint(fp) {
+            return cfg;
+        }
+    }
+    get_tls_config_for_fingerprint(fp)
+}
 
 // ---------------------------------------------------------------------------
 // WsHandshakeError
@@ -381,7 +621,7 @@ impl HeartbeatPolicy {
             },
             (false, true, true) => Self {
                 idle_before_ping: Duration::from_secs(20),
-                pong_deadline: Duration::from_secs(8),
+                pong_deadline: Duration::from_secs(15),
             },
             (false, true, false) => Self {
                 idle_before_ping: Duration::from_secs(45),
@@ -589,6 +829,10 @@ impl RawWebSocket {
                     }
                 }
             }
+            if let Err(e) = writer.flush().await {
+                self.closed.store(true, Ordering::Relaxed);
+                return Err(WsError::Io(e));
+            }
             Ok(())
         }
     }
@@ -633,6 +877,10 @@ impl RawWebSocket {
                 }
             }
         }
+        if let Err(e) = writer.flush().await {
+            self.closed.store(true, Ordering::Relaxed);
+            return Err(WsError::Io(e));
+        }
         Ok(())
     }
 
@@ -664,7 +912,8 @@ impl RawWebSocket {
         // must not wait forever for a busy writer.
         let write = async {
             let mut writer = self.writer.lock().await;
-            writer.write_all(frame).await
+            writer.write_all(frame).await?;
+            writer.flush().await
         };
         let res = if timeout > Duration::ZERO {
             tokio::time::timeout(timeout, write).await
@@ -1084,11 +1333,11 @@ pub fn compute_happy_eyeballs_delay() -> Duration {
 
 fn committed_happy_eyeballs_delay(committed_ms: u64, is_mobile: bool) -> Duration {
     let delay = if committed_ms == 0 {
-        if is_mobile { 350 } else { 200 }
+        if is_mobile { 150 } else { 100 }
     } else {
         // Bounds are independent of the live transport: a handover cannot
         // silently change a committed timer while the policy is cooling down.
-        ((committed_ms.clamp(100, 2000) + 25) / 50) * 50
+        ((committed_ms.clamp(50, 2000) + 25) / 50) * 50
     };
     Duration::from_millis(delay)
 }
@@ -1323,6 +1572,9 @@ pub async fn ws_upgrade_stream(
         _ => ("Sec-WebSocket-Protocol: binary\r\n".to_string(), false),
     };
 
+    let effective_path = get_dynamic_ws_path(path);
+    let browser_headers = generate_browser_headers();
+
     let req = format!(
         "GET {} HTTP/1.1\r\n\
          Host: {}\r\n\
@@ -1330,11 +1582,13 @@ pub async fn ws_upgrade_stream(
          Connection: Upgrade\r\n\
          Sec-WebSocket-Key: {}\r\n\
          Sec-WebSocket-Version: 13\r\n\
-         {}\r\n\r\n",
-        path,
+         {}\
+         {}\r\n",
+        effective_path,
         host_header,
         ws_key,
-        sec_ws_proto_header.trim()
+        sec_ws_proto_header,
+        browser_headers
     );
 
     match tokio::time::timeout(timeout, write_half.write_all(req.as_bytes())).await {
@@ -1470,7 +1724,7 @@ pub async fn ws_handshake_split_host_ext(
 ) -> Result<RawWebSocket, WsError> {
     set_sock_opts(&raw_conn);
 
-    let tls_config = get_tls_config_for_fingerprint(fingerprint);
+    let tls_config = get_effective_tls_config(fingerprint);
     let connector = TlsConnector::from(tls_config);
     let sni = server_name(tls_sni);
 
@@ -1686,7 +1940,7 @@ pub async fn ws_connect_happy_eyeballs_split_ext(
                 remaining = timeout.saturating_sub(start_time.elapsed());
                 let dial_ip = addr.ip().to_string();
                 let tls_config =
-                    get_tls_config_for_fingerprint(crate::recovery::effective_tls_fingerprint());
+                    get_effective_tls_config(crate::recovery::effective_tls_fingerprint());
                 let connector = TlsConnector::from(tls_config);
                 let sni = server_name(&tls_sni);
                 let handshake_timeout = ws_handshake_timeout(
@@ -2321,5 +2575,28 @@ mod tests {
         let mobile_delay = compute_happy_eyeballs_delay();
         assert!(mobile_delay >= Duration::from_millis(250));
         assert!(mobile_delay <= Duration::from_millis(2000));
+    }
+
+    #[test]
+    fn test_encrypted_client_hello_config() {
+        let ech_bytes = get_effective_ech_bytes();
+        assert!(!ech_bytes.is_empty(), "Cloudflare baseline ECH config must not be empty");
+
+        let cfg = build_tls_config_with_ech("chrome", &ech_bytes);
+        assert!(cfg.is_ok(), "ECH config for chrome must build successfully: {:?}", cfg.err());
+
+        let cfg = cfg.unwrap();
+        assert_eq!(cfg.alpn_protocols, vec![b"http/1.1".to_vec()]);
+
+        // Verify cached ECH retrieval
+        set_ech_enabled(true);
+        let eff_cfg = get_effective_tls_config("chrome");
+        assert_eq!(eff_cfg.alpn_protocols, vec![b"http/1.1".to_vec()]);
+
+        // When disabled, returns standard TLS config
+        set_ech_enabled(false);
+        let std_cfg = get_effective_tls_config("chrome");
+        assert_eq!(std_cfg.alpn_protocols, vec![b"http/1.1".to_vec()]);
+        set_ech_enabled(true);
     }
 }

@@ -82,12 +82,13 @@ object VpnTunManager {
             // 127.0.0.0/8 (RFC 1122). Это позволяет клиентам (включая Telegram) обращаться к локальным прокси
             // Mirrly (MTProto :1080, SOCKS5 :10808) напрямую через loopback без перехвата в TUN и без сетевых петель.
             val isWarp = config.isVpnAnyWarpUplink
-            val ipv4 = if (isWarp) {
-                config.warpClientIpv4.ifBlank { "172.16.0.2" }
-            } else {
-                "10.233.233.2"
+            val isProton = config.isVpnProtonUplink
+            val ipv4 = when {
+                isWarp -> config.warpClientIpv4.ifBlank { "172.16.0.2" }
+                isProton -> config.protonClientIp.ifBlank { "10.2.0.2" }
+                else -> "10.233.233.2"
             }
-            builder.addAddress(ipv4, if (isWarp) 32 else 30)
+            builder.addAddress(ipv4, if (isWarp || isProton) 32 else 30)
 
             val ipv4NonLoopbackRoutes = listOf(
                 Pair("0.0.0.0", 2),    // 0.0.0.0 - 63.255.255.255
@@ -128,6 +129,13 @@ object VpnTunManager {
             }
 
             // 3. DNS серверы внутри туннеля (Task N10)
+            if (isProton && config.protonDnsIp.isNotBlank()) {
+                try {
+                    builder.addDnsServer(config.protonDnsIp)
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Не удалось добавить DNS Proton: ${e.message}")
+                }
+            }
             builder.addDnsServer("1.1.1.1")
             builder.addDnsServer("1.0.0.1")
 
@@ -170,7 +178,7 @@ object VpnTunManager {
                 }
             }
 
-            // 5. Блокирующий режим / Kill Switch (Task N13)
+            // 5. Блокирующий режим файлового дескриптора TUN для стабильного нативного I/O (Task N13)
             builder.setBlocking(true)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

@@ -249,8 +249,21 @@ class DohResolverTest {
 
     @Test
     fun testDohProvidersConfigurationAndCloudflareExclusionByDefault() {
+        val global = DohResolver.GLOBAL_PROVIDERS
+        assertEquals(15, global.size)
+
+        val iran = DohResolver.IRAN_PROVIDERS
+        assertEquals(6, iran.size)
+
         val all = DohResolver.ALL_PROVIDERS
-        assertEquals(15, all.size)
+        assertEquals(21, all.size)
+
+        // Language-based visibility tests
+        assertEquals(15, DohResolver.getAvailableProviders("ru").size)
+        assertEquals(21, DohResolver.getAvailableProviders("en").size)
+        assertEquals(21, DohResolver.getAvailableProviders("fa").size)
+        assertEquals(15, DohResolver.getAvailableProviders("ru-RU").size)
+        assertEquals(21, DohResolver.getAvailableProviders("fa-IR").size)
 
         val defaultIds = DohResolver.DEFAULT_ENABLED_PROVIDER_IDS
         // Cloudflare, Google, Quad9, GeoHide and Xbox must NOT be enabled by default
@@ -263,6 +276,23 @@ class DohResolverTest {
         assertFalse(defaultIds.contains("controld_malware"))
         assertFalse(defaultIds.contains("geohide"))
         assertFalse(defaultIds.contains("xbox"))
+
+        // In Russian, Iran providers must NOT be in default enabled or available providers
+        val ruDefaults = DohResolver.getDefaultEnabledProviderIds("ru")
+        assertFalse(ruDefaults.contains("shecan"))
+        assertFalse(ruDefaults.contains("electro"))
+        assertFalse(ruDefaults.contains("doh_403"))
+
+        // In Persian and English, Iran providers ARE in available providers and default enabled
+        val faDefaults = DohResolver.getDefaultEnabledProviderIds("fa")
+        assertTrue(faDefaults.contains("shecan"))
+        assertTrue(faDefaults.contains("electro"))
+        assertTrue(faDefaults.contains("doh_403"))
+
+        val enDefaults = DohResolver.getDefaultEnabledProviderIds("en")
+        assertTrue(enDefaults.contains("shecan"))
+        assertTrue(enDefaults.contains("electro"))
+        assertTrue(enDefaults.contains("doh_403"))
 
         // AdGuard, Yandex, DNS.SB, NextDNS, Control D must be enabled by default
         assertTrue(defaultIds.contains("adguard"))

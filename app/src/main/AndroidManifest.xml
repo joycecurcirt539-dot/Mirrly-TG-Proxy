@@ -98,9 +98,12 @@
                 <data
                     android:scheme="mirrly"
                     android:host="oauth" />
+                <data
+                    android:scheme="mirrly"
+                    android:host="cloudflare" />
             </intent-filter>
 
-            <!-- Android App Links: https://mirrly.app/worker?domain=...&name=... -->
+            <!-- Android App Links: https://mirrly.app/worker or https://mirrly.app/oauth -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -112,6 +115,7 @@
                 <data android:host="mirrly.me" />
                 <data android:host="www.mirrly.me" />
                 <data android:pathPrefix="/worker" />
+                <data android:pathPrefix="/oauth" />
                 <data android:path="/" />
             </intent-filter>
         </activity>

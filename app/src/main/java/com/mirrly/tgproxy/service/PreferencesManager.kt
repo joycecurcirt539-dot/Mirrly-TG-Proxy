@@ -22,8 +22,19 @@ class PreferencesManager(private val context: Context) {
     private val _animationsDisabledFlow = MutableStateFlow(areAnimationsDisabled())
     val animationsDisabledFlow: StateFlow<Boolean> = _animationsDisabledFlow.asStateFlow()
 
+    private val _isEchEnabledFlow = MutableStateFlow(isEchEnabled())
+    val isEchEnabledFlow: StateFlow<Boolean> = _isEchEnabledFlow.asStateFlow()
+
+    private val _isWsRandomizationEnabledFlow = MutableStateFlow(isWsRandomizationEnabled())
+    val isWsRandomizationEnabledFlow: StateFlow<Boolean> = _isWsRandomizationEnabledFlow.asStateFlow()
+    private val _isTlsRecordPaddingEnabledFlow = MutableStateFlow(isTlsRecordPaddingEnabled())
+    val isTlsRecordPaddingEnabledFlow: StateFlow<Boolean> = _isTlsRecordPaddingEnabledFlow.asStateFlow()
+
     private val _isSocks5Flow = MutableStateFlow(loadConfig().isSocks5Mode)
     val isSocks5Flow: StateFlow<Boolean> = _isSocks5Flow.asStateFlow()
+
+    private val _proxyModeFlow = MutableStateFlow(loadConfig().proxyMode)
+    val proxyModeFlow: StateFlow<ProxyMode> = _proxyModeFlow.asStateFlow()
 
     private val _activeWorkerIdFlow = MutableStateFlow(getActiveWorkerId())
     val activeWorkerIdFlow: StateFlow<String> = _activeWorkerIdFlow.asStateFlow()
@@ -62,13 +73,23 @@ class PreferencesManager(private val context: Context) {
         if (key == "disable_animations_particles") {
             _animationsDisabledFlow.value = sharedPreferences.getBoolean(key, false)
         }
+        if (key == KEY_ECH_ENABLED) {
+            _isEchEnabledFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+        if (key == KEY_WS_RANDOMIZATION_ENABLED) {
+            _isWsRandomizationEnabledFlow.value = sharedPreferences.getBoolean(key, true)
+        }
+        if (key == KEY_TLS_RECORD_PADDING_ENABLED) {
+            _isTlsRecordPaddingEnabledFlow.value = sharedPreferences.getBoolean(key, true)
+        }
         if (key == "proxy_mode" || key == "socks5_enabled") {
             val modeName = sharedPreferences.getString("proxy_mode", ProxyMode.MTPROTO.name)
             val isSocks5 = modeName == ProxyMode.SOCKS5.name || sharedPreferences.getBoolean("socks5_enabled", false)
             _isSocks5Flow.value = isSocks5
+            _proxyModeFlow.value = try { ProxyMode.valueOf(modeName ?: ProxyMode.MTPROTO.name) } catch (_: Exception) { ProxyMode.MTPROTO }
         }
         if (key == "active_worker_id") {
-            _activeWorkerIdFlow.value = sharedPreferences.getString(key, "dev_default") ?: "dev_default"
+            _activeWorkerIdFlow.value = sharedPreferences.getString(key, "") ?: ""
         }
         if (key == "uplink_mode") {
             _uplinkModeFlow.value = com.mirrly.tgproxy.core.UplinkMode.WORKER
@@ -130,6 +151,14 @@ class PreferencesManager(private val context: Context) {
             }
             savedSecret
         }
+        // Миграция: если proxy_mode ещё не сохранён, читаем старый socks5_enabled
+        val proxyModeName = if (prefs.contains("proxy_mode")) {
+            prefs.getString("proxy_mode", ProxyMode.MTPROTO.name) ?: ProxyMode.MTPROTO.name
+        } else {
+            @Suppress("DEPRECATION")
+            if (prefs.getBoolean("socks5_enabled", false)) ProxyMode.SOCKS5.name
+            else ProxyMode.MTPROTO.name
+        }
         val cfEnabled = prefs.getBoolean("cf_proxy_enabled", defaults.cfProxyEnabled)
         val activeWorker = getActiveWorker()
         val savedCustomDomain = prefs.getString("custom_cf_domain", null)
@@ -140,13 +169,13 @@ class PreferencesManager(private val context: Context) {
         } else {
             activeWorker.domain
         }
+
         val poolSize = if (prefs.contains("mtproto_standby_per_active_slot")) {
             prefs.getInt("mtproto_standby_per_active_slot", defaults.mtprotoStandbyPerActiveSlot)
         } else {
             prefs.getInt("pool_size", defaults.poolSize)
         }
         val autostart = prefs.getBoolean("autostart_on_boot", defaults.autostartOnBoot)
-        // Режимы пула MTProto и TCP_NODELAY скрыты из UI: всегда режим AUTO по умолчанию для всех пользователей
         val speedPresetName = com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
         val tcpNoDelayModeName = com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO.name
         val tcpNoDelay = true
@@ -157,21 +186,11 @@ class PreferencesManager(private val context: Context) {
         val socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
         val socks5Username = prefs.getString("socks5_username", defaults.socks5Username) ?: defaults.socks5Username
         val socks5Password = secretPrefs.getString("socks5_password", null) ?: prefs.getString("socks5_password", defaults.socks5Password) ?: defaults.socks5Password
-        val useDefaultWorkerSocks5 = if (!activeWorker.isDeveloperWorker) {
-            false
-        } else {
-            prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
-        }
+        val useDefaultWorkerSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
 
-        // Миграция: если proxy_mode ещё не сохранён, читаем старый socks5_enabled
-        val proxyModeName = if (prefs.contains("proxy_mode")) {
-            prefs.getString("proxy_mode", ProxyMode.MTPROTO.name) ?: ProxyMode.MTPROTO.name
-        } else {
-            @Suppress("DEPRECATION")
-            if (prefs.getBoolean("socks5_enabled", false)) ProxyMode.SOCKS5.name
-            else ProxyMode.MTPROTO.name
-        }
-
+        val isEchEnabled = prefs.getBoolean(KEY_ECH_ENABLED, defaults.isEchEnabled)
+        val isWsRandomizationEnabled = prefs.getBoolean(KEY_WS_RANDOMIZATION_ENABLED, defaults.isWsRandomizationEnabled)
+        val isTlsRecordPaddingEnabled = prefs.getBoolean(KEY_TLS_RECORD_PADDING_ENABLED, defaults.isTlsRecordPaddingEnabled)
         val isBatteryGuardEnabled = prefs.getBoolean("is_battery_guard_enabled", defaults.isBatteryGuardEnabled)
         val batteryGuardThreshold = prefs.getInt("battery_guard_threshold", defaults.batteryGuardThreshold)
         val batteryGuardStopOnPowerSave = prefs.getBoolean("battery_guard_stop_on_powersave", defaults.batteryGuardStopOnPowerSave)
@@ -236,6 +255,9 @@ class PreferencesManager(private val context: Context) {
             secretHex = secretHex,
             cfProxyEnabled = cfEnabled,
             customCfDomain = customDomain,
+            isEchEnabled = isEchEnabled,
+            isTlsRecordPaddingEnabled = isTlsRecordPaddingEnabled,
+            isWsRandomizationEnabled = isWsRandomizationEnabled,
             mtprotoStandbyPerActiveSlotValue = poolSize,
             autostartOnBoot = autostart,
             speedPresetName = speedPresetName,
@@ -310,7 +332,12 @@ class PreferencesManager(private val context: Context) {
 
     fun saveConfig(config: ProxyConfig) {
         val sanitizedDomain = ProxyConfig.sanitizeDomain(config.customCfDomain)
-        val domainToSave = if (sanitizedDomain.isNotEmpty()) sanitizedDomain else getActiveWorker().domain
+        val relayWorker = getActiveWorker()
+        val domainToSave = if (sanitizedDomain.isNotEmpty()) {
+            sanitizedDomain
+        } else {
+            relayWorker.domain
+        }
         config.customCfDomain = domainToSave
 
         val secretToSave = if (config.secretHex.isNotBlank() && config.secretHex != "dd00000000000000000000000000000000") {
@@ -415,8 +442,24 @@ class PreferencesManager(private val context: Context) {
             .apply()
 
         _isSocks5Flow.value = config.isSocks5Mode
+        _proxyModeFlow.value = config.proxyMode
         _uplinkModeFlow.value = config.uplinkMode
         _vpnUplinkModeFlow.value = config.vpnUplinkMode
+    }
+
+    fun getProxyMode(): ProxyMode {
+        val modeName = prefs.getString("proxy_mode", ProxyMode.MTPROTO.name)
+        return try {
+            ProxyMode.valueOf(modeName ?: ProxyMode.MTPROTO.name)
+        } catch (_: Exception) {
+            ProxyMode.MTPROTO
+        }
+    }
+
+    fun setProxyMode(mode: ProxyMode) {
+        prefs.edit().putString("proxy_mode", mode.name).apply()
+        _proxyModeFlow.value = mode
+        _isSocks5Flow.value = mode == ProxyMode.SOCKS5
     }
 
     fun saveWarpProfile(profile: com.mirrly.tgproxy.core.WarpProfile) {
@@ -712,38 +755,10 @@ class PreferencesManager(private val context: Context) {
     // ── Worker Profiles Management ──────────────────────────────────────────
 
     companion object {
-        val DEFAULT_DEV_WORKERS = listOf(
-            WorkerProfile(
-                id = "dev_default",
-                name = "Mirrly Primary",
-                domain = "mirrly-tg-proxy-worker.brawny-singer.workers.dev",
-                isDeveloperWorker = true
-            ),
-            WorkerProfile(
-                id = "dev_alpha",
-                name = "Mirrly Alpha",
-                domain = "mtg-relay-5o77p2.mtg-alfaj.workers.dev",
-                isDeveloperWorker = true
-            ),
-            WorkerProfile(
-                id = "dev_beta",
-                name = "Mirrly Beta",
-                domain = "mtg-relay-ki2q2v.mtg-beta.workers.dev",
-                isDeveloperWorker = true
-            ),
-            WorkerProfile(
-                id = "dev_gamma",
-                name = "Mirrly Gamma",
-                domain = "mtg-relay-vndj4a.tammistichtqvc264.workers.dev",
-                isDeveloperWorker = true
-            ),
-            WorkerProfile(
-                id = "dev_delta",
-                name = "Mirrly Delta",
-                domain = "mtg-relay-xbl1ts.mtg-beta.workers.dev",
-                isDeveloperWorker = true
-            )
-        )
+        const val KEY_ECH_ENABLED = "ech_enabled"
+        const val KEY_WS_RANDOMIZATION_ENABLED = "ws_randomization_enabled"
+        const val KEY_TLS_RECORD_PADDING_ENABLED = "tls_record_padding_enabled"
+        val DEFAULT_DEV_WORKERS: List<WorkerProfile> = emptyList()
 
         /**
          * Создает диагностический отчет для службы поддержки, строго исключая
@@ -804,11 +819,13 @@ class PreferencesManager(private val context: Context) {
             val array = JSONArray(jsonStr)
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
+                val domain = obj.getString("domain")
+                val name = obj.optString("name", context.getString(R.string.pref_worker_custom_default_name))
                 result.add(
                     WorkerProfile(
                         id = obj.getString("id"),
-                        name = obj.optString("name", context.getString(R.string.pref_worker_custom_default_name)),
-                        domain = obj.getString("domain"),
+                        name = name,
+                        domain = domain,
                         isDeveloperWorker = false,
                         isCloudflarePersonal = obj.optBoolean("is_cf_personal", false),
                         scriptVersion = obj.optInt("script_version", 0)
@@ -879,10 +896,12 @@ class PreferencesManager(private val context: Context) {
         val current = getCustomWorkers().filter { it.id != id }
         saveCustomWorkers(current)
         if (getActiveWorkerId() == id) {
-            setActiveWorkerId("dev_default", fromUserAction = true)
+            val nextWorker = current.firstOrNull()
+            setActiveWorkerId(nextWorker?.id ?: "", fromUserAction = true)
         }
         if (getUserPrimaryWorkerId() == id) {
-            setUserPrimaryWorkerId("dev_default")
+            val nextWorker = current.firstOrNull()
+            setUserPrimaryWorkerId(nextWorker?.id ?: "")
         }
     }
 
@@ -899,7 +918,12 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun getActiveWorkerId(): String {
-        return prefs.getString("active_worker_id", "dev_default") ?: "dev_default"
+        val saved = prefs.getString("active_worker_id", "") ?: ""
+        val custom = getCustomWorkers()
+        if (saved.isNotEmpty() && custom.any { it.id == saved }) {
+            return saved
+        }
+        return custom.firstOrNull()?.id ?: ""
     }
 
     fun setActiveWorkerId(id: String, fromUserAction: Boolean = true) {
@@ -937,8 +961,8 @@ class PreferencesManager(private val context: Context) {
         val primaryId = prefs.getString("user_primary_worker_id", null) ?: return
         val currentActive = getActiveWorkerId()
         if (currentActive != primaryId) {
-            val allWorkers = getCustomWorkers() + DEFAULT_DEV_WORKERS
-            val primaryWorker = allWorkers.find { it.id == primaryId }
+            val allRelayWorkers = getCustomWorkers()
+            val primaryWorker = allRelayWorkers.find { it.id == primaryId }
             if (primaryWorker != null) {
                 AppLogger.i("PreferencesManager", "Restoring user primary worker '${primaryWorker.name}' ($primaryId)")
                 setActiveWorkerId(primaryId, fromUserAction = false)
@@ -947,8 +971,15 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun getActiveWorker(activeId: String = getActiveWorkerId()): WorkerProfile {
-        return (getCustomWorkers() + DEFAULT_DEV_WORKERS).find { it.id == activeId }
-            ?: DEFAULT_DEV_WORKERS.first()
+        val relayWorkers = getCustomWorkers()
+        return relayWorkers.find { it.id == activeId }
+            ?: relayWorkers.firstOrNull()
+            ?: WorkerProfile(
+                id = "no_worker",
+                name = "Нет активного узла",
+                domain = "",
+                isDeveloperWorker = false
+            )
     }
 
     fun getIgnoredUpdateVersion(): String? {
@@ -1229,4 +1260,25 @@ class PreferencesManager(private val context: Context) {
      * приватные ключи, токены, пароли и полные чувствительные URL (Task N20).
      */
     fun getRedactedDiagnosticReport(config: ProxyConfig): String = Companion.getRedactedDiagnosticReport(config)
+    fun isEchEnabled(): Boolean = prefs.getBoolean(KEY_ECH_ENABLED, false)
+
+    fun setEchEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ECH_ENABLED, enabled).apply()
+        _isEchEnabledFlow.value = enabled
+    }
+
+    fun isWsRandomizationEnabled(): Boolean = prefs.getBoolean(KEY_WS_RANDOMIZATION_ENABLED, true)
+
+    fun setWsRandomizationEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_WS_RANDOMIZATION_ENABLED, enabled).apply()
+        _isWsRandomizationEnabledFlow.value = enabled
+    }
+
+    fun isTlsRecordPaddingEnabled(): Boolean = prefs.getBoolean(KEY_TLS_RECORD_PADDING_ENABLED, true)
+
+    fun setTlsRecordPaddingEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_TLS_RECORD_PADDING_ENABLED, enabled).apply()
+        _isTlsRecordPaddingEnabledFlow.value = enabled
+    }
+
 }

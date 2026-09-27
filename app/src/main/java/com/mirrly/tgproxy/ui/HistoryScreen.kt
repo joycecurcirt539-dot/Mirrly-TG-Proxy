@@ -138,7 +138,7 @@ fun HistoryScreen(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp + 78.dp,
                     bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 itemsIndexed(
                     items = historyList,
@@ -434,18 +434,18 @@ private fun SessionCard(
     )
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         color = Color.White.copy(alpha = 0.02f),
-        border = BorderStroke(0.75.dp, borderColor),
+        border = BorderStroke(0.6.dp, borderColor),
         modifier = modifier
             .fillMaxWidth()
             .springPress()
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Top Row: Protocol Badge + Preset Tag & Status Indicator
+            // Row 1: Protocol pill badge + Preset + Status | Time range + duration
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -453,150 +453,94 @@ private fun SessionCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     // Protocol Pill Badge
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(5.dp),
                         color = protoAccent.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, protoAccent.copy(alpha = 0.28f))
+                        border = BorderStroke(0.75.dp, protoAccent.copy(alpha = 0.28f))
                     ) {
                         Text(
                             text = protoName,
                             color = protoAccent,
-                            fontSize = 10.sp,
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                            letterSpacing = 0.4.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
                         )
                     }
 
                     // Preset Name
                     Text(
-                        text = "•   ${session.presetName}",
+                        text = "• ${session.presetName}",
                         color = TextMuted,
-                        fontSize = 11.5.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
-                }
 
-                // Status Label / Indicator
-                when (session.status) {
-                    SessionStatus.ACTIVE -> {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(protoAccent.copy(alpha = alphaAnim))
-                            )
-                            Text(
-                                text = stringResource(R.string.history_status_active),
-                                color = protoAccent,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.5.sp,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-                    }
-                    SessionStatus.COMPLETED -> {
-                        Text(
-                            text = stringResource(R.string.history_status_completed),
-                            color = TextMuted,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 10.5.sp,
-                            letterSpacing = 0.4.sp
-                        )
-                    }
-                    SessionStatus.INTERRUPTED -> {
-                        Text(
-                            text = stringResource(R.string.history_status_interrupted),
-                            color = Color(0xFFE57373),
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 10.5.sp,
-                            letterSpacing = 0.4.sp
-                        )
-                    }
-                }
-            }
-
-            // Middle Row: Start/End Time & Total Duration
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "$startTimeStr — $endTimeStr",
-                    color = TextWhite.copy(alpha = 0.90f),
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = formatDurationFull(session.durationSeconds),
-                    color = if (isActive) TextWhite else TextWhite.copy(alpha = 0.70f),
-                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                    fontSize = 12.sp
-                )
-            }
-
-            HorizontalDivider(color = Color.White.copy(alpha = 0.05f), thickness = 1.dp)
-
-            // Bottom Metrics Row: Traffic (Left) and Speed/Sockets (Right)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Left: Download & Upload traffic details
-                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text(
-                        text = stringResource(R.string.history_stat_traffic_header),
-                        color = TextMuted,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 0.6.sp
-                    )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = humanBytes(session.totalBytes),
-                            color = TextWhite,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = "(↓${humanBytes(session.bytesReceived)} ↑${humanBytes(session.bytesSent)})",
-                            color = TextMuted,
-                            fontSize = 10.5.sp
+                    // Active dot
+                    if (isActive) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(protoAccent.copy(alpha = alphaAnim))
                         )
                     }
                 }
 
-                // Right: Peak Speed & Max Sockets
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                // Date & Duration on the right
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = stringResource(R.string.history_stat_peak_sockets),
+                        text = "$startTimeStr — $endTimeStr",
                         color = TextMuted,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 0.6.sp
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Normal
                     )
                     Text(
-                        text = stringResource(R.string.history_speed_sockets_format, humanBytes(session.peakSpeedBps), session.maxConnections),
-                        color = TextWhite.copy(alpha = 0.90f),
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 12.sp
+                        text = "• ${formatDurationShort(session.durationSeconds)}",
+                        color = if (isActive) protoAccent else TextWhite.copy(alpha = 0.85f),
+                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium,
+                        fontSize = 11.sp
                     )
                 }
+            }
+
+            // Row 2: Traffic stats (Left) | Peak Speed & Sockets (Right)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Traffic
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text(
+                        text = humanBytes(session.totalBytes),
+                        color = TextWhite,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.5.sp
+                    )
+                    Text(
+                        text = "(↓${humanBytes(session.bytesReceived)} ↑${humanBytes(session.bytesSent)})",
+                        color = TextMuted,
+                        fontSize = 10.5.sp
+                    )
+                }
+
+                // Peak Speed & Sockets
+                Text(
+                    text = "${humanBytes(session.peakSpeedBps)}/с • ${session.maxConnections} сок.",
+                    color = TextWhite.copy(alpha = 0.80f),
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp
+                )
             }
         }
     }

@@ -61,11 +61,18 @@ class NetworkChangeObserver(
     private var lastReportedNetwork: Network? = null
     private var hasReportedUsableNetwork: Boolean = false
 
-    // generation инкрементируется при каждом переходе в UNAVAILABLE/SUSPENDED
-    // для защиты от устаревших pending disconnect runnables.
+    // generation инкрементируется при каждом переходе в UNAVAILABLE/SUSPENDED/HANDOVER
+    // для защиты от устаревших pending runnables.
     private val generationCounter = AtomicLong(0L)
 
     private var pendingDisconnectRunnable: Runnable? = null
+    private var pendingHandoverRunnable: Runnable? = null
+
+    companion object {
+        private const val WIFI_TO_CELLULAR_HANDOVER_DELAY_MS = 2500L
+        private const val DISCONNECT_GRACE_DELAY_MS = 7_000L
+    }
+
     @Volatile
     private var currentDefaultNetwork: Network? = null
 
@@ -96,6 +103,14 @@ class NetworkChangeObserver(
         }
     }
 
+    private fun cancelPendingHandover() {
+        pendingHandoverRunnable?.let {
+            mainHandler.removeCallbacks(it)
+            pendingHandoverRunnable = null
+            generationCounter.incrementAndGet()
+        }
+    }
+
     /**
      * Откладывает переход в UNAVAILABLE на [delayMs].
      * ВАЖНО: вызывается внутри synchronized(stateLock).
@@ -111,6 +126,7 @@ class NetworkChangeObserver(
             synchronized(stateLock) {
                 if (generationCounter.get() != expectedGen) return@Runnable
                 pendingDisconnectRunnable = null
+                cancelPendingHandover()
                 currentState = NetworkState.UNAVAILABLE
                 currentDefaultNetwork = null
                 currentCapabilities = null
@@ -159,20 +175,30 @@ class NetworkChangeObserver(
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
     }
 
+    fun isWifiActive(): Boolean {
+        synchronized(stateLock) {
+            val caps = currentCapabilities ?: return false
+            return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        }
+    }
+
     private fun extractNetworkTypeName(caps: NetworkCapabilities): String {
         return when {
             caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile LTE/5G"
             caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "VPN"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile LTE/5G"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> {
+                if (isWifiActive()) "Wi-Fi" else "VPN"
+            }
             else -> "Active Network"
         }
     }
 
     private fun extractTransport(caps: NetworkCapabilities): NetworkTransport = when {
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkTransport.CELLULAR
         caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkTransport.WIFI
         caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkTransport.ETHERNET
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkTransport.CELLULAR
         caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> NetworkTransport.VPN
         else -> NetworkTransport.OTHER
     }
@@ -207,7 +233,7 @@ class NetworkChangeObserver(
             /**
              * Сеть стала доступна — но ещё не VALIDATED.
              * Переходим в AVAILABLE_UNVALIDATED и ждём onCapabilitiesChanged с VALIDATED.
-            * НЕ уведомляем onNetworkChanged здесь.
+             * НЕ уведомляем onNetworkChanged здесь.
              */
             override fun onAvailable(network: Network) {
                 var notifySuspended: String? = null
@@ -224,7 +250,7 @@ class NetworkChangeObserver(
                     // callback is allowed to do that.
                     if (hadStableNetwork && network != lastReportedNetwork) {
                         notifySuspended = lastReportedType
-                        schedulePendingDisconnect(lastReportedType, delayMs = 7_000L)
+                        schedulePendingDisconnect(lastReportedType, delayMs = DISCONNECT_GRACE_DELAY_MS)
                     }
                 }
                 notifySuspended?.let(onNetworkSuspended)
@@ -272,23 +298,68 @@ class NetworkChangeObserver(
                             val oldType = lastReportedType
                             val sameReportedNetwork = lastReportedNetwork == network
 
-                            currentState = NetworkState.VALIDATED_STABLE
-                            currentDefaultNetwork = network
-                            currentNetworkType = newType
+                            // Anti-flap protection: если переход с Wi-Fi/Ethernet на сотовую сеть,
+                            // подтверждаем смену с задержкой 2500 мс для защиты от кратковременных просадок/роуминга Wi-Fi
+                            val isDowngradeToCellular = (oldType == "Wi-Fi" || oldType == "Ethernet") &&
+                                (newType == "Mobile LTE/5G" || newType.contains("Mobile") || newType.contains("Cellular"))
 
-                            if (sameReportedNetwork &&
-                                (oldState == NetworkState.SUSPENDED ||
-                                    oldState == NetworkState.AVAILABLE_UNVALIDATED)
-                            ) {
-                                notifyResumed = newType
-                            } else if (!sameReportedNetwork || newType != oldType) {
-                                notifyInitial = !hasReportedUsableNetwork
-                                hasReportedUsableNetwork = true
-                                lastReportedType = newType
-                                lastReportedNetwork = network
-                                // Планируем callback ПОСЛЕ выхода из synchronized
-                                notifyNew = newType
-                                notifyOld = oldType
+                            if (isDowngradeToCellular && hasReportedUsableNetwork) {
+                                currentDefaultNetwork = network
+                                currentCapabilities = caps
+                                currentState = NetworkState.AVAILABLE_UNVALIDATED
+
+                                if (pendingHandoverRunnable == null) {
+                                    val expectedGen = generationCounter.incrementAndGet()
+                                    val runnable = Runnable {
+                                        var delayedNotifyNew: String? = null
+                                        var delayedNotifyOld: String? = null
+                                        var delayedProfileUpdate: NetworkEnvironment? = null
+                                        synchronized(stateLock) {
+                                            if (generationCounter.get() != expectedGen) return@Runnable
+                                            pendingHandoverRunnable = null
+                                            if (currentDefaultNetwork == network) {
+                                                currentState = NetworkState.VALIDATED_STABLE
+                                                currentNetworkType = newType
+                                                lastReportedType = newType
+                                                lastReportedNetwork = network
+                                                delayedNotifyNew = newType
+                                                delayedNotifyOld = oldType
+                                                val candidateEnv = buildEnvironment(caps, currentState)
+                                                lastReportedEnvironment = candidateEnv
+                                                delayedProfileUpdate = candidateEnv
+                                            }
+                                        }
+                                        delayedProfileUpdate?.let(onNetworkProfileChanged)
+                                        if (delayedNotifyNew != null && delayedNotifyOld != null) {
+                                            onNetworkChanged(delayedNotifyNew!!, delayedNotifyOld!!, false)
+                                        }
+                                    }
+                                    pendingHandoverRunnable = runnable
+                                    mainHandler.postDelayed(runnable, WIFI_TO_CELLULAR_HANDOVER_DELAY_MS)
+                                }
+                            } else {
+                                // Сеть Wi-Fi восстановилась или это не downgrade:
+                                // немедленно отменяем любой отложенный переход на сотовую сеть
+                                cancelPendingHandover()
+
+                                currentState = NetworkState.VALIDATED_STABLE
+                                currentDefaultNetwork = network
+                                currentNetworkType = newType
+
+                                if (sameReportedNetwork &&
+                                    (oldState == NetworkState.SUSPENDED ||
+                                        oldState == NetworkState.AVAILABLE_UNVALIDATED)
+                                ) {
+                                    notifyResumed = newType
+                                } else if (!sameReportedNetwork || newType != oldType) {
+                                    notifyInitial = !hasReportedUsableNetwork
+                                    hasReportedUsableNetwork = true
+                                    lastReportedType = newType
+                                    lastReportedNetwork = network
+                                    // Планируем callback ПОСЛЕ выхода из synchronized
+                                    notifyNew = newType
+                                    notifyOld = oldType
+                                }
                             }
                         }
 
@@ -345,19 +416,21 @@ class NetworkChangeObserver(
                         return // Запоздалый onLost от уже неактивной сети
                     }
 
+                    cancelPendingHandover()
                     val oldType = lastReportedType
                     if (currentState != NetworkState.UNAVAILABLE) {
                         currentState = NetworkState.AVAILABLE_UNVALIDATED
-                        schedulePendingDisconnect(oldType, delayMs = 7_000L)
+                        schedulePendingDisconnect(oldType, delayMs = DISCONNECT_GRACE_DELAY_MS)
                     }
                 }
             }
 
             override fun onUnavailable() {
                 synchronized(stateLock) {
+                    cancelPendingHandover()
                     if (currentState != NetworkState.UNAVAILABLE) {
                         val oldType = lastReportedType
-                        schedulePendingDisconnect(oldType, delayMs = 7_000L)
+                        schedulePendingDisconnect(oldType, delayMs = DISCONNECT_GRACE_DELAY_MS)
                     }
                 }
             }
@@ -383,6 +456,7 @@ class NetworkChangeObserver(
         // 2. Потом отменяем pending runnables под локом
         synchronized(stateLock) {
             cancelPendingDisconnect()
+            cancelPendingHandover()
             currentState = NetworkState.UNAVAILABLE
             currentDefaultNetwork = null
             currentCapabilities = null
@@ -396,7 +470,17 @@ class NetworkChangeObserver(
         // onNetworkChanged при stop() НЕ вызывается — сервис сам управляет своим состоянием
     }
 
-    fun getCurrentNetworkTypeName(): String = currentNetworkType
+    fun getCurrentNetworkTypeName(): String {
+        synchronized(stateLock) {
+            if (pendingHandoverRunnable != null && (lastReportedType == "Wi-Fi" || lastReportedType == "Ethernet")) {
+                return lastReportedType
+            }
+            if (currentState == NetworkState.VALIDATED_STABLE && currentNetworkType != "DISCONNECTED") {
+                return currentNetworkType
+            }
+            return if (lastReportedType != "DISCONNECTED") lastReportedType else currentNetworkType
+        }
+    }
 
     fun getCurrentCapabilities(): NetworkCapabilities? = currentCapabilities
 

@@ -533,10 +533,22 @@ pub fn interleave_dual_stack_ips(v6: Vec<IpAddr>, v4: Vec<IpAddr>) -> Vec<IpAddr
     let mut interleaved = Vec::with_capacity(v6.len() + v4.len());
     let max_len = v6.len().max(v4.len());
     let ipv6_only = crate::recovery::is_ipv6_only_network();
+    let is_mobile = crate::config::MOBILE_NETWORK.load(std::sync::atomic::Ordering::Relaxed);
     if ipv6_only {
         // In IPv6-only network, all IPv6 addresses come first
         interleaved.extend(v6);
         interleaved.extend(v4);
+    } else if is_mobile {
+        // Mobile cellular optimization: Cloudflare IPv4 has near 100% reachability across mobile carriers
+        // whereas IPv6 is frequently non-routed or dropped by middleboxes/TSPU. Interleave IPv4 first.
+        for i in 0..max_len {
+            if i < v4.len() {
+                interleaved.push(v4[i]);
+            }
+            if i < v6.len() {
+                interleaved.push(v6[i]);
+            }
+        }
     } else {
         // RFC 8305 Dual-Stack: Interleave with IPv6 first
         for i in 0..max_len {
@@ -1574,6 +1586,17 @@ pub async fn start_background_balancer_loop(cancel_token: tokio_util::sync::Canc
     } else {
         ldebug!("Cellular profile: startup CDN ranking deferred to real MTProto demand");
     }
+
+    let cancel_ech = cancel_token.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = cancel_ech.cancelled() => return,
+            _ = tokio::time::sleep(Duration::from_millis(300)) => {
+                let user_dom = CFPROXY.read().user_domain.clone();
+                let _ = crate::dns::refresh_ech_config_from_doh(&user_dom).await;
+            }
+        }
+    });
 
     // 3. Periodic race every 60 minutes for all primary DCs
     let mut interval = tokio::time::interval(CFPROXY_RACE_INTERVAL);

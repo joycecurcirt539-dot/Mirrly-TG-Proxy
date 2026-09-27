@@ -25,6 +25,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import kotlinx.coroutines.launch
+import com.mirrly.tgproxy.service.DeveloperModeManager
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -149,6 +150,11 @@ fun AboutScreen(
     // ── CONFIRMATION DIALOG STATE FOR EXTERNAL REDIRECTS ──
     var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
 
+    val isDevVpnUnlocked by DeveloperModeManager.isDevVpnUnlocked.collectAsState()
+    var devTapCount by remember { mutableIntStateOf(0) }
+    var lastDevTapTime by remember { mutableLongStateOf(0L) }
+    val devAvatarBounce = remember { Animatable(1f) }
+
     if (pendingRedirectUrl != null) {
         val targetUrl = pendingRedirectUrl ?: ""
         ExternalLinkConfirmDialog(
@@ -210,11 +216,45 @@ fun AboutScreen(
                         modifier = Modifier
                             .size(96.dp)
                             .graphicsLayer {
-                                scaleX = avatarEntranceScale
-                                scaleY = avatarEntranceScale
+                                scaleX = avatarEntranceScale * devAvatarBounce.value
+                                scaleY = avatarEntranceScale * devAvatarBounce.value
                             }
                             .clip(CircleShape)
                             .background(Color.Transparent)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                val now = System.currentTimeMillis()
+                                if (now - lastDevTapTime > 2000L) {
+                                    devTapCount = 0
+                                }
+                                lastDevTapTime = now
+
+                                coroutineScope.launch {
+                                    devAvatarBounce.animateTo(0.85f, tween(70))
+                                    devAvatarBounce.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                                }
+
+                                if (isDevVpnUnlocked) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    Toast.makeText(context, "Режим разработчика уже активен", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    devTapCount++
+                                    if (devTapCount in 2..4) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        val remaining = 5 - devTapCount
+                                        Toast.makeText(context, "Осталось нажатий для режима разработчика: $remaining", Toast.LENGTH_SHORT).show()
+                                    } else if (devTapCount >= 5) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        devTapCount = 0
+                                        DeveloperModeManager.unlockDevVpn()
+                                        Toast.makeText(context, "Режим разработчика активирован: VPN полностью разблокирован", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    }
+                                }
+                            }
                     ) {
                         // Quantum Charge Ring around Avatar
                         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -223,9 +263,11 @@ fun AboutScreen(
                             val c = Offset(w / 2f, h / 2f)
                             val r = (w.coerceAtMost(h) / 2f) - 3.dp.toPx()
 
+                            val ringColor = if (isDevVpnUnlocked) Color(0xFFFFB300) else ledGreen
+
                             // Base Border
                             drawCircle(
-                                color = ledGreen.copy(alpha = glowAlpha * 0.6f),
+                                color = ringColor.copy(alpha = glowAlpha * 0.70f),
                                 radius = r,
                                 center = c,
                                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx())
@@ -282,6 +324,36 @@ fun AboutScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 color = ActiveGreenLed
                             )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isDevVpnUnlocked,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFFFFB300).copy(alpha = 0.12f))
+                                    .border(1.dp, Color(0xFFFFB300).copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFFB300))
+                                )
+                                Text(
+                                    text = "РЕЖИМ РАЗРАБОТЧИКА АКТИВЕН",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 0.9.sp,
+                                    color = Color(0xFFFFB300)
+                                )
+                            }
                         }
 
                         Text(

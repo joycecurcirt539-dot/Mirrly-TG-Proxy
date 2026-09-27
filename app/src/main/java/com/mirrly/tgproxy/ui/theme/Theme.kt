@@ -79,6 +79,13 @@ val Socks5Secondary = Color(0xFF7C4DFF)
 val Socks5Light = Color(0xFFC084FC)
 val Socks5Indigo = Color(0xFF818CF8)
 
+// WEB Protocol Theme (Electric Cyber Crimson / Neon Coral)
+val WebAccent = Color(0xFFFF2A6D)
+val WebGlow = Color(0x3DFF2A6D)
+val WebSecondary = Color(0xFFFF5376)
+val WebLight = Color(0xFFFF7597)
+val WebRuby = Color(0xFFFF0055)
+
 data class ProtocolColors(
     val primary: Color,
     val glow: Color,
@@ -112,16 +119,32 @@ val Socks5Palette = ProtocolColors(
     orb4 = Color(0xFF818CF8)
 )
 
+val WebPalette = ProtocolColors(
+    primary = WebAccent,
+    glow = WebGlow,
+    secondary = WebSecondary,
+    light = WebLight,
+    orb1 = Color(0xFFFF2A6D),
+    orb2 = Color(0xFFFF0055),
+    orb3 = Color(0xFFE040FB),
+    orb4 = Color(0xFFFF5252)
+)
+
 @Composable
 fun rememberAnimatedProtocolColors(
-    isSocks5: Boolean,
+    proxyMode: com.mirrly.tgproxy.core.ProxyMode? = null,
+    isSocks5: Boolean = proxyMode == com.mirrly.tgproxy.core.ProxyMode.SOCKS5,
     isVpn: Boolean = false,
     vpnPalette: ProtocolColors? = null
 ): ProtocolColors {
+    val isTargetSocks5 = when {
+        proxyMode != null -> proxyMode == com.mirrly.tgproxy.core.ProxyMode.SOCKS5
+        else -> isSocks5
+    }
     val target = when {
         isVpn && vpnPalette != null -> vpnPalette
         isVpn -> VpnElectricAmberPalette
-        isSocks5 -> Socks5Palette
+        isTargetSocks5 -> Socks5Palette
         else -> MtprotoPalette
     }
     val spec = tween<Color>(durationMillis = 750, easing = FastOutSlowInEasing)
@@ -193,12 +216,14 @@ fun MirrlyTheme(
         }
     }
 
+    val proxyMode by com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.proxyModeFlow.collectAsState(initial = com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
     val isSocks5 by com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.isSocks5Flow.collectAsState(initial = false)
     val vpnState by com.mirrly.tgproxy.service.MirrlyVpnService.vpnState.collectAsState()
     val isVpnActive = vpnState == VpnUiState.CONNECTED || vpnState == VpnUiState.CONNECTING
     val vpnPalette = remember { com.mirrly.tgproxy.ui.theme.VpnThemeManager.getSystemVpnPalette(view.context) }
 
     val protoColors = rememberAnimatedProtocolColors(
+        proxyMode = proxyMode,
         isSocks5 = isSocks5,
         isVpn = isVpnActive,
         vpnPalette = vpnPalette

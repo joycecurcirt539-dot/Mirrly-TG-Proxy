@@ -3558,6 +3558,7 @@ pub struct AwgPeerSession {
     pub next_port: AtomicU16,
     pub cancel_token: CancellationToken,
     pub timer_notify: Arc<tokio::sync::Notify>,
+    pub tun_sink: Arc<parking_lot::RwLock<Option<tokio::sync::mpsc::Sender<Vec<u8>>>>>,
 }
 
 impl std::fmt::Debug for AwgPeerSession {
@@ -3579,6 +3580,7 @@ impl AwgPeerSession {
     ) -> Arc<Self> {
         let cancel_token = CancellationToken::new();
         let timer_notify = Arc::new(tokio::sync::Notify::new());
+        let tun_sink = Arc::new(parking_lot::RwLock::new(None));
         let peer = Arc::new(Self {
             endpoint_addr,
             socket,
@@ -3588,10 +3590,15 @@ impl AwgPeerSession {
             next_port: AtomicU16::new(40000),
             cancel_token,
             timer_notify,
+            tun_sink,
         });
 
         tokio::spawn(run_peer_receiver_loop(Arc::clone(&peer)));
         peer
+    }
+
+    pub fn set_tun_sink(&self, sink: Option<tokio::sync::mpsc::Sender<Vec<u8>>>) {
+        *self.tun_sink.write() = sink;
     }
 
     pub async fn connect_internal(
@@ -3648,6 +3655,13 @@ impl AwgPeerSession {
                 "[profile='{}', stage='udp_bind', endpoint='{}'] failed to bind local UDP socket: {}",
                 profile, endpoint, e
             ))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            let raw_fd = socket.as_raw_fd();
+            crate::protect_socket_fd(raw_fd);
+        }
 
         socket
             .connect(endpoint_addr)
@@ -3935,6 +3949,7 @@ impl AwgPeerSession {
     }
 
     pub async fn send_ip_packet(&self, ip_pkt: &[u8]) -> Result<(), std::io::Error> {
+        crate::STATS.add_vpn_bytes_up(ip_pkt.len() as i64);
         let (wire_pkt, maybe_rekey) = self
             .session
             .encapsulate_outgoing(ip_pkt)
@@ -4019,7 +4034,11 @@ async fn run_peer_receiver_loop(peer: Arc<AwgPeerSession>) {
                     Ok(n) if n >= 4 => {
                         match session.decapsulate_incoming(&udp_rx_buf[..n]) {
                             Ok(IncomingPacket::Data(ip_pkt)) => {
-                                if let Some(port) = extract_flow_port(&ip_pkt) {
+                                let tun_opt = peer.tun_sink.read().clone();
+                                if let Some(sink) = tun_opt {
+                                    crate::STATS.add_vpn_bytes_down(ip_pkt.len() as i64);
+                                    let _ = sink.try_send(ip_pkt);
+                                } else if let Some(port) = extract_flow_port(&ip_pkt) {
                                     let guard = flows.read();
                                     if let Some(sender) = guard.get(&port) {
                                         let _ = sender.send(ip_pkt);

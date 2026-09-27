@@ -373,32 +373,11 @@ static jint native_verify(JNIEnv* env, jclass clazz, jobject context, jstring cu
         bool isKnownOfficialKey = constant_time_memcmp(nativeDigest, officialSha256, 32)
             || (!javaSha256Clean.empty() && javaSha256Clean == officialSha256Clean);
 
-        // 4. Check expected remote hashes if provided (checked against both SHAs)
-        bool isRemoteMatch = false;
-        if (expectedRemoteHashes != nullptr) {
-            jsize remoteLen = env->GetArrayLength(expectedRemoteHashes);
-            for (jsize i = 0; i < remoteLen; ++i) {
-                jstring remoteStr = (jstring)env->GetObjectArrayElement(expectedRemoteHashes, i);
-                if (remoteStr != nullptr) {
-                    const char* chars = env->GetStringUTFChars(remoteStr, nullptr);
-                    if (chars != nullptr) {
-                        std::string cleanExpected = clean_hex(std::string(chars));
-                        env->ReleaseStringUTFChars(remoteStr, chars);
-                        if (!cleanExpected.empty() &&
-                            (cleanExpected == nativeSha256Clean || cleanExpected == javaSha256Clean)) {
-                            isRemoteMatch = true;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        LOGI("Native verify result: native=%s, java=%s, official=%s, isOfficialKey=%d, isRemoteMatch=%d, isDebuggable=%d",
+        LOGI("Native verify result: native=%s, java=%s, official=%s, isOfficialKey=%d, isDebuggable=%d",
              nativeSha256Clean.c_str(), javaSha256Clean.c_str(), officialSha256Clean.c_str(),
-             isKnownOfficialKey, isRemoteMatch, isDebuggable);
+             isKnownOfficialKey, isDebuggable);
 
-        if (isRemoteMatch || isKnownOfficialKey) {
+        if (isKnownOfficialKey) {
             return 0; // OFFICIAL_RELEASE
         } else if (isDebuggable) {
             return 1; // DEBUG_BUILD

@@ -6,27 +6,27 @@
 <resources>
     <!-- App Metadata -->
     <string name="app_name">Mirrly TG Proxy</string>
-    <string name="app_slogan">Secure native relay for Telegram</string>
+    <string name="app_slogan">Secure local proxy for Telegram</string>
 
     <!-- Onboarding Screen -->
     <string name="onboarding_brand_title">MIRRLY TG PROXY</string>
-    <string name="onboarding_brand_subtitle">SECURE NATIVE RELAY FOR TELEGRAM</string>
+    <string name="onboarding_brand_subtitle">SECURE PROXY GATEWAY FOR TELEGRAM</string>
     <string name="onboarding_step_language_title">SELECT INTERFACE LANGUAGE</string>
     <string name="onboarding_step_language_desc">You can change interface language anytime in application settings.</string>
     <string name="onboarding_lang_system">System default</string>
     <string name="onboarding_lang_system_desc">Automatic based on OS settings</string>
-    <string name="onboarding_lang_ru">Russian</string>
+    <string name="onboarding_lang_ru">Русский (Russian)</string>
     <string name="onboarding_lang_ru_desc">Russian interface language</string>
     <string name="onboarding_lang_en">English</string>
     <string name="onboarding_lang_en_desc">English interface language</string>
-    <string name="onboarding_lang_fa">فارسی</string>
+    <string name="onboarding_lang_fa">فارسی (Persian)</string>
     <string name="onboarding_lang_fa_desc">Persian language</string>
 
     <string name="onboarding_step_about_title">ABOUT MIRRLY TG PROXY</string>
     <string name="onboarding_step_about_desc">Next-generation high-speed proxy client for bypassing restrictions and accelerating Telegram.</string>
-    <string name="onboarding_feature_mtproto">MTProto relay with dynamic traffic obfuscation</string>
-    <string name="onboarding_feature_socks5">SOCKS5 TCP relay optimized for voice calls and media</string>
-    <string name="onboarding_feature_cf_workers">WSS tunneling via Cloudflare Workers and custom domains</string>
+    <string name="onboarding_feature_mtproto">MTProto proxy with robust traffic protection and cloaking</string>
+    <string name="onboarding_feature_socks5">SOCKS5 proxy optimized for voice/video calls and media</string>
+    <string name="onboarding_feature_cf_workers">Secure tunnel via Cloudflare servers and custom domains</string>
     <string name="onboarding_feature_amoled">Minimalist deep AMOLED interface with zero ads and trackers</string>
 
     <string name="onboarding_step_guide_title">QUICK START GUIDE</string>
@@ -34,7 +34,7 @@
     <string name="onboarding_guide_1_title">Select working protocol</string>
     <string name="onboarding_guide_1_desc">MTProto for lightweight messaging or SOCKS5 for uninterrupted voice calls and media.</string>
     <string name="onboarding_guide_2_title">Activate proxy service</string>
-    <string name="onboarding_guide_2_desc">Tap the central power button on the home screen to launch the local relay.</string>
+    <string name="onboarding_guide_2_desc">Tap the central power button on the home screen to launch the local proxy.</string>
     <string name="onboarding_guide_3_title">Connect Telegram</string>
     <string name="onboarding_guide_3_desc">Tap \'Connect Telegram\' to automatically import proxy connection settings into the app.</string>
 
@@ -46,9 +46,9 @@
     <string name="settings_section_language">App Language</string>
     <string name="settings_section_language_desc">Choose preferred application language</string>
     <string name="settings_language_system">Auto (System)</string>
-    <string name="settings_language_ru">Russian</string>
+    <string name="settings_language_ru">Русский (Russian)</string>
     <string name="settings_language_en">English</string>
-    <string name="settings_language_fa">فارسی</string>
+    <string name="settings_language_fa">فارسی (Persian)</string>
     <string name="settings_onboarding_replay">First-launch tutorial</string>
     <string name="settings_onboarding_replay_desc">Replay introductory walkthrough and quick start guide</string>
 
@@ -435,6 +435,7 @@
     <string name="doh_status_pending">Pending...</string>
     <string name="doh_status_tspu_ok">DPI Pass</string>
     <string name="doh_status_rkn_block">Censored?</string>
+    <string name="doh_status_iran_ok">Iran OK</string>
     <string name="toast_vless_uuid_generated">Generated new VLESS UUID</string>
     <string name="toast_stop_proxy_change_dns">Stop proxy to change DNS settings</string>
     <string name="toast_doh_keep_at_least_one">At least one DoH provider must remain active</string>
@@ -962,6 +963,8 @@ The project runs exclusively locally on your device, ensuring maximum connection
     <string name="fame_c_amurcanov_contrib">Creator of the original open-source Android client tg-ws-proxy-android and C++ NDK WSS implementation serving as the foundation of the app network stack.</string>
     <string name="fame_c_flowseal_role">Author of Telegram Tunneling Concept</string>
     <string name="fame_c_flowseal_contrib">Creator of tg-ws-proxy project. Developed the architectural concept of proxying Telegram traffic via Cloudflare WebSocket without VPN.</string>
+    <string name="fame_c_masterkey_role">Community Architect &amp; Leading Contributor</string>
+    <string name="fame_c_masterkey_contrib">The most active and standout contributor who made an immense contribution to the project: from invaluable advice and testing to major architectural improvements and deep implementation analysis.</string>
     <string name="fame_c_grovymon_role">Bug Hunter &amp; Security Audit</string>
     <string name="fame_c_grovymon_contrib">Author of Issues #3, #4, #5, #7, #8, #15, #16, #18, #19, #20. Discovered navigation insets bugs on Android 16, update sticky badge, NoServerCertVerifier TLS flaw, researched LTE bypass, Rust core omission in release, and initiated mandatory SOCKS5 RFC 1929 auth.</string>
     <string name="fame_c_zzzxxx_role">Bug Hunter &amp; Worker Researcher</string>
@@ -990,6 +993,10 @@ The project runs exclusively locally on your device, ensuring maximum connection
     <string name="fame_c_astimir_contrib">Active subscriber of project Telegram channel (@WhyOkyHb), development supporter, and active community member.</string>
     <string name="fame_c_dimaakaj_role">Cloudflare Worker Bug Hunter</string>
     <string name="fame_c_dimaakaj_contrib">Discovered TypeScript syntax error ts(2554) in the Cloudflare Worker script when serverWs.accept() was invoked with arguments, which blocked saving and deploying the worker via Cloudflare Dashboard.</string>
+    <string name="fame_role_tg_participant">Community Member</string>
+    <string name="fame_contrib_tg_channel">Active Telegram channel participant</string>
+    <string name="fame_c_creeepeeer_role">Bug Hunter &amp; Network Diagnostics</string>
+    <string name="fame_c_creeepeeer_contrib">Author of Issue #30. Provided detailed diagnostic report on mobile LTE/5G network under Android 16 for SQI metrics and failover calibration.</string>
     <string name="terms_full_legal_text_ru">        ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ И ДОПОЛНИТЕЛЬНЫЕ УСЛОВИЯ ИСПОЛЬЗОВАНИЯ
 
         Проект: Mirrly TG Proxy
@@ -1335,6 +1342,10 @@ Download latest Mirrly TG Proxy build:
     <string name="wm_filter_all">All</string>
     <string name="wm_filter_official">Official</string>
     <string name="wm_filter_custom">Custom</string>
+    <string name="wm_dev_workers_removed_title">Developer workers removed</string>
+    <string name="wm_dev_workers_removed_reason">Reason: blocked by Cloudflare.</string>
+    <string name="wm_dev_workers_removed_desc">Please create your own worker to continue using SOCKS5.</string>
+    <string name="wm_dev_workers_removed_btn">Create custom worker</string>
     <string name="wm_search_placeholder">Search by name or domain...</string>
     <string name="wm_nodes_not_found">No nodes found</string>
     <string name="wm_list_empty">Worker list is empty</string>
@@ -1797,6 +1808,7 @@ Download latest Mirrly TG Proxy build:
     <string name="notif_channel_battery_guard_name">Mirrly Battery Guard</string>
     <string name="notif_channel_battery_guard_desc">Warnings about proxy auto-stop upon low battery level</string>
     <string name="notif_action_stop">Stop</string>
+    <string name="notif_action_copy_link">Copy link</string>
     <string name="notif_action_download_apk">Download APK</string>
     <string name="notif_action_whats_new">What\'s New</string>
     <string name="notif_action_extend_15m">+15 minutes</string>
@@ -1892,14 +1904,14 @@ Download latest Mirrly TG Proxy build:
     <string name="onboarding_lang_badge_selected">SELECTED</string>
     <string name="onboarding_lang_badge_active">ACTIVE</string>
     <string name="onboarding_step2_title">ARCHITECTURE &amp; PURPOSE</string>
-    <string name="onboarding_step2_relay_title">Local Transparent TCP Relay</string>
-    <string name="onboarding_step2_relay_desc">Mirrly TG Proxy tunnels Telegram traffic through encrypted MTProto Fake-TLS and SOCKS5 protocols with upstreams across Cloudflare Anycast infrastructure (Worker WSS / WARP MASQUE / VLESS) for direct censorship bypass without establishing a system-wide VPN interface.</string>
-    <string name="onboarding_feature_faketls_title">Fake-TLS &amp; SOCKS5 (RFC 1928)</string>
-    <string name="onboarding_feature_faketls_desc">Direct DPI censorship bypass</string>
+    <string name="onboarding_step2_relay_title">Local Network Gateway</string>
+    <string name="onboarding_step2_relay_desc">Mirrly TG Proxy routes Telegram traffic via encrypted MTProto and SOCKS5 protocols through Cloudflare servers for direct restriction bypass without a full device VPN.</string>
+    <string name="onboarding_feature_faketls_title">Fake-TLS &amp; SOCKS5</string>
+    <string name="onboarding_feature_faketls_desc">Protection from censorship and DPI blocks</string>
     <string name="onboarding_feature_warp_title">Cloudflare WARP &amp; MASQUE</string>
-    <string name="onboarding_feature_warp_desc">Low latency for calls and media</string>
+    <string name="onboarding_feature_warp_desc">Minimal latency for calls and media</string>
     <string name="onboarding_feature_rust_title">Zero Battery Overhead</string>
-    <string name="onboarding_feature_rust_desc">Energy-efficient native Rust relay</string>
+    <string name="onboarding_feature_rust_desc">Fast, power-efficient native Rust engine</string>
 
     <!-- Share App Strings -->
     <string name="share_app_text">Try Mirrly TG Proxy for Android — high-speed Telegram circumvention without system-wide VPN!\nDownload free on GitHub: https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy</string>
@@ -2118,6 +2130,8 @@ Download latest Mirrly TG Proxy build:
     <string name="vpn_protocol_vless_desc">Anycast CDN • TLS 1.3 traffic masquerade</string>
     <string name="vpn_protocol_masque_desc">IETF RFC 9484 CONNECT-UDP over HTTP/3 • QUIC</string>
     <string name="vpn_protocol_awg_desc">AmneziaWG with junk packet obfuscation • Anycast</string>
+    <string name="vpn_protocol_opera_desc">HTTP CONNECT tunneling with DoH via Opera VPN nodes</string>
+    <string name="vpn_protocol_proton_desc">WireGuard tunnel to free Proton VPN servers</string>
     <string name="vpn_protocol_dialog_title">Mirrly VPN Protocol</string>
     <string name="vpn_protocol_dialog_desc">Select protocol for system tunnel:</string>
     <string name="vpn_select_protocol_short">Select Protocol</string>
@@ -2130,4 +2144,24 @@ Download latest Mirrly TG Proxy build:
     <string name="cf_session_reset">Cloudflare session reset</string>
     <string name="cf_account_session_status">Session Status</string>
     <string name="error_open_browser">Failed to open browser</string>
+    <string name="settings_ech_title">Encrypted Client Hello (ECH)</string>
+    <string name="settings_ech_desc">Encrypts SNI with Cloudflare public key (outer SNI: cloudflare-ech.com). Hides the destination domain from DPI systems.</string>
+    <string name="settings_ech_experimental_hint">Experimental feature, may not be supported by all carriers</string>
+    <string name="settings_tls_padding_title">TLS Record Padding Randomization</string>
+    <string name="settings_tls_padding_desc">Randomized padding and splitting of TLS records to break distinctive MTProto handshake packet size signatures against DPI statistical correlation.</string>
+    <string name="settings_ws_randomization_title">WebSocket Path &amp; Header Randomization</string>
+    <string name="settings_ws_randomization_desc">Dynamic path alternation (/apiws/*) and realistic browser headers (User-Agent, Sec-CH-UA, Accept-Language) to disguise tunnel traffic.</string>
+
+    <!-- Info & Connect Footnotes -->
+    <string name="tg_connect_footnote_badge">NOTE</string>
+    <string name="tg_connect_footnote_title">Which protocol to choose?</string>
+    <string name="tg_connect_footnote_desc">• MTProto — optimized for fast chat messaging, groups, and reading channels with minimal latency.\n• SOCKS5 — universal network protocol required for voice/video calls and fast downloading of heavy media.</string>
+    <string name="nd_footnote_badge">NOTE</string>
+    <string name="nd_footnote_title">Key network metrics explained</string>
+    <string name="nd_footnote_desc">• SQI — overall network health index from 0 to 100%.\n• Ping (RTT) — server response latency in milliseconds (under 100ms is excellent).\n• Jitter — mobile network latency variation (under 25ms is ideal for stutter-free calls).\n• Bufferbloat — lag spikes caused by overloaded router queues during downloads.</string>
+    <string name="onboarding_footnote_badge">NOTE</string>
+    <string name="onboarding_footnote_title">How it works</string>
+    <string name="onboarding_footnote_desc">Mirrly operates as a local proxy exclusively for Telegram. It does not intercept traffic from other apps and preserves battery life unlike system-wide VPNs.</string>
+    <string name="info_footnote_badge">NOTE: GLOSSARY</string>
+    <string name="info_footnote_simple_label">Plain language</string>
 </resources>

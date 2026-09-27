@@ -172,4 +172,19 @@ class UpdateCheckerTest {
         assertEquals("34217926C9AD2ED4F6DAB282392289C20DDB7D7E1CC83300545861D085A597D5", UpdateChecker.extractSha256ForAsset(sampleReleaseBody, "app-x86_64-release.apk"))
         assertEquals("F0F71901F8712A709EA5926FF109544F7D28AAFB3ED794752B59163823B1D3AE", UpdateChecker.extractSha256ForAsset(sampleReleaseBody, "app-x86-release.apk"))
     }
+
+    @Test
+    fun testApkSha256ExcludesCertificateFingerprints() {
+        val sampleReleaseBody = """
+            Ключевые изменения.
+            * **app-universal-release.apk SHA-256**: `0A98197EC49E70F0C5844E449C89AB1193CB48245C62E991F6469BEDF68B729E`
+            * **SHA-256 подписи (Release)**: `97:73:5C:0A:20:70:7F:D4:E4:BD:93:A2:D8:48:CA:91:9A:C5:40:45:4A:62:16:E8:CC:7D:43:4F:1F:9F:0A:96`
+        """.trimIndent()
+
+        val hex64Matches = Regex("""(?i)\b[a-fA-F0-9]{64}\b""").findAll(sampleReleaseBody).map { it.value.trim().uppercase() }.distinct().toList()
+        assertEquals(1, hex64Matches.size)
+        assertEquals("0A98197EC49E70F0C5844E449C89AB1193CB48245C62E991F6469BEDF68B729E", hex64Matches[0])
+        assertFalse(hex64Matches.any { it.contains(":") })
+    }
 }
+

@@ -23,7 +23,7 @@ import com.mirrly.tgproxy.core.VpnSocketProtector
 import com.mirrly.tgproxy.core.WarpAccountManager
 import com.mirrly.tgproxy.core.WarpEndpointScanner
 import com.mirrly.tgproxy.service.vpn.TunHolder
-import com.mirrly.tgproxy.service.vpn.TunPacketEngine
+import org.json.JSONObject
 import com.mirrly.tgproxy.service.vpn.VpnFailureReason
 import com.mirrly.tgproxy.service.vpn.VpnInternalState
 import com.mirrly.tgproxy.service.vpn.VpnNetworkBroker
@@ -53,7 +53,6 @@ class MirrlyVpnService : VpnService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var tunHolder: TunHolder? = null
-    private var packetEngine: TunPacketEngine? = null
     private var networkBroker: VpnNetworkBroker? = null
     private var monitorJob: Job? = null
     private var startTimeMs: Long = 0L
@@ -73,11 +72,6 @@ class MirrlyVpnService : VpnService() {
 
         val isRunning: Boolean
             get() = _vpnStatus.value.isRunning
-
-        @Volatile
-        private var wasProxyRunningBeforeVpn = false
-        @Volatile
-        private var previousProxyModeBeforeVpn = com.mirrly.tgproxy.core.ProxyMode.MTPROTO.name
 
         fun prepare(context: Context): Intent? {
             return try {
@@ -183,80 +177,110 @@ class MirrlyVpnService : VpnService() {
                 val app = MirrlyApplication.instance
                 val config = app.config
 
-                wasProxyRunningBeforeVpn = app.proxyServer.isRunning
-                previousProxyModeBeforeVpn = config.proxyModeName
+                // 1. Передаем целевой режим VPN в нативное ядро
+                NativeProxy.setVpnUplinkMode(config.vpnUplinkMode)
+                AppLogger.i(TAG, "VPN: выбран режим аплинка: ${config.vpnUplinkMode.displayName}")
 
-                // Гарантируем наличие учетных данных SOCKS5
-                if (!config.hasSocks5Auth) {
-                    val (u, p) = com.mirrly.tgproxy.core.ProxyConfig.generateRandomSocks5Credentials()
-                    config.socks5Username = u
-                    config.socks5Password = p
-                    app.prefsManager.saveConfig(config)
-                }
-
-                // Проверка готовности профиля WARP (для режимов VPN на базе WARP)
-                if (config.isVpnAnyWarpUplink) {
-                    val hasInvalidWarpCredentials = config.warpToken.isBlank() ||
-                        config.warpToken == "mirrly-bootstrap-token" ||
-                        config.warpPrivateKey == WarpAccountManager.BOOTSTRAP_PROFILE.privateKeyBase64
-
-                    if (hasInvalidWarpCredentials) {
-                        AppLogger.i(TAG, "VPN: регистрация рабочего профиля Cloudflare WARP...")
-                        val regResult = WarpAccountManager.registerAndActivate(fallbackToBootstrap = false)
-                        regResult.onSuccess { profile ->
-                            app.prefsManager.saveWarpProfile(profile)
-                            config.applyWarpProfile(profile)
-                            app.prefsManager.saveConfig(config)
-                            AppLogger.i(TAG, "VPN: зарегистрирован WARP профиль: ${profile.getSummary()}")
-                        }.onFailure { err ->
-                            AppLogger.w(TAG, "VPN: сбой регистрации WARP: ${err.message}")
-                        }
+                // 2. Инициализация параметров конкретного протокола VPN
+                when (config.vpnUplinkMode) {
+                    com.mirrly.tgproxy.core.UplinkMode.PROTON -> {
+                        com.mirrly.tgproxy.core.ProtonManager.ensureProtonConfig(config)
+                        app.prefsManager.saveConfig(config)
+                        NativeProxy.setProtonConfig(
+                            serverIp = config.protonServerIp,
+                            serverPort = config.protonServerPort,
+                            peerPubKey = config.protonServerPublicKey,
+                            privateKey = config.protonPrivateKey,
+                            clientIp = config.protonClientIp,
+                            dnsIp = config.protonDnsIp,
+                            nodeName = config.protonNodeName
+                        )
+                        AppLogger.i(TAG, "VPN: настроен узел Proton VPN: ${config.protonNodeName} (${config.protonServerIp}:${config.protonServerPort})")
                     }
+                    com.mirrly.tgproxy.core.UplinkMode.OPERA -> {
+                        val operaEp = config.operaVpnEndpoint.ifBlank { "77.111.247.139:443" }
+                        NativeProxy.setOperaVpnEndpoint(operaEp)
+                        AppLogger.i(TAG, "VPN: настроен узел Opera VPN: $operaEp")
+                    }
+                    com.mirrly.tgproxy.core.UplinkMode.VLESS -> {
+                        NativeProxy.setVlessNetworkConfig(
+                            uuid = config.vlessUuid,
+                            path = config.vlessPath,
+                            domain = config.vlessDomain,
+                            serverAddress = config.vlessServerAddress,
+                            serverPort = config.vlessServerPort,
+                            tlsSni = config.vlessTlsSni,
+                            hostHeader = config.vlessHostHeader
+                        )
+                        AppLogger.i(TAG, "VPN: настроен узел VLESS Reality: ${config.vlessServerAddress}:${config.vlessServerPort}")
+                    }
+                    else -> {
+                        // WARP (AWG, MASQUE, WARP_CASCADE, HYBRID)
+                        val hasInvalidWarpCredentials = config.warpToken.isBlank() ||
+                            config.warpToken == "mirrly-bootstrap-token" ||
+                            config.warpPrivateKey == WarpAccountManager.BOOTSTRAP_PROFILE.privateKeyBase64
 
-                    // Анти-блокировка для РФ: гарантируем чистый, проверенный Anycast эндпоинт
-                    val currentEp = config.effectivePeerEndpoint
-                    val (_, port) = WarpEndpointScanner.parseEndpoint(currentEp)
-                    val isSuspect = port == 2408 || port <= 0
-                    val sticky = WarpEndpointScanner.getStickyProfile()
+                        if (hasInvalidWarpCredentials) {
+                            AppLogger.i(TAG, "VPN: регистрация рабочего профиля Cloudflare WARP...")
+                            val regResult = WarpAccountManager.registerAndActivate(fallbackToBootstrap = false)
+                            regResult.onSuccess { profile ->
+                                app.prefsManager.saveWarpProfile(profile)
+                                config.applyWarpProfile(profile)
+                                app.prefsManager.saveConfig(config)
+                                AppLogger.i(TAG, "VPN: зарегистрирован WARP профиль: ${profile.getSummary()}")
+                            }.onFailure { err ->
+                                AppLogger.w(TAG, "VPN: сбой регистрации WARP: ${err.message}")
+                            }
+                        }
 
-                    val cleanEp = if (sticky != null && sticky.isAlive && !sticky.endpoint.endsWith(":2408")) {
-                        sticky.endpoint
-                    } else if (isSuspect) {
-                        AppLogger.i(TAG, "VPN: порт $port подвержен блокировкам ТСПУ. Поиск чистого Anycast эндпоинта...")
-                        val best = WarpEndpointScanner.findBestEndpoint(useFragmentation = true, maxCandidatesToProbe = 12)
-                        best?.endpoint ?: "188.114.96.1:8095"
-                    } else {
-                        val probe = WarpEndpointScanner.probeEndpoint(currentEp, timeoutMs = 450, useFragmentation = true)
-                        if (!probe.isAlive) {
-                            AppLogger.i(TAG, "VPN: текущий узел $currentEp недоступен (DPI drop). Поиск резервного...")
+                        // Анти-блокировка для РФ: гарантируем чистый, проверенный Anycast эндпоинт
+                        val currentEp = config.effectivePeerEndpoint
+                        val (_, port) = WarpEndpointScanner.parseEndpoint(currentEp)
+                        val isSuspect = port == 2408 || port <= 0
+                        val sticky = WarpEndpointScanner.getStickyProfile()
+
+                        val cleanEp = if (sticky != null && sticky.isAlive && !sticky.endpoint.endsWith(":2408")) {
+                            sticky.endpoint
+                        } else if (isSuspect) {
+                            AppLogger.i(TAG, "VPN: порт $port подвержен блокировкам ТСПУ. Поиск чистого Anycast эндпоинта...")
                             val best = WarpEndpointScanner.findBestEndpoint(useFragmentation = true, maxCandidatesToProbe = 12)
                             best?.endpoint ?: "188.114.96.1:8095"
                         } else {
-                            currentEp
+                            val probe = WarpEndpointScanner.probeEndpoint(currentEp, timeoutMs = 450, useFragmentation = true)
+                            if (!probe.isAlive) {
+                                AppLogger.i(TAG, "VPN: текущий узел $currentEp недоступен (DPI drop). Поиск резервного...")
+                                val best = WarpEndpointScanner.findBestEndpoint(useFragmentation = true, maxCandidatesToProbe = 12)
+                                best?.endpoint ?: "188.114.96.1:8095"
+                            } else {
+                                currentEp
+                            }
                         }
+
+                        if (cleanEp != config.warpPeerEndpoint || isSuspect) {
+                            AppLogger.i(TAG, "VPN: применен рабочий Anycast эндпоинт $cleanEp")
+                            config.warpPeerEndpoint = cleanEp
+                            config.warpMasquePeerEndpoint = cleanEp
+                            config.warpMeasuredWgEndpoint = cleanEp
+                            app.prefsManager.saveConfig(config)
+                        }
+
+                        // Передаем настройки AmneziaWG
+                        val awgIni = config.getAmneziaWgConfig(cleanEndpoint = cleanEp)
+                        NativeProxy.setAwgConfig(awgIni)
+
+                        // Передаем настройки MASQUE
+                        NativeProxy.setWarpFullConfig(
+                            endpoint = config.effectiveMasquePeerEndpoint,
+                            sni = "engage.cloudflareclient.com",
+                            authToken = config.effectiveMasqueToken,
+                            clientIpv4 = config.effectiveMasqueClientIpv4,
+                            clientIpv6 = config.effectiveMasqueClientIpv6,
+                            p256PrivateKey = config.warpP256PrivateKey,
+                            clientCert = config.warpClientCert,
+                            peerPublicKey = config.effectiveMasquePeerPublicKey,
+                            uriTemplate = config.warpUriTemplate
+                        )
                     }
-
-                    if (cleanEp != config.warpPeerEndpoint || isSuspect) {
-                        AppLogger.i(TAG, "VPN: применен рабочий Anycast эндпоинт $cleanEp")
-                        config.warpPeerEndpoint = cleanEp
-                        config.warpMasquePeerEndpoint = cleanEp
-                        config.warpMeasuredWgEndpoint = cleanEp
-                        app.prefsManager.saveConfig(config)
-                        app.proxyServer.applyWarpEndpoint(cleanEp)
-                    }
-
-                    // Передаем настройки AmneziaWG
-                    val awgIni = config.getAmneziaWgConfig(cleanEndpoint = cleanEp)
-                    NativeProxy.setAwgConfig(awgIni)
-                }
-
-                // Гарантируем запуск локального SOCKS5-бэкенда с конфигурацией VPN (порт 10808)
-                val proxyReady = app.proxyServer.startForVpn(config, cacheDir)
-                if (!proxyReady) {
-                    AppLogger.e(TAG, "Не удалось поднять SOCKS5 сервер для VPN")
-                    updateState(VpnInternalState.FAILED, VpnFailureReason.ESTABLISH_FAILED)
-                    stopVpn()
-                    return@launch
                 }
 
                 // Регистрация защиты внешних сокетов (Task N04)
@@ -265,6 +289,7 @@ class MirrlyVpnService : VpnService() {
                     onProtectDatagram = { socket -> protect(socket) },
                     onProtectFd = { fd -> protect(fd) }
                 )
+                NativeProxy.setProtectCallback { fd -> protect(fd) }
 
                 if (vpnGeneration.get() != gen) {
                     AppLogger.w(TAG, "Старт VPN прерван новым поколением жизненного цикла")
@@ -290,21 +315,14 @@ class MirrlyVpnService : VpnService() {
                 tunResult.onSuccess { holder ->
                     tunHolder = holder
 
-                    // Инициализация и запуск пакетного userspace конвейера (Tasks N06, N07, N10, N11, N17)
-                    val engine = TunPacketEngine(
-                        tunHolder = holder,
-                        socks5Host = "127.0.0.1",
-                        socks5Port = config.socks5Port,
-                        socks5Username = config.socks5Username,
-                        socks5Password = config.socks5Password,
-                        networkGenerationProvider = { networkBroker?.currentNetworkGeneration?.get() ?: 1L },
-                        isUplinkAliveProvider = { networkBroker?.isConnected ?: true },
-                        vpnMtu = config.vpnMtu,
-                        vpnBlockQuic = config.vpnBlockQuic,
-                        vpnBlockIpv6Leaks = config.vpnBlockIpv6Leaks
-                    )
-                    packetEngine = engine
-                    engine.start()
+                    // Запуск нативного L3 VPN движка в mirrlyengine (Rust)
+                    val vpnCode = NativeProxy.startVpn(holder.fd, verbose = false)
+                    if (vpnCode != 0) {
+                        AppLogger.e(TAG, "Сбой старта нативного L3 VPN движка (code=$vpnCode)")
+                        updateState(VpnInternalState.FAILED, VpnFailureReason.ESTABLISH_FAILED)
+                        stopVpn()
+                        return@onSuccess
+                    }
 
                     // Инициализация сетевого брокера физических интерфейсов (Tasks N05, N16)
                     val broker = VpnNetworkBroker(
@@ -313,7 +331,7 @@ class MirrlyVpnService : VpnService() {
                         onNetworkMigrated = { net, nGen ->
                             AppLogger.i(TAG, "Миграция физической сети на $net (поколение: $nGen)")
                             try {
-                                app.proxyServer.handleNetworkChanged()
+                                NativeProxy.resetNetworkSockets()
                             } catch (e: Exception) {
                                 AppLogger.w(TAG, "Ошибка сброса сетевых сокетов при миграции: ${e.message}")
                             }
@@ -329,7 +347,7 @@ class MirrlyVpnService : VpnService() {
                     )
 
                     startMetricsMonitor()
-                    AppLogger.i(TAG, "VPN-служба успешно перешла в состояние RUNNING")
+                    AppLogger.i(TAG, "Нативная L3 VPN-служба успешно перешла в состояние RUNNING")
                 }.onFailure { err ->
                     AppLogger.e(TAG, "Не удалось поднять TUN: ${err.message}")
                     updateState(VpnInternalState.FAILED, VpnFailureReason.ESTABLISH_FAILED)
@@ -346,28 +364,28 @@ class MirrlyVpnService : VpnService() {
     private fun startMetricsMonitor() {
         monitorJob?.cancel()
         monitorJob = serviceScope.launch {
-            val app = MirrlyApplication.instance
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
 
             while (isActive && isRunning) {
                 delay(1000L)
-                val engine = packetEngine ?: break
-                val bytesIn = engine.totalBytesIn.get()
-                val bytesOut = engine.totalBytesOut.get()
-                val tcpFlows = engine.activeTcpFlowCount.get()
-                val udpSessions = engine.activeUdpSessionCount.get()
+                val vpnJsonStr = NativeProxy.getVpnStatusJson()
+                val json = try { if (vpnJsonStr != null) JSONObject(vpnJsonStr) else null } catch (_: Exception) { null }
+                val bytesIn = json?.optLong("bytes_down", 0L) ?: 0L
+                val bytesOut = json?.optLong("bytes_up", 0L) ?: 0L
+                val pktsIn = json?.optLong("packets_down", 0L) ?: 0L
+                val pktsOut = json?.optLong("packets_up", 0L) ?: 0L
                 val uptime = System.currentTimeMillis() - startTimeMs
 
                 val cur = _vpnStatus.value
                 _vpnStatus.value = cur.copy(
                     bytesIn = bytesIn,
                     bytesOut = bytesOut,
-                    activeTcpFlows = tcpFlows,
-                    activeUdpSessions = udpSessions,
+                    activeTcpFlows = pktsOut.toInt(),
+                    activeUdpSessions = pktsIn.toInt(),
                     uptimeMs = uptime
                 )
 
-                val notifText = "↓ ${formatBytes(bytesIn)} • ↑ ${formatBytes(bytesOut)} | Потоков: ${tcpFlows + udpSessions}"
+                val notifText = "↓ ${formatBytes(bytesIn)} • ↑ ${formatBytes(bytesOut)}"
                 val notif = buildVpnNotification(notifText)
                 try {
                     nm.notify(NotificationHelper.VPN_NOTIFICATION_ID, notif)
@@ -383,8 +401,8 @@ class MirrlyVpnService : VpnService() {
         monitorJob?.cancel()
         monitorJob = null
 
-        packetEngine?.stop()
-        packetEngine = null
+        NativeProxy.stopVpn()
+        NativeProxy.clearProtectCallback()
 
         networkBroker?.stop()
         networkBroker = null
@@ -400,20 +418,6 @@ class MirrlyVpnService : VpnService() {
 
         updateState(VpnInternalState.IDLE)
         stopForeground(STOP_FOREGROUND_REMOVE)
-
-        // Восстановление автономного прокси, если он был запущен до VPN
-        if (wasProxyRunningBeforeVpn) {
-            try {
-                val app = MirrlyApplication.instance
-                app.config.proxyModeName = previousProxyModeBeforeVpn
-                app.proxyServer.start(cacheDir)
-                AppLogger.i(TAG, "Автономный прокси ($previousProxyModeBeforeVpn) успешно восстановлен после остановки VPN")
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Ошибка восстановления автономного прокси: ${e.message}")
-            }
-        } else {
-            MirrlyApplication.instance.proxyServer.stop()
-        }
 
         stopSelf()
         AppLogger.i(TAG, "MirrlyVpnService успешно и идемпотентно остановлена")

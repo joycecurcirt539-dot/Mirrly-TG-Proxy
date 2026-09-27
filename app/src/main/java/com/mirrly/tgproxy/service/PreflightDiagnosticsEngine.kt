@@ -257,6 +257,13 @@ object PreflightDiagnosticsEngine {
                     rttMs = -1L
                 )
             }
+            UplinkMode.OPERA, UplinkMode.PROTON -> {
+                PreflightResult(
+                    isSuccess = true,
+                    selectedRouteSummary = uplinkMode.displayName,
+                    rttMs = -1L
+                )
+            }
         }
     }
 
@@ -274,7 +281,17 @@ object PreflightDiagnosticsEngine {
         val activeWorker = prefsManager.getActiveWorker(activeId)
         val isCustomActive = !activeWorker.isDeveloperWorker
 
+        val customWorkers = prefsManager.getCustomWorkers()
         if (isCustomActive) {
+            // Если у пользователя всего 1 личный воркер, исключаем любые задержки, замеры и гонки узлов
+            if (customWorkers.size <= 1) {
+                AppLogger.i(TAG, "Single custom worker active ('${activeWorker.name}'): immediate launch without candidate race")
+                return PreflightResult(
+                    isSuccess = true,
+                    selectedRouteSummary = "Worker: ${activeWorker.name}",
+                    rttMs = -1L
+                )
+            }
             // Пользовательский воркер имеет абсолютный приоритет!
             // Он НИКОГДА не заменяется на узлы разработчика (Primary, Alpha, Beta, Gamma, Delta).
             val (status, rtt) = try {
@@ -336,7 +353,7 @@ object PreflightDiagnosticsEngine {
                 best.first to (best.third ?: -1L)
             }
         } else {
-            (devWorkers.find { it.id == activeId } ?: devWorkers.first()) to -1L
+            (devWorkers.find { it.id == activeId } ?: devWorkers.firstOrNull() ?: activeWorker) to -1L
         }
 
         if (chosenWorker.id != activeId) {

@@ -26,7 +26,6 @@ import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
 import java.net.InetAddress
-import java.net.InetSocketAddress
 import java.net.Proxy
 import java.util.concurrent.TimeUnit
 
@@ -34,12 +33,11 @@ import java.util.concurrent.TimeUnit
  * High-resilience HTTP client for Cloudflare OAuth, Token exchange, and API operations.
  *
  * Features:
- * 1. Automatic SOCKS5 proxy tunneling through local Mirrly engine (:10808) when SOCKS5 mode is active.
- * 2. Secure DoH resolution (DohOkHttpDns) + TLS ClientHello fragmentation (TlsFragmentingSocketFactory)
- *    when SOCKS5 is inactive (MTProto mode or proxy off) to bypass ISP / TSPU SNI filtering.
- * 3. Direct connection fallback for non-censored networks.
- * 4. Dedicated zero-proxy client for loopback health checks and self-tests.
- * 5. Robust dual-stack loopback address validation (IPv4, IPv6, and IPv4-mapped IPv6).
+ * 1. Secure DoH resolution (DohOkHttpDns) + TLS ClientHello fragmentation (TlsFragmentingSocketFactory)
+ *    to bypass ISP / TSPU SNI filtering without requiring external proxying.
+ * 2. Direct connection fallback for non-censored networks.
+ * 3. Dedicated zero-proxy client for loopback health checks and self-tests.
+ * 4. Robust dual-stack loopback address validation (IPv4, IPv6, and IPv4-mapped IPv6).
  */
 object CloudflareNetworkClient {
 
@@ -55,19 +53,6 @@ object CloudflareNetworkClient {
             .connectTimeout(1500, TimeUnit.MILLISECONDS)
             .readTimeout(2500, TimeUnit.MILLISECONDS)
             .writeTimeout(2500, TimeUnit.MILLISECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
-    }
-
-    /**
-     * Client routed through the local SOCKS5 proxy gateway (127.0.0.1:10808).
-     */
-    private val socks5HttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", SOCKS5_DEFAULT_PORT)))
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(25, TimeUnit.SECONDS)
-            .writeTimeout(25, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
     }
@@ -117,42 +102,15 @@ object CloudflareNetworkClient {
     }
 
     /**
-     * Checks whether the local SOCKS5 proxy (127.0.0.1:port) is responding.
-     */
-    fun isLocalSocks5Active(host: String = "127.0.0.1", port: Int = SOCKS5_DEFAULT_PORT, timeoutMs: Int = 150): Boolean {
-        if (port <= 0) return false
-        return try {
-            java.net.Socket().use { socket ->
-                socket.connect(InetSocketAddress(host, port), timeoutMs)
-                true
-            }
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    /**
-     * Executes an HTTP request using an adaptive multi-tier fallback pipeline:
-     * Tier 1: Local SOCKS5 (:10808) if active.
-     * Tier 2: DoH + TLS ClientHello fragmentation (bypasses ISP blocks in MTProto / Off modes).
-     * Tier 3: Direct connection.
+     * Executes an HTTP request using an anti-censorship fallback pipeline:
+     * Tier 1: DoH + TLS ClientHello fragmentation (bypasses ISP/TSPU DPI blocks directly).
+     * Tier 2: Direct connection fallback.
      */
     @Throws(IOException::class)
     fun executeWithFallback(request: Request): Response {
         var lastException: IOException? = null
 
-        // 1. Check if SOCKS5 proxy is active on 127.0.0.1:10808
-        if (isLocalSocks5Active("127.0.0.1", SOCKS5_DEFAULT_PORT, timeoutMs = 150)) {
-            try {
-                AppLogger.d(TAG, "Executing Cloudflare request via local SOCKS5 proxy (:10808): ${request.url}")
-                return socks5HttpClient.newCall(request).execute()
-            } catch (e: IOException) {
-                AppLogger.w(TAG, "SOCKS5 request to Cloudflare failed (${e.message}), falling back to DoH+TLS fragmentation")
-                lastException = e
-            }
-        }
-
-        // 2. DoH + TLS fragmentation (Bypasses Russian ISP / TSPU blocks)
+        // 1. DoH + TLS fragmentation (Bypasses Russian ISP / TSPU blocks)
         try {
             AppLogger.d(TAG, "Executing Cloudflare request via DoH + TLS fragmentation: ${request.url}")
             return dohTlsHttpClient.newCall(request).execute()
@@ -161,7 +119,7 @@ object CloudflareNetworkClient {
             lastException = e
         }
 
-        // 3. Direct connection fallback
+        // 2. Direct connection fallback
         try {
             AppLogger.d(TAG, "Executing Cloudflare request via direct connection: ${request.url}")
             return directHttpClient.newCall(request).execute()

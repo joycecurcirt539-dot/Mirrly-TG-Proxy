@@ -16,7 +16,7 @@ heartbeat-test-utils = []
 tokio = { version = "1.40", features = ["full"] }
 tokio-util = "0.7"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "aws_lc_rs", "std", "tls12"] }
 rustls-pki-types = "1.10"
 webpki-roots = "0.26"
 ring = { version = "0.17", default-features = false, features = ["std"] }

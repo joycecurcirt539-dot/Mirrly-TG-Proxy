@@ -744,6 +744,53 @@ fun NetworkDiagnosticScreen(
                 }
             }
 
+            // ── FOOTNOTE / NOTE (СНОСКА: Пояснение ключевых параметров сети) ──
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .staggeredEntrance(index = 4)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = ActiveGreenLed.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.45f))
+                        ) {
+                            Text(
+                                text = stringResource(R.string.nd_footnote_badge),
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.sp,
+                                color = ActiveGreenLed,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.nd_footnote_title),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.nd_footnote_desc),
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.5.sp,
+                        color = TextWhite.copy(alpha = 0.78f)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(28.dp))
         }
 

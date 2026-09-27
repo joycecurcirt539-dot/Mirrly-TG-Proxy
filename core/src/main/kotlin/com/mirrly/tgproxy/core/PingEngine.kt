@@ -663,25 +663,43 @@ class PingEngine(
                     )
                 }
 
-                val raceResult = HappyEyeballsEngine.raceConnect(
-                    addresses = addrs,
-                    port = port,
-                    attemptDelayMs = 100L,
-                    timeoutMs = timeoutMs
-                )
+                var lastErr: Exception? = null
+                var successRtt = -1L
+                val connectTimeout = timeoutMs.coerceAtMost(2500L).toInt()
 
-                if (raceResult != null) {
+                for (addr in addrs) {
+                    try {
+                        val t0 = System.nanoTime()
+                        Socket().use { s ->
+                            s.tcpNoDelay = true
+                            s.connect(InetSocketAddress(addr, port), connectTimeout)
+                        }
+                        successRtt = ((System.nanoTime() - t0) / 1_000_000L).coerceAtLeast(1L)
+                        break
+                    } catch (e: Exception) {
+                        lastErr = e
+                    }
+                }
+
+                if (successRtt > 0) {
                     PingProbeResult(
-                        rawRttMs = raceResult.handshakeRttMs.coerceAtLeast(1L),
+                        rawRttMs = successRtt,
                         success = true,
                         failureType = FailureType.NONE
                     )
                 } else {
+                    val fType = if (lastErr is SocketTimeoutException) {
+                        FailureType.CONNECT_TIMEOUT
+                    } else if (lastErr != null) {
+                        DpiAnomalyDetector.classifyException(lastErr)
+                    } else {
+                        FailureType.HOST_UNREACHABLE
+                    }
                     PingProbeResult(
                         rawRttMs = -1L,
                         success = false,
-                        failureType = FailureType.CONNECT_TIMEOUT,
-                        errorDetail = "Таймаут подключения Happy Eyeballs"
+                        failureType = fType,
+                        errorDetail = lastErr?.message ?: "Таймаут подключения"
                     )
                 }
             } catch (e: Exception) {

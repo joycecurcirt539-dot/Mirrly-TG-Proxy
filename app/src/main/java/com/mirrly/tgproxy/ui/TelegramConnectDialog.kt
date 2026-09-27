@@ -127,7 +127,8 @@ fun TelegramConnectDialog(
                 )
 
                 // ─── CARD 1: MTProto Proxy (Recommended for chats) ───
-                val isMtActive = !app.config.isSocks5Mode
+                val isMtActive = app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO
+                val isSocks5Active = app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.SOCKS5
                 Surface(
                     shape = RoundedCornerShape(18.dp),
                     color = if (isMtActive) MtprotoAccent.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.04f),
@@ -189,7 +190,7 @@ fun TelegramConnectDialog(
                             Button(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (app.config.isSocks5Mode) {
+                                    if (app.config.proxyMode != com.mirrly.tgproxy.core.ProxyMode.MTPROTO) {
                                         app.config.proxyModeName = com.mirrly.tgproxy.core.ProxyMode.MTPROTO.name
                                         app.prefsManager.saveConfig(app.config)
                                         if (app.proxyServer.isRunning) {
@@ -228,7 +229,6 @@ fun TelegramConnectDialog(
                 }
 
                 // ─── CARD 2: SOCKS5 Proxy (For calls) ───
-                val isSocks5Active = app.config.isSocks5Mode
                 Surface(
                     shape = RoundedCornerShape(18.dp),
                     color = if (isSocks5Active) Socks5Accent.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.04f),
@@ -360,6 +360,51 @@ fun TelegramConnectDialog(
                                 Text(stringResource(R.string.action_copy), color = TextWhite, fontSize = 12.sp)
                             }
                         }
+                    }
+                }
+
+                // ─── CARD 3: Footnote / Note (Сноска / Примечание) ───
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = ActiveGreenLed.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.45f))
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.tg_connect_footnote_badge),
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.sp,
+                                    color = ActiveGreenLed,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                            Text(
+                                text = stringResource(R.string.tg_connect_footnote_title),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.tg_connect_footnote_desc),
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.5.sp,
+                            color = TextWhite.copy(alpha = 0.78f)
+                        )
                     }
                 }
             }

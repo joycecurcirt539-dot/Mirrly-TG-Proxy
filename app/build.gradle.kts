@@ -15,8 +15,8 @@ android {
         applicationId = "com.mirrly.tgproxy"
         minSdk = 26
         targetSdk = 35
-        versionCode = 28
-        versionName = "2.0.0.2"
+        versionCode = 29
+        versionName = "2.0.0.3"
 
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -94,7 +94,13 @@ android {
             signingConfig = if (isReleaseSigningConfigured) {
                 signingConfigs.getByName("release")
             } else {
-                logger.warn("WARNING: Release keystore is not configured. Falling back to debug signing for assembleRelease. This APK will NOT match official release signatures.")
+                val isReleaseBuildRequested = gradle.startParameter.taskNames.any {
+                    it.contains("Release", ignoreCase = true) || it.equals("assemble", ignoreCase = true)
+                }
+                if (isReleaseBuildRequested) {
+                    throw GradleException("FATAL: Release keystore is NOT configured! Release APKs MUST be signed with the official release keystore. Falling back to debug signing for releases is strictly forbidden.")
+                }
+                logger.warn("WARNING: Release keystore is not configured. Falling back to debug signing for non-release build task.")
                 signingConfigs.getByName("debug")
             }
             manifestPlaceholders["appLabel"] = "Mirrly TG Proxy"
@@ -169,6 +175,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("androidx.browser:browser:1.8.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("net.java.dev.jna:jna:5.14.0@aar")
 

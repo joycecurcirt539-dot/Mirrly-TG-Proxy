@@ -151,7 +151,7 @@ object DohBenchmarkEngine {
 
                 val bytes = response.body?.bytes() ?: byteArrayOf()
                 val contentType = response.header("Content-Type") ?: ""
-                val parsed = parseAndVerifyDnsResponse(bytes, contentType)
+                val parsed = parseAndVerifyDnsResponse(bytes, contentType, provider.isIranOnly)
                 val status = when {
                     !parsed.isDnsSuccess -> DohHealthStatus.BLOCKED
                     parsed.isPoisoned -> DohHealthStatus.POISONED
@@ -269,7 +269,11 @@ object DohBenchmarkEngine {
         val detail: String
     )
 
-    fun parseAndVerifyDnsResponse(bytes: ByteArray, contentType: String? = null): ParsedDnsResult {
+    fun parseAndVerifyDnsResponse(
+        bytes: ByteArray,
+        contentType: String? = null,
+        isIranProvider: Boolean = false
+    ): ParsedDnsResult {
         if (bytes.isEmpty()) {
             return ParsedDnsResult(false, false, emptyList(), "Empty server response")
         }
@@ -282,14 +286,14 @@ object DohBenchmarkEngine {
                 return ParsedDnsResult(false, false, emptyList(), "Error parsing DNS Wireformat")
             }
             val ips = wireRes.first.map { it.hostAddress }
-            return verifyTgSubnets(ips)
+            return verifyTgSubnets(ips, isIranProvider)
         }
 
         val jsonStr = String(bytes, Charsets.UTF_8).trim()
-        return parseAndVerifyDnsResponse(jsonStr)
+        return parseAndVerifyDnsResponse(jsonStr, isIranProvider)
     }
 
-    fun parseAndVerifyDnsResponse(jsonStr: String): ParsedDnsResult {
+    fun parseAndVerifyDnsResponse(jsonStr: String, isIranProvider: Boolean = false): ParsedDnsResult {
         if (jsonStr.isBlank()) {
             return ParsedDnsResult(false, false, emptyList(), "Empty server response")
         }
@@ -319,13 +323,13 @@ object DohBenchmarkEngine {
                 return ParsedDnsResult(false, false, emptyList(), "Missing A/AAAA records")
             }
 
-            verifyTgSubnets(ips)
+            verifyTgSubnets(ips, isIranProvider)
         } catch (e: Exception) {
             ParsedDnsResult(false, false, emptyList(), "JSON parse error: ${e.message}")
         }
     }
 
-    private fun verifyTgSubnets(ips: List<String>): ParsedDnsResult {
+    private fun verifyTgSubnets(ips: List<String>, isIranProvider: Boolean = false): ParsedDnsResult {
         // Anti-Poisoning & Subnet validation
         for (ip in ips) {
             if (isBogon(ip)) {
@@ -334,11 +338,11 @@ object DohBenchmarkEngine {
         }
 
         val hasValidTelegramIp = ips.any { isTelegramIp(it) }
-        if (!hasValidTelegramIp) {
+        if (!hasValidTelegramIp && !isIranProvider) {
             return ParsedDnsResult(true, true, ips, "IP ${ips.first()} does not belong to Telegram (AS44907)")
         }
 
-        return ParsedDnsResult(true, false, ips, "AS44907 validated")
+        return ParsedDnsResult(true, false, ips, if (hasValidTelegramIp) "AS44907 validated" else "Smart DNS validated")
     }
 
     fun isTelegramIp(ip: String): Boolean {

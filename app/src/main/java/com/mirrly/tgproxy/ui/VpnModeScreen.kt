@@ -697,6 +697,8 @@ fun VpnInfoWidget(
         com.mirrly.tgproxy.core.UplinkMode.VLESS -> "VLESS"
         com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "MASQUE"
         com.mirrly.tgproxy.core.UplinkMode.AWG -> "AWG"
+        com.mirrly.tgproxy.core.UplinkMode.OPERA -> "Opera"
+        com.mirrly.tgproxy.core.UplinkMode.PROTON -> "Proton"
         else -> vpnUplinkMode.displayName
     }
 
@@ -921,8 +923,10 @@ fun VpnProtocolSelectorDialog(
     val descVless = stringResource(R.string.vpn_protocol_vless_desc)
     val descMasque = stringResource(R.string.vpn_protocol_masque_desc)
     val descAwg = stringResource(R.string.vpn_protocol_awg_desc)
+    val descOpera = stringResource(R.string.vpn_protocol_opera_desc)
+    val descProton = stringResource(R.string.vpn_protocol_proton_desc)
 
-    val protocols = remember(descWarpCascade, descVless, descMasque, descAwg) {
+    val protocols = remember(descWarpCascade, descVless, descMasque, descAwg, descOpera, descProton) {
         listOf(
             Triple(
                 com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
@@ -930,9 +934,9 @@ fun VpnProtocolSelectorDialog(
                 descWarpCascade
             ),
             Triple(
-                com.mirrly.tgproxy.core.UplinkMode.VLESS,
-                "VLESS over WS",
-                descVless
+                com.mirrly.tgproxy.core.UplinkMode.AWG,
+                "WARP AWG",
+                descAwg
             ),
             Triple(
                 com.mirrly.tgproxy.core.UplinkMode.MASQUE,
@@ -940,9 +944,19 @@ fun VpnProtocolSelectorDialog(
                 descMasque
             ),
             Triple(
-                com.mirrly.tgproxy.core.UplinkMode.AWG,
-                "WARP AWG",
-                descAwg
+                com.mirrly.tgproxy.core.UplinkMode.OPERA,
+                "Opera VPN",
+                descOpera
+            ),
+            Triple(
+                com.mirrly.tgproxy.core.UplinkMode.PROTON,
+                "Proton VPN",
+                descProton
+            ),
+            Triple(
+                com.mirrly.tgproxy.core.UplinkMode.VLESS,
+                "VLESS Reality",
+                descVless
             )
         )
     }

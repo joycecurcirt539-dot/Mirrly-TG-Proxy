@@ -162,6 +162,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         testBannerState.value = intent.getStringExtra("test_banner")
+        handleOAuthReturn(intent)
         extractWorkerDeepLink(intent)?.let {
             onDeepLinkReceived?.invoke(it)
         }
@@ -174,6 +175,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         testBannerState.value = intent?.getStringExtra("test_banner")
+        handleOAuthReturn(intent)
 
         // Lock screen orientation to Portrait only
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -819,9 +821,11 @@ class MainActivity : ComponentActivity() {
                                 }
                         ) {
                             val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
+                            val proxyMode by app.prefsManager.proxyModeFlow.collectAsState(initial = app.config.proxyMode)
                             val systemVpnColors = remember { com.mirrly.tgproxy.ui.theme.VpnThemeManager.getSystemVpnPalette(applicationContext) }
                             CyberEnergyCanvas(
                                 state = globalProxyState,
+                                proxyMode = proxyMode,
                                 isSocks5 = isSocks5,
                                 isVpnMode = isVpnTabActive,
                                 vpnColors = systemVpnColors,
@@ -1325,6 +1329,20 @@ class MainActivity : ComponentActivity() {
             }
         }
         return null
+    }
+
+    private fun handleOAuthReturn(intent: Intent?) {
+        val data = intent?.data ?: return
+        val scheme = data.scheme?.lowercase() ?: ""
+        val host = data.host?.lowercase() ?: ""
+        val path = data.path?.lowercase() ?: ""
+
+        val isOAuth = (scheme == "mirrly" && (host == "oauth" || host == "cloudflare" || path.contains("oauth"))) ||
+                ((scheme == "https" || scheme == "http") && (host == "mirrly.app" || host == "www.mirrly.app" || host == "mirrly.me" || host == "www.mirrly.me") && path.startsWith("/oauth"))
+
+        if (isOAuth) {
+            com.mirrly.tgproxy.core.AppLogger.i("MainActivity", "Returned from Cloudflare OAuth flow ($data)")
+        }
     }
 
     private fun optimizeForHighRefreshRate() {

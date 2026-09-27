@@ -142,7 +142,13 @@ object PredictivePreWarmManager {
      */
     fun updateHotReserve(routes: HotReserveRoutes) {
         hotReserve.set(routes)
-        AppLogger.d(TAG, "Hot reserve updated: bestWorker=${routes.bestWorkerId}, bestDC=${routes.bestMtprotoDc}, bestWarp=${routes.bestWarpEndpoint}")
+        val details = when {
+            !routes.bestMtprotoDc.isNullOrBlank() -> "Flowseal SDN: ${routes.bestMtprotoDc}"
+            !routes.bestWorkerId.isNullOrBlank() -> "Worker: ${routes.bestWorkerId}"
+            !routes.bestWarpEndpoint.isNullOrBlank() -> "WARP: ${routes.bestWarpEndpoint}"
+            else -> "default"
+        }
+        AppLogger.d(TAG, "Hot reserve updated: $details")
     }
 
     /**

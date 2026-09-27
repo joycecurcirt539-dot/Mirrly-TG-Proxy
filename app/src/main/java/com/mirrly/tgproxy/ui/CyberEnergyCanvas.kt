@@ -23,6 +23,8 @@ import com.mirrly.tgproxy.ui.theme.ActiveGreenLed
 import com.mirrly.tgproxy.ui.theme.rememberAnimatedProtocolColors
 import com.mirrly.tgproxy.ui.theme.ProtocolColors
 import com.mirrly.tgproxy.ui.theme.VpnThemeManager
+import com.mirrly.tgproxy.ui.theme.WebLight
+import com.mirrly.tgproxy.ui.theme.WebAccent
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
@@ -79,7 +81,8 @@ private class CanvasMetrics(
 @Composable
 fun CyberEnergyCanvas(
     state: ProxyUiState,
-    isSocks5: Boolean = com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.isSocks5Flow.collectAsState().value,
+    proxyMode: com.mirrly.tgproxy.core.ProxyMode = com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.proxyModeFlow.collectAsState().value,
+    isSocks5: Boolean = proxyMode == com.mirrly.tgproxy.core.ProxyMode.SOCKS5,
     isVpnMode: Boolean = false,
     vpnColors: ProtocolColors? = null,
     externalTouchPoint: Offset? = null,
@@ -170,9 +173,12 @@ fun CyberEnergyCanvas(
         }
     }
 
-    // Dynamic Protocol Colors (MTProto = Emerald/Cyan, SOCKS5 = Violet/Purple, VPN = System Neon Palette)
+    // Dynamic Protocol Colors (MTProto = Emerald/Cyan, SOCKS5 = Violet/Purple, WEB = Electric Crimson, VPN = System Neon Palette)
     val vpnPalette = vpnColors ?: remember { VpnThemeManager.getSystemVpnPalette(context) }
-    val animatedProtoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+    val animatedProtoColors = rememberAnimatedProtocolColors(
+        proxyMode = proxyMode,
+        isSocks5 = isSocks5
+    )
     val protoColors = if (isVpnMode) vpnPalette else animatedProtoColors
 
     // Animated colors for glowing spheres across all 3 states:
@@ -586,6 +592,7 @@ fun CyberParticlesOverlay(
     val app = com.mirrly.tgproxy.MirrlyApplication.instance
     val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
+    val proxyMode by app.prefsManager.proxyModeFlow.collectAsState()
     val isConnected = app.proxyServer.isRunning
 
     var isAppResumed by remember { mutableStateOf(true) }
@@ -613,7 +620,10 @@ fun CyberParticlesOverlay(
         }
     }
 
-    val protoColors = rememberAnimatedProtocolColors(isSocks5 = isSocks5)
+    val protoColors = rememberAnimatedProtocolColors(
+        proxyMode = proxyMode,
+        isSocks5 = isSocks5
+    )
     val targetParticleColor = if (isConnected) protoColors.primary else Color(0xFFF1F5F9)
     val particleColor by animateColorAsState(
         targetValue = targetParticleColor,

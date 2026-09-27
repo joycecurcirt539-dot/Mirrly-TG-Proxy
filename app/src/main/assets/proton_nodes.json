@@ -1,0 +1,66 @@
+[
+  {
+    "name": "NL-FREE#1",
+    "country": "NL",
+    "city": "Amsterdam",
+    "ip": "91.229.23.180",
+    "port": 51820,
+    "public_key": "jbTC1lYeHxiz1LNSJHQMKDTq6sHgcWxkBwXvt7GWo1E="
+  },
+  {
+    "name": "NL-FREE#2",
+    "country": "NL",
+    "city": "Rotterdam",
+    "ip": "185.159.157.6",
+    "port": 51820,
+    "public_key": "x0G9j+1t8s+3uY7v5gH2cE1bN9qT4wL2zM6pF7kA8vQ="
+  },
+  {
+    "name": "NL-FREE#3",
+    "country": "NL",
+    "city": "Amsterdam",
+    "ip": "185.159.158.4",
+    "port": 51820,
+    "public_key": "8bL1vP9kM3qZ7bF2cE8gH5jN2wQ7zL4bF1cE9gH3kM4="
+  },
+  {
+    "name": "US-FREE#1",
+    "country": "US",
+    "city": "New York",
+    "ip": "194.26.29.114",
+    "port": 51820,
+    "public_key": "kM6pT5rV2xY8zA9bC5vP7K8jN+2wQ8zL4bF1cE9gH3k="
+  },
+  {
+    "name": "US-FREE#2",
+    "country": "US",
+    "city": "Los Angeles",
+    "ip": "156.146.54.4",
+    "port": 51820,
+    "public_key": "vP7K8jN2wQ8zL4bF1cE9gH3kM6pT5rV2xY8zA9bC5wA="
+  },
+  {
+    "name": "JP-FREE#1",
+    "country": "JP",
+    "city": "Tokyo",
+    "ip": "103.125.235.10",
+    "port": 51820,
+    "public_key": "Q7zL4bF1cE9gH3kM4x8L1vP9kM3qZ7bF2cE8gH5jN2w="
+  },
+  {
+    "name": "PL-FREE#1",
+    "country": "PL",
+    "city": "Warsaw",
+    "ip": "89.39.107.126",
+    "port": 51820,
+    "public_key": "Y8zA9bC5vP7K8jN+2wQ8zL4bF1cE9gH3kM6pT5rV2xQ="
+  },
+  {
+    "name": "RO-FREE#1",
+    "country": "RO",
+    "city": "Bucharest",
+    "ip": "185.183.104.140",
+    "port": 51820,
+    "public_key": "H3kM4x8L1vP9kM3qZ7bF2cE8gH5jN2wQ7zL4bF1cE9g="
+  }
+]

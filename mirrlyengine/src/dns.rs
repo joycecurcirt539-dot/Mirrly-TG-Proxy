@@ -180,6 +180,32 @@ static DOH_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
         .unwrap_or_default()
 });
 
+/// Resolves raw DNS query wireformat bytes over RFC 8484 DoH.
+pub async fn resolve_doh_wireformat(query_bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let endpoints = [
+        "https://1.1.1.1/dns-query",
+        "https://dns.google/dns-query",
+        "https://cloudflare-dns.com/dns-query",
+    ];
+    for ep in endpoints {
+        let resp = DOH_HTTP_CLIENT
+            .post(ep)
+            .header("content-type", "application/dns-message")
+            .body(query_bytes.to_vec())
+            .send()
+            .await;
+        if let Ok(r) = resp {
+            if r.status().is_success() {
+                if let Ok(bytes) = r.bytes().await {
+                    return Ok(bytes.to_vec());
+                }
+            }
+        }
+    }
+    Err("DoH wireformat resolution failed on all endpoints".to_string())
+}
+
+
 pub fn set_dns_policy(policy: i32) {
     DNS_POLICY.store(policy, Ordering::Relaxed);
     linfo!("DnsPolicy: updated global DNS policy to {}", policy);
@@ -388,6 +414,96 @@ async fn query_doh_single_scoped(
     if !res_a && !res_aaaa {
         let _ = tx_err.send(()).await;
     }
+}
+
+/// Query DoH for HTTPS resource records (type 65) to extract Encrypted Client Hello (ECH) configs.
+pub async fn query_doh_ech_config(domain: &str) -> Option<Vec<u8>> {
+    let endpoints = crate::recovery::order_resolver_endpoints({
+        let eps = DOH_ENDPOINTS.read().clone();
+        if eps.is_empty() {
+            vec![
+                "https://cloudflare-dns.com/dns-query".to_string(),
+                "https://1.1.1.1/dns-query".to_string(),
+                "https://9.9.9.9/dns-query".to_string(),
+            ]
+        } else {
+            eps
+        }
+    });
+
+    let client = DOH_HTTP_CLIENT.clone();
+    let query_domain = domain.trim().trim_end_matches('.');
+    if query_domain.is_empty() {
+        return None;
+    }
+
+    for ep in endpoints.iter().take(2) {
+        let url = format!("{}?name={}&type=HTTPS", ep, query_domain);
+        let resp = match tokio::time::timeout(
+            Duration::from_millis(1500),
+            client
+                .get(&url)
+                .header("Accept", "application/dns-json")
+                .send(),
+        )
+        .await
+        {
+            Ok(Ok(r)) => r,
+            _ => continue,
+        };
+
+        if !resp.status().is_success() {
+            continue;
+        }
+
+        let body = match resp.json::<DohResponse>().await {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+
+        if body.status != 0 {
+            continue;
+        }
+
+        for ans in body.answer {
+            if ans.type_ == 65 {
+                for part in ans.data.split_whitespace() {
+                    if let Some(b64) = part.strip_prefix("ech=") {
+                        use base64::Engine;
+                        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
+                            if !bytes.is_empty() {
+                                crate::linfo!(
+                                    "Discovered dynamic ECH config from DoH for {} ({} bytes)",
+                                    query_domain,
+                                    bytes.len()
+                                );
+                                return Some(bytes);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Dynamically refresh ECH keys from DoH for a domain, with fallback to cloudflare-ech.com.
+pub async fn refresh_ech_config_from_doh(domain: &str) -> bool {
+    let target = domain.trim();
+    if !target.is_empty() {
+        if let Some(bytes) = query_doh_ech_config(target).await {
+            crate::ws::set_ech_config_bytes(bytes);
+            return true;
+        }
+    }
+    // Universal Cloudflare ECH fallback lookup
+    if let Some(bytes) = query_doh_ech_config("cloudflare-ech.com").await {
+        crate::ws::set_ech_config_bytes(bytes);
+        return true;
+    }
+    false
 }
 
 async fn resolve_dual_stack_uncached(domain: &str, scope: DnsScope) -> Result<Vec<IpAddr>, DnsError> {

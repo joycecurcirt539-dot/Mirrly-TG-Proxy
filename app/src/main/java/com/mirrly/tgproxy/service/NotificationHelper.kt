@@ -52,6 +52,7 @@ object NotificationHelper {
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = context.getString(R.string.notif_channel_proxy_desc)
+                setShowBadge(false)
             }
             manager.createNotificationChannel(proxyChannel)
 
@@ -140,9 +141,19 @@ object NotificationHelper {
         speedText: String,
         statusIndicator: ProxyStatusIndicator = ProxyStatusIndicator.GREEN
     ): Notification {
-        val intent = Intent(context, MainActivity::class.java)
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
         val pendingIntent = PendingIntent.getActivity(
             context, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val copyIntent = Intent(context, ProxyForegroundService::class.java).apply {
+            action = ProxyForegroundService.ACTION_COPY_LINK
+        }
+        val copyPendingIntent = PendingIntent.getService(
+            context, 2, copyIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -162,8 +173,10 @@ object NotificationHelper {
             .setColor(statusIndicator.color)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
+        builder.addAction(R.drawable.ic_copy, context.getString(R.string.notif_action_copy_link), copyPendingIntent)
         builder.addAction(R.drawable.ic_notif_stop, context.getString(R.string.notif_action_stop), stopPendingIntent)
 
         return builder.build()

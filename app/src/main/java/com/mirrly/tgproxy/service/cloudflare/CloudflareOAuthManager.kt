@@ -21,6 +21,9 @@ package com.mirrly.tgproxy.service.cloudflare
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.PowerManager
+import androidx.browser.customtabs.CustomTabsIntent
+import com.mirrly.tgproxy.core.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -100,6 +103,69 @@ object CloudflareOAuthManager {
     private var activeServerSocket: ServerSocket? = null
     private var serverJob: Job? = null
 
+    // WakeLock to protect local loopback server & network exchange from Low Battery / Battery Saver freeze
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    @Synchronized
+    private fun acquireWakeLock(context: Context) {
+        try {
+            releaseWakeLock()
+            val pm = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Mirrly:CloudflareOAuthWakeLock")?.apply {
+                setReferenceCounted(false)
+                acquire(180_000L) // 3-minute safeguard while user interacts with browser
+            }
+            AppLogger.d("CloudflareOAuth", "WakeLock acquired for OAuth session (battery-saver safe)")
+        } catch (e: Exception) {
+            AppLogger.w("CloudflareOAuth", "WakeLock acquisition warning: ${e.message}")
+        }
+    }
+
+    @Synchronized
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                }
+            }
+        } catch (_: Exception) {}
+        wakeLock = null
+    }
+
+    /**
+     * Launches authorization URL preferring Chrome Custom Tabs (keeping app task in foreground,
+     * immune to battery saver killing), with fallback to standard external browser intent.
+     */
+    fun launchAuthInBrowser(context: Context, authUrl: String): Boolean {
+        // 1. Try Chrome Custom Tabs (seamless in-app sheet, prevents OS from killing background process)
+        try {
+            val customTabsIntent = CustomTabsIntent.Builder()
+                .setShowTitle(true)
+                .setUrlBarHidingEnabled(false)
+                .build()
+            customTabsIntent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            customTabsIntent.launchUrl(context, Uri.parse(authUrl))
+            AppLogger.i("CloudflareOAuth", "Launched OAuth via Custom Tabs")
+            return true
+        } catch (e: Exception) {
+            AppLogger.w("CloudflareOAuth", "Custom Tabs unavailable (${e.message}), falling back to default browser")
+        }
+
+        // 2. Fallback to standard external browser
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            AppLogger.i("CloudflareOAuth", "Launched OAuth via external browser")
+            true
+        } catch (e: Exception) {
+            AppLogger.e("CloudflareOAuth", "Failed to launch external browser: ${e.message}")
+            false
+        }
+    }
+
     // Active session parameters
     @Volatile private var activeCodeVerifier: String? = null
     @Volatile private var activeExpectedState: String? = null
@@ -131,11 +197,13 @@ object CloudflareOAuthManager {
 
     /**
      * Initiates the full authorization workflow:
-     * 1. Starts local loopback server with IPv4 + IPv6 dual-stack support on port 8976.
-     * 2. Runs loopback self-check ping (/health) to confirm port is listening.
-     * 3. Prepares PKCE parameters and opens browser to the local portal http://localhost:8976/.
+     * 1. Acquires power-management WakeLock to protect server against Doze and Battery Saver.
+     * 2. Starts local loopback server with IPv4 + IPv6 dual-stack support on port 8976.
+     * 3. Runs loopback self-check ping (/health) to confirm port is listening.
+     * 4. Prepares PKCE parameters and opens browser via Custom Tabs or external browser.
      */
     fun startAuthSession(context: Context) {
+        acquireWakeLock(context)
         authScope.launch {
             _authState.value = ServerAuthState.StartingServer
 
@@ -154,6 +222,7 @@ object CloudflareOAuthManager {
                         "Порт $CALLBACK_PORT занят другим приложением. Освободите порт или перезапустите устройство.",
                         isPortBusy = true
                     )
+                    releaseWakeLock()
                     return@launch
                 }
             }
@@ -174,6 +243,7 @@ object CloudflareOAuthManager {
                     "Локальный шлюз не ответил на проверку готовности (127.0.0.1:$CALLBACK_PORT)."
                 )
                 stopServerInternal()
+                releaseWakeLock()
                 return@launch
             }
 
@@ -186,27 +256,26 @@ object CloudflareOAuthManager {
             val portalUrl = "http://localhost:$CALLBACK_PORT/"
             _authState.value = ServerAuthState.ServerReady(portalUrl)
 
-            // Step 5: Launch browser directly to Cloudflare authorization page
-            try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
+            // Step 5: Launch browser (Custom Tabs with external fallback)
+            val launched = launchAuthInBrowser(context, authUrl)
+            if (launched) {
                 _authState.value = ServerAuthState.WaitingCallback(portalUrl, authUrl)
-            } catch (e: Exception) {
-                _authState.value = ServerAuthState.Error("Не удалось открыть браузер: ${e.message}")
+            } else {
+                _authState.value = ServerAuthState.Error("Не удалось открыть браузер для авторизации Cloudflare")
+                releaseWakeLock()
             }
         }
     }
 
     /**
      * Binds ServerSocket with SO_REUSEADDR and dual-stack loopback acceptance.
+     * Tries wildcard bind first (covers IPv4 127.0.0.1 and IPv6 ::1), falling back to explicit IPv4 127.0.0.1.
      */
     private fun startLocalServer(): Boolean {
-        return try {
+        // Attempt 1: Wildcard dual-stack bind
+        try {
             val server = ServerSocket().apply {
                 reuseAddress = true
-                // Binding to wildcard port 8976 supports both IPv4 (127.0.0.1) and IPv6 (::1) on Android
                 bind(InetSocketAddress(CALLBACK_PORT), 50)
                 soTimeout = 0 // Infinite accept timeout; controlled via coroutine cancellation
             }
@@ -219,17 +288,40 @@ object CloudflareOAuthManager {
                     } catch (_: Exception) {
                         break
                     }
+                    launch {
+                        handleClientConnection(client)
+                    }
+                }
+            }
+            return true
+        } catch (e: Exception) {
+            AppLogger.w("CloudflareOAuth", "Wildcard bind on port $CALLBACK_PORT failed (${e.message}), trying explicit IPv4 127.0.0.1")
+        }
 
-                    // Handle each incoming connection concurrently
+        // Attempt 2: Explicit IPv4 loopback bind
+        return try {
+            val server = ServerSocket().apply {
+                reuseAddress = true
+                bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), CALLBACK_PORT), 50)
+                soTimeout = 0
+            }
+            activeServerSocket = server
+
+            serverJob = authScope.launch {
+                while (isActive && !server.isClosed) {
+                    val client = try {
+                        server.accept()
+                    } catch (_: Exception) {
+                        break
+                    }
                     launch {
                         handleClientConnection(client)
                     }
                 }
             }
             true
-        } catch (e: BindException) {
-            false
         } catch (e: Exception) {
+            AppLogger.e("CloudflareOAuth", "Failed to bind 127.0.0.1:$CALLBACK_PORT: ${e.message}")
             false
         }
     }
@@ -239,7 +331,8 @@ object CloudflareOAuthManager {
      */
     private suspend fun handleClientConnection(client: Socket) = withContext(Dispatchers.IO) {
         try {
-            client.soTimeout = 8000
+            // Extended 30s timeout to allow TLS handshakes and token exchange over cellular networks
+            client.soTimeout = 30000
             val clientAddress = client.inetAddress
 
             // Security: Strictly allow loopback connections only (IPv4, IPv6, and IPv4-mapped IPv6)
@@ -854,6 +947,7 @@ object CloudflareOAuthManager {
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
             <meta name="theme-color" content="#000000">
+            <meta http-equiv="refresh" content="0; url=intent://oauth#Intent;scheme=mirrly;package=com.mirrly.tgproxy;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end">
             <title>Mirrly TG Proxy — Авторизация успешна</title>
             <style>
                 :root {
@@ -1088,32 +1182,45 @@ object CloudflareOAuthManager {
                     </div>
                 </div>
 
-                <button class="btn-return" onclick="returnToApp()">
-                    <span>Перейти обратно в Mirrly TG Proxy</span>
-                </button>
-                <div class="hint">Автоматический возврат через <span id="countdown">2</span> сек... Если приложение не открылось, нажмите кнопку выше.</div>
+                <a href="intent://oauth#Intent;scheme=mirrly;package=com.mirrly.tgproxy;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end" class="btn-return" id="returnBtn" onclick="returnToApp(event)">
+                    <span>Открыть Mirrly TG Proxy</span>
+                </a>
+                <div class="hint">Автоматический возврат в приложение... Если окно не переключилось, нажмите кнопку выше.</div>
             </div>
 
             <script>
-                function returnToApp() {
+                var INTENT_URI = 'intent://oauth#Intent;scheme=mirrly;package=com.mirrly.tgproxy;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end';
+                var SCHEME_URI = 'mirrly://oauth';
+                var WEB_URI = 'https://mirrly.app/oauth';
+
+                function returnToApp(event) {
                     try {
-                        window.location.href = 'mirrly://oauth';
-                    } catch (e) {}
+                        window.location.href = INTENT_URI;
+                    } catch (e1) {
+                        try {
+                            window.location.href = SCHEME_URI;
+                        } catch (e2) {
+                            window.location.href = WEB_URI;
+                        }
+                    }
                     setTimeout(function() {
-                        try { window.close(); } catch (e) {}
-                    }, 500);
+                        try { window.close(); } catch (_) {}
+                    }, 1000);
                 }
 
-                var secondsLeft = 2;
-                var timerElem = document.getElementById('countdown');
+                // Immediate execution
+                try {
+                    returnToApp();
+                } catch (_) {}
+
+                var secondsLeft = 1;
                 var timerInterval = setInterval(function() {
                     secondsLeft--;
-                    if (timerElem) timerElem.textContent = secondsLeft;
                     if (secondsLeft <= 0) {
                         clearInterval(timerInterval);
                         returnToApp();
                     }
-                }, 1000);
+                }, 800);
             </script>
         </body>
         </html>

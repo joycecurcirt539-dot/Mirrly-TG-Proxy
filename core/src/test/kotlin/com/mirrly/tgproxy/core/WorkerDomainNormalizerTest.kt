@@ -182,7 +182,7 @@ class WorkerDomainNormalizerTest {
     }
 
     @Test
-    fun test16_TelegramWebProxyLinkExtraction() {
+    fun test16_TelegramSocksLinkExtraction() {
         val tmeLink = "https://t.me/socks?server=tg-vpn.subdomain.workers.dev&port=443"
         val res = WorkerDomainNormalizer.normalize(tmeLink)
         assertEquals("tg-vpn.subdomain.workers.dev", res.cleanDomain)

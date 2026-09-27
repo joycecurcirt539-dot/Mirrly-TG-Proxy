@@ -160,11 +160,13 @@ impl WsPool {
 
     pub fn target_size(&self, slot: DcSlot) -> usize {
         let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
+        let is_dc2_chat = slot.dc == 2 && slot.is_media == 0;
+        let is_dc2_media = slot.dc == 2 && slot.is_media == 1;
         if is_mobile {
-            // Cellular profile: strictly demand-driven.
-            // If slot has not been demanded by actual client traffic, target is 0.
-            // If demanded, exactly 1 standby socket to keep resource footprint minimal.
-            if self.is_slot_demanded(slot) {
+            // Cellular profile:
+            // DC2 chat has baseline target 1 for 0 ms pre-warm before first Telegram request.
+            // DC2 media also gets 1 standby socket to eliminate cold dials when sending photos/voice/stickers.
+            if self.is_slot_demanded(slot) || is_dc2_chat || is_dc2_media {
                 1
             } else {
                 0
@@ -179,10 +181,11 @@ impl WsPool {
                 if useful >= 2 {
                     configured
                 } else {
-                    1
+                    configured.min(2).max(1)
                 }
-            } else if slot.dc == 2 && slot.is_media == 0 {
-                1
+            } else if is_dc2_chat {
+                // Baseline pre-warm for DC2 chat on Wi-Fi: 1–2 ready sockets (up to configured)
+                configured.min(2).max(1)
             } else {
                 0
             }
@@ -257,7 +260,24 @@ impl WsPool {
         gen: u64,
         cancel: CancellationToken,
     ) {
-        let cur_len = state.queue.lock().await.len();
+        let cur_len = {
+            let mut q = state.queue.lock().await;
+            let now = now_unix();
+            let mut active = std::collections::VecDeque::with_capacity(q.len());
+            while let Some(entry) = q.pop_front() {
+                if is_pool_entry_usable(&entry, now) {
+                    active.push_back(entry);
+                } else {
+                    let ws = entry.ws.clone();
+                    tokio::spawn(async move {
+                        let _ = ws.close().await;
+                    });
+                }
+            }
+            let count = active.len();
+            *q = active;
+            count
+        };
         let target_size = self.target_size(slot);
         let needed = target_size.saturating_sub(cur_len);
         if needed == 0 || self.generation.load(Ordering::SeqCst) != gen || cancel.is_cancelled() {
@@ -404,33 +424,13 @@ impl WsPool {
         }
     }
 
-    pub async fn warmup(self: &Arc<Self>, _dc_opt_map: &HashMap<i32, String>) {
-        if MOBILE_NETWORK.load(Ordering::Relaxed) {
-            crate::linfo!("WsPool: Cellular profile: cold start warmup skipped (demand-driven standby active)");
-            return;
-        }
-
-        let gen = self.generation.load(Ordering::SeqCst);
-        let cancel = self.cancel_refill.read().clone();
-
-        // On Wi-Fi: warm up at most 1 standby for DC2
-        let slot = DcSlot { dc: 2, is_media: 0 };
-        let state = self.get_slot(slot).await;
-        if state
-            .refilling
-            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-        {
-            let pool = self.clone();
-            tokio::spawn(async move {
-                pool.refill(slot, state, gen, cancel).await;
-            });
-        }
+    pub async fn warmup(self: &Arc<Self>, dc_opt_map: &HashMap<i32, String>) {
+        self.prewarm(dc_opt_map).await;
     }
 
-    /// Predictive non-destructive prewarm on screen/power event.
+    /// Predictive non-destructive prewarm on startup and screen/power event.
     /// Never alters generation of existing flows, never drops active bridges,
-    /// and only adds standby if there is free background dial budget.
+    /// and pre-warms 1–2 standby sockets for DC2 / demanded slots if dial budget allows.
     pub async fn prewarm(self: &Arc<Self>, _dc_opt_map: &HashMap<i32, String>) {
         if !crate::budget::DIAL_BUDGET
             .has_free_budget_for(crate::budget::FlowCategory::Background)
@@ -440,40 +440,54 @@ impl WsPool {
             return;
         }
 
-        let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
-
-        let candidate_slots: Vec<DcSlot> = if is_mobile {
+        let mut candidate_slots: Vec<DcSlot> = {
             let map = self.demand.read();
             map.iter()
                 .filter(|(_, d)| {
-                    d.last_requested.elapsed() < Duration::from_secs(600) && d.useful_rx_count > 0
+                    d.last_requested.elapsed() < Duration::from_secs(600)
                 })
                 .map(|(slot, _)| *slot)
                 .collect()
-        } else {
-            let mut slots = Vec::new();
-            {
-                let map = self.demand.read();
-                for (slot, d) in map.iter() {
-                    if d.last_requested.elapsed() < Duration::from_secs(600) {
-                        slots.push(*slot);
-                    }
-                }
-            }
-            if slots.is_empty() {
-                slots.push(DcSlot { dc: 2, is_media: 0 });
-            }
-            slots
         };
+
+        // Aggressive pre-warm: DC2 chat is the default MTProto gateway for Telegram ping / first connect,
+        // and DC2 media ensures instant photo/voice uploads without cold dials.
+        let default_dc2_chat = DcSlot { dc: 2, is_media: 0 };
+        let default_dc2_media = DcSlot { dc: 2, is_media: 1 };
+        if !candidate_slots.contains(&default_dc2_chat) {
+            candidate_slots.push(default_dc2_chat);
+        }
+        if !candidate_slots.contains(&default_dc2_media) {
+            candidate_slots.push(default_dc2_media);
+        }
 
         for slot in candidate_slots {
             let target = self.target_size(slot);
             if target == 0 {
                 continue;
             }
+
             let state = self.get_slot(slot).await;
-            let current_count = state.queue.lock().await.len();
-            if current_count >= target {
+            let usable_count = {
+                let mut q = state.queue.lock().await;
+                let now = now_unix();
+                let mut active = std::collections::VecDeque::with_capacity(q.len());
+                while let Some(entry) = q.pop_front() {
+                    if is_pool_entry_usable(&entry, now) {
+                        active.push_back(entry);
+                    } else {
+                        let ws = entry.ws.clone();
+                        tokio::spawn(async move {
+                            let _ = ws.close().await;
+                        });
+                    }
+                }
+                let count = active.len();
+                *q = active;
+                count
+            };
+
+            if usable_count >= target {
                 continue;
             }
 
@@ -896,7 +910,7 @@ async fn cfproxy_acquire_ws_race(
         tokio::sync::mpsc::channel::<(RawWebSocket, String)>(candidate_targets.len());
     let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
     let stagger_step = if is_mobile {
-        Duration::from_millis(400)
+        Duration::from_millis(100)
     } else {
         Duration::from_millis(25)
     };
@@ -1556,26 +1570,24 @@ mod tests {
         let slot_dc4_chat = DcSlot { dc: 4, is_media: 0 };
         let slot_dc2_media = DcSlot { dc: 2, is_media: 1 };
 
-        // 1. Mobile profile: no demand -> target size 0
+        // 1. Mobile profile: DC2 chat has baseline target 1 for 0 ms pre-warm, others are 0 without demand
         MOBILE_NETWORK.store(true, Ordering::Relaxed);
-        assert_eq!(pool.target_size(slot_dc2_chat), 0);
-        assert_eq!(pool.target_size(slot_dc4_chat), 0);
-
-        // 2. Client demands DC2 chat -> target size becomes 1 (standby)
-        pool.record_demand(2, false);
         assert_eq!(pool.target_size(slot_dc2_chat), 1);
-        // DC4 and DC2 media were not demanded -> still 0
         assert_eq!(pool.target_size(slot_dc4_chat), 0);
         assert_eq!(pool.target_size(slot_dc2_media), 0);
+
+        // 2. Client demands DC4 chat -> target size becomes 1 (standby)
+        pool.record_demand(4, false);
+        assert_eq!(pool.target_size(slot_dc4_chat), 1);
 
         // 3. Client demands DC2 media -> target size becomes 1
         pool.record_demand(2, true);
         assert_eq!(pool.target_size(slot_dc2_media), 1);
 
-        // 4. Wi-Fi profile: expands with useful RX
+        // 4. Wi-Fi profile: baseline 2 for DC2 chat (configured.min(2).max(1)), expands with useful RX
         MOBILE_NETWORK.store(false, Ordering::Relaxed);
         MTPROTO_STANDBY_PER_ACTIVE_SLOT_REQUESTED.store(4, Ordering::Relaxed);
-        assert_eq!(pool.target_size(slot_dc2_chat), 1); // Only 1 until sustained useful RX
+        assert_eq!(pool.target_size(slot_dc2_chat), 2); // Baseline 2 on Wi-Fi until sustained useful RX
 
         pool.record_useful_rx(2, false);
         pool.record_useful_rx(2, false);

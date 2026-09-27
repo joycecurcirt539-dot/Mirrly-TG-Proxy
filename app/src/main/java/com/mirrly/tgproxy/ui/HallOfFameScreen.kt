@@ -176,6 +176,14 @@ private val ContributorsList = listOf(
         githubUrl = "https://github.com/Flowseal"
     ),
     Contributor(
+        id = "master_key",
+        name = "Master Key",
+        handle = "Master Key",
+        roleRes = R.string.fame_c_masterkey_role,
+        contributionRes = R.string.fame_c_masterkey_contrib,
+        tier = ContributorTier.LEGENDARY_PIONEER
+    ),
+    Contributor(
         id = "grovymon",
         name = "Grovymon",
         handle = "@Grovymon",
@@ -295,7 +303,312 @@ private val ContributorsList = listOf(
         handle = "@Dimaakaj",
         roleRes = R.string.fame_c_dimaakaj_role,
         contributionRes = R.string.fame_c_dimaakaj_contrib,
-        tier = ContributorTier.BUG_HUNTER
+        tier = ContributorTier.BUG_HUNTER,
+    ),
+    Contributor(
+        id = "creeepeeer",
+        name = "creeepeeer",
+        handle = "@creeepeeer",
+        roleRes = R.string.fame_c_creeepeeer_role,
+        contributionRes = R.string.fame_c_creeepeeer_contrib,
+        tier = ContributorTier.BUG_HUNTER,
+        githubUrl = "https://github.com/creeepeeer"
+    ),
+    Contributor(
+        id = "rockhard_tolift",
+        name = "RockHard ToLift",
+        handle = "RockHard ToLift",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "roma_millionerov",
+        name = "Roma Millionerov",
+        handle = "Roma Millionerov",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "sickalex",
+        name = "sickalex",
+        handle = "sickalex",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "anton_1",
+        name = "Антон",
+        handle = "Антон",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "roartrex",
+        name = "RoarTRex",
+        handle = "RoarTRex",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "dimmon",
+        name = "Диммон",
+        handle = "Диммон",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "ahura",
+        name = "Ahura",
+        handle = "Ahura",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "rinat",
+        name = "Ринат",
+        handle = "Ринат",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "ali",
+        name = "Ali",
+        handle = "Ali",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "nail_torg",
+        name = "Наиль torg",
+        handle = "Наиль torg",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "aldos",
+        name = "ALDOS",
+        handle = "ALDOS",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "viper_inc",
+        name = "viper inc",
+        handle = "viper inc",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "petr",
+        name = "Пётр",
+        handle = "Пётр",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "fire",
+        name = "Fire",
+        handle = "Fire",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "capt_titus",
+        name = "Captain Demetrian Titus",
+        handle = "Captain Demetrian Titus",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "dtn",
+        name = "dtn",
+        handle = "dtn",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "lunchem_mellelertacges",
+        name = "Lunchem Mellelertacges",
+        handle = "Lunchem Mellelertacges",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "old",
+        name = "Old",
+        handle = "Old",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "mikhail",
+        name = "Mikhail",
+        handle = "Mikhail",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "redalexo",
+        name = "Redalexo",
+        handle = "Redalexo",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "oleg",
+        name = "Oleg",
+        handle = "Oleg",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "x_4",
+        name = "x 4",
+        handle = "x 4",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "konstantin",
+        name = "Константин",
+        handle = "Константин",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "alexander",
+        name = "Alexander",
+        handle = "Alexander",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "gipnozhaba",
+        name = "Гипножаба",
+        handle = "Гипножаба",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "dot_user",
+        name = ".",
+        handle = ".",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "aleksandr",
+        name = "Александр",
+        handle = "Александр",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "caesar013",
+        name = "caesar013",
+        handle = "caesar013",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "anton_sanych",
+        name = "Антон Саныч из @drszone",
+        handle = "Антон Саныч из @drszone",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "adem",
+        name = "Adem",
+        handle = "Adem",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "amir_hossein",
+        name = "Amir Hossein",
+        handle = "Amir Hossein",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "ayca_aysin_turan",
+        name = "Ayça Ayşin Turan",
+        handle = "Ayça Ayşin Turan",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "vosstavshiy",
+        name = "восставший из-под одеяла",
+        handle = "восставший из-под одеяла",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "anton_2",
+        name = "Антон",
+        handle = "Антон",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "usxru",
+        name = "@usxru",
+        handle = "@usxru",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "moli_asrali",
+        name = "๓๏|เ คราคli",
+        handle = "๓๏|เ คราคli",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "ochym3l1y",
+        name = "Ochym3l1y",
+        handle = "Ochym3l1y",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
     )
 )
 

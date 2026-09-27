@@ -18,16 +18,9 @@
 
 package com.mirrly.tgproxy.ui
 
-import android.graphics.RenderEffect
-import android.graphics.Shader
-import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -83,57 +76,39 @@ fun OnboardingScreen(
 ) {
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
-    var currentLang by remember { mutableStateOf(initialLanguage) }
+    var currentLang by remember(initialLanguage) { mutableStateOf(initialLanguage) }
     var currentStep by remember { mutableIntStateOf(0) } // 0: Язык, 1: О проекте, 2: Быстрый старт
     val totalSteps = 3
-
-    val density = LocalDensity.current.density
-    val langBlurAnim = remember { Animatable(0f) }
-    val langBlurVal = langBlurAnim.value
-
-    val textBlurModifier = if (langBlurVal > 0.005f) {
-        Modifier.graphicsLayer {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val blurPx = langBlurVal * 16f * density
-                if (blurPx > 0.5f) {
-                    renderEffect = RenderEffect.createBlurEffect(
-                        blurPx,
-                        blurPx,
-                        Shader.TileMode.CLAMP
-                    ).asComposeRenderEffect()
-                }
-            }
-            alpha = (1f - langBlurVal * 0.45f).coerceIn(0.55f, 1f)
-        }
-    } else {
-        Modifier
-    }
 
     // Анимационный контроллер плавного выхода на главный экран
     val exitProgress = remember { Animatable(0f) }
     var isExiting by remember { mutableStateOf(false) }
 
     fun executeExit() {
-        if (isExiting) return
+        if (isExiting) {
+            onComplete()
+            return
+        }
         isExiting = true
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         coroutineScope.launch {
-            exitProgress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing)
-            )
-            onComplete()
+            try {
+                exitProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                )
+            } finally {
+                onComplete()
+            }
         }
     }
 
     BackHandler {
-        if (!isExiting) {
-            if (currentStep > 0) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                currentStep -= 1
-            } else {
-                executeExit()
-            }
+        if (currentStep > 0) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            currentStep -= 1
+        } else {
+            executeExit()
         }
     }
 
@@ -147,17 +122,11 @@ fun OnboardingScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Transparent)
-            .pointerInput(Unit) {
-                // Consume after child controls have processed the event. Consuming on the
-                // Main pass prevented clickable cards and navigation buttons from receiving
-                // their taps on some devices (notably Android 14 / One UI).
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Final)
-                        event.changes.forEach { it.consume() }
-                    }
-                }
-            }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {}
+            )
             .graphicsLayer {
                 alpha = (1f - exitVal).coerceIn(0f, 1f)
                 scaleX = 1f + 0.04f * exitVal
@@ -171,8 +140,7 @@ fun OnboardingScreen(
                 .fillMaxSize()
                 .adaptiveContainerWidth(520.dp)
                 .align(Alignment.Center)
-                .padding(horizontal = 22.dp)
-                .then(textBlurModifier),
+                .padding(horizontal = 22.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             // ── 1. ВЕРХНИЙ БЛОК: Заголовок бренда и индикатор шагов ──
@@ -301,20 +269,10 @@ fun OnboardingScreen(
                                 StepLanguageSelection(
                                     currentLang = currentLang,
                                     onSelect = { selected ->
-                                        if (selected != currentLang && !isExiting && !langBlurAnim.isRunning) {
+                                        if (selected != currentLang) {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            coroutineScope.launch {
-                                                langBlurAnim.animateTo(
-                                                    targetValue = 1f,
-                                                    animationSpec = tween(durationMillis = 130, easing = FastOutLinearInEasing)
-                                                )
-                                                currentLang = selected
-                                                onLanguageSelected(selected)
-                                                langBlurAnim.animateTo(
-                                                    targetValue = 0f,
-                                                    animationSpec = tween(durationMillis = 180, easing = LinearOutSlowInEasing)
-                                                )
-                                            }
+                                            currentLang = selected
+                                            onLanguageSelected(selected)
                                         }
                                     }
                                 )
@@ -347,13 +305,11 @@ fun OnboardingScreen(
                         .height(52.dp)
                         .springPress(
                             onClick = {
-                                if (!isExiting) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    if (currentStep > 0) {
-                                        currentStep -= 1
-                                    } else {
-                                        executeExit()
-                                    }
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (currentStep > 0) {
+                                    currentStep -= 1
+                                } else {
+                                    executeExit()
                                 }
                             }
                         )
@@ -388,13 +344,11 @@ fun OnboardingScreen(
                         .lightSweep(isEnabled = true, shape = RoundedCornerShape(16.dp))
                         .springPress(
                             onClick = {
-                                if (!isExiting) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (currentStep < totalSteps - 1) {
-                                        currentStep += 1
-                                    } else {
-                                        executeExit()
-                                    }
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (currentStep < totalSteps - 1) {
+                                    currentStep += 1
+                                } else {
+                                    executeExit()
                                 }
                             }
                         )
@@ -681,6 +635,52 @@ private fun StepAboutProject() {
                     iconRes = R.drawable.ic_speed_turbo,
                     title = stringResource(R.string.onboarding_feature_rust_title),
                     detail = stringResource(R.string.onboarding_feature_rust_desc)
+                )
+            }
+        }
+
+        // Сноска / Примечание
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = ActiveGreenLed.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.45f))
+                    ) {
+                        Text(
+                            text = stringResource(R.string.onboarding_footnote_badge),
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 1.sp,
+                            color = ActiveGreenLed,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.onboarding_footnote_title),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.onboarding_footnote_desc),
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.5.sp,
+                    color = TextWhite.copy(alpha = 0.78f)
                 )
             }
         }

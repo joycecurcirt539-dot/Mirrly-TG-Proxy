@@ -50,15 +50,15 @@ import com.mirrly.tgproxy.core.LogLevel
 import com.mirrly.tgproxy.ui.theme.*
 
 // Static UI shapes and borders cached across compositions to eliminate scroll allocation churn
-private val LogCardShape = RoundedCornerShape(13.dp)
-private val LogTagShape = RoundedCornerShape(5.dp)
-private val FilterChipShape = RoundedCornerShape(11.dp)
-private val SearchFieldShape = RoundedCornerShape(14.dp)
+private val LogCardShape = RoundedCornerShape(10.dp)
+private val LogTagShape = RoundedCornerShape(4.dp)
+private val FilterChipShape = RoundedCornerShape(10.dp)
+private val SearchFieldShape = RoundedCornerShape(12.dp)
 
-private val InfoCardBorder = BorderStroke(0.75.dp, Color.White.copy(alpha = 0.08f))
-private val WarnCardBorder = BorderStroke(0.75.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
-private val ErrorCardBorder = BorderStroke(0.75.dp, Color(0xFFEF4444).copy(alpha = 0.45f))
-private val TagBadgeBorder = BorderStroke(0.75.dp, Color.White.copy(alpha = 0.10f))
+private val InfoCardBorder = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.07f))
+private val WarnCardBorder = BorderStroke(0.6.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
+private val ErrorCardBorder = BorderStroke(0.6.dp, Color(0xFFEF4444).copy(alpha = 0.45f))
+private val TagBadgeBorder = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.09f))
 
 private val WarnAccentColor = Color(0xFFF59E0B)
 private val ErrorAccentColor = Color(0xFFEF4444)
@@ -244,7 +244,7 @@ fun LogsScreen(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + headerHeightDp + 6.dp,
                     bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 itemsIndexed(
                     items = displayedLogs,
@@ -608,8 +608,8 @@ private fun GlassLogCard(
             .springPress(onClick = { onCopy(entry) })
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             // Header Row: Level Dot + Tag Badge & Monospace Time
             Row(
@@ -619,12 +619,12 @@ private fun GlassLogCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     // Level Indicator Dot
                     Box(
                         modifier = Modifier
-                            .size(6.dp)
+                            .size(4.5.dp)
                             .clip(CircleShape)
                             .background(levelColor)
                     )
@@ -637,10 +637,10 @@ private fun GlassLogCard(
                     ) {
                         Text(
                             text = entry.tag.ifBlank { "System" },
-                            fontSize = 10.sp,
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextMuted,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                         )
                     }
                 }
@@ -649,7 +649,7 @@ private fun GlassLogCard(
                 Text(
                     text = entry.formattedTime,
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.Medium,
                     color = TextMuted
                 )
@@ -659,9 +659,9 @@ private fun GlassLogCard(
             Text(
                 text = entry.humanMessage,
                 color = TextWhite,
-                fontSize = 13.5.sp,
+                fontSize = 12.5.sp,
                 fontWeight = FontWeight.Normal,
-                lineHeight = 18.5.sp
+                lineHeight = 16.5.sp
             )
         }
     }

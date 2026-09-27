@@ -54,7 +54,7 @@ fun OfficialSourceCard(
     val repoUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy"
 
     val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
-    val signatureStatus = remember(currentUpdateInfo) { SignatureVerifier.verify(context, currentUpdateInfo?.expectedSha256List) }
+    val signatureStatus = remember { SignatureVerifier.verify(context) }
     val isUnofficial = signatureStatus == SignatureStatus.UNOFFICIAL_MODIFIED
     val statusColor = if (isUnofficial) Color(0xFFFF9E00) else ActiveGreenLed
 

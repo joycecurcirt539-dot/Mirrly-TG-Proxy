@@ -87,7 +87,10 @@ object ProtocolSwitchManager {
     ): Boolean {
         val app = MirrlyApplication.instance
         val currentMode = app.config.proxyMode
-        val newTarget = requestedTarget ?: if (currentMode == ProxyMode.SOCKS5) ProxyMode.MTPROTO else ProxyMode.SOCKS5
+        val newTarget = requestedTarget ?: when (currentMode) {
+            ProxyMode.MTPROTO -> ProxyMode.SOCKS5
+            ProxyMode.SOCKS5 -> ProxyMode.MTPROTO
+        }
 
         if (newTarget == currentMode && _switchPhase.value == SwitchPhase.IDLE && !_isSwitching.value) {
             return false
@@ -128,6 +131,7 @@ object ProtocolSwitchManager {
                         com.mirrly.tgproxy.core.NativeProxy.setSocks5Auth(u, p)
                     }
                     app.config.proxyModeName = newTarget.name
+                    app.config.customCfDomain = app.prefsManager.getActiveWorker().domain
                     _targetMode.value = newTarget
                     withContext(Dispatchers.IO) {
                         app.prefsManager.saveConfig(app.config)
@@ -163,6 +167,7 @@ object ProtocolSwitchManager {
                 } else {
                     // ── SCENARIO B: PROXY WAS DISCONNECTED (Immediate Pill Slide & Accent Update) ──
                     app.config.proxyModeName = newTarget.name
+                    app.config.customCfDomain = app.prefsManager.getActiveWorker().domain
                     _targetMode.value = newTarget
                     withContext(Dispatchers.IO) {
                         app.prefsManager.saveConfig(app.config)

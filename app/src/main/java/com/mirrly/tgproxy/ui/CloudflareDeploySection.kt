@@ -101,6 +101,7 @@ fun CloudflareDeploySection(
     var cfWorkers by remember { mutableStateOf<List<CloudflareWorkerSummary>>(emptyList()) }
     var isLoadingWorkers by remember { mutableStateOf(false) }
     var isUpdatingWorkerId by remember { mutableStateOf<String?>(null) }
+    var updatingStepText by remember { mutableStateOf("") }
 
     fun refreshWorkersList() {
         val token = prefs.getCloudflareToken() ?: return
@@ -199,7 +200,7 @@ fun CloudflareDeploySection(
 
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         isDeploying = true
-        deployStepText = context.getString(R.string.cf_deploy_progress_uploading)
+        deployStepText = "1/3 Загрузка скрипта в Cloudflare..."
 
         scope.launch {
             val uploadRes = CloudflareApiClient.deployWorkerScript(token, currentAccountId, cleanName, scriptContent, prefs)
@@ -213,7 +214,7 @@ fun CloudflareDeploySection(
                 return@launch
             }
 
-            deployStepText = context.getString(R.string.cf_deploy_progress_routing)
+            deployStepText = "2/3 Привязка маршрутизации..."
             val subRes = CloudflareApiClient.enableWorkerSubdomain(token, currentAccountId, cleanName, prefs)
             if (subRes.isFailure) {
                 isDeploying = false
@@ -225,8 +226,10 @@ fun CloudflareDeploySection(
                 return@launch
             }
 
-            deployStepText = context.getString(R.string.cf_deploy_progress_saving)
             val fullDomain = "$cleanName.$currentSubdomain.workers.dev"
+            deployStepText = "3/3 Проверка доступности узла..."
+            val healthRes = CloudflareApiClient.verifyWorkerHealth(fullDomain, maxWaitSeconds = 8)
+
             prefs.addCustomWorker(
                 name = cleanName,
                 domain = fullDomain,
@@ -235,7 +238,11 @@ fun CloudflareDeploySection(
             )
 
             isDeploying = false
-            Toast.makeText(context, context.getString(R.string.cf_deploy_toast_deployed), Toast.LENGTH_SHORT).show()
+            if (healthRes.isSuccess) {
+                Toast.makeText(context, context.getString(R.string.cf_deploy_toast_deployed), Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Воркер создан! Идет глобальное распространение DNS (1-2 мин).", Toast.LENGTH_LONG).show()
+            }
             customWorkerName = CloudflareWorkerPayload.generateRandomWorkerName()
             refreshWorkersList()
             onWorkerDeployed()
@@ -248,19 +255,28 @@ fun CloudflareDeploySection(
         val scriptContent = CloudflareWorkerPayload.getWorkerScript(context)
 
         isUpdatingWorkerId = worker.id
+        updatingStepText = "1/2 Отправка..."
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 
         scope.launch {
             val res = CloudflareApiClient.deployWorkerScript(token, currentAccountId, worker.id, scriptContent, prefs)
-            isUpdatingWorkerId = null
-
             if (res.isSuccess) {
                 val fullDomain = worker.fullDomain ?: "${worker.id}.$subdomain.workers.dev"
+                updatingStepText = "2/2 Проверка..."
+                val healthRes = CloudflareApiClient.verifyWorkerHealth(fullDomain, maxWaitSeconds = 6)
                 prefs.updateCustomWorkerScriptVersion(fullDomain, CloudflareWorkerPayload.SCRIPT_VERSION)
-                Toast.makeText(context, context.getString(R.string.cf_deploy_toast_updated), Toast.LENGTH_SHORT).show()
+                isUpdatingWorkerId = null
+                updatingStepText = ""
+                if (healthRes.isSuccess) {
+                    Toast.makeText(context, context.getString(R.string.cf_deploy_toast_updated), Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Скрипт обновлен! Применение на Edge займет до 1 мин.", Toast.LENGTH_SHORT).show()
+                }
                 refreshWorkersList()
                 onWorkerDeployed()
             } else {
+                isUpdatingWorkerId = null
+                updatingStepText = ""
                 val err = res.exceptionOrNull()?.message ?: "Ошибка обновления"
                 if (CloudflareApiClient.isAuthError(res.exceptionOrNull())) {
                     isSessionExpired = true
@@ -483,13 +499,8 @@ fun CloudflareDeploySection(
                                         ) {
                                             Button(
                                                 onClick = {
-                                                    try {
-                                                        val targetUrl = if (serverState.authUrl.isNotBlank()) serverState.authUrl else serverState.portalUrl
-                                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)).apply {
-                                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                        }
-                                                        context.startActivity(intent)
-                                                    } catch (_: Exception) {}
+                                                    val targetUrl = if (serverState.authUrl.isNotBlank()) serverState.authUrl else serverState.portalUrl
+                                                    CloudflareOAuthManager.launchAuthInBrowser(context, targetUrl)
                                                 },
                                                 colors = ButtonDefaults.buttonColors(containerColor = CfOrange),
                                                 shape = RoundedCornerShape(8.dp),
@@ -1060,31 +1071,6 @@ fun CloudflareDeploySection(
                                                     fontWeight = FontWeight.SemiBold
                                                 )
                                             }
-                                        } else if (needsScriptUpdate) {
-                                            val isUpdatingThis = isUpdatingWorkerId == worker.id
-                                            Button(
-                                                onClick = { updateWorkerScript(worker) },
-                                                modifier = Modifier.height(28.dp),
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                                shape = RoundedCornerShape(7.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = CfOrange),
-                                                enabled = !isUpdatingThis
-                                            ) {
-                                                if (isUpdatingThis) {
-                                                    CircularProgressIndicator(
-                                                        color = Color.White,
-                                                        modifier = Modifier.size(12.dp),
-                                                        strokeWidth = 1.5.dp
-                                                    )
-                                                } else {
-                                                    Text(
-                                                        text = stringResource(R.string.cf_deploy_btn_update_script),
-                                                        color = Color.White,
-                                                        fontSize = 10.5.sp,
-                                                        fontWeight = FontWeight.SemiBold
-                                                    )
-                                                }
-                                            }
                                         } else {
                                             Surface(
                                                 shape = RoundedCornerShape(6.dp),
@@ -1097,6 +1083,49 @@ fun CloudflareDeploySection(
                                                     fontSize = 9.5.sp,
                                                     fontWeight = FontWeight.Medium,
                                                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+
+                                        // Always visible "Обновить скрипт" button for each worker
+                                        val isUpdatingThis = isUpdatingWorkerId == worker.id
+                                        Button(
+                                            onClick = { updateWorkerScript(worker) },
+                                            modifier = Modifier.height(28.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                            shape = RoundedCornerShape(7.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (needsScriptUpdate) CfOrange else Color.White.copy(alpha = 0.10f),
+                                                contentColor = Color.White
+                                            ),
+                                            border = BorderStroke(1.dp, if (needsScriptUpdate) CfOrange else Color.White.copy(alpha = 0.22f)),
+                                            enabled = !isUpdatingThis
+                                        ) {
+                                            if (isUpdatingThis) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    CircularProgressIndicator(
+                                                        color = Color.White,
+                                                        modifier = Modifier.size(11.dp),
+                                                        strokeWidth = 1.5.dp
+                                                    )
+                                                    if (updatingStepText.isNotEmpty()) {
+                                                        Text(
+                                                            text = updatingStepText,
+                                                            color = Color.White,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                    }
+                                                }
+                                            } else {
+                                                Text(
+                                                    text = stringResource(R.string.cf_deploy_btn_update_script),
+                                                    color = Color.White,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.SemiBold
                                                 )
                                             }
                                         }

@@ -16,7 +16,17 @@ object HumanLogTranslator {
         "registerContentObserver fail",
         "Invalid resource ID",
         "failed to get MQSService",
-        "skipped frames"
+        "skipped frames",
+        "Thermal status changed",
+        "notification updates",
+        "Hot reserve updated",
+        "debounce",
+        "power save mode active",
+        "WakeLock refreshed",
+        "DNS [scope=",
+        "DnsScope",
+        "successfully resolved",
+        "Dual-Stack, Provider:"
     )
 
     fun shouldIgnoreLogcatLine(tag: String, message: String): Boolean {
@@ -182,7 +192,7 @@ object HumanLogTranslator {
             msg.contains("Socket pool", ignoreCase = true) || msg.contains("pool size", ignoreCase = true) || msg.contains("пул", ignoreCase = true) -> {
                 val count = Regex("""(?:→|:|\bsize\b|\bпула\b|\bсокетов\b)?\s*(\d+)\b""", RegexOption.IGNORE_CASE).find(msg)?.groupValues?.get(1)
                     ?: Regex("""\b\d+\b""").find(msg)?.value
-                if (!count.isNullOrEmpty()) "Пул сокетов обновлен ($count параллельных потоков)" else "Пул сокетов готов к работе"
+                if (!count.isNullOrEmpty()) "Пул сокетов WsPool обновлен ($count предпрогретых сокетов)" else "Пул сокетов WsPool готов к работе"
             }
 
             // SOCKS5 & MTProto Cloudflare Worker & CDN Tunneling
@@ -228,18 +238,23 @@ object HumanLogTranslator {
                 if (target.isNotEmpty()) "SOCKS5: Запрос соединения с $target" else "SOCKS5: Запрос нового TCP-подключения"
             }
 
-            // Cloudflare Tunnel
-            msg.contains("Cloudflare", ignoreCase = true) -> {
-                val isError = msg.contains("fail", ignoreCase = true) ||
-                        msg.contains("ошибка", ignoreCase = true) ||
-                        msg.contains("не удалось", ignoreCase = true) ||
-                        msg.contains("error", ignoreCase = true)
-                if (isError) {
-                    val cause = msg.substringAfter(":", "").trim()
-                    if (cause.isNotEmpty()) "Ошибка настройки Cloudflare: $cause" else "Ошибка настройки Cloudflare"
-                } else {
-                    "Защищенный туннель Cloudflare активирован"
-                }
+            // Cloudflare Tunnel & Settings
+            msg.contains("кэш-директорию Cloudflare", ignoreCase = true) ||
+            (msg.contains("Cloudflare", ignoreCase = true) && (msg.contains("fail", ignoreCase = true) ||
+                    msg.contains("ошибка", ignoreCase = true) ||
+                    msg.contains("не удалось", ignoreCase = true) ||
+                    msg.contains("error", ignoreCase = true))) -> {
+                val cause = msg.substringAfter(":", "").trim()
+                if (cause.isNotEmpty()) "Ошибка настройки Cloudflare: $cause" else "Ошибка настройки Cloudflare"
+            }
+            msg.contains("Cloudflare tunnel active", ignoreCase = true) ||
+            msg.contains("Cloudflare WARP tunnel", ignoreCase = true) ||
+            msg.contains("Cloudflare WSS tunnel active", ignoreCase = true) -> {
+                "Защищенный туннель Cloudflare активирован"
+            }
+            msg.contains("Flowseal Anycast", ignoreCase = true) -> {
+                val ep = msg.substringAfter("Flowseal Anycast:", "").trim()
+                if (ep.isNotEmpty()) "Туннель Flowseal SDN Anycast: $ep" else "Туннель Flowseal SDN Anycast активирован"
             }
 
             // Updates & Downloads (Check errors first!)

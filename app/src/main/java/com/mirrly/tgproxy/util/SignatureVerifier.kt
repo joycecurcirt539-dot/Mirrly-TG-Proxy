@@ -40,25 +40,16 @@ object SignatureVerifier {
     @Volatile
     private var cachedStatus: SignatureStatus? = null
 
-    fun verify(context: Context, expectedRemoteHash: String? = null): SignatureStatus {
-        return verify(context, if (expectedRemoteHash.isNullOrBlank()) emptyList() else listOf(expectedRemoteHash))
-    }
-
-    fun verify(context: Context, expectedRemoteHashes: List<String>?): SignatureStatus {
-        if (expectedRemoteHashes.isNullOrEmpty()) {
-            // Return cache only for positive statuses — UNOFFICIAL_MODIFIED obtained without
-            // remote hashes may have been a false-negative (no network yet), so don't cache it.
-            val cached = cachedStatus
-            if (cached == SignatureStatus.OFFICIAL_RELEASE || cached == SignatureStatus.DEBUG_BUILD) {
-                return cached
-            }
+    fun verify(context: Context): SignatureStatus {
+        val cached = cachedStatus
+        if (cached != null) {
+            return cached
         }
 
         val status = if (isNativeLoaded) {
             try {
                 val currentSha256 = getSignatureSha256(context)
-                val array = expectedRemoteHashes?.toTypedArray()
-                val code = verifyNative(context, currentSha256, array)
+                val code = verifyNative(context, currentSha256, null)
                 val nativeStatus = when (code) {
                     0 -> SignatureStatus.OFFICIAL_RELEASE
                     1 -> SignatureStatus.DEBUG_BUILD
@@ -70,7 +61,7 @@ object SignatureVerifier {
                 // Kotlin fallback compares against the hardcoded official key and is reliable.
                 if (nativeStatus == SignatureStatus.UNOFFICIAL_MODIFIED) {
                     AppLogger.w(TAG, "Native returned UNOFFICIAL_MODIFIED (native SHA may differ from Kotlin SHA on this device/API), running Kotlin fallback")
-                    val kotlinStatus = verifyKotlinFallback(context, expectedRemoteHashes)
+                    val kotlinStatus = verifyKotlinFallback(context)
                     if (kotlinStatus == SignatureStatus.OFFICIAL_RELEASE || kotlinStatus == SignatureStatus.DEBUG_BUILD) {
                         AppLogger.i(TAG, "Kotlin fallback overrides native UNOFFICIAL result → $kotlinStatus")
                         kotlinStatus
@@ -82,17 +73,23 @@ object SignatureVerifier {
                 }
             } catch (e: Throwable) {
                 AppLogger.w(TAG, "Native verify call failed: ${e.message}, falling back to Kotlin verification")
-                verifyKotlinFallback(context, expectedRemoteHashes)
+                verifyKotlinFallback(context)
             }
         } else {
-            verifyKotlinFallback(context, expectedRemoteHashes)
+            verifyKotlinFallback(context)
         }
 
         cachedStatus = status
         return status
     }
 
-    private fun verifyKotlinFallback(context: Context, expectedRemoteHashes: List<String>?): SignatureStatus {
+    @Suppress("UNUSED_PARAMETER")
+    fun verify(context: Context, expectedRemoteHash: String?): SignatureStatus = verify(context)
+
+    @Suppress("UNUSED_PARAMETER")
+    fun verify(context: Context, expectedRemoteHashes: List<String>?): SignatureStatus = verify(context)
+
+    private fun verifyKotlinFallback(context: Context): SignatureStatus {
         val status = try {
             val signatures = getAppSignatures(context)
             if (signatures.isEmpty()) {
@@ -105,18 +102,10 @@ object SignatureVerifier {
 
                 val isDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
-                val cleanExpectedList = expectedRemoteHashes?.mapNotNull { h ->
-                    h.replace(":", "").uppercase().takeIf { it.isNotBlank() }
-                } ?: emptyList()
-
-                val isRemoteMatch = cleanExpectedList.any { clean ->
-                    currentSha256Clean == clean
-                }
-
                 val isKnownOfficialKey = currentSha256WithColons.equals(OFFICIAL_RELEASE_SHA256, ignoreCase = true) ||
                         OFFICIAL_RELEASE_SHA256.replace(":", "").equals(currentSha256Clean, ignoreCase = true)
 
-                if (isRemoteMatch || isKnownOfficialKey) {
+                if (isKnownOfficialKey) {
                     SignatureStatus.OFFICIAL_RELEASE
                 } else if (isDebug) {
                     SignatureStatus.DEBUG_BUILD
@@ -134,7 +123,9 @@ object SignatureVerifier {
     /**
      * Verifies the cryptographic signing certificate of a downloaded APK file BEFORE installation.
      * Guarantees that only authentic APKs signed with the official release key can be installed.
+     * Remote checksums/metadata must NEVER participate in signing certificate verification.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun verifyApkFile(context: Context, apkFile: File, expectedRemoteHashes: List<String>? = null): SignatureStatus {
         return try {
             val signatures = getApkFileSignatures(context, apkFile)
@@ -150,14 +141,6 @@ object SignatureVerifier {
             val cleanOfficial = OFFICIAL_RELEASE_SHA256.replace(":", "").uppercase()
             val isKnownOfficialKey = apkSha256Clean == cleanOfficial
 
-            val cleanExpectedList = expectedRemoteHashes?.mapNotNull { h ->
-                h.replace(":", "").uppercase().takeIf { it.isNotBlank() }
-            } ?: emptyList()
-
-            val isRemoteMatch = cleanExpectedList.any { clean ->
-                apkSha256Clean == clean
-            }
-
             val isCurrentDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
             // If running in debug mode, only accept debug certificate if it matches the current running app's debug certificate
@@ -170,7 +153,7 @@ object SignatureVerifier {
             } else false
 
             when {
-                isKnownOfficialKey || isRemoteMatch -> SignatureStatus.OFFICIAL_RELEASE
+                isKnownOfficialKey -> SignatureStatus.OFFICIAL_RELEASE
                 isMatchingDebugSignature -> SignatureStatus.DEBUG_BUILD
                 else -> SignatureStatus.UNOFFICIAL_MODIFIED
             }

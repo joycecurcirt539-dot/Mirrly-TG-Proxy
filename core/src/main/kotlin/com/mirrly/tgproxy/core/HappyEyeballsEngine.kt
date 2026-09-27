@@ -475,7 +475,7 @@ object HappyEyeballsEngine {
                             recordStageSuccess(curGen, hostname, candIp, fam, targetStage, outcome.handshakeRttMs)
                             if (applied && lastLoggedWinningIp != candIp) {
                                 lastLoggedWinningIp = candIp
-                                AppLogger.i(
+                                AppLogger.d(
                                     TAG,
                                     "Happy Eyeballs v2 выбрал оптимальный IP $candIp ($fam, stage=$targetStage, RTT: ${outcome.handshakeRttMs}мс, попытка #$index из $total)"
                                 )

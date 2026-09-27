@@ -6,27 +6,27 @@
 <resources>
     <!-- App Metadata -->
     <string name="app_name">Mirrly TG Proxy</string>
-    <string name="app_slogan">Безопасный нативный релей для Telegram</string>
+    <string name="app_slogan">Безопасный локальный прокси для Telegram</string>
 
     <!-- Onboarding Screen -->
     <string name="onboarding_brand_title">MIRRLY TG PROXY</string>
-    <string name="onboarding_brand_subtitle">SECURE NATIVE RELAY FOR TELEGRAM</string>
+    <string name="onboarding_brand_subtitle">SECURE PROXY GATEWAY FOR TELEGRAM</string>
     <string name="onboarding_step_language_title">ВЫБЕРИТЕ ЯЗЫК ИНТЕРФЕЙСА</string>
     <string name="onboarding_step_language_desc">Язык интерфейса можно изменить в любой момент в настройках приложения.</string>
     <string name="onboarding_lang_system">Системный</string>
     <string name="onboarding_lang_system_desc">Автоматический выбор на основе настроек ОС</string>
-    <string name="onboarding_lang_ru">Русский</string>
+    <string name="onboarding_lang_ru">Русский (Russian)</string>
     <string name="onboarding_lang_ru_desc">Русский язык интерфейса</string>
     <string name="onboarding_lang_en">English</string>
     <string name="onboarding_lang_en_desc">English interface language</string>
-    <string name="onboarding_lang_fa">فارسی</string>
+    <string name="onboarding_lang_fa">فارسی (Persian)</string>
     <string name="onboarding_lang_fa_desc">زبان فارسی (Persian)</string>
 
     <string name="onboarding_step_about_title">О ПРОЕКТЕ MIRRLY TG PROXY</string>
     <string name="onboarding_step_about_desc">Высокоскоростной прокси-клиент нового поколения для обхода блокировок и ускорения Telegram.</string>
-    <string name="onboarding_feature_mtproto">MTProto релей с динамическим обфусцированием трафика</string>
-    <string name="onboarding_feature_socks5">SOCKS5 TCP-релей с оптимизацией для голосовых вызовов и медиа</string>
-    <string name="onboarding_feature_cf_workers">WSS-туннелирование через Cloudflare Workers и собственные домены</string>
+    <string name="onboarding_feature_mtproto">MTProto прокси с надежной защитой и маскировкой трафика</string>
+    <string name="onboarding_feature_socks5">SOCKS5 прокси с оптимизацией для звонков, видео и медиафайлов</string>
+    <string name="onboarding_feature_cf_workers">Защищенный туннель через серверы Cloudflare и собственные домены</string>
     <string name="onboarding_feature_amoled">Минималистичный глубокий AMOLED-интерфейс без рекламы и трекеров</string>
 
     <string name="onboarding_step_guide_title">БЫСТРЫЙ СТАРТ</string>
@@ -34,7 +34,7 @@
     <string name="onboarding_guide_1_title">Выберите рабочий протокол</string>
     <string name="onboarding_guide_1_desc">MTProto для быстрой текстовой переписки или SOCKS5 для стабильных звонков и загрузки медиа.</string>
     <string name="onboarding_guide_2_title">Запустите службу прокси</string>
-    <string name="onboarding_guide_2_desc">Нажмите центральную кнопку питания на главном экране для старта локального релея.</string>
+    <string name="onboarding_guide_2_desc">Нажмите центральную кнопку питания на главном экране для запуска локального прокси.</string>
     <string name="onboarding_guide_3_title">Подключите Telegram</string>
     <string name="onboarding_guide_3_desc">Нажмите кнопку «Подключить Telegram», чтобы параметры прокси автоматически применились в клиенте.</string>
 
@@ -46,9 +46,9 @@
     <string name="settings_section_language">Язык интерфейса</string>
     <string name="settings_section_language_desc">Выбор предпочтительного языка приложения</string>
     <string name="settings_language_system">Авто (Системный)</string>
-    <string name="settings_language_ru">Русский</string>
+    <string name="settings_language_ru">Русский (Russian)</string>
     <string name="settings_language_en">English</string>
-    <string name="settings_language_fa">فارسی</string>
+    <string name="settings_language_fa">فارسی (Persian)</string>
     <string name="settings_onboarding_replay">Обучение при первом запуске</string>
     <string name="settings_onboarding_replay_desc">Повторно просмотреть вводный экран и краткое руководство</string>
 
@@ -245,14 +245,14 @@
     <string name="uplink_trust_boundary">Граница доверия</string>
     <string name="uplink_trust_private">Соблюдена (Приватный узел)</string>
     <string name="uplink_trust_default">Соблюдена (Штатный оператор)</string>
-    <string name="uplink_trust_third_party">Изменена (Сторонний публичный релей)</string>
+    <string name="uplink_trust_third_party">Изменена (Сторонний публичный сервер)</string>
     <string name="uplink_engine_status">Статус движка</string>
     <string name="uplink_engine_running">Туннель запущен</string>
     <string name="uplink_engine_stopped">Остановлен</string>
-    <string name="uplink_settings_action">Настройки аплинка</string>
+    <string name="uplink_settings_action">Настройки подключения</string>
     <string name="settings_category_all">Все</string>
     <string name="settings_category_network">Сеть</string>
-    <string name="settings_category_uplink">Аплинк</string>
+    <string name="settings_category_uplink">Серверы подключения</string>
     <string name="settings_category_system">Система</string>
     <string name="settings_category_other">Прочее</string>
     <string name="settings_network_title">СЕТЬ</string>
@@ -435,6 +435,7 @@
     <string name="doh_status_pending">Ожидание...</string>
     <string name="doh_status_tspu_ok">ТСПУ OK</string>
     <string name="doh_status_rkn_block">РКН блок?</string>
+    <string name="doh_status_iran_ok">Iran OK</string>
     <string name="toast_vless_uuid_generated">Сгенерирован новый UUID для VLESS</string>
     <string name="toast_stop_proxy_change_dns">Остановите прокси для смены DNS</string>
     <string name="toast_doh_keep_at_least_one">Необходимо оставить хотя бы один DoH-провайдер</string>
@@ -444,11 +445,11 @@
     <string name="toast_stop_proxy_start_benchmark">Остановите прокси для запуска автоподбора</string>
     <string name="toast_doh_all_unreachable">Все серверы недоступны. Проверьте интернет-соединение.</string>
     <string name="toast_doh_benchmark_err">Ошибка тестирования: %1$s</string>
-    <string name="info_uplink_modes_title">Режимы аплинка (Транспорт и обход ТСПУ)</string>
-    <string name="info_uplink_modes_body">АРХИТЕКТУРА АПЛИНКА В MIRRLY:
-• Аплинк (Upstream Tunnel) определяет физический и криптографический сетевой маршрут от локального SOCKS5-прокси (127.0.0.1:10808) до серверов Telegram через цензурные шлюзы ТСПУ/DPI.
-• Трафик мессенджера инкапсулируется в современные протоколы с маскировкой под обычный веб-серфинг или туннелируется через Anycast-инфраструктуру Cloudflare.
-• В отличие от системного VPN, Mirrly работает как локальный transparent TCP-релей без создания TUN-интерфейса, что исключает утечки DNS, батарейный голод и системные ограничения Android.
+    <string name="info_uplink_modes_title">Серверы подключения и обход блокировок</string>
+    <string name="info_uplink_modes_body">КАК РАБОТАЮТ СЕРВЕРЫ ПОДКЛЮЧЕНИЯ:
+• Сервер подключения (Upstream) определяет защищенный сетевой маршрут от локального SOCKS5-прокси (127.0.0.1:10808) до серверов Telegram в обход блокировок провайдера.
+• Трафик мессенджера защищается современными протоколами с маскировкой под обычные веб-сайты или передается через глобальную сеть Cloudflare.
+• В отличие от системного VPN, Mirrly работает как быстрый локальный сетевой прокси без создания виртуального VPN-адаптера, что исключает утечки DNS, экономит заряд батареи и обходит системные ограничения Android.
 
 1. CLOUDFLARE WORKER (WEBSOCKET OVER TLS 1.3):
 • Принцип работы: трафик передается по защищенному WebSocket-туннелю (порт 443) к бессерверной V8-функции в сети Cloudflare Edge. Воркер использует внутренний сокетный API (cloudflare:sockets) для прямого TCP-подключения к дата-центрам Telegram.
@@ -501,7 +502,7 @@
     <string name="info_ports_body">НАЗНАЧЕНИЕ ПОРТОВ:
 • Локальный порт прослушивания — это сетевой сокет (127.0.0.1) на вашем устройстве, к которому подключается клиент Telegram.
 • Порт 1080: стандартный порт режима MTProto (нативный протокол Telegram с Fake-TLS).
-• Порт 10808: стандартный порт режима SOCKS5 (универсальный прозрачный TCP-релей).
+• Порт 10808: стандартный порт режима SOCKS5 (универсальный прокси для всех типов данных).
 
 РЕКОМЕНДАЦИИ ПО НАСТРОЙКЕ:
 • Рекомендованные порты: 1080 (MTProto) и 10808 (SOCKS5). Они не требуют прав root и стандартизированы для прокси-серверов.
@@ -562,7 +563,7 @@
     <string name="info_protocols_title">Протоколы подключения Telegram</string>
     <string name="info_protocols_body">СРАВНЕНИЕ РЕЖИМОВ РАБОТЫ:
 • MTProto (порт 1080): нативный протокол Telegram с Fake-TLS и Anycast Flowseal CDN.
-• SOCKS5 (порт 10808): прозрачный TCP-релей RFC 1928, сквозное шифрование Telegram, голосовые и видеозвонки без задержек, поддержка всех аплинков (Cloudflare Worker, WARP MASQUE, VLESS).</string>
+• SOCKS5 (порт 10808): универсальный сетевой прокси, сквозное шифрование Telegram, голосовые и видеозвонки без задержек, поддержка внешних серверов (Cloudflare Worker, WARP MASQUE, VLESS).</string>
     <string name="info_socks5_auth_title">Аутентификация SOCKS5 (RFC 1929)</string>
     <string name="info_socks5_auth_body">ЗАЩИТА ЛОКАЛЬНОГО ИНТЕРФЕЙСА:
 • По умолчанию сокет 127.0.0.1:10808 открыт для всех процессов.
@@ -971,6 +972,8 @@
     <string name="fame_c_amurcanov_contrib">Создатель базового открытого Android-клиента tg-ws-proxy-android и C++ NDK реализации WSS-клиента, послуживших фундаментом для сетевого стека приложения.</string>
     <string name="fame_c_flowseal_role">Автор концепции туннелирования Telegram</string>
     <string name="fame_c_flowseal_contrib">Создатель проекта tg-ws-proxy. Разработал архитектурную концепцию проксирования трафика Telegram через Cloudflare WebSocket без необходимости в VPN.</string>
+    <string name="fame_c_masterkey_role">Архитектор сообщества &amp; Главный контрибьютор</string>
+    <string name="fame_c_masterkey_contrib">Самый активный участник, внесший огромный вклад в развитие проекта: от ценных советов и тестирования до масштабных улучшений архитектуры и глубокого анализа реализации.</string>
     <string name="fame_c_grovymon_role">Охотник за багами &amp; Аудит безопасности</string>
     <string name="fame_c_grovymon_contrib">Автор Issues #3, #4, #5, #7, #8, #15, #16, #18, #19, #20. Обнаружил баги Window Insets под системную панель навигации (Redmi Note 13 Pro+ 5G, Android 16), залипание плашки обновления, уязвимость валидации TLS-сертификатов NoServerCertVerifier, исследовал обход блокировок на LTE (Т-Мобайл), выявил пропуск Rust-ядра в релизе и инициировал внедрение обязательной авторизации SOCKS5 RFC 1929.</string>
     <string name="fame_c_zzzxxx_role">Охотник за багами &amp; Исследователь воркеров</string>
@@ -999,6 +1002,10 @@
     <string name="fame_c_astimir_contrib">Активный подписчик Telegram-канала проекта (@WhyOkyHb), поддержка разработки и участие в жизни сообщества.</string>
     <string name="fame_c_dimaakaj_role">Охотник за багами Cloudflare Worker</string>
     <string name="fame_c_dimaakaj_contrib">Обнаружил синтаксическую ошибку TypeScript ts(2554) в коде воркера при вызове serverWs.accept() с аргументами, блокировавшую сохранение и развертывание скрипта через Cloudflare Dashboard.</string>
+    <string name="fame_role_tg_participant">Участник сообщества</string>
+    <string name="fame_contrib_tg_channel">Активный участник Telegram-канала</string>
+    <string name="fame_c_creeepeeer_role">Охотник за багами &amp; Диагностика сети</string>
+    <string name="fame_c_creeepeeer_contrib">Автор Issue #30. Предоставил подробный диагностический отчёт в мобильной сети LTE/5G на Android 16 для калибровки метрик SQI и отказоустойчивости.</string>
     <string name="terms_full_legal_text_ru">        ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ И ДОПОЛНИТЕЛЬНЫЕ УСЛОВИЯ ИСПОЛЬЗОВАНИЯ
 
         Проект: Mirrly TG Proxy
@@ -1344,6 +1351,10 @@
     <string name="wm_filter_all">Все</string>
     <string name="wm_filter_official">Офиц.</string>
     <string name="wm_filter_custom">Личные</string>
+    <string name="wm_dev_workers_removed_title">Воркеры разработчика удалены</string>
+    <string name="wm_dev_workers_removed_reason">Причина: блокировка со стороны Cloudflare.</string>
+    <string name="wm_dev_workers_removed_desc">Создайте собственный воркер для того, чтобы продолжить пользоваться SOCKS5.</string>
+    <string name="wm_dev_workers_removed_btn">Создать свой воркер</string>
     <string name="wm_search_placeholder">Поиск по названию или домену...</string>
     <string name="wm_nodes_not_found">Узлы не найдены</string>
     <string name="wm_list_empty">Список воркеров пуст</string>
@@ -1472,9 +1483,9 @@
     <string name="wa_mtproto_tunnel_rtt">Задержка канала (RTT)</string>
 
     <string name="wa_info_mtproto_traffic_title">Трафик MTProto</string>
-    <string name="wa_info_mtproto_traffic_desc" formatted="false">КАК РАБОТАЕТ:\n• Отображает суммарный объем данных, переданных через локальный FakeTLS MTProto-релей.\n• Включает сообщения, фото, видеозаписи, документы и голосовые сообщения Telegram.</string>
+    <string name="wa_info_mtproto_traffic_desc" formatted="false">КАК РАБОТАЕТ:\n• Отображает суммарный объем данных, переданных через защищенный MTProto прокси.\n• Включает сообщения, фото, видеозаписи, документы и голосовые сообщения Telegram.</string>
     <string name="wa_info_mtproto_pool_title">Горячий пул соединений MTProto</string>
-    <string name="wa_info_mtproto_pool_desc" formatted="false">КАК РАБОТАЕТ:\n• Ядро прокси поддерживает предсозданные WSS-туннели (Hot Standby) к облачному аплинку.\n• Когда мессенджер запрашивает новый чат или скачивание файла, готовый туннель выделяется мгновенно — без ожидания сетевого TCP и TLS рукопожатия.</string>
+    <string name="wa_info_mtproto_pool_desc" formatted="false">КАК РАБОТАЕТ:\n• Ядро прокси поддерживает заранее открытые защищенные каналы к серверу.\n• Когда вы открываете чат или скачиваете файл, готовый канал выделяется мгновенно — без ожидания повторного подключения.</string>
     <string name="wa_info_mtproto_tunnel_title">Параметры туннеля FakeTLS</string>
     <string name="wa_info_mtproto_tunnel_desc" formatted="false">КАК РАБОТАЕТ:\n• Локальный слушатель прокси работает на порту 1080 (127.0.0.1).\n• Трафик маскируется под защищенный TLS 1.3 поток с валидным SNI, предотвращая блокировки DPI операторов связи.</string>
     <string name="wa_quota_title">РАСХОД КВОТЫ CLOUDFLARE</string>
@@ -1571,9 +1582,9 @@
     <string name="wa_proto_intermediate_desc">Основной протокол быстрой передачи сообщений и медиапотоков с 4-байтным выравниванием длины.</string>
     <string name="wa_proto_padded_desc">Каждый кадр дополняется случайным паддингом. Разрушает характерные сигнатуры длин пакетов Telegram, предотвращая блокировки ТСПУ и DPI.</string>
     <string name="wa_proto_abridged_desc">Ультра-компактный транспорт с 1-байтным заголовком. Используется для служебных квитанций и синхронизаций с минимальным оверхедом.</string>
-    <string name="wa_mux_title">МУЛЬТИПЛЕКСИРОВАНИЕ WSS</string>
+    <string name="wa_mux_title">ОБЪЕДИНЕНИЕ ПОТОКОВ (WSS)</string>
     <string name="wa_mux_sub">Эффективность туннеля Cloudflare</string>
-    <string name="wa_mux_ratio_title">КОЭФФИЦИЕНТ МУЛЬТИПЛЕКСИРОВАНИЯ</string>
+    <string name="wa_mux_ratio_title">ЭФФЕКТИВНОСТЬ ОБЪЕДИНЕНИЯ ПОТОКОВ</string>
     <string name="wa_mux_packets_processed_title">ОБРАБОТАНО ПАКЕТОВ</string>
     <string name="wa_mux_mtproto_transport">Транспорт MTProto</string>
     <string name="wa_mux_dpi_protection_title">ЗАЩИТА ОТ DPI</string>
@@ -1581,7 +1592,7 @@
     <string name="wa_mux_tunnel_mode_title">РЕЖИМ ТУННЕЛЯ</string>
     <string name="wa_mux_quota_saving_title">ЭКОНОМИЯ КВОТЫ</string>
     <string name="wa_mux_wss_per_session">1 WSS на сессию</string>
-    <string name="wa_mux_arch_title">АРХИТЕКТУРА WSS-МУЛЬТИПЛЕКСИРОВАНИЯ:</string>
+    <string name="wa_mux_arch_title">АРХИТЕКТУРА ПЕРЕДАЧИ ПОТОКОВ (WSS):</string>
     <string name="wa_mux_arch_text">• 1 WSS сессия открывается по защищенному WebSocket туннелю (1 запрос Cloudflare Free).\n• Все пакеты MTProto инкапсулируются в бинарные фреймы без повторных HTTP рукопожатий.\n• Это обеспечивает 99.8% экономию суточной квоты даже при многогигабайтном трафике.</string>
     <string name="wa_packets_val">%1$d пак.</string>
     <string name="wa_frame_structure_val">Структура кадра: %1$s</string>
@@ -1806,6 +1817,7 @@
     <string name="notif_channel_battery_guard_name">Защита аккумулятора Mirrly</string>
     <string name="notif_channel_battery_guard_desc">Предупреждения об автоотключении прокси при разряде аккумулятора</string>
     <string name="notif_action_stop">Остановить</string>
+    <string name="notif_action_copy_link">Скопировать ссылку</string>
     <string name="notif_action_download_apk">Скачать APK</string>
     <string name="notif_action_whats_new">Что нового</string>
     <string name="notif_action_extend_15m">+15 минут</string>
@@ -1861,7 +1873,7 @@
     <string name="notif_status_waiting_traffic">Ожидание трафика</string>
     <string name="notif_route_fallback_awg">AmneziaWG (Фоллбэк)</string>
     <string name="notif_route_fallback_masque">MASQUE (Фоллбэк)</string>
-    <string name="notif_trust_public_relay"> [Публичный релей]</string>
+    <string name="notif_trust_public_relay"> [Публичный сервер]</string>
     <string name="battery_guard_reason_threshold">Заряд батареи упал до %1$d%% (порог: %2$d%%)</string>
     <string name="battery_guard_reason_powersave">Активирован системный режим энергосбережения Android</string>
     <string name="battery_guard_stop_reason">Защита аккумулятора: %1$s</string>
@@ -1901,14 +1913,14 @@
     <string name="onboarding_lang_badge_selected">ВЫБРАН</string>
     <string name="onboarding_lang_badge_active">АКТИВЕН</string>
     <string name="onboarding_step2_title">АРХИТЕКТУРА И НАЗНАЧЕНИЕ</string>
-    <string name="onboarding_step2_relay_title">Локальный прозрачный TCP-релей</string>
-    <string name="onboarding_step2_relay_desc">Mirrly TG Proxy туннелирует трафик мессенджера через зашифрованные протоколы MTProto Fake-TLS и SOCKS5 с аплинком в Anycast-сеть Cloudflare (Worker WSS / WARP MASQUE / VLESS) для прямого обхода блокировок ТСПУ без создания системного VPN-интерфейса.</string>
-    <string name="onboarding_feature_faketls_title">Fake-TLS &amp; SOCKS5 (RFC 1928)</string>
-    <string name="onboarding_feature_faketls_desc">Прямой обход блокировок ТСПУ</string>
+    <string name="onboarding_step2_relay_title">Локальный сетевой шлюз</string>
+    <string name="onboarding_step2_relay_desc">Mirrly TG Proxy направляет трафик Telegram через зашифрованные протоколы MTProto и SOCKS5 через серверы Cloudflare для быстрого обхода блокировок без создания системного VPN и разряда батареи.</string>
+    <string name="onboarding_feature_faketls_title">Fake-TLS &amp; SOCKS5</string>
+    <string name="onboarding_feature_faketls_desc">Защита от блокировок и фильтрации</string>
     <string name="onboarding_feature_warp_title">Cloudflare WARP &amp; MASQUE</string>
-    <string name="onboarding_feature_warp_desc">Низкая задержка для звонков и медиа</string>
-    <string name="onboarding_feature_rust_title">Zero Battery Overhead</string>
-    <string name="onboarding_feature_rust_desc">Энергоэффективный нативный релей Rust</string>
+    <string name="onboarding_feature_warp_desc">Минимальная задержка для звонков и медиа</string>
+    <string name="onboarding_feature_rust_title">Минимальный расход батареи</string>
+    <string name="onboarding_feature_rust_desc">Быстрый энергоэффективный движок Rust</string>
 
     <!-- Share App Strings -->
     <string name="share_app_text">Попробуй Mirrly TG Proxy для Android — быстрый обход замедлений Telegram без системного VPN!\nСкачать бесплатно с GitHub: https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy</string>
@@ -2083,7 +2095,7 @@
     <string name="settings_port_default_badge">СТАНДАРТНЫЙ ПОРТ</string>
     <string name="settings_port_safe_desc">Локальный порт: %1$d. Оптимально настроен по умолчанию. Изменение доступно в режиме опытного пользователя.</string>
     <string name="settings_secret_safe_desc">Секретный ключ MTProto защищен и активен. Генерация и просмотр доступны в режиме опытного пользователя.</string>
-    <string name="settings_socks5_safe_desc">Локальный порт: %1$d. TCP-релей готов к передаче данных. Настройка авторизации доступна в режиме опытного пользователя.</string>
+    <string name="settings_socks5_safe_desc">Локальный порт: %1$d. Прокси-сервер готов к передаче данных. Настройка авторизации доступна в расширенном режиме.</string>
     <string name="settings_btn_configure_expert">Настроить параметры</string>
     <string name="settings_doh_safe_summary">Защищенный DNS (DoH) активен. Проверенные быстрые серверы (%1$d активны).</string>
     <string name="settings_doh_expand_expert">Показать всех провайдеров и тест скорости</string>
@@ -2127,6 +2139,8 @@
     <string name="vpn_protocol_vless_desc">Anycast CDN • TLS 1.3 маскировка трафика</string>
     <string name="vpn_protocol_masque_desc">IETF RFC 9484 CONNECT-UDP по HTTP/3 • QUIC</string>
     <string name="vpn_protocol_awg_desc">AmneziaWG с обфускацией мусорных пакетов • Anycast</string>
+    <string name="vpn_protocol_opera_desc">HTTP CONNECT туннелирование с DoH через узлы Opera VPN</string>
+    <string name="vpn_protocol_proton_desc">WireGuard туннель к бесплатным серверам Proton VPN</string>
     <string name="vpn_protocol_dialog_title">Протокол Mirrly VPN</string>
     <string name="vpn_protocol_dialog_desc">Выберите протокол для системного туннеля:</string>
     <string name="vpn_select_protocol_short">Выбрать протокол</string>
@@ -2139,4 +2153,24 @@
     <string name="cf_session_reset">Сессия Cloudflare сброшена</string>
     <string name="cf_account_session_status">Статус сессии</string>
     <string name="error_open_browser">Не удалось открыть браузер</string>
+    <string name="settings_ech_title">Encrypted Client Hello (ECH)</string>
+    <string name="settings_ech_desc">Шифрование SNI публичным ключом Cloudflare (outer SNI: cloudflare-ech.com). Скрывает реальный домен от систем DPI.</string>
+    <string name="settings_ech_experimental_hint">Экспериментальная функция, может работать не у всех операторов</string>
+    <string name="settings_tls_padding_title">Рандомизация TLS Record Padding</string>
+    <string name="settings_tls_padding_desc">Случайное заполнение и разбиение TLS-записей для маскировки характерных размеров пакетов MTProto-рукопожатия от статистического анализа DPI.</string>
+    <string name="settings_ws_randomization_title">Рандомизация WebSocket (пути и заголовки)</string>
+    <string name="settings_ws_randomization_desc">Динамическая смена путей (/apiws/*) и реалистичные браузерные заголовки (User-Agent, Sec-CH-UA, Accept-Language) для маскировки под веб-трафик.</string>
+
+    <!-- Info & Connect Footnotes -->
+    <string name="tg_connect_footnote_badge">СНОСКА</string>
+    <string name="tg_connect_footnote_title">Какой протокол выбрать?</string>
+    <string name="tg_connect_footnote_desc">• MTProto — оптимизирован для текстовых чатов, групп и каналов, обеспечивает минимальный пинг и мгновенную доставку.\n• SOCKS5 — универсальный сетевой протокол, необходимый для голосовых и видеозвонков и быстрой загрузки больших медиафайлов.</string>
+    <string name="nd_footnote_badge">СНОСКА</string>
+    <string name="nd_footnote_title">Пояснение ключевых параметров сети</string>
+    <string name="nd_footnote_desc">• SQI — комплексная оценка качества связи от 0 до 100%.\n• Пинг (RTT) — задержка отклика сервера в миллисекундах (до 100 мс — отлично).\n• Джиттер — колебания задержки сотовой связи (до 25 мс — идеальное качество звонков без заиканий).\n• Bufferbloat — задержка из-за очередей в роутере при фоновом скачивании.</string>
+    <string name="onboarding_footnote_badge">СНОСКА</string>
+    <string name="onboarding_footnote_title">Как это работает</string>
+    <string name="onboarding_footnote_desc">Mirrly работает как локальный прокси исключительно для Telegram, не перехватывая трафик других приложений и не расходуя аккумулятор, в отличие от системных VPN.</string>
+    <string name="info_footnote_badge">СНОСКА: ПОЯСНЕНИЕ ТЕРМИНОВ</string>
+    <string name="info_footnote_simple_label">Понятным языком</string>
 </resources>

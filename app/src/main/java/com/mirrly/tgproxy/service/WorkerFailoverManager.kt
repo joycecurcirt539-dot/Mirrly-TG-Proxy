@@ -53,7 +53,7 @@ data class FailoverEvent(
 data class FailoverState(
     val isFailoverActive: Boolean = false,
     val originalPrimaryWorkerId: String? = null,
-    val activeWorkerId: String = "dev_default",
+    val activeWorkerId: String = "",
     val lastEvent: FailoverEvent? = null
 )
 

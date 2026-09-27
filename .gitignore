@@ -72,6 +72,8 @@ mirrlyengine/legacy/
 *.swp
 *.swo
 *~
+*.tmp
+*.bak
 
 # Cloudflare Wrangler
 .wrangler/

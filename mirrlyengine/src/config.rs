@@ -304,6 +304,7 @@ pub struct Stats {
     pub connections_awg: AtomicI64,
     pub connections_vless: AtomicI64,
     pub connections_opera: AtomicI64,
+    pub connections_proton: AtomicI64,
     pub socks5_v2_sessions: AtomicI64,
     pub socks5_v1_downgrades: AtomicI64,
     pub socks5_fastpath_hits: AtomicI64,
@@ -316,11 +317,26 @@ pub struct Stats {
     pub bytes_down: AtomicI64,
     pub pool_hits: AtomicI64,
     pub pool_misses: AtomicI64,
+    pub vpn_bytes_up: AtomicI64,
+    pub vpn_bytes_down: AtomicI64,
+    pub vpn_packets_up: AtomicI64,
+    pub vpn_packets_down: AtomicI64,
 }
 
 pub static STATS: Lazy<Stats> = Lazy::new(Stats::default);
 
 impl Stats {
+    pub fn add_vpn_bytes_up(&self, n: i64) {
+        self.vpn_bytes_up.fetch_add(n, Ordering::Relaxed);
+        self.bytes_up.fetch_add(n, Ordering::Relaxed);
+        self.vpn_packets_up.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn add_vpn_bytes_down(&self, n: i64) {
+        self.vpn_bytes_down.fetch_add(n, Ordering::Relaxed);
+        self.bytes_down.fetch_add(n, Ordering::Relaxed);
+        self.vpn_packets_down.fetch_add(1, Ordering::Relaxed);
+    }
     pub fn summary(&self) -> String {
         let ph = self.pool_hits.load(Ordering::Relaxed);
         let pm = self.pool_misses.load(Ordering::Relaxed);
@@ -414,6 +430,7 @@ impl Stats {
         self.connections_awg.store(0, Ordering::Relaxed);
         self.connections_vless.store(0, Ordering::Relaxed);
         self.connections_opera.store(0, Ordering::Relaxed);
+        self.connections_proton.store(0, Ordering::Relaxed);
         self.socks5_v2_sessions.store(0, Ordering::Relaxed);
         self.socks5_v1_downgrades.store(0, Ordering::Relaxed);
         self.socks5_fastpath_hits.store(0, Ordering::Relaxed);
@@ -554,3 +571,80 @@ pub fn set_opera_vpn_config(vless_enabled: bool, warp_enabled: bool, endpoint: &
         cfg.endpoint
     );
 }
+
+// ---------------------------------------------------------------------------
+// Proton VPN Upstream Configuration (WireGuard)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct ProtonVpnConfig {
+    pub enabled: bool,
+    pub server_ip: String,
+    pub server_port: u16,
+    pub peer_public_key: String,
+    pub private_key: String,
+    pub client_ip: String,
+    pub dns_ip: String,
+    pub node_name: String,
+}
+
+impl Default for ProtonVpnConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            server_ip: "91.229.23.180".to_string(),
+            server_port: 51820,
+            peer_public_key: "jbTC1lYeHxiz1LNSJHQMKDTq6sHgcWxkBwXvt7GWo1E=".to_string(),
+            private_key: String::new(),
+            client_ip: "10.2.0.2".to_string(),
+            dns_ip: "10.2.0.1".to_string(),
+            node_name: "NL-FREE#1".to_string(),
+        }
+    }
+}
+
+pub static PROTON_VPN: Lazy<RwLock<ProtonVpnConfig>> = Lazy::new(|| {
+    RwLock::new(ProtonVpnConfig::default())
+});
+
+pub fn set_proton_vpn_config(
+    server_ip: &str,
+    server_port: u16,
+    peer_public_key: &str,
+    private_key: &str,
+    client_ip: &str,
+    dns_ip: &str,
+    node_name: &str,
+) {
+    let mut cfg = PROTON_VPN.write();
+    if !server_ip.trim().is_empty() {
+        cfg.server_ip = server_ip.trim().to_string();
+    }
+    if server_port > 0 {
+        cfg.server_port = server_port;
+    }
+    if !peer_public_key.trim().is_empty() {
+        cfg.peer_public_key = peer_public_key.trim().to_string();
+    }
+    if !private_key.trim().is_empty() {
+        cfg.private_key = private_key.trim().to_string();
+    }
+    if !client_ip.trim().is_empty() {
+        cfg.client_ip = client_ip.trim().to_string();
+    }
+    if !dns_ip.trim().is_empty() {
+        cfg.dns_ip = dns_ip.trim().to_string();
+    }
+    if !node_name.trim().is_empty() {
+        cfg.node_name = node_name.trim().to_string();
+    }
+    cfg.enabled = true;
+    linfo!(
+        "Proton VPN config updated: {}:{} (node={}, client_ip={})",
+        cfg.server_ip,
+        cfg.server_port,
+        cfg.node_name,
+        cfg.client_ip
+    );
+}
+

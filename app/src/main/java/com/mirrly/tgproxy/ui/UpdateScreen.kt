@@ -874,7 +874,7 @@ fun UpdateScreen(
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 val targetAsset = availableAssets.firstOrNull { it.apkType == selectedApkType }
-                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v1.1.8.3/app-universal-release.apk"
+                                                val url = targetAsset?.downloadUrl ?: activeReleaseInfo?.downloadUrl
                                                 val expectedSha = targetAsset?.sha256 ?: activeReleaseInfo?.expectedSha256
                                                 val shaList = if (!expectedSha.isNullOrBlank()) {
                                                     listOf(expectedSha) + activeReleaseInfo?.expectedSha256List.orEmpty()

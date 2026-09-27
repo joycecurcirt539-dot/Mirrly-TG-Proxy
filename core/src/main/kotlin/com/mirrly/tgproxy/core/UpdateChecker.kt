@@ -114,7 +114,7 @@ object UpdateChecker {
     private const val TAG = "UpdateChecker"
     private const val GITHUB_API_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
     private const val GITHUB_API_ALL_RELEASES_URL = "https://api.github.com/repos/joycecurcirt539-dot/Mirrly-TG-Proxy/releases"
-    const val CURRENT_VERSION_NAME = "2.0.0.2"
+    const val CURRENT_VERSION_NAME = "2.0.0.3"
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -236,9 +236,9 @@ object UpdateChecker {
                                 ?: fallbackApkUrl
                                 ?: sortedAssets.firstOrNull()?.downloadUrl
 
+                            // Extract only valid 64-char APK checksums from release notes (excluding certificate fingerprints)
                             val hex64Matches = Regex("""(?i)\b[a-fA-F0-9]{64}\b""").findAll(bodyText).map { it.value.trim().uppercase() }
-                            val colonMatches = Regex("""(?i)\b(?:[a-fA-F0-9]{2}:){31}[a-fA-F0-9]{2}\b""").findAll(bodyText).map { it.value.trim().uppercase() }
-                            val expectedSha256List = (hex64Matches + colonMatches).distinct().toList()
+                            val expectedSha256List = hex64Matches.distinct().toList()
                             val expectedSha256 = expectedSha256List.firstOrNull()
 
                             val latestVerClean = cleanVersionString(tagName)
