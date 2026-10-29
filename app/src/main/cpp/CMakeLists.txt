@@ -28,6 +28,7 @@ target_link_options(
     -Wl,--gc-sections
     -Wl,--strip-debug
     -Wl,--exclude-libs,ALL
+    -Wl,-z,max-page-size=16384
 )
 
 target_link_libraries(

@@ -90,9 +90,7 @@
     <string name="status_connecting_cf_wss">در حال اتصال به ورکر کلودفلر WSS...</string>
     <string name="status_connecting_cf_warp">در حال اتصال به Anycast کلودفلر WARP...</string>
     <string name="status_connecting_vless">در حال برقراری اتصال VLESS روی WSS...</string>
-    <string name="status_connecting_hybrid">در حال راه‌اندازی تونل هیبریدی ورکر + WARP...</string>
     <string name="status_connecting_amnezia">در حال برقراری تونل AmneziaWG به WARP Anycast...</string>
-    <string name="status_connecting_warp_cascade">در حال راه‌اندازی تونل آبشاری WARP (ورکر + AWG)...</string>
     <string name="status_warp_masque_needs_reg">WARP MASQUE · نیازمند ثبت‌نام در تنظیمات</string>
     <string name="status_vpn_disabled">VPN غیرفعال است</string>
     <string name="status_vpn_enabled">VPN متصل است</string>
@@ -100,19 +98,14 @@
     <string name="status_vpn_disconnecting">در حال قطع اتصال VPN...</string>
     <string name="status_vpn_system_mode_desc">حالت کل دستگاه · لمس برای اتصال</string>
     <string name="status_vpn_system_connected_desc">تونل سیستمی فعال · کلودفلر Anycast</string>
-    <string name="status_vpn_in_dev">VPN در حال توسعه</string>
-    <string name="status_vpn_in_dev_desc">سرویس VPN در نسخه فعلی کار نمی‌کند</string>
-    <string name="vpn_in_dev_card_title">سرویس VPN در حال توسعه است</string>
-    <string name="vpn_in_dev_card_desc">ماژول VPN کل دستگاه در دست بازنویسی فعال است و در حال حاضر کار نمی‌کند. برای اتصال تلگرام از پروتکل‌های محلی MTProto یا SOCKS5 استفاده فرمایید.</string>
+
     <string name="vpn_permission_denied">مجوز سیستمی VPN رد شد</string>
     <string name="uplink_mtproto_flowseal_secured">MTProto Anycast Flowseal • محافظت‌شده</string>
     <string name="uplink_mtproto_direct_secured">MTProto مستقیم (Fake-TLS) • محافظت‌شده</string>
     <string name="uplink_cf_wss_secured">Cloudflare WSS · محافظت‌شده</string>
     <string name="uplink_warp_masque_secured">WARP MASQUE (%1$s) • محافظت‌شده</string>
     <string name="uplink_vless_secured">VLESS روی WSS (TLS 1.3 Chrome) • محافظت‌شده</string>
-    <string name="uplink_hybrid_secured">ورکر هیبریدی (%1$s) + WARP • محافظت‌شده</string>
     <string name="uplink_amnezia_secured">AmneziaWG (WARP Anycast) • محافظت‌شده</string>
-    <string name="uplink_warp_cascade_secured">آبشاری WARP (ورکر + AWG) • محافظت‌شده</string>
     <string name="status_secured">محافظت‌شده</string>
     <string name="status_public_fallback">پشتیبان عمومی</string>
     <string name="status_flow_socks5_title">جریان‌های SOCKS5</string>
@@ -176,9 +169,8 @@
     <string name="ws_grade_failures">Failures</string>
     <string name="ws_grade_awaiting">Awaiting</string>
     <string name="settings_uplink_worker_sub">لبه کلودفلر (Cloudflare Edge)</string>
-    <string name="settings_uplink_masque_sub">پروتکل Anycast HTTP/3</string>
-    <string name="settings_uplink_cascade_sub">آبشاری: MASQUE (HTTP/3) -&gt; AWG</string>
-    <string name="toast_doh_selected_best">%1$d سرور برتر انتخاب شدند: %2$s</string>
+    <string name="settings_uplink_awg_sub">توصیه می‌شود • مقاوم در برابر فیلترینگ</string>
+    <string name="settings_uplink_masque_sub">HTTP/3 • احتمال مسدودسازی</string>
     <string name="content_desc_logs">Logs</string>
     <string name="content_desc_session_history">Session History</string>
     <string name="content_desc_sleep_timer">Sleep Timer</string>
@@ -188,7 +180,6 @@
     <string name="banner_update_dismissed">Update v%1$s dismissed</string>
     <string name="err_service_switch">خطا در تغییر وضعیت سرویس پروکسی: %1$s</string>
     <string name="warp_masque_registration_needed">WARP MASQUE: نیازمند ثبت‌نام</string>
-    <string name="warp_hybrid_registration_needed">حالت هیبریدی: نیازمند WARP</string>
     <string name="warp_tap_settings_create_profile">برای ایجاد پروفایل در تنظیمات ضربه بزنید</string>
     <string name="worker_shared_pool_badge">%1$s (Shared Pool)</string>
     <string name="worker_shared_pool_warning">Request limits may exhaust. Choose another worker in manager or deploy a private one.</string>
@@ -229,17 +220,11 @@
     <string name="uplink_field_host_sni">هاست / SNI</string>
     <string name="uplink_field_tls_camou">استتار TLS</string>
     <string name="uplink_field_architecture">Architecture</string>
-    <string name="uplink_hop_worker">First Hop (Worker)</string>
-    <string name="uplink_hop_warp">Second Hop (WARP)</string>
     <string name="uplink_amnezia_desc">AmneziaWG (Obfuscated WireGuard)</string>
     <string name="uplink_reg_warp_anycast">فعال • WARP Anycast</string>
     <string name="uplink_obfuscation_jc">Obfuscation (Jc)</string>
     <string name="uplink_obfuscation_jc_val">4 junk packets before handshake</string>
     <string name="uplink_masking_i1">I1 Masking</string>
-    <string name="uplink_cascade_l1">Layer 1 (MASQUE)</string>
-    <string name="uplink_cascade_l2">Layer 2 (AWG)</string>
-    <string name="uplink_cascade_l3">Layer 3 (WSS)</string>
-    <string name="uplink_cascade_l3_val">%1$s — guaranteed TCP 443</string>
     <string name="uplink_actual_route">Actual Route</string>
     <string name="uplink_node_operator">Node Operator</string>
     <string name="uplink_trust_boundary">Trust Boundary</string>
@@ -277,9 +262,15 @@
     <string name="settings_speed_turbo">توربو</string>
     <string name="settings_speed_ultra">اولترا</string>
     <string name="settings_speed_auto">خودکار</string>
-    <string name="settings_tcp_nodelay_title">ارسال بدون تأخیر (TCP_NODELAY)</string>
-    <string name="settings_tcp_nodelay_on">فعال: ارسال فوری داده‌ها (همه شبکه‌ها)</string>
-    <string name="settings_tcp_nodelay_off">غیرفعال: بافرینگ الگوریتم نیگل</string>
+    <string name="settings_nagle_title">الگوریتم نیگل (Nagle)</string>
+    <string name="settings_nagle_on">فعال (پیشنهادی)</string>
+    <string name="settings_nagle_off">غیرفعال (خطرناک)</string>
+    <string name="settings_nagle_status_on">فعال: ادغام بسته‌ها (RFC 896)، حداکثر پایداری در شبکه همراه</string>
+    <string name="settings_nagle_status_off">غیرفعال (TCP_NODELAY): ارسال فوری بدون بافرینگ</string>
+    <string name="settings_nagle_warning">هشدار: غیرفعال کردن الگوریتم نیگل باعث ارسال فوری بسته‌ها می‌شود (TCP_NODELAY) و در شبکه‌های ناپایدار یا همراه موجب افت کیفیت می‌گردد.</string>
+    <string name="settings_tcp_nodelay_title">الگوریتم نیگل (Nagle)</string>
+    <string name="settings_tcp_nodelay_on">فعال (پیشنهادی)</string>
+    <string name="settings_tcp_nodelay_off">غیرفعال (خطرناک)</string>
     <string name="settings_cf_title">تونل‌سازی کلودفلر</string>
     <string name="settings_worker_manager">مدیریت ورکرها</string>
     <string name="settings_worker_active">فعال: %1$s</string>
@@ -310,8 +301,15 @@
     <string name="settings_vless_transport_port">پورت ترنسپورت</string>
     <string name="settings_vless_browser_mimic">شبیه‌سازی مرورگر</string>
     <string name="settings_system_title">سیستم و مدیریت مصرف انرژی</string>
-    <string name="settings_autostart_title">اجرای خودکار هنگام بوت</string>
-    <string name="settings_autostart_desc">اجرای خودکار سرویس پروکسی پس از روشن شدن دستگاه</string>
+    <string name="settings_autostart_title">اجرای خودکار سرویس</string>
+    <string name="settings_autostart_desc">اجرای خودکار سرویس پروکسی هنگام روشن شدن گوشی و باز کردن برنامه</string>
+    <string name="autostart_guide_badge">راهنمای اجرای خودکار</string>
+    <string name="autostart_guide_title">اجرای خودکار در اندروید</string>
+    <string name="autostart_how_it_works_title">نحوه کارکرد اجرای خودکار:</string>
+    <string name="autostart_how_it_works_desc">• هنگام روشن شدن یا راه‌اندازی مجدد گوشی، سرویس پروکسی Mirrly به صورت خودکار در پس‌زمینه شروع به کار می‌کند.\n• همچنین با هر بار باز کردن برنامه، پروکسی به طور خودکار و بدون نیاز به فشردن دکمه متصل می‌شود.\n\nچرا پیکربندی لازم است:\nرابط‌های کاربری اختصاصی سازندگان (شیائومی، سامسونگ، هواوی و...) برای ذخیره باتری فرآیندهای پس‌زمینه را مسدود می‌کنند. برای عملکرد پایدار سیستم خود را از لیست زیر انتخاب کرده و مراحل را انجام دهید.</string>
+    <string name="autostart_version_warning">توجه: بسته به نسخه اندروید و رابط کاربری، نام بخش‌ها ممکن است کمی متفاوت باشد.</string>
+    <string name="autostart_select_os_label">سیستم‌عامل خود را انتخاب کنید:</string>
+    <string name="autostart_btn_open_settings">باز کردن تنظیمات برنامه</string>
     <string name="settings_sleep_timer_title">تایمر خواب (توقف خودکار)</string>
     <string name="settings_sleep_timer_active">فعال • توقف تا %1$s دیگر</string>
     <string name="settings_sleep_timer_off">غیرفعال • لمس برای تنظیم تایمر</string>
@@ -343,39 +341,50 @@
     <string name="status_connecting_caps">CONNECTING...</string>
     <string name="status_disconnecting_caps">DISCONNECTING...</string>
     <string name="badge_warp_needs_reg">WARP • نیازمند ثبت‌نام</string>
-    <string name="badge_hybrid_active">Hybrid • %1$s + WARP</string>
-    <string name="badge_hybrid_needs_warp">Hybrid • WARP needed</string>
     <string name="badge_vpn_in_dev">Mirrly VPN • System Protection</string>
     <string name="badge_socks5_worker">SOCKS5 • %1$s</string>
-    <string name="mode_hybrid_worker_warp">ورکر هیبریدی + WARP</string>
 
     <string name="mode_socks5_beta">SOCKS5</string>
     <string name="mode_vpn_in_dev">Mirrly VPN</string>
-    <string name="vpn_system_title_dev">SYSTEM VPN (VpnService)</string>
+    <string name="vpn_system_title_dev">SYSTEM VPN</string>
     <string name="vpn_badge_locked">ACTIVE</string>
-    <string name="vpn_tunnel_title">System VPN Tunnel (Android VpnService)</string>
+    <string name="vpn_tunnel_title">System VPN Tunnel</string>
     <string name="vpn_tunnel_desc">Routes all device traffic through encrypted tunnels without configuring proxy in individual apps.</string>
+    <string name="vpn_network_gen_format">نسل %1$d</string>
     <string name="vpn_killswitch_title">Kill Switch</string>
     <string name="vpn_killswitch_desc">Blocks outgoing traffic outside tunnel if VPN connection drops</string>
+    <string name="vpn_action_split_tunnel">Split Tunnel</string>
     <string name="vpn_status_unavailable">ناموجود</string>
     <string name="vpn_splittunnel_title">Split Tunneling</string>
     <string name="vpn_splittunnel_desc">Select installed apps to route through VPN or direct connection</string>
     <string name="vpn_architecture_title">Routing Core Architecture</string>
     <string name="vpn_details_btn">More about VPN development status</string>
-    <string name="vpn_mtu_title">MTU Packet Size</string>
-    <string name="vpn_mtu_desc">TUN virtual interface MTU. 1420 is recommended for WARP and VLESS.</string>
-    <string name="vpn_block_quic_title">Block QUIC (UDP 443)</string>
-    <string name="vpn_block_quic_desc">Forces TCP TLS 1.3 fallback for instant YouTube &amp; video acceleration.</string>
-    <string name="vpn_block_ipv6_title">IPv6 Leak Protection</string>
-    <string name="vpn_block_ipv6_desc">Blocks unsecured IPv6 traffic outside tunnel to prevent leaks.</string>
     <string name="vpn_split_tunnel_mode_disallow">Exclude selected</string>
     <string name="vpn_split_tunnel_mode_allow">Route only selected</string>
-    <string name="vpn_split_tunnel_apps_btn">Select applications (%1$d)</string>
+    <string name="vpn_split_tunnel_apps_btn">انتخاب برنامه‌ها · %1$d</string>
     <string name="vpn_split_tunnel_dialog_title">Split Tunnel Applications</string>
     <string name="vpn_split_tunnel_search_hint">Search by name or package...</string>
     <string name="vpn_split_tunnel_select_all">Select all</string>
     <string name="vpn_split_tunnel_deselect_all">Deselect all</string>
     <string name="vpn_split_tunnel_apply">Apply</string>
+    <string name="info_vpn_system_title">تونل وی‌پی‌ان سیستمی</string>
+    <string name="info_vpn_system_body">نحوه کارکرد:
+• سرویس Mirrly VPN از رابط VpnService اندروید برای هدایت ترافیک دستگاه از طریق تونل رمزگذاری‌شده استفاده می‌کند.
+• بر خلاف پروکسی محلی، وی‌پی‌ان سیستمی در سطح سیستم عامل فعال بوده و نیازی به تنظیم سرورها به ازای هر برنامه ندارد.
+
+پروتکل‌های اتصال:
+• WARP AWG: پروتکل AmneziaWG با قابلیت عبور از فیلترینگ و کاهش تاخیر در شبکه‌های همراه.
+• WARP MASQUE: استاندارد IETF مبتنی بر HTTP/3 و QUIC که ترافیک شبکه را به شکل وب معتبر ماسک می‌کند.
+
+مسیربندی DNS:
+• تمامی درخواست‌های DNS از مسیر امن عبور کرده تا از هرگونه نشت آدرس جلوگیری شود.</string>
+    <string name="info_vpn_splittunnel_title">تونل‌بندی اختصاصی</string>
+    <string name="info_vpn_splittunnel_body">هدف:
+• امکان تنظیم دقیق اینکه کدام برنامه‌ها از طریق وی‌پی‌ان عبور کرده و کدام برنامه‌ها به طور مستقیم وصل شوند.
+
+حالت‌های مسیربندی:
+• استثنا کردن انتخاب‌شده‌ها: ترافیک کل دستگاه از طریق وی‌پی‌ان عبور می‌کند به جز برنامه‌های انتخاب شده.
+• فقط برنامه‌های انتخاب‌شده: تنها ترافیک برنامه‌های مشخص‌شده از تونل رمزگذاری‌شده رد می‌شود.</string>
     <string name="settings_opera_upstream_title">آپ‌لینک Opera VPN برای WARP</string>
     <string name="settings_opera_upstream_desc">مسیر آبشاری: فیلترینگ -&gt; Opera VPN Anycast -&gt; کلودفلر MASQUE</string>
     <string name="settings_opera_node_select">انتخاب نود OPERA VPN</string>
@@ -412,39 +421,9 @@
     <string name="settings_update_checking">در حال بررسی گیت‌هاب...</string>
     <string name="settings_update_available_tap">نسخه جدید موجود است • برای نصب لمس کنید</string>
     <string name="settings_update_search_github">در حال بررسی گیت‌هاب برای انتشارهای جدید</string>
-    <string name="doh_btn_enable_all">همه %1$s</string>
-    <string name="doh_btn_enable_all_ok">All %1$s OK</string>
-    <string name="doh_btn_reset">Reset</string>
-    <string name="doh_notice_proxy_running">پروکسی active • Stop service to modify resolvers</string>
     <string name="action_stop">Stop</string>
-    <string name="doh_testing_progress">Testing: %1$s of %2$s...</string>
-    <string name="doh_smart_selection_title">Smart DNS Benchmark</string>
-    <string name="doh_measuring_rtt">Measuring RTT and DPI bypass</string>
-    <string name="doh_stop_to_measure">Stop proxy to benchmark</string>
-    <string name="doh_auto_pick_fastest">Auto-select fastest unblocked resolvers</string>
-    <string name="doh_btn_test">Benchmark</string>
-    <string name="doh_list_title">DoH Resolvers List</string>
-    <string name="doh_list_ratio">%1$s OF %2$s</string>
-    <string name="doh_hide_list_hint">Tap to collapse resolvers list</string>
-    <string name="doh_active_race_hint">%1$s active • Concurrent Race Resolver</string>
     <string name="unit_ms_val">%1$s ms</string>
-    <string name="doh_status_tspu_block">DPI Block</string>
-    <string name="doh_status_timeout">Timeout</string>
-    <string name="doh_status_ip_poison">Poisoned IP</string>
-    <string name="doh_badge_top">Top</string>
-    <string name="doh_status_pending">Pending...</string>
-    <string name="doh_status_tspu_ok">DPI Pass</string>
-    <string name="doh_status_rkn_block">Censored?</string>
-    <string name="doh_status_iran_ok">ضد تحریم</string>
     <string name="toast_vless_uuid_generated">Generated new VLESS UUID</string>
-    <string name="toast_stop_proxy_change_dns">Stop proxy to change DNS settings</string>
-    <string name="toast_doh_keep_at_least_one">At least one DoH provider must remain active</string>
-    <string name="toast_stop_proxy_reset_dns">Stop proxy to reset DNS</string>
-    <string name="toast_doh_reset_defaults">DoH settings reset to default</string>
-    <string name="toast_doh_all_enabled">All DoH servers enabled (%1$s)</string>
-    <string name="toast_stop_proxy_start_benchmark">Stop proxy to launch auto-benchmark</string>
-    <string name="toast_doh_all_unreachable">All resolvers unreachable. Check internet connection.</string>
-    <string name="toast_doh_benchmark_err">Benchmark error: %1$s</string>
     <string name="info_uplink_modes_title">حالت‌های آپ‌لینک (ترنسپورت و عبور از فیلترینگ)</string>
     <string name="info_uplink_modes_body">MIRRLY UPLINK ARCHITECTURE: • Upstream Tunnel defines the physical and cryptographic network route from local SOCKS5 proxy (127.0.0.1:10808) to تلگرام data centers via censorship gateways. • Messenger traffic is encapsulated into modern protocols disguised as regular web surfing or tunneled through Cloudflare Anycast infrastructure. • Unlike system VPN, Mirrly operates as a local transparent TCP relay without creating a TUN interface, preventing DNS leaks, battery drain, and OS restrictions.  1. CLOUDFLARE WORKER (WEBSOCKET OVER TLS 1.3): • How it works: traffic traverses an encrypted WebSocket tunnel (port 443) to a serverless V8 function on Cloudflare Edge. ورکر connects to تلگرام data centers using internal socket API (cloudflare:sockets). • Bypass mechanism: telecom carriers and DPI see a standard HTTPS request with a trusted TLS 1.3 certificate of a global CDN, bypassing protocol inspection. • Quota: Cloudflare free plan offers 100,000 requests per day. Thanks to multiplexing, this quota is virtually impossible to exhaust during everyday use.  2. CLOUDFLARE WARP (MASQUE / RFC 9484): • How it works: state-of-the-art IETF CONNECT-IP / CONNECT-UDP standard over HTTP/3 and QUIC. Connects to Cloudflare Anycast gateways (188.114.96.1) using WireGuard credentials and mTLS certificates (ECDSA P-256). • Advantages: zero Head-of-Line Blocking, minimal round-trip latency, and superior voice and video call quality. • DPI resilience: auto-scans open Anycast ports (500, 8095, 8443, 1074, 443) and applies Noise Handshake Fragmentation.  3. VLESS OVER WEBSOCKET (ANYCAST PAGES CDN): • How it works: lightweight binary VLESS v0 protocol over WebSocket (port 443) with TLS 1.3, masquerading as regular Google Chrome traffic. • Zero-registration: requires no Cloudflare account, API tokens, or custom workers. • Auto pool: includes stable Anycast nodes across Europe and Asia with Happy Eyeballs racing.  4. HYBRID MODE (WORKER + WARP CASCADE): • How it works: two-hop tunneling. Device connects to trusted ورکر over WSS, and ورکر proxies data to WARP Anycast.</string>
     <string name="info_warp_masque_title">Cloudflare WARP &amp; MASQUE Tunnel</string>
@@ -461,8 +440,11 @@
     <string name="info_autostart_body">HOW IT WORKS: • Listens for the Android BOOT_COMPLETED broadcast event. • Automatically starts the local proxy socket on system startup without requiring manual app launch.  DEVICE-SPECIFIC OEM SETTINGS: • Xiaomi (MIUI/HyperOS): تنظیمات -&gt; Apps -&gt; Permissions -&gt; Autostart -&gt; enable Mirrly TG پروکسی. • Samsung (One UI): Add application to \'Never sleeping apps\'. • Huawei (EMUI/HarmonyOS): Switch app launch to manual and toggle \'Auto-launch\'.</string>
     <string name="info_wspool_title">استخر اتصالات WsPool</string>
     <string name="info_wspool_body">WEBSOCKET PRE-WARMING TECHNOLOGY: • Maintains pre-opened standby socket pools (Pre-Warming Pool) and ring buffers in native core to eliminate handshake latency when opening chats or downloading media.  AVAILABLE PROFILES: • Eco (2 sockets, 128 KB buffer): Minimal CPU and RAM footprint (~150 KB). • Balanced (4 sockets, 256 KB buffer): Optimal for everyday messaging. • Turbo (8 sockets, 1 MB buffer): Accelerated media and sticker downloads. • Ultra (16 sockets, 2 MB buffer): Peak throughput for 4K video streams. • Auto (2–16 sockets): Dynamic pool scaling based on bandwidth demands.</string>
-    <string name="info_tcp_nodelay_title">Nagle Algorithm Control (TCP_NODELAY)</string>
-    <string name="info_tcp_nodelay_body">NAGLE ALGORITHM (RFC 896): • Controls packet coalescing on local TCP sockets. • Auto: Enables TCP_NODELAY on low latency links (&lt;140ms RTT). • فعال: Immediate packet dispatch for instant messaging response. • غیرفعال: Buffers packets, recommended for high packet-loss 2G connections.</string>
+    <string name="info_tcp_nodelay_title">الگوریتم نیگل (Nagle\'s Algorithm)</string>
+    <string name="info_tcp_nodelay_body">الگوریتم نیگل (RFC 896):
+• ادغام بسته‌های کوچک قبل از ارسال برای جلوگیری از بار اضافی در شبکه همراه.
+• فعال (پیشنهادی): کاهش تلفات بسته‌ها و افزایش پایداری در شبکه‌های همراه LTE/3G و وای‌فای ناپایدار.
+• غیرفعال (خطرناک): حالت TCP_NODELAY را فعال می‌کند که در شبکه‌های همراه باعث قطعی و افت سرعت می‌شود.</string>
     <string name="info_powersaver_title">Power Saver Aesthetic Mode</string>
     <string name="info_powersaver_body">POWER SAVING OPTIMIZATIONS: • Disables particle canvas overlays and animations. • Minimizes Compose redraw phases, saving battery on 90-120Hz AMOLED displays.</string>
     <string name="info_protocols_title">تلگرام Connection Protocols</string>
@@ -475,8 +457,6 @@
     <string name="info_qos_body">ADAPTIVE QOS &amp; THROTTLING: • Dynamically adjusts socket pool size and buffer limits under thermal stress. • غیرفعال mode runs proxy at peak throughput (16 sockets, 2 MB). • Critical thermal safeguards remain enforced at core level.</string>
     <string name="info_doze_mode_title">Doze Mode Exemption</string>
     <string name="info_doze_mode_body">DOZE MODE EXEMPTION: • Android freezes network sockets during deep sleep (Doze Mode). • Battery optimization exemption allows proxy to maintain keepalive sockets for incoming تلگرام calls and messages. • Minimal idle standby power consumption (~0.1% per day).</string>
-    <string name="info_doh_title">DNS-over-HTTPS Resolver (DoH Race)</string>
-    <string name="info_doh_body">DOH CONCURRENT RACING: • Dispatches DNS queries in parallel over HTTP/2 with TLS 1.3. • Fastest valid response wins; lingering queries are canceled. • Validates IP ranges against تلگرام AS44907, filtering out poisoned ISP responses.</string>
     <string name="info_default_title">Help</string>
     <string name="info_default_body">No details available</string>
     <string name="settings_protocol_title">پروتکل</string>
@@ -497,6 +477,23 @@
     <string name="action_support">Support</string>
     <string name="action_later">Later</string>
     <string name="action_do_not_show_again">Don\'t show again</string>
+
+    <!-- Donation Screen & Multi-method Support Dialog -->
+    <string name="donate_dialog_category">حمایت از توسعه‌دهنده</string>
+    <string name="donate_dialog_title">حمایت از توسعه</string>
+    <string name="donate_dialog_desc">پروکسی میرلی کاملاً رایگان و متن‌باز است. کمک‌های مالی صرف کامپیوتر جدید، قرعه‌کشی‌های کانال تلگرام و آبمیوه برای سازنده می‌شود. حمایت کاملاً اختیاری است.</string>
+    <string name="donate_method_cloudtips_title">CloudTips</string>
+    <string name="donate_method_cloudtips_desc">کارت‌های بانکی، SBP، میر پی.\nلطفاً تیک کارمزد سرویس را بردارید.</string>
+    <string name="donate_method_yandex_tips_title">Yandex Tips</string>
+    <string name="donate_method_yandex_tips_desc">پرداخت با کارت‌های بانکی، SBP یا یاندکس پی.</string>
+    <string name="donate_method_dalink_title">DaLink</string>
+    <string name="donate_method_dalink_desc">سرویس پرداخت با پشتیبانی از کارت‌ها و کیف‌پول‌های الکترونیکی.</string>
+    <string name="donate_action_proceed">ادامه به پرداخت</string>
+    <string name="donate_action_select_prompt">یک روش پرداخت انتخاب کنید</string>
+    <string name="donate_warning_category">انتقال امن</string>
+    <string name="donate_warning_title">انتقال به سرویس پرداخت</string>
+    <string name="donate_warning_desc">شما در حال انتقال به درگاه پرداخت خارجی هستید. برای تکمیل تراکنش مرورگر باز خواهد شد.</string>
+    <string name="donate_warning_do_not_ask_again">دیگر سوال نشود</string>
     <string name="github_star_dialog_title">امتیاز به پروژه در گیت‌هاب</string>
     <string name="github_star_dialog_desc">اگر Mirrly TG Proxy برای شما مفید بوده است، با دادن ستاره در ریپازیتوری گیت‌هاب از پروژه حمایت کنید!</string>
     <string name="value_star_banner_title">میرلی به مدت ۱ ساعت از تلگرام شما محافظت کرد!</string>
@@ -531,7 +528,6 @@
     <string name="official_source_dialog_fingerprint_title">OFFICIAL SHA-256 FINGERPRINT</string>
     <string name="official_source_hash_copied">Signature hash copied!</string>
     <string name="action_copy_alt">Copy</string>
-    <string name="socks5_auth_dialog_category">SOCKS5 • احراز هویت الزامی است</string>
     <string name="socks5_auth_dialog_title">SOCKS5 Access Configuration</string>
     <string name="socks5_auth_dialog_desc">To launch SOCKS5 proxy, enter username and password. They protect your local proxy socket (RFC 1929) and will be imported automatically into تلگرام.</string>
     <string name="socks5_auth_field_username">Username</string>
@@ -542,16 +538,11 @@
     <string name="socks5_auth_err_password_required">Password required for SOCKS5</string>
     <string name="socks5_auth_btn_generate_random">Generate Random Credentials</string>
     <string name="socks5_auth_btn_save_and_start">ذخیره and Launch</string>
-    <string name="tg_connect_dialog_category">انتخاب پروتکل تلگرام</string>
     <string name="tg_connect_dialog_title">Connect to تلگرام</string>
     <string name="tg_connect_dialog_subtitle">Choose optimal protocol for your connection requirements:</string>
-    <string name="tg_connect_mtproto_badge_active">ACTIVE • RECOMMENDED</string>
-    <string name="tg_connect_mtproto_badge">RECOMMENDED</string>
     <string name="tg_connect_mtproto_desc">Ideal for messaging, channels, and 4K media. Fastest speeds, pre-warmed WsPool, and low power usage.</string>
     <string name="tg_connect_btn_open_tg">Open تلگرام</string>
     <string name="tg_connect_toast_mtproto_copied">MTProto link copied!</string>
-    <string name="tg_connect_socks5_badge_active">ACTIVE • BETA</string>
-    <string name="tg_connect_socks5_badge">BETA • FOR CALLS</string>
     <string name="tg_connect_socks5_desc">Bypasses censorship on voice and video calls via TCP relay. Currently in BETA; stability may vary depending on network provider.</string>
     <string name="tg_connect_socks5_login_prefix">Username: %1$s</string>
     <string name="tg_connect_socks5_pass_prefix">Password: %1$s</string>
@@ -570,6 +561,7 @@
     <string name="import_worker_checking">Testing node reachability...</string>
     <string name="import_worker_btn_import_activate">Import &amp; Activate</string>
     <string name="vpn_stat_servers">Servers</string>
+    <string name="vpn_stat_profile">پروفایل</string>
     <string name="vpn_stat_protocol">پروتکل</string>
     <string name="vpn_screen_in_dev_hint">System VPN routes all device traffic through an encrypted tunnel.</string>
     <string name="vpn_dialog_title_dev">VPN پروتکل</string>
@@ -609,6 +601,12 @@
     <string name="ext_link_dalink_desc">Mirrly TG پروکسی is completely free software! Link opens DaLink donation platform to send voluntary appreciation tips to author R1Xern.</string>
     <string name="ext_link_website_title">External Website (%1$s)</string>
     <string name="ext_link_website_desc">Link navigates to external website (%1$s) in your default web browser.</string>
+    <string name="ext_link_cf_cat">داشبورد کلودفلر</string>
+    <string name="ext_link_cf_title">داشبورد کلودفلر</string>
+    <string name="ext_link_cf_desc">این پیوند به داشبورد مدیریت وب کلودفلر برای ایجاد و مدیریت ورکرها و مسیریابی شبکه هدایت می‌شود.</string>
+    <string name="ext_link_commit_cat">کامیت گیت‌هاب</string>
+    <string name="ext_link_commit_title">جزئیات کامیت</string>
+    <string name="ext_link_commit_desc">این پیوند به بررسی کامیت با سابقه تغییرات کد در مخزن گیت‌هاب هدایت می‌شود.</string>
     <string name="err_open_link">Failed to open link: %1$s</string>
     <string name="action_open_link">Open Link</string>
     <string name="sleep_timer_tab_active">تایمر (فعال)</string>
@@ -745,6 +743,7 @@
     <string name="logs_filter_info">اطلاعات</string>
     <string name="logs_filter_warn">هشدارها</string>
     <string name="logs_filter_error">خطاها</string>
+    <string name="logs_filter_debug">دیباگ</string>
     <string name="logs_scroll_to_new">Scroll to top</string>
     <string name="logs_action_copy_all">Copy all</string>
     <string name="logs_action_clear">Clear</string>
@@ -787,21 +786,21 @@
     <string name="about_link_repo_sub">Mirrly TG پروکسی source code on GitHub</string>
     <string name="about_link_share_title">Share with Friends</string>
     <string name="about_link_share_sub">Share Mirrly TG پروکسی in تلگرام or social media</string>
-    <string name="about_link_issue_title">Found a bug or have an idea?</string>
-    <string name="about_link_issue_sub">Create an Issue on GitHub — developer responds personally</string>
-    <string name="about_link_license_title">License (GPLv3)</string>
+    <string name="about_link_issue_title">Report an Issue</string>
+    <string name="about_link_issue_sub">Issue tracker and feature requests on GitHub</string>
+    <string name="about_link_license_title">GNU GPLv3 License</string>
     <string name="about_link_license_sub">Open Source</string>
-    <string name="about_section_star">SUPPORT WITH A STAR ON GITHUB</string>
-    <string name="about_star_title">Enjoying Mirrly TG پروکسی?</string>
-    <string name="about_star_desc">Your GitHub star helps the project grow, attracts new users, and motivates new updates.</string>
-    <string name="about_star_btn">Star on GitHub</string>
-    <string name="about_section_donation">SUPPORT AUTHOR (DONATION)</string>
+    <string name="about_section_star">GITHUB RATING</string>
+    <string name="about_star_title">Repository Star</string>
+    <string name="about_star_desc">A star on GitHub increases project visibility in the open-source community.</string>
+    <string name="about_star_btn">Star Repository</string>
+    <string name="about_section_donation">حمایت از پروژه</string>
     <string name="about_donation_title">Support Mirrly Development</string>
-    <string name="about_donation_desc">The app is completely free! Donations are voluntary to support R1Xern.</string>
-    <string name="about_donation_btn">Support author (DaLink)</string>
+    <string name="about_donation_desc">Mirrly TG پروکسی is built without advertisements or paywalls.</string>
+    <string name="about_donation_btn">Support Development</string>
     <string name="about_section_fame">HALL OF FAME</string>
-    <string name="about_fame_card_title">Mirrly Hall of Fame</string>
-    <string name="about_fame_card_desc">پیشگامان, contributors, and unique digital fingerprints</string>
+    <string name="about_fame_card_title">Hall of Fame</string>
+    <string name="about_fame_card_desc">Beta testers, bug reporters, and contributors</string>
     <string name="about_section_tech">TECH STACK</string>
     <string name="about_footer_developed_by">Developed by Mirrly Dev Team</string>
     <string name="about_footer_terms">Terms of Use</string>
@@ -838,13 +837,35 @@
     <string name="fame_tier_tg_title">تلگرام Community Member</string>
     <string name="fame_tier_tg_badge">TG SUBSCRIBER</string>
     <string name="fame_title">تالار مشاهیر و تقدیر</string>
+    <string name="fame_hero_title">تالار مشاهیر میرلی</string>
     <string name="fame_desc">سپاس ویژه از تمامی عزیزانی که در توسعه، ممیزی امنیت، آزمایش و بومی‌سازی Mirrly TG Proxy یاری رساندند.</string>
     <string name="fame_fingerprint_badge_header">UNIQUE DIGITAL FINGERPRINT FOR EACH CONTRIBUTOR</string>
+    <string name="fame_fingerprint_info_toast">هر مشارکت‌کننده دارای اثر انگشت دیجیتالی غیرقابل تغییر SHA-256 است</string>
+    <string name="fame_metric_pioneers">پیشگامان</string>
+    <string name="fame_metric_bughunters">شکارچیان باگ</string>
+    <string name="fame_metric_community">جامعه کاربران</string>
+    <string name="fame_metric_total">قهرمانان پروژه</string>
+    <string name="fame_filter_all">همه</string>
+    <string name="fame_filter_pioneers">پیشگامان</string>
+    <string name="fame_filter_bughunters">شکارچیان باگ</string>
+    <string name="fame_filter_community">جامعه کاربران</string>
     <string name="fame_section_pioneers">ARCHITECTURAL PIONEERS</string>
+    <string name="fame_section_legends_title">اسطوره‌های پروژه</string>
+    <string name="fame_section_legends_subtitle">پیشگامانی که بنیان میرلی را بنا نهادند</string>
     <string name="fame_section_bughunters">BUG HUNTERS</string>
+    <string name="fame_section_bughunters_subtitle">شکارچیان باگ و ممیزی امنیت</string>
+    <string name="fame_class_network_title">پشته شبکه و پروتکل‌ها</string>
+    <string name="fame_class_network_desc">هسته MTProto، تونل‌سازی و Cloudflare Workers</string>
+    <string name="fame_class_system_ui_title">رابط کاربری و یکپارچه‌سازی سیستم</string>
+    <string name="fame_class_system_ui_desc">حاشیه‌های امن، بهینه‌سازی مصرف باتری و سرویس‌های پس‌زمینه</string>
+    <string name="fame_subclass_mtproto">MTProto و ترافیک</string>
+    <string name="fame_subclass_workers">Cloudflare Workers</string>
+    <string name="fame_subclass_insets">Window Insets و چیدمان</string>
+    <string name="fame_subclass_power">مصرف باتری و خواب عمیق</string>
     <string name="fame_section_testers">BETA TESTING VOLUNTEERS</string>
     <string name="fame_section_community">TELEGRAM COMMUNITY</string>
-    <string name="fame_topbar_title">Acknowledgements</string>
+    <string name="fame_section_community_subtitle">اعضای فعال کانال تلگرام و داوطلبان</string>
+    <string name="fame_topbar_title">تالار افتخارات</string>
     <string name="fame_dialog_contrib_header">PROJECT CONTRIBUTION</string>
     <string name="fame_dialog_fingerprint_header">VERIFIED FINGERPRINT</string>
     <string name="fame_dialog_copied_toast">Digital fingerprint copied</string>
@@ -857,7 +878,7 @@
     <string name="fame_c_flowseal_contrib">Creator of tg-ws-proxy project. Developed the architectural concept of proxying تلگرام traffic via Cloudflare WebSocket without VPN.</string>
     <string name="fame_c_masterkey_role">معمار جامعه &amp; مشارکت‌کننده برجسته</string>
     <string name="fame_c_masterkey_contrib">فعال‌ترین مشارکت‌کننده که نقشی حیاتی در توسعه پروژه ایفا کرد: از مشاوره‌ها و آزمایش‌ها تا پیشرفت‌های بزرگ در معماری و تحلیل عمیق پیاده‌سازی.</string>
-    <string name="fame_c_grovymon_role">Bug Hunter &amp; امنیت Audit</string>
+    <string name="fame_c_grovymon_role">پیشگام &amp; امنیت Audit</string>
     <string name="fame_c_grovymon_contrib">Author of Issues #3, #4, #5, #7, #8, #15, #16, #18, #19, #20. Discovered navigation insets bugs on Android 16, update sticky badge, NoServerCertVerifier TLS flaw, researched LTE bypass, Rust core omission in release, and initiated mandatory SOCKS5 RFC 1929 auth.</string>
     <string name="fame_c_zzzxxx_role">Bug Hunter &amp; ورکر Researcher</string>
     <string name="fame_c_zzzxxx_contrib">Author of Issues #1, #9, #10, #13. Localized secret key memory reset on Xiaomi 12T (Android 15) and POCO X8 Pro Max (Android 16), priority loss of custom workers on reboot, and investigated Cloudflare Workers setups.</string>
@@ -928,6 +949,21 @@
     <string name="speed_test_btn_start">شروع آزمون سرعت</string>
     <string name="speed_test_btn_retry">تلاش مجدد</string>
     <string name="speed_test_btn_stop">توقف آزمون</string>
+    <string name="speed_test_phase_dc">بنچمارک DC</string>
+    <string name="speed_test_dc_matrix_title">ماتریس نودهای تلگرام · DC 1..5</string>
+    <string name="speed_test_dc_matrix_subtitle">سنجش تأخیر سرتاسری و دسترسی به دیتاسنترها از طریق تونل</string>
+    <string name="speed_test_dc_key_badge">کلیدی</string>
+    <string name="speed_test_dc_status_measuring">در حال سنجش...</string>
+    <string name="speed_test_dc_status_unreachable">پاسخگو نیست</string>
+    <string name="speed_test_gauge_tap_start">لمس برای شروع</string>
+    <string name="speed_test_gauge_tap_stop">لمس برای توقف</string>
+    <string name="speed_test_summary_title">گزارش کیفیت تونل</string>
+    <string name="speed_test_summary_score_label">امتیاز</string>
+    <string name="speed_test_key_nodes_title">تأخیر نودهای کلیدی</string>
+    <string name="speed_test_node_dc2">Telegram DC2 · پیام‌ها و تماس‌ها</string>
+    <string name="speed_test_node_dc4">Telegram DC4 · رسانه و فایل‌ها</string>
+    <string name="speed_test_node_edge">Cloudflare Edge · %1$s</string>
+    <string name="speed_test_readiness_title">آمادگی سناریوهای تلگرام</string>
     <string name="speed_test_total_records">کل آزمون‌ها: %1$d</string>
     <string name="speed_test_empty_history_title">تاریخچه آزمون خالی است</string>
     <string name="speed_test_empty_history_desc">یک آزمون سرعت اجرا کنید تا نتایج و تله‌متری در اینجا ذخیره شود.</string>
@@ -961,7 +997,7 @@
     <string name="update_verifying_signature">در حال اعتبارسنجی امضای دیجیتال...</string>
     <string name="update_download_error">دانلود error</string>
     <string name="update_btn_download_browser">دانلود in browser</string>
-    <string name="update_verified_success">✓ File verified (SHA-256 OK)</string>
+    <string name="update_verified_success">فایل تأیید شد (SHA-256 OK)</string>
     <string name="update_install_cta_hint">Tap the button below to start Android package installation.</string>
     <string name="update_btn_download_install">دانلود &amp; install %1$s (v%2$s)</string>
     <string name="update_btn_reinstall">Reinstall %1$s (v%2$s)</string>
@@ -983,10 +1019,7 @@
     <string name="update_changelog_header">CHANGELOG</string>
     <string name="update_whats_new_title">What\'s new in this version</string>
     <string name="update_actual_version_notice">You have the latest official version v%1$s installed.  Official changelog and release builds are available on GitHub repository.</string>
-    <string name="update_sim_active_desc">Test mode active: Update v1.1.9 available</string>
-    <string name="update_sim_inactive_desc">Test mode disabled</string>
-    <string name="update_sim_btn_reset">Test mode v1.1.9 (tap to reset)</string>
-    <string name="update_sim_btn_test_ui">Test update UI</string>
+
     <string name="update_screen_title">Update</string>
     <string name="update_architecture_selection">APK ARCHITECTURE SELECTION</string>
     <string name="update_package_type_title">Installation package type</string>
@@ -1572,7 +1605,7 @@
 • وضعیت «عادی» نشان‌دهنده سیگنال تمیز رادیویی بدون تداخل است.</string>
     <string name="nd_info_cf_edge_title">بخش ورکر کلودفلر (Core)</string>
     <string name="nd_info_cf_edge_desc">نحوه کارکرد:
-• وضعیت سرور لبه کلودفلر که تونل وب‌سوکت و DNS امن DoH را پردازش می‌کند.
+• وضعیت سرور لبه کلودفلر که تونل وب‌سوکت و ارتباط امن را پردازش می‌کند.
 
 اهمیت شاخص:
 • بررسی اینکه آیا سهمیه روزانه تمام شده (HTTP 429) یا سرور پاسخگوست.
@@ -1632,7 +1665,7 @@
     <string name="nd_calls_video_title">تماس‌ها و ویدیو</string>
     <string name="nd_speedtest_title">آزمون سرعت تونل</string>
     <string name="nd_speedtest_desc">سنجش دانلود، آپلود، پینگ و جیتر از طریق کلودفلر</string>
-    <string name="nd_speedtest_in_dev">در حال توسعه</string>
+
     <string name="nd_speedtest_action_run">اجرا</string>
     <string name="nd_hero_mtproto_pool_title">استخر جریان‌ها</string>
     <string name="nd_hero_mtproto_slots_val">%1$d اسلات (FakeTLS)</string>
@@ -1873,36 +1906,16 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="share_app_chooser_title">Share Mirrly TG پروکسی with friends</string>
 
     <!-- Telegram Channel Screen & Button Strings -->
-    <string name="tg_channel_btn_title">تلگرام کانال — MirrlyDev</string>
-    <string name="tg_channel_btn_sub">News, insights and giveaways</string>
-    <string name="tg_channel_topbar_title">تلگرام کانال</string>
-    <string name="tg_channel_card_title">تلگرام کانال — MirrlyDev</string>
-    <string name="tg_channel_badge_official">OFFICIAL DEVELOPER CHANNEL</string>
-    <string name="tg_channel_hero_desc">The official blog of the Mirrly ecosystem developer (R1Xern). Follow live development, technical insights, tests of new network cores, upcoming features, and interesting project updates.</string>
+    <string name="tg_channel_btn_title">کانال تلگرام — MirrlyDev</string>
+    <string name="tg_channel_btn_sub">اخبار، گزارش‌های فنی و جوایز</string>
+    <string name="tg_channel_topbar_title">کانال تلگرام</string>
+    <string name="tg_channel_card_title">MirrlyDev</string>
+    <string name="tg_channel_hero_desc">کانال رسمی توسعه‌دهنده اکوسیستم Mirrly. انتشار نسخه‌های آزمایشی هسته، بحث پیرامون معماری و ارتباط مستقیم با نویسنده.</string>
     <string name="tg_channel_tag_handle">@WhyOKyHb</string>
-
-    <string name="tg_giveaway_section_title">MONTHLY GIVEAWAYS</string>
-    <string name="tg_giveaway_card_title">Prizes for کانال Subscribers</string>
-    <string name="tg_giveaway_frequency">1–2 giveaways every month</string>
-    <string name="tg_giveaway_prize_stars_val">500 Stars</string>
-    <string name="tg_giveaway_prize_stars_sub">In تلگرام</string>
-    <string name="tg_giveaway_prize_premium_val">تلگرام Premium</string>
-    <string name="tg_giveaway_prize_premium_sub">3-Month Subscription</string>
-    <string name="tg_giveaway_rule_desc">Giveaways are hosted directly in the تلگرام channel using automated randomizers. Simply stay subscribed to the MirrlyDev channel to participate.</string>
-
-    <string name="tg_features_section_title">INSIDE THE CHANNEL</string>
-    <string name="tg_feature_early_access_title">Early Access</string>
-    <string name="tg_feature_early_access_desc">Fresh test APK builds are posted in the channel prior to official GitHub releases.</string>
-    <string name="tg_feature_insider_title">Behind the Scenes</string>
-    <string name="tg_feature_insider_desc">C++/Rust core architecture, socket pool tuning, censorship bypass techniques, and technical notes.</string>
-    <string name="tg_feature_voting_title">Feature Polls &amp; Voting</string>
-    <string name="tg_feature_voting_desc">Participate in community polls and directly influence what gets built next.</string>
-    <string name="tg_feature_direct_contact_title">Direct Contact</string>
-    <string name="tg_feature_direct_contact_desc">Fast feedback, troubleshooting assistance, suggestions, and deep dive into network cases.</string>
-
-    <string name="tg_action_open_channel">Open MirrlyDev کانال</string>
-    <string name="tg_action_copy_link">Copy Link</string>
-    <string name="tg_toast_link_copied">کانال link copied to clipboard</string>
+    <string name="tg_channel_giveaway_note">قرعه‌کشی‌های منظم Telegram Premium و Stars بین اعضای کانال برگزار می‌شود.</string>
+    <string name="tg_action_open_channel">باز کردن در تلگرام</string>
+    <string name="tg_action_copy_link">کپی پیوند</string>
+    <string name="tg_toast_link_copied">پیوند در کلیپ‌بورد کپی شد</string>
 
     <!-- Task 03: Simple vs Advanced Settings UX & Expert Mode -->
     <string name="settings_advanced_mode_title">حالت تخصصی (Expert Mode)</string>
@@ -1944,7 +1957,7 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
 
     <!-- Task 06: Error Taxonomy & Failure Descriptions -->
     <string name="failure_worker_quota_exceeded">سقف روزانه درخواست‌های ورکر پر شده است (429)</string>
-    <string name="failure_dns_resolution_unavailable">عدم دسترسی به وضوح دامنه‌ها (DNS/DoH)</string>
+    <string name="failure_dns_resolution_unavailable">عدم دسترسی به وضوح دامنه‌ها (DNS)</string>
     <string name="failure_socks5_auth_rejected">احراز هویت SOCKS5 رد شد (رمز یا نام کاربری نادرست)</string>
     <string name="failure_cloudflare_edge_blocked">مسدودسازی لبه کلودفلر توسط فیلترینگ اپراتور</string>
     <string name="failure_warp_handshake_timeout">WireGuard/UDP blocked or timeout</string>
@@ -2003,8 +2016,6 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="badge_expert">EXPERT</string>
     <string name="badge_new">NEW</string>
     <string name="settings_vpn_mode_desc">تونل مستقیم Tun2Socks + کلودفلر WARP MASQUE / AmneziaWG</string>
-    <string name="vless_preset_default_region">شبکه جهانی Anycast CDN</string>
-    <string name="settings_doh_section_header">سرورهای DNS مبتنی بر HTTPS (DOH)</string>
     <string name="license_gnu_gpl_title">GNU GPLv3 License</string>
     <string name="tg_connect_proto_mtproto">MTProto پروکسی</string>
     <string name="tg_connect_proto_socks5">SOCKS5 پروکسی</string>
@@ -2038,14 +2049,19 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="settings_vpn_in_dev_dialog_title">Mirrly VPN در حال توسعه است</string>
     <string name="settings_vpn_in_dev_dialog_body">حالت تونل‌سازی Mirrly VPN و پروتکل‌های آپ‌لینک آن (WARP، VLESS، AWG) در مرحله تست مهندسی هستند. امکان بررسی تنظیمات وجود دارد اما مسیریابی کلی ترافیک ممکن است ناپایدار باشد.</string>
     <string name="settings_vpn_in_dev_dialog_ok">متوجه شدم</string>
+    <string name="vpn_in_dev_card_title">VPN در حال توسعه</string>
+    <string name="vpn_in_dev_card_desc">ماژول سیستم VPN در دست توسعه است و موقتا غیرفعال می‌باشد. برای حفاظت ترافیک از MTProto یا SOCKS5 استفاده نمایید.</string>
+    <string name="settings_ech_title">Encrypted Client Hello (ECH)</string>
+    <string name="settings_ech_desc">رمزنگاری SNI با کلید عمومی Cloudflare (outer SNI: cloudflare-ech.com) برای پنهان کردن دامنه اصلی از سیستم‌های فیلترینگ DPI.</string>
+    <string name="settings_ech_experimental_hint">ویژگی آزمایشی، ممکن است در تمام اپراتورها کار نکند</string>
+    <string name="settings_ws_randomization_title">تصادفی‌سازی وب‌سوکت (مسیرها و هدرها)</string>
+    <string name="settings_ws_randomization_desc">تغییر پویای مسیرها (/apiws/*) و هدرهای مرورگر واقعی (User-Agent، Sec-CH-UA) برای استتار در قالب ترافیک وب.</string>
+
     <string name="settings_port_default_badge">پورت پیش‌فرض</string>
     <string name="settings_port_safe_desc">پورت محلی: %1$d. بهینه‌سازی‌شده به صورت پیش‌فرض. امکان تغییر در حالت تخصصی در دسترس است.</string>
     <string name="settings_secret_safe_desc">کلید مخفی MTProto امن و فعال است. امکان تولید کلید سفارشی در حالت تخصصی وجود دارد.</string>
     <string name="settings_socks5_safe_desc">پورت محلی: %1$d. رله TCP آماده انتقال داده است. تنظیمات احراز هویت در حالت تخصصی در دسترس است.</string>
     <string name="settings_btn_configure_expert">پیکربندی پارامترها</string>
-    <string name="settings_doh_safe_summary">دی‌ان‌اس امن (DoH) فعال است. سرورهای بالادستی مورد اعتماد (%1$d فعال).</string>
-    <string name="settings_doh_expand_expert">نمایش تمام ارائه‌دهندگان و تست سرعت</string>
-    <string name="settings_doh_collapse_expert">بستن لیست ارائه‌دهندگان</string>
 
     <!-- Settings mode toggle -->
     <string name="settings_mode_expert">تخصصی</string>
@@ -2062,7 +2078,7 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
 
     <!-- VPN DNS in tunnel -->
     <string name="vpn_dns_tunnel_title">DNS Routing in Tunnel</string>
-    <string name="vpn_dns_tunnel_desc">1.1.1.1, 8.8.8.8 via secured DoH gateway</string>
+    <string name="vpn_dns_tunnel_desc">1.1.1.1, 8.8.8.8 via secured DNS gateway</string>
 
     <!-- Generic badges -->
     <string name="badge_secured_short">محافظت‌شده</string>
@@ -2081,15 +2097,19 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
 
     <!-- VPN Protocol selector dialog -->
     <string name="vpn_device_tunnel_inactive">Device tunneling via %1$s</string>
-    <string name="vpn_protocol_warp_cascade_desc">MASQUE (QUIC) + AWG failover • Dual Anycast</string>
-    <string name="vpn_protocol_vless_desc">Anycast CDN • TLS 1.3 traffic masquerade</string>
     <string name="vpn_protocol_masque_desc">IETF RFC 9484 CONNECT-UDP over HTTP/3 • QUIC</string>
     <string name="vpn_protocol_awg_desc">AmneziaWG with junk packet obfuscation • Anycast</string>
-    <string name="vpn_protocol_opera_desc">تونل ارتباطی HTTP CONNECT با DoH از سرورهای Opera VPN</string>
-    <string name="vpn_protocol_proton_desc">تونل WireGuard اختصاصی به سرورهای رایگان Proton VPN</string>
     <string name="vpn_protocol_dialog_title">انتخاب پروتکل VPN</string>
     <string name="vpn_protocol_dialog_desc">پروتکل تونل‌سازی را برای تست مهندسی انتخاب فرمایید:</string>
     <string name="vpn_select_protocol_short">پروتکل</string>
+    <string name="vpn_protocol_awg_badge">توصیه می‌شود (مقاوم در برابر فیلترینگ)</string>
+    <string name="vpn_protocol_masque_badge">احتمال مسدودسازی توسط فیلترینگ</string>
+    <string name="vpn_protocol_masque_warning_title">هشدار: مسدودسازی MASQUE در روسیه</string>
+    <string name="vpn_protocol_masque_warning_desc">پروتکل MASQUE از QUIC/UDP بدون پنهان‌سازی استفاده کرده و توسط سیستم‌های فیلترینگ (TSPU) مسدود می‌شود. برای اتصال پایدار استفاده از AmneziaWG (AWG) توصیه می‌شود.</string>
+    <string name="vpn_protocol_masque_action_use_awg">انتخاب AWG (توصیه می‌شود)</string>
+    <string name="vpn_protocol_masque_action_continue">ادامه با MASQUE</string>
+    <string name="settings_warp_reg_via_worker_title">ثبت‌نام از طریق Worker Relay</string>
+    <string name="settings_warp_reg_via_worker_desc">استفاده از Cloudflare Worker برای ثبت‌نام و به‌روزرسانی پروفایل WARP. در صورت غیرفعال بودن، درخواست‌ها مستقیماً با جعل SNI (libsni) ارسال می‌شوند.</string>
 
     <!-- Cloudflare Deploy -->
     <string name="cf_deploy_token_saved">توکن ذخیره شد</string>
@@ -2099,24 +2119,438 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="cf_session_reset">نشست کلودفلر بازنشانی شد</string>
     <string name="cf_account_session_status">وضعیت نشست</string>
     <string name="error_open_browser">خطا در باز کردن مرورگر اینترنت</string>
-    <string name="settings_ech_title">Encrypted Client Hello (ECH)</string>
-    <string name="settings_ech_desc">رمزگذاری SNI با کلید عمومی کلودفلر (outer SNI: cloudflare-ech.com). دامنه واقعی را از سیستم‌های فیلترینگ DPI مخفی می‌کند.</string>
-    <string name="settings_ech_experimental_hint">قابلیت آزمایشی، ممکن است در تمام اپراتورها کار نکند</string>
     <string name="settings_tls_padding_title">رندوم‌سازی پر کردن رکوردهای TLS</string>
     <string name="settings_tls_padding_desc">پر کردن و تقسیم تصادفی رکوردهای TLS برای پنهان کردن اندازه بسته‌های دست‌دهی MTProto از تحلیل آماری فیلترینگ DPI.</string>
-    <string name="settings_ws_randomization_title">تصادفی‌سازی مسیر و هدرهای وب‌سوکت</string>
-    <string name="settings_ws_randomization_desc">تغییر مسیر پویا (/apiws/*) و هدرهای واقعی مرورگر (User-Agent، Sec-CH-UA، Accept-Language) برای استتار ترافیک به عنوان وب.</string>
+    <string name="socks5_no_worker_error">هیچ ورکری انتخاب نشده است. لطفاً وارد شوید.</string>
 
     <!-- Info & Connect Footnotes -->
-    <string name="tg_connect_footnote_badge">یادداشت</string>
     <string name="tg_connect_footnote_title">کدام پروتکل را انتخاب کنیم؟</string>
     <string name="tg_connect_footnote_desc">• پروتکل MTProto — بهینه‌شده برای چت‌های متنی، گروه‌ها و کانال‌ها با کمترین تأخیر و سرعت بالا.\n• پروتکل SOCKS5 — پروتکل همه‌منظوره شبکه، ضروری برای تماس‌های صوتی و تصویری و دانلود بدون قطعی رسانه‌ها.</string>
     <string name="nd_footnote_badge">یادداشت</string>
     <string name="nd_footnote_title">توضیح شاخص‌های کلیدی شبکه</string>
     <string name="nd_footnote_desc">• شاخص SQI — ارزیابی کلی کیفیت شبکه از ۰ تا ۱۰۰٪.\n• پینگ (RTT) — زمان پاسخ‌دهی سرور به میلی‌ثانیه (زیر ۱۰۰ میلی‌ثانیه عالی است).\n• نوسان (Jitter) — میزان ناپایداری تأخیر (زیر ۲۵ میلی‌ثانیه برای تماس بدون قطعی ایده‌آل است).\n• بافر بلوت — کندی ناشی از پر شدن صف‌های مودم هنگام دانلود در پس‌زمینه.</string>
-    <string name="onboarding_footnote_badge">یادداشت</string>
-    <string name="onboarding_footnote_title">نحوه عملکرد</string>
-    <string name="onboarding_footnote_desc">میرلی منحصراً به عنوان پروکسی محلی برای تلگرام عمل می‌کند، ترافیک سایر برنامه‌ها را تغییر نمی‌دهد و بر خلاف VPNهای سراسری، باتری مصرف نمی‌کند.</string>
-    <string name="info_footnote_badge">یادداشت: واژه‌نامه اصطلاحات</string>
-    <string name="info_footnote_simple_label">توضیح به زبان ساده</string>
+    <!-- Onboarding Step 2: Proxy for Telegram -->
+    <string name="onboarding_step_proxy_title">پروکسی برای تلگرام</string>
+    <string name="onboarding_step_proxy_desc">درگاه‌های محلی MTProto و SOCKS5 منحصراً برای تلگرام کار می‌کنند، به برنامه‌های دیگر دسترسی ندارند و در مصرف باتری صرفه‌جویی می‌کنند.</string>
+
+    <!-- Onboarding Step 3: System VPN & Uplinks -->
+    <string name="onboarding_step_vpn_title">حالت وی‌پی‌ان سراسری</string>
+    <string name="onboarding_step_vpn_desc">تونل امن کامل برای تمامی برنامه‌های دستگاه یا برنامه‌های منتخب از طریق تونل‌بندی تفکیک‌شده.</string>
+    <string name="onboarding_vpn_feature_independent_title">مستقل از پروکسی</string>
+    <string name="onboarding_vpn_feature_independent_desc">پروتکل‌های MTProto و SOCKS5 به صورت مستقل از VPN کار می‌کنند و تداخلی ندارند. می‌توانید از VPN برای کل سیستم یا از پروکسی فقط برای تلگرام استفاده کنید.</string>
+    <string name="onboarding_vpn_feature_awg_title">وارپ AWG (آمنزیا)</string>
+    <string name="onboarding_vpn_feature_awg_desc">ضد فیلترینگ پیشرفته (DPI) برای مناطقی که کلودفلر مسدود است (ایران، روسیه). هدرهای بسته‌های وایرگارد را مخفی می‌کند.</string>
+    <string name="onboarding_vpn_feature_masque_title">وارپ MASQUE (HTTP/3)</string>
+    <string name="onboarding_vpn_feature_masque_desc">تونل پرسرعت نسل جدید بر پایه QUIC/HTTP/3 برای کشورهایی که کلودفلر در دسترس است، با حداقل تأخیر.</string>
+    <string name="onboarding_vpn_feature_split_title">تونل‌بندی تفکیک‌شده</string>
+    <string name="onboarding_vpn_feature_split_desc">انتخاب دلخواه برنامه‌ها: هدایت تنها برنامه‌های مورد نیاز از طریق تونل بدون کند شدن سرویس‌های داخلی.</string>
+    <string name="info_footnote_badge">توضیح اصطلاحات</string>
+
+    <!-- SOCKS5 Cloudflare Auth Required Dialog -->
+    <string name="socks5_cf_auth_title">برای کارکرد SOCKS5 به کلودفلر نیاز است</string>
+    <string name="socks5_cf_auth_desc">پروکسی SOCKS5 ترافیک پیام‌رسان را از طریق ورکر کلودفلر تونل می‌کند. برای شروع، ورود با حساب رایگان کلودفلر یا تنظیم ورکر اختصاصی الزامی است.</string>
+    <string name="socks5_cf_auth_card_why_title">چرا این مورد الزامی است؟</string>
+    <string name="socks5_cf_auth_card_why_desc">برخلاف MTProto، پروتکل SOCKS5 فایل‌های رسانه‌ای و تماس‌ها را از طریق پل وب‌سوکت به سرورهای تلگرام منتقل می‌کند. بدون ورکر شخصی، پروکسی امکان‌پذیر نیست.</string>
+    <string name="socks5_cf_auth_btn_login">ورود از طریق کلودفلر</string>
+    <string name="socks5_cf_auth_btn_custom">وارد کردن ورکر شخصی</string>
+    <string name="socks5_cf_auth_btn_manual_guide">راهنمای ساخت دستی</string>
+    <string name="socks5_cf_auth_custom_title">آدرس ورکر را وارد کنید</string>
+    <string name="socks5_cf_auth_custom_hint">مثال: worker.subdomain.workers.dev</string>
+    <string name="socks5_cf_auth_custom_save">ذخیره و راه‌اندازی</string>
+    <string name="socks5_cf_auth_custom_invalid">دامنه ورکر نامعتبر است</string>
+    <string name="cf_oauth_clipboard_detected">لینک احراز هویت از کلیپ‌بورد دریافت شد</string>
+    <string name="socks5_cf_auth_waiting_title">در انتظار تأیید در مرورگر</string>
+    <string name="socks5_cf_auth_waiting_desc">اگر صفحه لوکال‌هاست در مرورگر خطا داد، آدرس کامل نوار مرورگر را کپی کرده و دکمه زیر را بزنید.</string>
+    <string name="socks5_cf_auth_btn_paste_url">چسباندن لینک از مرورگر</string>
+    <string name="socks5_cf_auth_paste_hint">http://localhost:8976/oauth/callback?code=...</string>
+    <string name="socks5_cf_auth_paste_confirm">تأیید لینک</string>
+    <string name="socks5_cf_auth_btn_api_token">ورود با توکن API</string>
+    <string name="socks5_cf_auth_api_token_desc">از توکن API کلودفلر با دسترسی به ورکرها استفاده کنید.</string>
+    <string name="socks5_cf_auth_api_token_link">ساخت توکن API در کلودفلر</string>
+    <string name="socks5_cf_auth_api_token_how_to_title">نحوه دریافت توکن API:</string>
+    <string name="socks5_cf_auth_api_token_step1">۱. صفحه API Tokens را از لینک زیر باز کنید.</string>
+    <string name="socks5_cf_auth_api_token_step2">۲. روی Create Token کلیک کرده و قالب Edit Cloudflare Workers را انتخاب کنید.</string>
+    <string name="socks5_cf_auth_api_token_step3">۳. روی Continue to summary → Create Token کلیک کرده و کلید را جای‌گذاری کنید.</string>
+    <string name="socks5_cf_auth_api_token_hint">توکن API کلودفلر را وارد کنید</string>
+    <string name="socks5_cf_auth_api_token_save">ورود با توکن</string>
+    <string name="socks5_cf_auth_api_token_verifying">در حال بررسی توکن...</string>
+    <string name="socks5_cf_auth_exchanging">تبادل کد با توکن...</string>
+    <string name="socks5_cf_auth_url_invalid">لینک شامل کد احراز هویت (code=...) نیست</string>
+    <string name="action_retry">تلاش مجدد</string>
+    <string name="uplink_dialog_section_protocol">۰۱ • مشخصات پروتکل</string>
+    <string name="uplink_dialog_section_routing">۰۲ • مسیریابی و وضعیت</string>
+
+    <!-- SOCKS5 Onboarding Tutorial Dialog -->
+    <string name="socks5_onboard_category">SOCKS5 • آموزش و قابلیت‌ها</string>
+    <string name="socks5_onboard_title">نحوه کارکرد SOCKS5 و کلودفلر</string>
+    <string name="socks5_onboard_why_title">۱. چرا از SOCKS5 و ورکر استفاده می‌شود</string>
+    <string name="socks5_onboard_why_desc">پروکسی SOCKS5 جریان ترافیک را از بستر لبه کلودفلر و تحت پروتکل وب‌سوکت امن عبور می‌دهد. این کار محدودیت‌های اپراتورها را دور زده و سهمیه روزانه ۱۰۰ هزار درخواست اختصاصی ارائه می‌دهد.</string>
+    <string name="socks5_onboard_update_title">۲. نحوه به‌روزرسانی اسکریپت ورکر</string>
+    <string name="socks5_onboard_update_desc">در بخش «مدیریت ورکرها» گزینه «به‌روزرسانی اسکریپت» فعال است. با انتشار نسخه‌های جدید، کد ورکر با یک لمس به‌روز می‌شود. به‌روزرسانی خودکار فقط برای ورکرهای حساب خودتان مجاز است.</string>
+    <string name="socks5_onboard_manage_title">۳. حذف و ایجاد مجدد ورکرها</string>
+    <string name="socks5_onboard_manage_desc">اگر یک ورکر با اختلال مواجه شد، می‌توانید آن را با لمس طولانی در لیست حذف کنید و ظرف ۱۵ ثانیه در برگه «دپلو» ورکر جدید بسازید.</string>
+    <string name="socks5_onboard_btn_continue">متوجه شدم، ادامه</string>
+    <string name="socks5_onboard_btn_manager">باز کردن مدیریت ورکرها</string>
+    <string name="cf_oauth_notif_title">مجوز کلودفلر</string>
+    <string name="cf_oauth_notif_desc">در انتظار تأیید در مرورگر...</string>
+    <string name="socks5_onboard_step1_title">اتصال ورکر کلودفلر</string>
+    <string name="socks5_onboard_step1_desc">برای کارکرد SOCKS5 به یک ورکر اختصاصی کلودفلر نیاز است که تونل مستقیم و پرسرعت به تلگرام ایجاد کند.</string>
+    <string name="socks5_onboard_step1_loading">در حال جستجوی ورکرها در حساب کلودفلر...</string>
+    <string name="socks5_onboard_step1_found_title">ورکرهای موجود در حساب شما · %1$d</string>
+    <string name="socks5_onboard_step1_empty_title">هیچ ورکری در حساب یافت نشد</string>
+    <string name="socks5_onboard_step1_empty_desc">با یک لمس و با اسکریپت رسمی میرلی ورکر بسازید تا حساب شما را به تلگرام متصل کند.</string>
+    <string name="socks5_onboard_step1_btn_use_selected">استفاده از ورکر انتخاب‌شده</string>
+    <string name="socks5_onboard_step1_btn_deploy">ساخت ورکر با یک لمس</string>
+    <string name="socks5_onboard_step1_deploying_step1">۱/۳ بارگذاری اسکریپت worker.js...</string>
+    <string name="socks5_onboard_step1_deploying_step2">۲/۳ اتصال مسیر *.workers.dev...</string>
+    <string name="socks5_onboard_step1_deploying_step3">۳/۳ بررسی دسترسی ورکر...</string>
+    <string name="socks5_onboard_step1_deploy_success">ورکر با موفقیت ایجاد و فعال شد</string>
+    <string name="socks5_onboard_step1_active_badge">ورکر فعال:</string>
+    <string name="socks5_onboard_step1_btn_next">ادامه</string>
+    <string name="socks5_onboard_step2_title">محل مدیریت ورکرها</string>
+    <string name="socks5_onboard_step2_swipe_title">دسترسی سریع با کشیدن انگشت (سвайп)</string>
+    <string name="socks5_onboard_step2_swipe_desc">با کشیدن انگشت به چپ در صفحه اصلی در هر لحظه بخش مدیریت ورکرها باز می‌شود. همچنین از آیکون بالای صفحه نیز در دسترس است.</string>
+    <string name="socks5_onboard_step2_features_title">قابلیت‌های مدیریت ورکرها</string>
+    <string name="socks5_onboard_step2_features_desc">مشاهده همه ورکرها، وضعیت پینگ لحظه‌ای، آمار ترافیک و جابجایی بین ورکرها در دسترس است.</string>
+    <string name="socks5_onboard_step2_btn_next">بعدی</string>
+    <string name="socks5_onboard_step2_btn_back">قبلی</string>
+    <string name="socks5_onboard_step3_title">نحوه به‌روزرسانی اسکریپت‌ها</string>
+    <string name="socks5_onboard_step3_where_title">دکمه «به‌روزرسانی اسکریپت»</string>
+    <string name="socks5_onboard_step3_where_desc">در مدیریت ورکرها روی کارت هر ورکر شخصی دکمه به‌روزرسانی اسکریپت وجود دارد.</string>
+    <string name="socks5_onboard_step3_why_title">چرا به‌روزرسانی مهم است</string>
+    <string name="socks5_onboard_step3_why_desc">در نسخه‌های جدید میرلی سرعت ارسال مدیا و تماس‌ها بهبود یافته و فیلترینگ دور زده می‌شود. این کار با ۱ لمس و بدون نیاز به ورود به سایت کلودفلر انجام می‌شود.</string>
+    <string name="socks5_onboard_step3_btn_finish">شروع SOCKS5</string>
+
+    <!-- Worker Ownership & Manual Guide -->
+    <string name="wm_update_not_owned_title">به‌روزرسانی مسدود شد</string>
+    <string name="wm_update_not_owned_desc">این ورکر متعلق به حساب متصل‌شده فعلی کلودفلر شما نیست. به‌روزرسانی خودکار از طریق API فقط برای ورکرهای حساب خودتان در دسترس است. برای سایر ورکرها، اسکریپت را به صورت دستی در پنل کلودفلر به‌روز کنید.</string>
+    <string name="wm_guide_header_title">ساخت دستی ورکر کلودفلر</string>
+    <string name="wm_guide_header_subtitle">راهنمای گام‌به‌گام ساخت ورکر پروکسی در داشبورد کلودفلر بدون نیاز به ورود OAuth.</string>
+    <string name="wm_guide_step1_title">مرحله ۱. ثبت نام در کلودفلر</string>
+    <string name="wm_guide_step1_desc">به سایت رسمی کلودفلر مراجعه کرده و یک حساب رایگان بسازید. نیازی به کارت بانکی یا اشتراک پولی نیست.</string>
+    <string name="wm_guide_step1_btn">باز کردن dash.cloudflare.com</string>
+    <string name="wm_guide_step2_title">مرحله ۲. ساخت برنامه ورکر</string>
+    <string name="wm_guide_step2_desc">در منوی پنل به مسیر Workers &amp; Pages → Create Application → Create Worker بروید. یک نام دلخواه وارد کنید و روی Deploy بزنید.</string>
+    <string name="wm_guide_step3_title">مرحله ۳. قرار دادن اسکریپت تونل</string>
+    <string name="wm_guide_step3_desc">روی Edit Code بزنید، قالب پیش‌فرض را پاک کنید و اسکریپت worker.js را جایگزین نمایید. این اسکریپت ترافیک را شفاف و بدون تأخیر عبور می‌دهد.</string>
+    <string name="wm_guide_step3_btn_copy">اسکریپت</string>
+    <string name="wm_guide_step3_btn_github">راهنما</string>
+    <string name="wm_guide_step4_title">مرحله ۴. انتشار و ذخیره‌سازی</string>
+    <string name="wm_guide_step4_desc">روی Save and deploy بزنید و آدرس دامنه دریافتی (مثال: worker.subdomain.workers.dev) را کپی کنید.</string>
+    <string name="wm_guide_step5_title">مرحله ۵. افزودن ورکر به میرلی</string>
+    <string name="wm_guide_step5_desc">آدرس دامنه کپی‌شده را در کادر زیر وارد کرده و دکمه افزودن را بزنید:</string>
+    <string name="wm_guide_step5_hint">مثال: worker.subdomain.workers.dev</string>
+    <string name="wm_guide_step5_btn_add">افزودن و فعال‌سازی ورکر</string>
+    <string name="wm_guide_copied_toast">اسکریپت worker.js در حافظه موقت کپی شد</string>
+
+    <!-- VPN DNS Configuration -->
+    <string name="settings_vpn_dns_section">دی‌ان‌اس تونل وی‌پی‌ان</string>
+    <string name="vpn_dns_selector_title">سرورهای دی‌ان‌اس تونل</string>
+    <string name="vpn_dns_mode_cloudflare">Cloudflare DNS</string>
+    <string name="vpn_dns_mode_cloudflare_desc">1.1.1.1، 1.0.0.1. دی‌ان‌اس پیش‌فرض کلودفلر.</string>
+    <string name="vpn_dns_mode_comss">Comss.one DNS (SmartDNS هوش مصنوعی)</string>
+    <string name="vpn_dns_mode_comss_desc">83.220.169.155، 195.133.25.16. دسترسی مستقیم به ChatGPT، Claude، Gemini، Copilot بدون وی‌پی‌ان جانبی.</string>
+    <string name="vpn_dns_mode_custom">دی‌ان‌اس سفارشی</string>
+    <string name="vpn_dns_mode_custom_desc">آدرس‌های سرور دی‌ان‌اس IPv4 دلخواه (مانند AdGuard، Comss).</string>
+    <string name="vpn_dns_custom_ips_label">آدرس‌های دی‌ان‌اس IPv4 (با ویرگول)</string>
+    <string name="vpn_dns_custom_placeholder">مثال: 94.140.14.14, 94.140.15.15</string>
+    <string name="vpn_dns_ipv6_protection_note">در حالت SmartDNS و سفارشی، IPv6 DNS برای جلوگیری از نشت و دور زدن مسدودسازی غیرفعال می‌شود.</string>
+    <string name="vpn_dns_save_button">ذخیره دی‌ان‌اس</string>
+    <string name="vpn_dns_saved_toast">دی‌ان‌اس تونل ذخیره شد</string>
+    <string name="vpn_dns_invalid_ip_toast">لطفاً آدرس‌های IPv4 معتبر وارد کنید</string>
+    <string name="vpn_dns_info_title">مسیریابی دی‌ان‌اس وی‌پی‌ان</string>
+    <string name="vpn_dns_info_desc">تونل WARP بسته‌های لایه ۳ را منتقل می‌کند. تنظیمات دی‌ان‌اس آدرس سرور نام را مشخص می‌کند.</string>
+
+    <string name="socks5_cf_auth_api_token_open_dash_btn">باز کردن نمایه توکن‌های API</string>
+    <string name="socks5_onboard_open_wm_btn">باز کردن مدیریت ورکرها</string>
+
+    <!-- Uplink & Split Tunnel Dialog Strings -->
+    <string name="uplink_dialog_category">وضعیت آپ‌لینک • مسیر شبکه</string>
+    <string name="split_tunnel_category">تونل‌بندی تفکیک‌شده</string>
+
+    <!-- Subdomain Setup Dialog & Explanations -->
+    <string name="cf_subdomain_dialog_badge">پیکربندی الزامی • کلودفلر</string>
+    <string name="cf_subdomain_dialog_title">زیردامنه workers.dev</string>
+    <string name="cf_subdomain_dialog_subtitle">دامنه پایه حساب کاربری برای انتشار ورکرها</string>
+    <string name="cf_subdomain_what_title">زیردامنه workers.dev چیست</string>
+    <string name="cf_subdomain_what_desc">این نام شناسه عمومی و یکتای حساب کلودفلر شماست. تمام پروکسی‌های اختصاصی شما روی آدرس‌های [worker-name].[subdomain].workers.dev قرار می‌گیرند.</string>
+    <string name="cf_subdomain_why_title">چرا باید قبل از ساخت ورکر تعیین شود</string>
+    <string name="cf_subdomain_why_desc">کلودفلر نیازمند ثبت یک‌باره زیردامنه هنگام فعال‌سازی حساب جدید است. بدون زیردامنه امکان ساخت و اجرای ورکر وجود ندارد.</string>
+    <string name="cf_subdomain_rules_title">قوانین و قالب نام‌گذاری</string>
+    <string name="cf_subdomain_rules_desc">• طول بین ۳ تا ۳۲ نویسه\n• فقط حروف کوچک انگلیسی (a-z)، ارقام (0-9) و خط تیره (-)\n• بدون فاصله، حروف بزرگ یا نقطه\n• پسوند workers.dev را وارد نکنید — به‌صورت خودکار اضافه می‌شود\n• نام باید در شبکه کلودفلر یکتا باشد</string>
+    <string name="cf_subdomain_input_label">نام زیردامنه</string>
+    <string name="cf_subdomain_input_placeholder">مثال: alex-relay</string>
+    <string name="cf_subdomain_preview_label">آدرس نهایی پروکسی:</string>
+    <string name="cf_subdomain_btn_save">ثبت زیردامنه</string>
+    <string name="cf_subdomain_btn_random">تصادفی</string>
+    <string name="cf_subdomain_err_empty">نام زیردامنه را وارد کنید</string>
+    <string name="cf_subdomain_err_too_short">حداقل ۳ نویسه</string>
+    <string name="cf_subdomain_err_too_long">حداکثر ۳۲ نویسه</string>
+    <string name="cf_subdomain_err_invalid_chars">فقط حروف کوچک انگلیسی a-z، اعداد و خط تیره مجاز است</string>
+    <string name="cf_subdomain_err_hyphen_edge">نام نمی‌تواند با خط تیره شروع یا تمام شود</string>
+    <string name="cf_subdomain_err_already_taken">این زیردامنه توسط کاربر دیگری در کلودفلر ثبت شده است. نام دیگری انتخاب کنید.</string>
+    <string name="socks5_onboard_subdomain_needed_title">پیکربندی زیردامنه الزامی است</string>
+    <string name="socks5_onboard_subdomain_needed_desc">در حساب کاربری جدید کلودفلر شما هنوز زیردامنه workers.dev مشخص نشده است. قبل از ساخت اولین ورکر آن را تنظیم کنید.</string>
+    <string name="socks5_onboard_subdomain_btn_setup">تنظیم زیردامنه</string>
+    <string name="socks5_onboard_subdomain_active_label">زیردامنه حساب کاربری:</string>
+    <string name="cf_subdomain_btn_check">بررسی در کلودفلر</string>
+    <string name="cf_subdomain_btn_open_dash">باز کردن داشبورد کلودفلر</string>
+    <string name="cf_subdomain_checking">در حال بررسی...</string>
+    <string name="cf_subdomain_registering">در حال ثبت زیردامنه...</string>
+    <string name="cf_subdomain_not_found">زیردامنه هنوز در کلودفلر ثبت نشده است</string>
+    <string name="socks5_onboard_step1_subdomain_badge">زیردامنه WORKERS.DEV</string>
+    <string name="socks5_onboard_step1_subdomain_hint">ساخت ورکر نیازمند تنظیم زیردامنه است</string>
+    <string name="socks5_onboard_step1_btn_setup_subdomain_first">ابتدا زیردامنه را تنظیم کنید</string>
+    <string name="cf_guide_faq_subdomain_title">زیردامنه workers.dev چیست و چه چیزی باید وارد کرد؟</string>
+    <string name="cf_guide_faq_subdomain_desc">زیردامنه محدوده نام شخصی حساب شما است (مانند: username.workers.dev). این زیردامنه یک بار هنگام فعال‌سازی کلودفلر ثبت می‌شود و تمام ورکرها روی آن میزبانی می‌شوند (فقط حروف انگلیسی، ارقام و خط تیره، بین ۳ تا ۳۲ نویسه).</string>
+
+    <!-- VPN Custom Profile Import & Onboarding -->
+    <string name="vpn_import_dialog_badge">ورود نمایه • VPN</string>
+    <string name="vpn_import_dialog_title">افزودن نمایه</string>
+    <string name="vpn_import_dialog_subtitle">پیکربندی WireGuard، AmneziaWG، JSON یا کلید مجوز WARP+ را وارد کنید</string>
+    <string name="vpn_import_input_label">پیکربندی یا کلید</string>
+    <string name="vpn_import_input_placeholder">فایل .conf، JSON یا کلید xxxxxxxx-xxxxxxxx-xxxxxxxx را جای‌گذاری کنید</string>
+    <string name="vpn_import_btn_paste">جای‌گذاری از کلیپ‌بورد</string>
+    <string name="vpn_import_btn_file">انتخاب فایل</string>
+    <string name="vpn_import_btn_clear">پاک کردن</string>
+    <string name="vpn_import_detected_format">قالب شناسایی‌شده:</string>
+    <string name="vpn_import_btn_apply">اعمال نمایه</string>
+    <string name="vpn_import_btn_activate_key">فعال‌سازی کلید WARP+</string>
+    <string name="vpn_import_success_toast">نمایه سفارشی با موفقیت ذخیره شد</string>
+    <string name="vpn_import_key_success_toast">کلید WARP+ ذخیره و برای حساب اعمال شد</string>
+    <string name="vpn_import_guide_title">از کجا نمایه یا کلید تهیه کنیم؟</string>
+    <string name="vpn_import_guide_p1">۱. ربات‌های تلگرام: ربات‌های توزیع پیکربندی‌های آماده WARP، WireGuard و AmneziaWG.</string>
+    <string name="vpn_import_guide_p2">۲. کلیدهای WARP+: کلید مجوز ۲۶ نویسه‌ای با ترافیک نامحدود در ربات‌های عمومی.</string>
+    <string name="vpn_import_guide_p3">۳. ابزار WGCF: تولیدکننده متن‌باز نمایه‌های کلودفلر در گیت‌هاب (ViRb3/wgcf).</string>
+    <string name="vpn_import_guide_p4">۴. سرورهای مستقل: هرگونه فایل .conf شخصی WireGuard یا AmneziaWG.</string>
+
+    <string name="vpn_onboard_badge">راهنما • حالت VPN</string>
+    <string name="vpn_onboard_title">حالت VPN در میرلی</string>
+    <string name="vpn_onboard_subtitle">شروع سریع و پیکربندی تونل</string>
+    <string name="vpn_onboard_step1_title">۱. رمزگذاری کامل</string>
+    <string name="vpn_onboard_step1_desc">برخلاف پروکسی، حالت VPN تمام ترافیک اینترنت دستگاه را در سطح هسته اندروید از طریق سرویس VpnService هدایت و محافظت می‌کند.</string>
+    <string name="vpn_onboard_step2_title">۲. انتخاب پروتکل</string>
+    <string name="vpn_onboard_step2_desc">• WARP AWG: پروتکل AmneziaWG با پنهان‌سازی بسته‌ها.\n• WARP MASQUE: پروتکل سریع مبتنی بر HTTP/3 QUIC با کمترین تأخیر.</string>
+    <string name="vpn_onboard_step3_title">۳. نمایه اتصال</string>
+    <string name="vpn_onboard_step3_desc">برای کارکرد نیاز به نمایه است. می‌توانید بلافاصله با یک لمس نمایه خودکار بسازید یا پیکربندی سفارشی WireGuard / AmneziaWG یا کلید WARP+ را وارد کنید.</string>
+    <string name="vpn_onboard_btn_auto_create">ایجاد نمایه (خودکار)</string>
+    <string name="vpn_onboard_btn_import">ورود نمایه سفارشی</string>
+    <string name="vpn_onboard_btn_continue">متوجه شدم</string>
+    <string name="vpn_onboard_internal_gen_title">ایجاد مستقیم در برنامه</string>
+    <string name="vpn_onboard_internal_gen_subtitle">ژنراتور داخلی WARP AWG / WireGuard</string>
+    <string name="vpn_onboard_external_gen_title">ژنراتورهای خارجی جایگزین:</string>
+    <string name="vpn_onboard_gen_warp_reg_name">Warp-Reg (تولیدکننده وب)</string>
+    <string name="vpn_onboard_gen_warp_reg_note">ابزار تحت وب تولید</string>
+    <string name="vpn_onboard_gen_wgcf_name">wgcf (ابزار خط فرمان گیت‌هاب)</string>
+    <string name="vpn_onboard_gen_wgcf_note">کد منبع رسمی</string>
+    <string name="vpn_onboard_gen_bot1_name">@generatewarpbot (تلگرام)</string>
+    <string name="vpn_onboard_gen_bot2_name">@warp_generator_bot (تلگرام)</string>
+    <string name="vpn_onboard_gen_bot_note">ربات تلگرام</string>
+    <string name="vpn_action_dns">DNS</string>
+    <string name="vpn_action_import_profile">ورود نمایه سفارشی</string>
+    <string name="vpn_action_guide">راهنمای VPN</string>
+    <string name="settings_vpn_import_custom">ورود</string>
+    <string name="warp_gen_btn_short">ژنراتور</string>
+    <string name="settings_vpn_import_custom_desc">افزودن فایل .conf، JSON یا کلید سفارشی</string>
+    <string name="settings_warp_license_field_title">کلید مجوز WARP+</string>
+    <string name="settings_warp_license_field_desc">کلید ۲۶ نویسه‌ای برای ترافیک نامحدود</string>
+    <string name="settings_vpn_onboarding_replay">راهنمای VPN</string>
+    <string name="settings_vpn_onboarding_replay_desc">مشاهده دوباره راهنمای مقدماتی رمزگذاری و پروتکل‌ها</string>
+
+    <!-- WARP Generator & Multi-Profile Manager -->
+    <string name="warp_gen_title">تولیدکننده نمایه WARP</string>
+    <string name="warp_gen_subtitle">تولید و صدور نمایه‌های WireGuard و AmneziaWG</string>
+    <string name="warp_gen_mode_simple">ساده</string>
+    <string name="warp_gen_mode_advanced">پیشرفته</string>
+    <string name="warp_gen_mode_simple_desc">صدور خودکار نمایه رسمی با تنظیمات بهینه AmneziaWG</string>
+    <string name="warp_gen_mode_adv_desc">انتخاب قالب‌ها، نقاط پایانی، سرورهای DNS و تنظیم پارامترهای پنهان‌سازی</string>
+    <string name="warp_gen_section_formats">قالب‌های نمایه</string>
+    <string name="warp_gen_section_endpoints">نقاط پایانی کلودفلر</string>
+    <string name="warp_gen_section_dns">سرورهای DNS</string>
+    <string name="warp_gen_section_awg_params">پارامترهای AmneziaWG</string>
+    <string name="warp_gen_section_account">حساب کاربری WARP</string>
+    <string name="warp_gen_section_actions">عملیات</string>
+    <string name="warp_gen_acc_new">صدور حساب جدید</string>
+    <string name="warp_gen_acc_reuse">استفاده از حساب فعلی</string>
+    <string name="warp_gen_acc_plus">اتصال مجوز WARP+</string>
+    <string name="warp_gen_param_jc">تعداد بسته‌های اضافی (Jc)</string>
+    <string name="warp_gen_param_jmin">حداقل اندازه بسته اضافی (Jmin)</string>
+    <string name="warp_gen_param_jmax">حداکثر اندازه بسته اضافی (Jmax)</string>
+    <string name="warp_gen_param_i1">امضای دست‌تکانی (I1)</string>
+    <string name="warp_gen_param_padding">فاصله‌گذاری محتوا (ContentPaddingAddition)</string>
+    <string name="warp_gen_param_rekey">فاصله زمانی تولید کلید مجدد (RekeyAfterTime)</string>
+    <string name="warp_gen_param_keepalive">مهلت اتصال زنده (Keepalive)</string>
+    <string name="warp_gen_param_cookies">غیرفعال‌سازی کوکی‌ها (DisableCookies)</string>
+    <string name="warp_gen_param_randomize">مقادیر تصادفی در بازه‌ها</string>
+    <string name="warp_gen_include_ipv6">شامل نشانی IPv6</string>
+    <string name="warp_gen_mtu">اندازه MTU</string>
+    <string name="warp_gen_btn_generate">تولید نمایه‌ها</string>
+    <string name="warp_gen_btn_ping_endpoints">بررسی تأخیر نقاط پایانی</string>
+    <string name="warp_gen_btn_import_all">ورود همه نمایه‌ها</string>
+    <string name="warp_gen_btn_import_selected">ورود نمایه انتخابی</string>
+    <string name="warp_gen_btn_set_active">تنظیم به‌عنوان فعال</string>
+    <string name="warp_gen_btn_export_zip">صدور همه در قالب ZIP</string>
+    <string name="warp_gen_btn_export_file">ذخیره فایل</string>
+    <string name="warp_gen_btn_qr">کد QR</string>
+    <string name="warp_gen_btn_copy">کپی پیکربندی</string>
+    <string name="warp_gen_btn_view">مشاهده</string>
+    <string name="warp_gen_status_idle">آماده برای تولید</string>
+    <string name="warp_gen_status_registering">ثبت حساب در کلودفلر...</string>
+    <string name="warp_gen_status_activating">فعال‌سازی نشست WireGuard...</string>
+    <string name="warp_gen_status_binding_license">اتصال کلید مجوز WARP+...</string>
+    <string name="warp_gen_status_scanning_endpoints">آزمایش تأخیر نقاط پایانی...</string>
+    <string name="warp_gen_status_building">ساخت پیکربندی‌ها...</string>
+    <string name="warp_gen_status_success">تولید موفق: %1$d نمایه</string>
+    <string name="warp_gen_status_error">خطای تولید: %1$s</string>
+    <string name="warp_gen_err_export_only_format">این قالب برای کلاینت‌های خارجی است. برای VPN سیستم، AmneziaWG یا WireGuard را انتخاب کنید.</string>
+    <string name="warp_profiles_title">نمایه‌های WARP</string>
+    <string name="warp_profiles_empty">نمایه ذخیره‌شده‌ای وجود ندارد</string>
+    <string name="warp_profiles_active_badge">فعال</string>
+    <string name="warp_profiles_delete">حذف نمایه</string>
+    <string name="warp_profiles_confirm_delete">آیا نمایه %1$s حذف شود؟</string>
+    <string name="warp_profiles_deleted_toast">نمایه حذف شد</string>
+    <string name="warp_profiles_imported_toast">نمایه با موفقیت وارد شد</string>
+    <string name="warp_profiles_all_imported_toast">نمایه‌های وارد شده: %1$d</string>
+    <string name="warp_profiles_zip_exported_toast">بایگانی ZIP با موفقیت ذخیره شد</string>
+    <string name="warp_profiles_file_exported_toast">فایل با موفقیت ذخیره شد</string>
+    <string name="warp_gen_qr_title">کد QR پیکربندی</string>
+    <string name="warp_gen_qr_desc">کد را در برنامه AmneziaWG یا WireGuard اسکن کنید</string>
+    <string name="warp_gen_masked_key_hint">کلید خصوصی برای امنیت پنهان شده است</string>
+    <string name="warp_gen_show_secret">نمایش کلید</string>
+    <string name="warp_gen_hide_secret">پنهان‌سازی کلید</string>
+    <string name="warp_gen_custom_endpoint_label">نقطه پایانی سفارشی (میزبان:درگاه)</string>
+    <string name="warp_gen_custom_dns_label">سرورهای DNS سفارشی (با کاما)</string>
+    <string name="warp_gen_license_label">کلید مجوز WARP+ (اختیاری)</string>
+    <string name="warp_gen_terminal_title">گزارش تولید</string>
+    <string name="warp_gen_results_title">نمایه‌های تولیدشده</string>
+    <string name="vpn_auto_profile_title">انتخاب خودکار نمایه VPN</string>
+    <string name="vpn_auto_profile_desc">انتخاب خودکار بهترین سرور از میان نمایه‌های ذخیره‌شده (با اولویت نمایه‌های ساخته‌شده یا واردشده). در صورت غیرفعال بودن، نمایه انتخابی کاربر استفاده می‌شود.</string>
+    <string name="vpn_auto_profile_badge">خودکار</string>
+    <string name="vpn_priority_badge">اصلی</string>
+    <string name="vpn_auto_profile_active_hint">انتخاب خودکار فعال است: اولویت با نمایه‌های ژنراتور و وارداتی</string>
+    <string name="vpn_auto_profile_manual_hint">انتخاب خودکار غیرفعال است: استفاده از نمایه انتخابی</string>
+    <string name="vpn_maintenance_notice_title">حالت VPN در حال بازطراحی است</string>
+    <string name="vpn_maintenance_notice_desc">ممکن است به طور موقت قطع شود یا برای همه کاربران کار نکند.</string>
+
+    <!-- Mirrly AI Chat & Neural Engine -->
+    <string name="content_desc_ai_chat">چت هوش مصنوعی</string>
+    <string name="ai_chat_title">AI Chat</string>
+    <string name="ai_chat_status_ready">مدل آماده است</string>
+    <string name="ai_chat_status_thinking">در حال تفکر...</string>
+    <string name="ai_chat_status_generating">در حال تولید پاسخ...</string>
+    <string name="ai_chat_status_no_key">نیاز به کلید API</string>
+    <string name="ai_chat_settings_title">تنظیمات هوش مصنوعی</string>
+    <string name="ai_chat_history_dialog_desc">تاریخچه گفتگو به مدل امکان می‌دهد زمینه‌های قبلی را در نظر بگیرد.</string>
+    <string name="ai_chat_section_provider">سرویس‌دهنده</string>
+    <string name="ai_chat_provider_desc">سرویس مناسب برای ارتباط با مدل‌های زبانی را انتخاب کنید.</string>
+    <string name="ai_chat_section_service_data">مشخصات سرویس</string>
+    <string name="ai_chat_endpoint_label">آدرس API</string>
+    <string name="ai_chat_model_label">مدل</string>
+    <string name="ai_chat_api_key_label">کلید API</string>
+    <string name="ai_chat_api_key_hint">کلید Gemini را وارد کنید...</string>
+    <string name="ai_chat_reasoning_title">تفکر و استدلال</string>
+    <string name="ai_chat_reasoning_desc">به مدل‌های پشتیبانی‌شده امکان می‌دهد برای تفکر توکن بیشتری مصرف کنند.</string>
+    <string name="ai_chat_test_and_save">بررسی و ذخیره</string>
+    <string name="ai_chat_section_generation">تولید پاسخ</string>
+    <string name="ai_chat_streaming_title">ارسال جریانی پاسخ</string>
+    <string name="ai_chat_streaming_desc">نمایش روان و بلادرنگ پاسخ‌ها.</string>
+    <string name="ai_chat_only_response_title">نمایش تنها پاسخ نهایی</string>
+    <string name="ai_chat_only_response_desc">پنهان‌سازی فرآیند تفکر هنگام خواندن.</string>
+    <string name="ai_chat_quote_title">قالب‌بندی به عنوان نقل قول</string>
+    <string name="ai_chat_quote_desc">قالب‌بندی Markdown و بلوک‌های کد.</string>
+    <string name="ai_chat_temperature_title">دما (Temperature)</string>
+    <string name="ai_chat_temperature_desc">تنظیم تصادفی بودن پاسخ: مقادیر بالاتر خلاقانه‌تر و مقادیر پایین‌تر دقیق‌تر هستند.</string>
+    <string name="ai_chat_clear_history_title">پاک‌سازی تاریخچه پیام‌ها؟</string>
+    <string name="ai_chat_clear_history_desc">تمام پیام‌های این گفتگو برای همیشه حذف خواهند شد.</string>
+    <string name="ai_chat_clear_history_confirm">پاک‌سازی</string>
+    <string name="ai_chat_input_placeholder">پیام به هوش مصنوعی...</string>
+    <string name="ai_chat_send">ارسال</string>
+    <string name="ai_chat_stop">توقف</string>
+    <string name="ai_chat_copy_message">پیام کپی شد</string>
+    <string name="ai_chat_copy_code">کد کپی شد</string>
+    <string name="ai_chat_thought_process">فرآیند تفکر هوش مصنوعی</string>
+    <string name="ai_chat_welcome_title">دستیار هوش مصنوعی Mirrly</string>
+    <string name="ai_chat_welcome_desc">مدل زبانی یکپارچه Gemini در درگاه پروکسی محلی.</string>
+    <string name="ai_chat_suggest_1">چگونه Cloudflare Worker خود را راه‌اندازی کنم؟</string>
+    <string name="ai_chat_suggest_2">تفاوت بین MTProto و SOCKS5 چیست؟</string>
+    <string name="ai_chat_suggest_3">چگونه پینگ را در تلگرام کاهش دهیم؟</string>
+    <string name="ai_chat_testing_connection">در حال بررسی اتصال...</string>
+    <string name="ai_chat_test_success">اتصال با موفقیت برقرار شد</string>
+    <string name="ai_chat_test_failed">خطا: %1$s</string>
+    <string name="ai_chat_msg_count">%1$d پیام</string>
+
+    <!-- Custom Wallpaper & Customization -->
+    <string name="settings_customization_category_title">سفارشی‌سازی</string>
+    <string name="settings_customization_wallpaper_title">پس‌زمینه دلخواه</string>
+    <string name="settings_customization_wallpaper_desc">تنظیم تصویر یا ویدیوی پس‌زمینه رابط کاربری با تاری سخت‌افزاری و تاریک‌سازی.</string>
+    <string name="settings_customization_wallpaper_active">والپیپر سفارشی فعال است</string>
+    <string name="settings_customization_wallpaper_active_image">تصویر دلخواه فعال است</string>
+    <string name="settings_customization_wallpaper_active_video">ویدیوی پس‌زمینه فعال است</string>
+    <string name="settings_customization_wallpaper_default">مشکی AMOLED (پیش‌فرض)</string>
+    <string name="settings_customization_wallpaper_choose">انتخاب والپیپر</string>
+    <string name="settings_customization_wallpaper_choose_image">انتخاب عکس</string>
+    <string name="settings_customization_wallpaper_choose_video">انتخاب ویدیو</string>
+    <string name="settings_customization_wallpaper_replace">تغییر والپیپر</string>
+    <string name="settings_customization_wallpaper_replace_image">تغییر عکس</string>
+    <string name="settings_customization_wallpaper_replace_video">تغییر ویدیو</string>
+    <string name="settings_customization_wallpaper_reset">بازنشانی</string>
+    <string name="settings_customization_wallpaper_reset_confirm_title">بازگشت به پس‌زمینه پیش‌فرض AMOLED؟</string>
+    <string name="settings_customization_wallpaper_reset_confirm_desc">کره‌ها و گرادیان‌ها به حالت پیش‌فرض بازمی‌گردند.</string>
+    <string name="settings_customization_wallpaper_reset_confirm_btn">تأیید بازنشانی</string>
+    <string name="settings_customization_wallpaper_cancel">لغو</string>
+    <string name="settings_customization_wallpaper_blur">تاری</string>
+    <string name="settings_customization_wallpaper_dim">تاریک‌سازی</string>
+    <string name="settings_customization_wallpaper_particles">ذرات پس‌زمینه</string>
+    <string name="settings_customization_wallpaper_particles_desc">نمایش ذرات معلق و خطوط فلکی روی پس‌زمینه</string>
+    <string name="settings_customization_wallpaper_video_power_save">صرفه‌جویی باتری ویدیو</string>
+    <string name="settings_customization_wallpaper_video_power_save_desc">بهینه‌سازی نرخ فریم و توقف خودکار در حالت ذخیره باتری</string>
+    <string name="settings_customization_wallpaper_processing">در حال پردازش فایل چندرسانه‌ای...</string>
+    <string name="settings_customization_wallpaper_error">خطا در بارگذاری تصویر: %1$s</string>
+    <string name="settings_customization_wallpaper_video_error">خطا در بارگذاری ویدیو: %1$s</string>
+    <string name="settings_customization_wallpaper_metrics">%1$d × %2$d • %3$s کیلوبایت</string>
+    <string name="settings_customization_wallpaper_video_metrics">%1$d × %2$d • %3$d ثانیه • %4$s مگابایت</string>
+    <string name="settings_customization_info_title">شخصی‌سازی پس‌زمینه</string>
+    <string name="settings_customization_info_desc">رابط کاربری MirrlyUI از والپیپرهای تصویر و ویدیوی زنده پشتیبانی می‌کند. فایل رسانه در حافظه برنامه ذخیره و بهینه‌سازی می‌شود. هنگام فعال بودن والپیپر، کره‌های نورانی برای خوانایی بهتر خاموش شده و ذرات به لمس واکنش نشان می‌دهند.</string>
+    <string name="settings_customization_presets_title">پیش‌تنظیم‌های پس‌زمینه</string>
+    <string name="settings_customization_preset_space_toilet">Space Toilet</string>
+    <string name="settings_customization_preset_grass">شبنم صبحگاهی</string>
+    <string name="settings_customization_preset_breeze">نسیم دریا</string>
+    <string name="settings_customization_preset_save_current">ذخیره به عنوان پیش‌تنظیم</string>
+    <string name="settings_customization_preset_save_title">پیش‌تنظیم جدید</string>
+    <string name="settings_customization_preset_name_hint">نام پیش‌تنظیم</string>
+    <string name="settings_customization_preset_save_btn">ذخیره</string>
+    <string name="settings_customization_preset_delete">حذف پیش‌تنظیم</string>
+    <string name="settings_customization_preset_custom_badge">سفارشی</string>
+    <string name="settings_customization_preset_builtin_badge">پیش‌فرض</string>
+
+    <!-- Phased Connection Pipeline (3-Phase) -->
+    <string name="preflight_phase_1_server">[1/3] راه‌اندازی شنونده محلی SOCKS5 (127.0.0.1:10808)</string>
+    <string name="preflight_phase_2_warmup">[2/3] گرم کردن استخر جریان‌های WSS از طریق Cloudflare</string>
+    <string name="preflight_phase_3_ready">[3/3] سرور پروکسی فعال و آماده به کار است</string>
+
+    <!-- SOCKS5 Optimistic Early Response (0x00) -->
+    <string name="settings_socks5_optimistic_title">پاسخ خوش‌بینانه SOCKS5 (0x00)</string>
+    <string name="settings_socks5_optimistic_desc">پاسخ سریع موفقیت به کلاینت پیش از اتمام دست‌تکانی با Worker</string>
+    <string name="settings_socks5_optimistic_card_title">جلوگیری از انقضای زمان در شبکه‌های کند موبایل</string>
+    <string name="settings_socks5_optimistic_card_desc">کلاینت تلگرام دارای محدودیت زمانی داخلی سخت‌گیرانه (۳-۵ ثانیه) برای اتصال است. در شبکه‌های ناپایدار موبایل (LTE/3G)، دست‌تکانی کامل WSS با Cloudflare Worker ممکن است بیش از این مقدار طول بکشد و باعث قطع اتصال شود.\n\nبا فعال بودن این گزینه، موتور بومی Rust بلافاصله پاسخ موفقیت (0x05 0x00) را ارسال کرده و بسته‌های اولیه را در کانال داخلی Tokio تا زمان آماده شدن سوکت WSS بافر می‌کند. غیرفعال کردن، پروکسی را به حالت دست‌تکانی ترتیبی منتقل می‌کند.</string>
+
+    <!-- MTProto Cloudflare Worker Toggle -->
+    <string name="settings_mtproto_worker_title">تونل‌سازی از طریق Cloudflare Worker</string>
+    <string name="settings_mtproto_worker_desc">استفاده از ورکر WSS به عنوان آپلینک اولویت‌دار قبل از Anycast CDN</string>
+    <string name="settings_mtproto_worker_active">ورکر فعال: %1$s</string>
+    <string name="settings_mtproto_worker_cdn">مستقیم Anycast CDN Flowseal</string>
+
+    <!-- Warm Pool Telemetry & Force Mobile / Hotspot Mode -->
+    <string name="warm_pool_summary">استخر: %1$d/%2$d</string>
+    <string name="settings_force_mobile_title">پروفایل همراه (هات‌اسپات)</string>
+    <string name="settings_force_mobile_desc">اعمال اجباری پروفایل همراه هنگام اتصال به هات‌اسپات یا اینترنت ضعیف</string>
+    <string name="settings_force_mobile_card_title">بهینه‌سازی پیش‌گرمایش استخر در هات‌اسپات</string>
+    <string name="settings_force_mobile_card_desc">هنگام اتصال به هات‌اسپات تلفن دیگر، اندروید اتصال را وای‌فای پهن‌باند تشخیص می‌دهد. این موضوع باعث باز شدن تا ۱۲ جریان همزمان TLS و اشباع صف آپلینک مودم می‌شود.\n\nفعال کردن این حالت پروفایل شبکه را به همراه (LTE) تغییر می‌دهد: پیش‌گرمایش پلکانی، اندازه بهینه استخر و مهلت زمانی گسترش‌یافته.</string>
+
+    <!-- Concurrent Dial Throttling -->
+    <string name="settings_dial_throttling_title">محدودسازی اتصالات همزمان</string>
+    <string name="settings_dial_throttling_desc">محدود کردن تلاش‌های اتصال موازی برای جلوگیری از اشباع مودم و هات‌اسپات</string>
+    <string name="settings_dial_throttling_card_title">محافظت از بافر و مودم هات‌اسپات</string>
+    <string name="settings_dial_throttling_card_desc">در صورت فعال بودن، تعداد تلاش‌های اتصال همزمان در شبکه همراه را به ۲ محدود می‌کند تا از اشباع جدول NAT و بافر هات‌اسپات‌های ضعیف جلوگیری شود.\n\nبه صورت پیش‌فرض غیرفعال است.</string>
 </resources>
+

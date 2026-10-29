@@ -48,6 +48,12 @@ class CloudflareOAuthManagerTest {
     }
 
     @Test
+    fun testServerListeningStatusWhenIdle() {
+        CloudflareOAuthManager.cancelActiveListener()
+        assertEquals(false, CloudflareOAuthManager.isServerListening())
+    }
+
+    @Test
     fun testConstants() {
         assertEquals("54d11594-84e4-41aa-b438-e81b8fa78ee7", CloudflareOAuthManager.WRANGLER_CLIENT_ID)
         assertEquals(8976, CloudflareOAuthManager.CALLBACK_PORT)

@@ -35,6 +35,9 @@ class TgConstantsTest {
         assertEquals(Pair(2, true), TgConstants.findDcByTarget("149.154.167.52"))
         assertEquals(Pair(4, false), TgConstants.findDcByTarget("149.154.167.91"))
         assertEquals(Pair(5, false), TgConstants.findDcByTarget("91.108.56.130"))
+        assertEquals(Pair(5, false), TgConstants.findDcByTarget("91.108.0.1"))
+        assertEquals(Pair(5, false), TgConstants.findDcByTarget("91.108.24.50"))
+        assertEquals(Pair(2, false), TgConstants.findDcByTarget("185.76.151.10"))
     }
 
     @Test
@@ -47,6 +50,8 @@ class TgConstantsTest {
         assertEquals(Pair(4, false), TgConstants.findDcByTarget("2001:67c:4e8:f004::a"))
         assertEquals(Pair(5, false), TgConstants.findDcByTarget("2001:b28:f23f:f005::a"))
         assertEquals(Pair(5, true), TgConstants.findDcByTarget("2001:b28:f23f:f005::b"))
+        assertEquals(Pair(4, false), TgConstants.findDcByTarget("2001:b28:f23e:1::1"))
+        assertEquals(Pair(5, false), TgConstants.findDcByTarget("2a0a:f281::1"))
     }
 
     @Test

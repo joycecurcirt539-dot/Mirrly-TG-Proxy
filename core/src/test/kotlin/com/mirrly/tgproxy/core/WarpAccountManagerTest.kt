@@ -492,7 +492,7 @@ class WarpAccountManagerTest {
         // Legacy/fallback mode when masque fields are empty
         assertEquals("wg-legacy-tok", config.effectiveMasqueToken)
         assertEquals("wg-legacy-acc", config.effectiveMasqueAccountId)
-        assertEquals("188.114.96.1:500", config.effectiveMasquePeerEndpoint)
+        assertEquals("188.114.96.1:8095", config.effectiveMasquePeerEndpoint)
         assertEquals("bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=", config.effectiveMasquePeerPublicKey)
 
         // When dedicated masque fields are set
@@ -557,13 +557,13 @@ class WarpAccountManagerTest {
         assertEquals("188.114.96.1:500", measuredProfile.effectivePeerEndpoint)
         assertEquals("188.114.97.1:1701", measuredProfile.effectiveMasquePeerEndpoint)
 
-        // Without measured, API endpoint takes precedence
+        // Without measured, API endpoint takes precedence (with blocked 2408 port normalized to working Anycast port)
         val apiOnlyProfile = measuredProfile.copy(
             measuredWgEndpoint = null,
             measuredMasqueEndpoint = null
         )
-        assertEquals("162.159.193.10:2408", apiOnlyProfile.effectivePeerEndpoint)
-        assertEquals("162.159.192.1:2408", apiOnlyProfile.effectiveMasquePeerEndpoint)
+        assertEquals("162.159.193.10:8095", apiOnlyProfile.effectivePeerEndpoint)
+        assertEquals("162.159.192.1:8443", apiOnlyProfile.effectiveMasquePeerEndpoint)
 
         // Verify JSON roundtrip preserves all separate endpoint fields
         val encoded = WarpProfileCodec.encode(customProfile)
@@ -600,5 +600,32 @@ class WarpAccountManagerTest {
         val dataPlaneSuccess = udpOnly.copy(isDataPlaneVerified = true)
         assertTrue(dataPlaneSuccess.isFullyVerified(), "Candidate with verified data plane is fully verified")
     }
+
+    @org.junit.jupiter.api.Disabled("Live integration test")
+    @Test
+    fun testLiveRegistration() {
+        runBlocking {
+            println("Testing live registration via warp-reg.rbmkyuw.workers.dev...")
+            val res = WarpAccountManager.registerAndActivate(
+                workerDomain = WarpAccountManager.REGISTRATION_WORKER_DOMAIN,
+                existingProfile = null,
+                fallbackToBootstrap = false
+            ) { step ->
+                println("Step ${step.stepIndex}/${step.totalSteps}: ${step.stageTitle} - ${step.detail} (err=${step.isError})")
+            }
+            println("Result isSuccess: ${res.isSuccess}")
+            if (res.isSuccess) {
+                val p = res.getOrThrow()
+                println("Profile: id=${p.accountId}, token=${p.token.take(10)}..., ipv4=${p.clientIpv4}, peer=${p.peerEndpoint}, peerKey=${p.peerPublicKey}")
+                println("RAW API EP = '${p.apiEndpoint}'")
+                println("EFFECTIVE PEER EP = '${p.effectivePeerEndpoint}'")
+                println("AMNEZIA WG CONFIG:\n${p.toAmneziaWgConfig()}")
+            } else {
+                println("Error: ${res.exceptionOrNull()?.message}")
+                res.exceptionOrNull()?.printStackTrace()
+            }
+        }
+    }
 }
+
 

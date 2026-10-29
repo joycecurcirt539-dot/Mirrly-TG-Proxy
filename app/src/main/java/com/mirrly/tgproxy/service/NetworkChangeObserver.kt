@@ -183,35 +183,145 @@ class NetworkChangeObserver(
         }
     }
 
+    private fun isForcedMobile(): Boolean = try {
+        com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.isForceMobileModeEnabled()
+    } catch (_: Exception) { false }
+
+    private fun isMobileHotspot(lp: LinkProperties?): Boolean {
+        if (isForcedMobile()) return true
+        val targetLp = lp ?: currentLinkProperties
+        val caps = currentCapabilities
+
+        // 1. Android automatically flags mobile hotspots / tethering as METERED
+        if (caps != null && !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) {
+            return true
+        }
+
+        if (targetLp != null) {
+            val hotspotPrefixes = arrayOf(
+                "192.168.43.",  // Android AOSP default
+                "192.168.42.",  // USB tethering
+                "192.168.44.",  // Alternative tethering
+                "192.168.49.",  // Wi-Fi Direct
+                "192.168.50.",  // Xiaomi / Redmi tethering
+                "192.168.137.", // Windows / Xiaomi tethering
+                "192.168.173.", // Xiaomi tethering
+                "192.168.225.", // Jio / Spreadtrum / Mediatek tethering (Redmi 9A)
+                "192.168.240.", // MediaTek custom tethering
+                "192.168.241.", // MediaTek custom tethering
+                "192.168.242.", // MediaTek custom tethering
+                "172.20.10.",   // iOS Personal Hotspot
+                "172.20.",      // Mobile hotspot class B
+                "10.42.0."      // Linux network-manager hotspot
+            )
+            for (addr in targetLp.linkAddresses) {
+                val ip = addr.address.hostAddress ?: continue
+                if (hotspotPrefixes.any { ip.startsWith(it) }) {
+                    return true
+                }
+            }
+            for (route in targetLp.routes) {
+                val gw = route.gateway?.hostAddress ?: continue
+                if (hotspotPrefixes.any { gw.startsWith(it) }) {
+                    return true
+                }
+            }
+
+            // 2. Cellular operator DNS identification (MTS, MegaFon, Beeline, Tele2, Yota)
+            val cellularDnsPrefixes = arrayOf(
+                "217.66.",   // MTS IPv4
+                "83.149.",   // MegaFon IPv4
+                "217.118.",  // Beeline IPv4
+                "212.1.",    // Tele2 IPv4
+                "109.105."   // Yota IPv4
+            )
+            for (dns in targetLp.dnsServers) {
+                val dnsIp = dns.hostAddress ?: continue
+                if (cellularDnsPrefixes.any { dnsIp.startsWith(it) }) {
+                    return true
+                }
+            }
+
+            // 3. Cellular operator IPv6 prefix detection (SLAAC / RA handed out by mobile tethering)
+            val cellularIpv6Prefixes = arrayOf(
+                "2a02:2698:", // MTS IPv6
+                "2a02:269c:", // MTS IPv6
+                "2a02:2168:", // MegaFon IPv6
+                "2a00:1028:", // Beeline IPv6
+                "2a00:1fa"    // Tele2 IPv6
+            )
+            for (addr in targetLp.linkAddresses) {
+                val ip = addr.address.hostAddress?.lowercase() ?: continue
+                if (cellularIpv6Prefixes.any { ip.startsWith(it) }) {
+                    return true
+                }
+            }
+            for (route in targetLp.routes) {
+                val gw = route.gateway?.hostAddress?.lowercase() ?: continue
+                if (cellularIpv6Prefixes.any { gw.startsWith(it) }) {
+                    return true
+                }
+            }
+
+            // 4. Tethering and modem virtual interface signatures
+            val iface = targetLp.interfaceName?.lowercase() ?: ""
+            if (iface.contains("rndis") || iface.contains("p2p") || iface.contains("bt-pan") ||
+                iface.contains("swlan") || iface.contains("ap0") || iface.contains("usb") ||
+                iface.contains("ncm") || iface.contains("cdc")) {
+                return true
+            }
+
+            // 5. Operator domain signatures in DHCP options
+            val domains = targetLp.domains?.lowercase() ?: ""
+            if (domains.contains("mts") || domains.contains("megafon") ||
+                domains.contains("beeline") || domains.contains("tele2")) {
+                return true
+            }
+        }
+        return false
+    }
+
     private fun extractNetworkTypeName(caps: NetworkCapabilities): String {
+        val isHotspot = isMobileHotspot(currentLinkProperties)
         return when {
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
+                if (isHotspot) "Mobile Hotspot (LTE/5G)" else "Wi-Fi"
+            }
             caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
             caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile LTE/5G"
             caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> {
-                if (isWifiActive()) "Wi-Fi" else "VPN"
+                if (isWifiActive()) {
+                    if (isHotspot) "Mobile Hotspot (LTE/5G)" else "Wi-Fi"
+                } else "VPN"
             }
             else -> "Active Network"
         }
     }
 
-    private fun extractTransport(caps: NetworkCapabilities): NetworkTransport = when {
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkTransport.WIFI
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkTransport.ETHERNET
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkTransport.CELLULAR
-        caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> NetworkTransport.VPN
-        else -> NetworkTransport.OTHER
+    private fun extractTransport(caps: NetworkCapabilities): NetworkTransport {
+        val isHotspot = isMobileHotspot(currentLinkProperties)
+        return when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
+                if (isHotspot) NetworkTransport.CELLULAR else NetworkTransport.WIFI
+            }
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkTransport.ETHERNET
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkTransport.CELLULAR
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> NetworkTransport.VPN
+            else -> NetworkTransport.OTHER
+        }
     }
 
     private fun buildEnvironment(
         caps: NetworkCapabilities,
         state: NetworkState
     ): NetworkEnvironment {
+        val isHotspot = isMobileHotspot(currentLinkProperties)
         val transport = extractTransport(caps)
+        val isMetered = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) || isHotspot
         return NetworkEnvironment(
             validated = isValidated(caps),
             suspended = state == NetworkState.SUSPENDED || !isNotSuspended(caps),
-            metered = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
+            metered = isMetered,
             roaming = transport == NetworkTransport.CELLULAR &&
                 !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING),
             congested = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_CONGESTED),
@@ -241,8 +351,6 @@ class NetworkChangeObserver(
                     val hadStableNetwork = lastReportedNetwork != null &&
                         currentState == NetworkState.VALIDATED_STABLE
                     currentDefaultNetwork = network
-                    currentCapabilities = null
-                    currentLinkProperties = null
                     currentState = NetworkState.AVAILABLE_UNVALIDATED
 
                     // An unvalidated replacement must not cancel the old
@@ -286,6 +394,9 @@ class NetworkChangeObserver(
                     if (currentDefaultNetwork == null || currentDefaultNetwork == network) {
                         currentDefaultNetwork = network
                         currentCapabilities = caps
+                        if (currentLinkProperties == null) {
+                            currentLinkProperties = connectivityManager?.getLinkProperties(network)
+                        }
                     }
 
                     when {
@@ -399,11 +510,31 @@ class NetworkChangeObserver(
             }
 
             override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+                var profileUpdate: NetworkEnvironment? = null
+                var typeUpdate: Pair<String, String>? = null
                 synchronized(stateLock) {
                     if (network == currentDefaultNetwork) {
                         currentLinkProperties = linkProperties
+                        currentCapabilities?.let { caps ->
+                            val newType = extractNetworkTypeName(caps)
+                            if (newType != lastReportedType && lastReportedType != "DISCONNECTED") {
+                                val oldType = lastReportedType
+                                lastReportedType = newType
+                                currentNetworkType = newType
+                                typeUpdate = oldType to newType
+                            }
+                            val candidateEnv = buildEnvironment(caps, currentState)
+                            if (candidateEnv != lastReportedEnvironment) {
+                                lastReportedEnvironment = candidateEnv
+                                profileUpdate = candidateEnv
+                            }
+                        }
                     }
                 }
+                typeUpdate?.let { (oldT, newT) ->
+                    onNetworkChanged(newT, oldT, false)
+                }
+                profileUpdate?.let(onNetworkProfileChanged)
             }
 
             /**
@@ -472,6 +603,9 @@ class NetworkChangeObserver(
 
     fun getCurrentNetworkTypeName(): String {
         synchronized(stateLock) {
+            if (isForcedMobile()) {
+                return "Mobile Hotspot (LTE/5G)"
+            }
             if (pendingHandoverRunnable != null && (lastReportedType == "Wi-Fi" || lastReportedType == "Ethernet")) {
                 return lastReportedType
             }
@@ -487,4 +621,27 @@ class NetworkChangeObserver(
     fun getCurrentLinkProperties(): LinkProperties? = currentLinkProperties
 
     fun getCurrentState(): NetworkState = currentState
+
+    fun refreshNetworkProfile() {
+        var envToNotify: NetworkEnvironment? = null
+        var newT: String? = null
+        var oldT: String? = null
+        synchronized(stateLock) {
+            val caps = currentCapabilities ?: return
+            oldT = currentNetworkType
+            newT = extractNetworkTypeName(caps)
+            currentNetworkType = newT!!
+            lastReportedType = newT!!
+            val env = buildEnvironment(caps, currentState)
+            lastReportedEnvironment = env
+            envToNotify = env
+        }
+        val env = envToNotify ?: return
+        val newTypeName = newT ?: return
+        val oldTypeName = oldT ?: "UNKNOWN"
+        mainHandler.post {
+            onNetworkProfileChanged(env)
+            onNetworkChanged(newTypeName, oldTypeName, false)
+        }
+    }
 }

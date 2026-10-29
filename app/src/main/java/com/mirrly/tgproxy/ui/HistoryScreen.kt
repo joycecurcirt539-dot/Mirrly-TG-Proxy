@@ -5,6 +5,8 @@ import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -262,10 +264,9 @@ fun HistoryScreen(
                 )
             }
         }
-    }
 
-    // Custom Glass Confirmation dialog for clearing history
-    if (showClearDialog) {
+        // Custom Glass Confirmation dialog for clearing history (DNS selector dialog style)
+        if (showClearDialog) {
         Dialog(
             onDismissRequest = { showClearDialog = false },
             properties = DialogProperties(
@@ -278,93 +279,167 @@ fun HistoryScreen(
             DialogBackdropBox(
                 onDismiss = { showClearDialog = false }
             ) {
-                Surface(
-                    shape = RoundedCornerShape(22.dp),
-                    color = Color.Black.copy(alpha = 0.85f),
-                    border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.40f)),
+                // Scrollable Info Content with Fading Edges into blur
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 24.dp)
+                        .adaptiveContainerWidth(440.dp)
+                        .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 44.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(
+                            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
+                            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+                        )
+                        .padding(horizontal = 20.dp)
                         .clickable(enabled = false) {}
                 ) {
-                    Column(
-                        modifier = Modifier.padding(22.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    // Category Pill
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, BloodRed.copy(alpha = 0.5f))
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        Text(
+                            text = "ИСТОРИЯ",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = BloodRed,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                        )
+                    }
+
+                    // Title
+                    Text(
+                        text = stringResource(R.string.history_dialog_clear_title),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite,
+                        textAlign = TextAlign.Center,
+                        letterSpacing = 0.3.sp
+                    )
+
+                    // Subtitle
+                    Text(
+                        text = stringResource(R.string.history_dialog_clear_desc),
+                        fontSize = 12.sp,
+                        color = TextMuted,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 16.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Warning / Details Card
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, BloodRed.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0xFFFF5252).copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.4f)),
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_trash),
-                                        contentDescription = null,
-                                        tint = Color(0xFFFF5252),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
                             Text(
-                                text = stringResource(R.string.history_dialog_clear_title),
-                                color = TextWhite,
+                                text = "ВНИМАНИЕ",
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
+                                color = BloodRed,
+                                letterSpacing = 0.8.sp
+                            )
+                            Text(
+                                text = "Все накопленные записи о сессиях, объеме переданного трафика и длительности подключений будут удалены без возможности восстановления.",
+                                fontSize = 11.5.sp,
+                                color = TextWhite.copy(alpha = 0.85f),
+                                lineHeight = 16.sp
                             )
                         }
+                    }
 
-                        Text(
-                            text = stringResource(R.string.history_dialog_clear_desc),
-                            color = TextWhite.copy(alpha = 0.80f),
-                            fontSize = 13.5.sp,
-                            lineHeight = 19.sp
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Primary Action Button: Clear History
+                    Surface(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            SessionHistoryManager.clearHistory()
+                            showClearDialog = false
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        color = BloodRed.copy(alpha = 0.18f),
+                        border = BorderStroke(1.dp, BloodRed.copy(alpha = 0.70f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Text(
+                                text = stringResource(R.string.history_btn_delete).uppercase(),
+                                color = BloodRed,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                letterSpacing = 0.4.sp
+                            )
+                        }
+                    }
+
+                    // Cancel Button
+                    Surface(
+                        onClick = { showClearDialog = false },
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Text(
+                                text = stringResource(R.string.action_cancel).uppercase(),
+                                color = TextMuted,
+                                fontWeight = FontWeight.Normal,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(32.dp))
+                }
+
+                // Top Header with Back Button (pinned at top left over blurred background)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 12.dp,
+                            start = 16.dp,
+                            end = 16.dp
                         )
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            OutlinedButton(
-                                onClick = { showClearDialog = false },
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                            ) {
-                                Text(stringResource(R.string.action_cancel), color = TextWhite, fontSize = 13.5.sp)
-                            }
-
-                            Button(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    SessionHistoryManager.clearHistory()
-                                    showClearDialog = false
-                                },
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFFF5252).copy(alpha = 0.25f),
-                                    contentColor = Color(0xFFFF5252)
-                                ),
-                                border = BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.60f)),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                            ) {
-                                Text(stringResource(R.string.history_btn_delete), fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-                            }
+                ) {
+                    Surface(
+                        onClick = { showClearDialog = false },
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_arrow_left),
+                                contentDescription = stringResource(R.string.action_back),
+                                tint = TextWhite,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 }
             }
         }
+    }
 
         // Delicate Cyber Particles floating over entire history screen interface
         CyberParticlesOverlay(
@@ -556,15 +631,3 @@ private fun formatDurationShort(seconds: Long): String {
     return if (remMin > 0) stringResource(R.string.duration_hr_min_short, hours, remMin) else stringResource(R.string.duration_hr_short, hours)
 }
 
-@Composable
-private fun formatDurationFull(seconds: Long): String {
-    if (seconds < 60) return stringResource(R.string.duration_sec_full, seconds)
-    val minutes = seconds / 60
-    val remainingSec = seconds % 60
-    if (minutes < 60) {
-        return if (remainingSec > 0) stringResource(R.string.duration_min_sec_full, minutes, remainingSec) else stringResource(R.string.duration_min_full, minutes)
-    }
-    val hours = minutes / 60
-    val remainingMin = minutes % 60
-    return if (remainingMin > 0) stringResource(R.string.duration_hr_min_full, hours, remainingMin) else stringResource(R.string.duration_hr_short, hours)
-}

@@ -77,8 +77,8 @@ fun OnboardingScreen(
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     var currentLang by remember(initialLanguage) { mutableStateOf(initialLanguage) }
-    var currentStep by remember { mutableIntStateOf(0) } // 0: Язык, 1: О проекте, 2: Быстрый старт
-    val totalSteps = 3
+    var currentStep by remember { mutableIntStateOf(0) } // 0: Язык, 1: Прокси Telegram, 2: VPN и аплинки, 3: Быстрый старт
+    val totalSteps = 4
 
     // Анимационный контроллер плавного выхода на главный экран
     val exitProgress = remember { Animatable(0f) }
@@ -278,9 +278,12 @@ fun OnboardingScreen(
                                 )
                             }
                             1 -> {
-                                StepAboutProject()
+                                StepTelegramProxy()
                             }
                             2 -> {
+                                StepVpnMode()
+                            }
+                            3 -> {
                                 StepQuickStartGuide()
                             }
                         }
@@ -570,14 +573,14 @@ private fun LanguageCardItem(
 }
 
 /**
- * Шаг 2: О проекте (Архитектурные преимущества и безопасность).
+ * Шаг 2: Прокси для Telegram (MTProto и SOCKS5).
  */
 @Composable
-private fun StepAboutProject() {
+private fun StepTelegramProxy() {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = stringResource(R.string.onboarding_step_about_title),
+                text = stringResource(R.string.onboarding_step_proxy_title),
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.Black,
                 fontFamily = FontFamily.Monospace,
@@ -585,7 +588,7 @@ private fun StepAboutProject() {
                 color = TextMuted
             )
             Text(
-                text = stringResource(R.string.onboarding_step_about_desc),
+                text = stringResource(R.string.onboarding_step_proxy_desc),
                 fontSize = 13.5.sp,
                 color = TextWhite.copy(alpha = 0.88f),
                 lineHeight = 19.5.sp
@@ -638,49 +641,75 @@ private fun StepAboutProject() {
                 )
             }
         }
+    }
+}
 
-        // Сноска / Примечание
+/**
+ * Шаг 3: Системный режим VPN и протоколы аплинка.
+ */
+@Composable
+private fun StepVpnMode() {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(R.string.onboarding_step_vpn_title),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.3.sp,
+                color = TextMuted
+            )
+            Text(
+                text = stringResource(R.string.onboarding_step_vpn_desc),
+                fontSize = 13.5.sp,
+                color = TextWhite.copy(alpha = 0.88f),
+                lineHeight = 19.5.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        // Карточка с преимуществами и протоколами VPN
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(22.dp),
             color = Color.Transparent,
-            border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, AmoledBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = ActiveGreenLed.copy(alpha = 0.15f),
-                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.45f))
-                    ) {
-                        Text(
-                            text = stringResource(R.string.onboarding_footnote_badge),
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.Monospace,
-                            letterSpacing = 1.sp,
-                            color = ActiveGreenLed,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                    Text(
-                        text = stringResource(R.string.onboarding_footnote_title),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite
-                    )
-                }
-                Text(
-                    text = stringResource(R.string.onboarding_footnote_desc),
-                    fontSize = 11.5.sp,
-                    lineHeight = 16.5.sp,
-                    color = TextWhite.copy(alpha = 0.78f)
+                FeatureRowItem(
+                    iconRes = R.drawable.ic_diag_protocol,
+                    title = stringResource(R.string.onboarding_vpn_feature_independent_title),
+                    detail = stringResource(R.string.onboarding_vpn_feature_independent_desc)
+                )
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.6f)))
+
+                FeatureRowItem(
+                    iconRes = R.drawable.ic_speed_turbo,
+                    title = stringResource(R.string.onboarding_vpn_feature_awg_title),
+                    detail = stringResource(R.string.onboarding_vpn_feature_awg_desc)
+                )
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.6f)))
+
+                FeatureRowItem(
+                    iconRes = R.drawable.ic_diag_cloudflare,
+                    title = stringResource(R.string.onboarding_vpn_feature_masque_title),
+                    detail = stringResource(R.string.onboarding_vpn_feature_masque_desc)
+                )
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.6f)))
+
+                FeatureRowItem(
+                    iconRes = R.drawable.ic_settings,
+                    title = stringResource(R.string.onboarding_vpn_feature_split_title),
+                    detail = stringResource(R.string.onboarding_vpn_feature_split_desc)
                 )
             }
         }

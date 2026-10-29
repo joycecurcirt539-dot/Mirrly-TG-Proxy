@@ -23,8 +23,6 @@ import com.mirrly.tgproxy.ui.theme.ActiveGreenLed
 import com.mirrly.tgproxy.ui.theme.rememberAnimatedProtocolColors
 import com.mirrly.tgproxy.ui.theme.ProtocolColors
 import com.mirrly.tgproxy.ui.theme.VpnThemeManager
-import com.mirrly.tgproxy.ui.theme.WebLight
-import com.mirrly.tgproxy.ui.theme.WebAccent
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
@@ -87,6 +85,7 @@ fun CyberEnergyCanvas(
     vpnColors: ProtocolColors? = null,
     externalTouchPoint: Offset? = null,
     isConstellationPaused: Boolean = false,
+    hasCustomBackground: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -119,6 +118,7 @@ fun CyberEnergyCanvas(
     // ── PERFORMANCE GUARD: CHECK IF USER DISABLED ANIMATIONS ──
     val app = com.mirrly.tgproxy.MirrlyApplication.instance
     val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
+    val customParticlesEnabled by app.prefsManager.customBackgroundParticlesFlow.collectAsState()
 
     // ── ANIMATION FRAME TIMER (PAUSED IN BACKGROUND OR IF ANIMATIONS DISABLED) ──
     val shouldAnimate = isAppResumed && !isAnimationsDisabled
@@ -173,7 +173,7 @@ fun CyberEnergyCanvas(
         }
     }
 
-    // Dynamic Protocol Colors (MTProto = Emerald/Cyan, SOCKS5 = Violet/Purple, WEB = Electric Crimson, VPN = System Neon Palette)
+    // Dynamic Protocol Colors (MTProto = Emerald/Cyan, SOCKS5 = Violet/Purple, VPN = System Neon Palette)
     val vpnPalette = vpnColors ?: remember { VpnThemeManager.getSystemVpnPalette(context) }
     val animatedProtoColors = rememberAnimatedProtocolColors(
         proxyMode = proxyMode,
@@ -338,7 +338,9 @@ fun CyberEnergyCanvas(
         if (width <= 0f || height <= 0f) return@Canvas
 
         if (isAnimationsDisabled) {
-            drawRect(color = Color.Black)
+            if (!hasCustomBackground) {
+                drawRect(color = Color.Black)
+            }
             return@Canvas
         }
 
@@ -350,104 +352,110 @@ fun CyberEnergyCanvas(
         val timeScale = 0.70f + animatedEnergy * 0.45f
 
         // ── 0. WHITE BLOOM & 1. GLOWING SPHERES (ZERO HEAP ALLOCATION ON NATIVE CANVAS) ──
-        drawIntoCanvas { canvas ->
-            val nativeCanvas = canvas.nativeCanvas
+        // Completely bypassed when custom background is active
+        if (!hasCustomBackground) {
+            drawIntoCanvas { canvas ->
+                val nativeCanvas = canvas.nativeCanvas
 
-            // 0. White Bloom Energy Surge on Connect
-            if (whiteBloom.value > 0.01f && isConnected) {
-                val bloomAlpha = (whiteBloom.value * 0.32f).coerceIn(0f, 1f)
-                val bloomRadius = (width.coerceAtLeast(height) * 0.45f) * (0.80f + 0.20f * (1f - whiteBloom.value))
-                val bloomC1 = Color.White.copy(alpha = bloomAlpha * 0.75f).toArgb()
-                val bloomC2 = protoColors.light.copy(alpha = bloomAlpha * 0.40f).toArgb()
-                bloomColorBuffer[0] = bloomC1
-                bloomColorBuffer[1] = bloomC2
-                bloomColorBuffer[2] = 0x00000000
+                // 0. White Bloom Energy Surge on Connect
+                if (whiteBloom.value > 0.01f && isConnected) {
+                    val bloomAlpha = (whiteBloom.value * 0.32f).coerceIn(0f, 1f)
+                    val bloomRadius = (width.coerceAtLeast(height) * 0.45f) * (0.80f + 0.20f * (1f - whiteBloom.value))
+                    val bloomC1 = Color.White.copy(alpha = bloomAlpha * 0.75f).toArgb()
+                    val bloomC2 = protoColors.light.copy(alpha = bloomAlpha * 0.40f).toArgb()
+                    bloomColorBuffer[0] = bloomC1
+                    bloomColorBuffer[1] = bloomC2
+                    bloomColorBuffer[2] = 0x00000000
 
-                bloomPaint.shader = android.graphics.RadialGradient(
-                    width / 2f,
-                    height / 2f,
-                    bloomRadius.coerceAtLeast(1f),
-                    bloomColorBuffer,
-                    bloomStopBuffer,
+                    bloomPaint.shader = android.graphics.RadialGradient(
+                        width / 2f,
+                        height / 2f,
+                        bloomRadius.coerceAtLeast(1f),
+                        bloomColorBuffer,
+                        bloomStopBuffer,
+                        android.graphics.Shader.TileMode.CLAMP
+                    )
+                    nativeCanvas.drawCircle(width / 2f, height / 2f, bloomRadius, bloomPaint)
+                }
+
+                // Orb 1: Upper-Right Organic Flow
+                val orb1X = width * 0.65f + sin(t * 0.14f * timeScale) * metrics.p120 + cos(t * 0.22f * timeScale + 1.4f) * metrics.p45 - tiltX * 0.5f
+                val orb1Y = height * 0.22f + cos(t * 0.11f * timeScale + 0.7f) * metrics.p135 + sin(t * 0.18f * timeScale) * metrics.p40 - tiltY * 0.5f
+                val orb1Radius = metrics.p175 + sin(t * 0.15f) * metrics.p25
+                val o1c = orb1CenterColor.toArgb()
+                val o1Alpha = (o1c ushr 24) and 0xFF
+                val o1Mid = ((o1Alpha * 0.40f).toInt() shl 24) or (o1c and 0x00FFFFFF)
+                orbColorBuffer[0] = o1c
+                orbColorBuffer[1] = o1Mid
+                orbColorBuffer[2] = 0x00000000
+                orbPaint.shader = android.graphics.RadialGradient(
+                    orb1X, orb1Y, orb1Radius.coerceAtLeast(1f),
+                    orbColorBuffer,
+                    orbStopBuffer,
                     android.graphics.Shader.TileMode.CLAMP
                 )
-                nativeCanvas.drawCircle(width / 2f, height / 2f, bloomRadius, bloomPaint)
+                nativeCanvas.drawCircle(orb1X, orb1Y, orb1Radius, orbPaint)
+
+                // Orb 2: Center-Left Organic Flow
+                val orb2X = width * 0.25f + cos(t * 0.12f * timeScale + 2.1f) * metrics.p110 + sin(t * 0.19f * timeScale) * metrics.p55 - tiltX * 0.7f
+                val orb2Y = height * 0.52f + sin(t * 0.15f * timeScale + 1.1f) * metrics.p150 + cos(t * 0.24f * timeScale + 0.3f) * metrics.p50 - tiltY * 0.7f
+                val orb2Radius = metrics.p195 + cos(t * 0.13f + 1.5f) * metrics.p30
+                val o2c = orb2CenterColor.toArgb()
+                val o2Alpha = (o2c ushr 24) and 0xFF
+                val o2Mid = ((o2Alpha * 0.35f).toInt() shl 24) or (o2c and 0x00FFFFFF)
+                orbColorBuffer[0] = o2c
+                orbColorBuffer[1] = o2Mid
+                orbColorBuffer[2] = 0x00000000
+                orbPaint.shader = android.graphics.RadialGradient(
+                    orb2X, orb2Y, orb2Radius.coerceAtLeast(1f),
+                    orbColorBuffer,
+                    orbStopBuffer,
+                    android.graphics.Shader.TileMode.CLAMP
+                )
+                nativeCanvas.drawCircle(orb2X, orb2Y, orb2Radius, orbPaint)
+
+                // Orb 3: Lower-Right Organic Flow
+                val orb3X = width * 0.75f + sin(t * 0.10f * timeScale + 4.2f) * metrics.p130 + cos(t * 0.18f * timeScale + 2.5f) * metrics.p40 - tiltX * 0.4f
+                val orb3Y = height * 0.78f + cos(t * 0.17f * timeScale + 2.8f) * metrics.p110 + sin(t * 0.25f * timeScale + 0.9f) * metrics.p45 - tiltY * 0.4f
+                val orb3Radius = metrics.p165 + sin(t * 0.14f + 2.5f) * metrics.p22
+                val o3c = orb3CenterColor.toArgb()
+                val o3Alpha = (o3c ushr 24) and 0xFF
+                val o3Mid = ((o3Alpha * 0.30f).toInt() shl 24) or (o3c and 0x00FFFFFF)
+                orbColorBuffer[0] = o3c
+                orbColorBuffer[1] = o3Mid
+                orbColorBuffer[2] = 0x00000000
+                orbPaint.shader = android.graphics.RadialGradient(
+                    orb3X, orb3Y, orb3Radius.coerceAtLeast(1f),
+                    orbColorBuffer,
+                    orbStopBuffer,
+                    android.graphics.Shader.TileMode.CLAMP
+                )
+                nativeCanvas.drawCircle(orb3X, orb3Y, orb3Radius, orbPaint)
+
+                // Orb 4: Deep Tech Accent Floating Mid-Top
+                val orb4X = width * 0.45f + cos(t * 0.09f * timeScale + 0.8f) * metrics.p95 + sin(t * 0.16f * timeScale + 3.1f) * metrics.p50 - tiltX * 0.6f
+                val orb4Y = height * 0.35f + sin(t * 0.13f * timeScale + 3.5f) * metrics.p125 + cos(t * 0.21f * timeScale) * metrics.p35 - tiltY * 0.6f
+                val orb4Radius = metrics.p185 + sin(t * 0.11f + 0.5f) * metrics.p28
+                val o4c = orb4CenterColor.toArgb()
+                val o4Alpha = (o4c ushr 24) and 0xFF
+                val o4Mid = ((o4Alpha * 0.35f).toInt() shl 24) or (o4c and 0x00FFFFFF)
+                orbColorBuffer[0] = o4c
+                orbColorBuffer[1] = o4Mid
+                orbColorBuffer[2] = 0x00000000
+                orbPaint.shader = android.graphics.RadialGradient(
+                    orb4X, orb4Y, orb4Radius.coerceAtLeast(1f),
+                    orbColorBuffer,
+                    orbStopBuffer,
+                    android.graphics.Shader.TileMode.CLAMP
+                )
+                nativeCanvas.drawCircle(orb4X, orb4Y, orb4Radius, orbPaint)
             }
-
-            // Orb 1: Upper-Right Organic Flow
-            val orb1X = width * 0.65f + sin(t * 0.14f * timeScale) * metrics.p120 + cos(t * 0.22f * timeScale + 1.4f) * metrics.p45 - tiltX * 0.5f
-            val orb1Y = height * 0.22f + cos(t * 0.11f * timeScale + 0.7f) * metrics.p135 + sin(t * 0.18f * timeScale) * metrics.p40 - tiltY * 0.5f
-            val orb1Radius = metrics.p175 + sin(t * 0.15f) * metrics.p25
-            val o1c = orb1CenterColor.toArgb()
-            val o1Alpha = (o1c ushr 24) and 0xFF
-            val o1Mid = ((o1Alpha * 0.40f).toInt() shl 24) or (o1c and 0x00FFFFFF)
-            orbColorBuffer[0] = o1c
-            orbColorBuffer[1] = o1Mid
-            orbColorBuffer[2] = 0x00000000
-            orbPaint.shader = android.graphics.RadialGradient(
-                orb1X, orb1Y, orb1Radius.coerceAtLeast(1f),
-                orbColorBuffer,
-                orbStopBuffer,
-                android.graphics.Shader.TileMode.CLAMP
-            )
-            nativeCanvas.drawCircle(orb1X, orb1Y, orb1Radius, orbPaint)
-
-            // Orb 2: Center-Left Organic Flow
-            val orb2X = width * 0.25f + cos(t * 0.12f * timeScale + 2.1f) * metrics.p110 + sin(t * 0.19f * timeScale) * metrics.p55 - tiltX * 0.7f
-            val orb2Y = height * 0.52f + sin(t * 0.15f * timeScale + 1.1f) * metrics.p150 + cos(t * 0.24f * timeScale + 0.3f) * metrics.p50 - tiltY * 0.7f
-            val orb2Radius = metrics.p195 + cos(t * 0.13f + 1.5f) * metrics.p30
-            val o2c = orb2CenterColor.toArgb()
-            val o2Alpha = (o2c ushr 24) and 0xFF
-            val o2Mid = ((o2Alpha * 0.35f).toInt() shl 24) or (o2c and 0x00FFFFFF)
-            orbColorBuffer[0] = o2c
-            orbColorBuffer[1] = o2Mid
-            orbColorBuffer[2] = 0x00000000
-            orbPaint.shader = android.graphics.RadialGradient(
-                orb2X, orb2Y, orb2Radius.coerceAtLeast(1f),
-                orbColorBuffer,
-                orbStopBuffer,
-                android.graphics.Shader.TileMode.CLAMP
-            )
-            nativeCanvas.drawCircle(orb2X, orb2Y, orb2Radius, orbPaint)
-
-            // Orb 3: Lower-Right Organic Flow
-            val orb3X = width * 0.75f + sin(t * 0.10f * timeScale + 4.2f) * metrics.p130 + cos(t * 0.18f * timeScale + 2.5f) * metrics.p40 - tiltX * 0.4f
-            val orb3Y = height * 0.78f + cos(t * 0.17f * timeScale + 2.8f) * metrics.p110 + sin(t * 0.25f * timeScale + 0.9f) * metrics.p45 - tiltY * 0.4f
-            val orb3Radius = metrics.p165 + sin(t * 0.14f + 2.5f) * metrics.p22
-            val o3c = orb3CenterColor.toArgb()
-            val o3Alpha = (o3c ushr 24) and 0xFF
-            val o3Mid = ((o3Alpha * 0.30f).toInt() shl 24) or (o3c and 0x00FFFFFF)
-            orbColorBuffer[0] = o3c
-            orbColorBuffer[1] = o3Mid
-            orbColorBuffer[2] = 0x00000000
-            orbPaint.shader = android.graphics.RadialGradient(
-                orb3X, orb3Y, orb3Radius.coerceAtLeast(1f),
-                orbColorBuffer,
-                orbStopBuffer,
-                android.graphics.Shader.TileMode.CLAMP
-            )
-            nativeCanvas.drawCircle(orb3X, orb3Y, orb3Radius, orbPaint)
-
-            // Orb 4: Deep Tech Accent Floating Mid-Top
-            val orb4X = width * 0.45f + cos(t * 0.09f * timeScale + 0.8f) * metrics.p95 + sin(t * 0.16f * timeScale + 3.1f) * metrics.p50 - tiltX * 0.6f
-            val orb4Y = height * 0.35f + sin(t * 0.13f * timeScale + 3.5f) * metrics.p125 + cos(t * 0.21f * timeScale) * metrics.p35 - tiltY * 0.6f
-            val orb4Radius = metrics.p185 + sin(t * 0.11f + 0.5f) * metrics.p28
-            val o4c = orb4CenterColor.toArgb()
-            val o4Alpha = (o4c ushr 24) and 0xFF
-            val o4Mid = ((o4Alpha * 0.35f).toInt() shl 24) or (o4c and 0x00FFFFFF)
-            orbColorBuffer[0] = o4c
-            orbColorBuffer[1] = o4Mid
-            orbColorBuffer[2] = 0x00000000
-            orbPaint.shader = android.graphics.RadialGradient(
-                orb4X, orb4Y, orb4Radius.coerceAtLeast(1f),
-                orbColorBuffer,
-                orbStopBuffer,
-                android.graphics.Shader.TileMode.CLAMP
-            )
-            nativeCanvas.drawCircle(orb4X, orb4Y, orb4Radius, orbPaint)
         }
 
         // ── 2. UNIFIED MICRO-PARTICLES & TOUCH INTERACTION ─────────────────
+        if (hasCustomBackground && !customParticlesEnabled) {
+            return@Canvas
+        }
         val baseSpeedY = if (isConnected) metrics.speedYConn else metrics.speedYDisconn
         val currentTouch = effectiveTouchPoint
         val touchWeight = touchIntensity.value

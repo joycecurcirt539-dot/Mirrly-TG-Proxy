@@ -107,5 +107,56 @@ class TunnelSpeedTestEngineTest {
         assertNotNull(engine.onTestCompleted)
         assertFalse(completedCalled)
     }
+
+    @Test
+    fun testTelegramDcBenchmarksList() {
+        val dcs = defaultTelegramDcs()
+        assertEquals(5, dcs.size)
+
+        val dc1 = dcs.find { it.dcId == 1 }
+        val dc2 = dcs.find { it.dcId == 2 }
+        val dc3 = dcs.find { it.dcId == 3 }
+        val dc4 = dcs.find { it.dcId == 4 }
+        val dc5 = dcs.find { it.dcId == 5 }
+
+        assertNotNull(dc1)
+        assertNotNull(dc2)
+        assertNotNull(dc3)
+        assertNotNull(dc4)
+        assertNotNull(dc5)
+
+        assertEquals("149.154.175.50", dc1?.ip)
+        assertEquals("149.154.167.51", dc2?.ip)
+        assertEquals("149.154.175.100", dc3?.ip)
+        assertEquals("149.154.167.91", dc4?.ip)
+        assertEquals("91.108.56.130", dc5?.ip)
+
+        assertTrue(dc2?.isKeyDc == true)
+        assertTrue(dc4?.isKeyDc == true)
+        assertFalse(dc1?.isKeyDc == true)
+        assertFalse(dc3?.isKeyDc == true)
+        assertFalse(dc5?.isKeyDc == true)
+    }
+
+    @Test
+    fun testWeightedScoringQualityGrade() {
+        val engine = TunnelSpeedTestEngine()
+
+        // Requirement 1.4: Connection with >50 Mbps and latency <= 120 ms must get "Отлично"
+        val score = engine.calculateOverallScore(
+            dlMbps = 65.0,
+            ulMbps = 40.0,
+            pingMs = 110L,
+            jitterMs = 8L,
+            dc2RttMs = 110L,
+            dc4RttMs = 115L
+        )
+        val grade = engine.calculateQualityGrade(score, dlMbps = 65.0, pingMs = 110L)
+        assertEquals("Отлично", grade)
+
+        // Ultra high speed (120 Mbps) with 95 ms ping must also be "Отлично"
+        val gradeHigh = engine.calculateQualityGrade(90, dlMbps = 120.0, pingMs = 95L)
+        assertEquals("Отлично", gradeHigh)
+    }
 }
 

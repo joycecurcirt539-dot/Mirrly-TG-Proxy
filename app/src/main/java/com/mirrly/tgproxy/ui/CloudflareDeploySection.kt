@@ -56,7 +56,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.service.PreferencesManager
 import com.mirrly.tgproxy.service.cloudflare.*
@@ -64,9 +63,7 @@ import com.mirrly.tgproxy.ui.theme.*
 import kotlinx.coroutines.launch
 
 private val CfOrange = Color(0xFFF38020)
-private val CardBorderDark = Color(0xFF181E2E)
-private val CardBorderFocused = Color(0xFF26324D)
-private val DialogBg = Color(0xFF0C101A)
+private val CardBorderDark = AmoledBorder
 
 @Composable
 fun CloudflareDeploySection(
@@ -89,8 +86,12 @@ fun CloudflareDeploySection(
     val authServerState by CloudflareOAuthManager.authState.collectAsState()
     var showManualTokenDialog by remember { mutableStateOf(false) }
     var showSubdomainDialog by remember { mutableStateOf(false) }
+    var pendingDeployAfterSubdomain by remember { mutableStateOf(false) }
     var showAccountManageDialog by remember { mutableStateOf(false) }
     var workerToDelete by remember { mutableStateOf<CloudflareWorkerSummary?>(null) }
+    var isManualCallbackExpandedInDeploy by remember { mutableStateOf(false) }
+    var deployCallbackUrlInput by remember { mutableStateOf("") }
+    var deployCallbackError by remember { mutableStateOf<String?>(null) }
 
     var customWorkerName by remember {
         mutableStateOf(CloudflareWorkerPayload.generateRandomWorkerName())
@@ -187,6 +188,7 @@ fun CloudflareDeploySection(
         val currentSubdomain = prefs.getCloudflareSubdomain() ?: ""
 
         if (currentSubdomain.isBlank()) {
+            pendingDeployAfterSubdomain = true
             showSubdomainDialog = true
             return
         }
@@ -528,6 +530,120 @@ fun CloudflareDeploySection(
                                                 )
                                             }
                                         }
+
+                                        // Fallback manual callback URL entry
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = CfOrange.copy(alpha = 0.10f),
+                                            border = BorderStroke(1.dp, CfOrange.copy(alpha = 0.40f)),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(32.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .springPress(onClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                                    val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim().orEmpty()
+                                                    if (clipText.contains("code=")) {
+                                                        val processed = CloudflareOAuthManager.processCallbackUrl(clipText)
+                                                        if (!processed) {
+                                                            deployCallbackError = "Неверный формат Callback URL"
+                                                            isManualCallbackExpandedInDeploy = true
+                                                        }
+                                                    } else {
+                                                        isManualCallbackExpandedInDeploy = !isManualCallbackExpandedInDeploy
+                                                    }
+                                                })
+                                        ) {
+                                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                Text(
+                                                    text = "Вставить Callback URL вручную",
+                                                    color = CfOrange,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+
+                                        AnimatedVisibility(
+                                            visible = isManualCallbackExpandedInDeploy,
+                                            enter = expandVertically() + fadeIn(),
+                                            exit = shrinkVertically() + fadeOut()
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                OutlinedTextField(
+                                                    value = deployCallbackUrlInput,
+                                                    onValueChange = {
+                                                        deployCallbackUrlInput = it
+                                                        deployCallbackError = null
+                                                    },
+                                                    placeholder = {
+                                                        Text(
+                                                            text = "http://localhost:8976/oauth/callback?code=...",
+                                                            color = TextMuted,
+                                                            fontSize = 11.sp,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
+                                                    },
+                                                    textStyle = LocalTextStyle.current.copy(
+                                                        fontSize = 11.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        color = TextWhite
+                                                    ),
+                                                    singleLine = true,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        focusedBorderColor = CfOrange,
+                                                        unfocusedBorderColor = AmoledBorder,
+                                                        focusedContainerColor = Color.Transparent,
+                                                        unfocusedContainerColor = Color.Transparent,
+                                                        cursorColor = CfOrange
+                                                    )
+                                                )
+
+                                                if (deployCallbackError != null) {
+                                                    Text(
+                                                        text = deployCallbackError.orEmpty(),
+                                                        color = Color(0xFFEF4444),
+                                                        fontSize = 10.5.sp
+                                                    )
+                                                }
+
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = CfOrange.copy(alpha = 0.16f),
+                                                    border = BorderStroke(1.dp, CfOrange.copy(alpha = 0.60f)),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(32.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .springPress(onClick = {
+                                                            val raw = deployCallbackUrlInput.trim()
+                                                            if (!raw.contains("code=")) {
+                                                                deployCallbackError = "Ссылка должна содержать параметр code="
+                                                                return@springPress
+                                                            }
+                                                            val ok = CloudflareOAuthManager.processCallbackUrl(raw)
+                                                            if (!ok) {
+                                                                deployCallbackError = "Ошибка обработки ссылки или несовпадение state"
+                                                            }
+                                                        })
+                                                ) {
+                                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                        Text(
+                                                            text = "Подтвердить Callback URL",
+                                                            color = CfOrange,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 11.5.sp
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                     is ServerAuthState.ExchangingTokens -> {
                                         CircularProgressIndicator(
@@ -731,22 +847,22 @@ fun CloudflareDeploySection(
                         }
 
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = CfOrange.copy(alpha = 0.12f),
-                            border = BorderStroke(0.5.dp, CfOrange.copy(alpha = 0.35f)),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, CfOrange.copy(alpha = 0.50f)),
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable {
+                                .clip(RoundedCornerShape(8.dp))
+                                .springPress(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     showAccountManageDialog = true
-                                }
+                                })
                         ) {
                             Text(
                                 text = stringResource(R.string.cf_deploy_btn_logout),
                                 color = CfOrange,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                             )
                         }
                     }
@@ -870,6 +986,35 @@ fun CloudflareDeploySection(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = CfOrange.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, CfOrange.copy(alpha = 0.30f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { showSubdomainDialog = true }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_info_circle),
+                                    contentDescription = null,
+                                    tint = CfOrange,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.socks5_onboard_subdomain_needed_title),
+                                    color = CfOrange,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
                     }
 
                     // Deploy Action Button (Compact 38.dp, no emojis)
@@ -1170,584 +1315,106 @@ fun CloudflareDeploySection(
         }
     }
 
-    // ── Dialog: Manual API Token ─────────────────────────────────────────────
+    // ── Bottom Sheet: Manual API Token ─────────────────────────────────────────────
     if (showManualTokenDialog) {
-        var tokenInput by remember { mutableStateOf("") }
-        var isVerifying by remember { mutableStateOf(false) }
-
-        Dialog(onDismissRequest = { if (!isVerifying) showManualTokenDialog = false }) {
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = DialogBg,
-                border = BorderStroke(1.dp, CardBorderFocused),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.cf_deploy_token_dialog_title),
-                        color = TextWhite,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Text(
-                        text = stringResource(R.string.cf_deploy_token_dialog_desc),
-                        color = TextMuted,
-                        fontSize = 11.5.sp,
-                        lineHeight = 15.sp
-                    )
-
-                    OutlinedTextField(
-                        value = tokenInput,
-                        onValueChange = { tokenInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = {
-                            Text(
-                                text = stringResource(R.string.cf_deploy_token_dialog_hint),
-                                color = TextMuted,
-                                fontSize = 12.sp
-                            )
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CfOrange,
-                            unfocusedBorderColor = CardBorderDark,
-                            focusedTextColor = TextWhite,
-                            unfocusedTextColor = TextWhite,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
-                    )
-
-                    Text(
-                        text = stringResource(R.string.cf_deploy_token_create_link),
-                        color = CfOrange,
-                        fontSize = 11.5.sp,
-                        modifier = Modifier.clickable {
-                            val uri = Uri.parse("https://dash.cloudflare.com/profile/api-tokens")
-                            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                        }
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { showManualTokenDialog = false },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, CardBorderDark)
-                        ) {
-                            Text(text = stringResource(R.string.cf_deploy_btn_cancel), color = TextMuted, fontSize = 11.5.sp)
-                        }
-
-                        Button(
-                            onClick = {
-                                val cleanToken = tokenInput.trim()
-                                if (cleanToken.isBlank()) return@Button
-                                isVerifying = true
-                                scope.launch {
-                                    val checkRes = CloudflareApiClient.verifyToken(cleanToken)
-                                    if (checkRes.isFailure) {
-                                        isVerifying = false
-                                        val err = checkRes.exceptionOrNull()?.message ?: context.getString(R.string.cf_deploy_invalid_token)
-                                        Toast.makeText(context, err, Toast.LENGTH_LONG).show()
-                                        return@launch
-                                    }
-
-                                    val accRes = CloudflareApiClient.getAccounts(cleanToken)
-                                    val firstAcc = accRes.getOrNull()?.firstOrNull()
-                                    val accId = firstAcc?.id ?: ""
-                                    val accLabel = firstAcc?.name ?: "Cloudflare Token"
-
-                                    var sub = ""
-                                    if (accId.isNotEmpty()) {
-                                        val subRes = CloudflareApiClient.getSubdomain(cleanToken, accId)
-                                        sub = subRes.getOrNull() ?: ""
-                                    }
-
-                                    prefs.saveCloudflareSession(
-                                        accessToken = cleanToken,
-                                        refreshToken = null,
-                                        accountId = accId,
-                                        accountName = accLabel,
-                                        subdomain = sub
-                                    )
-
-                                    isVerifying = false
-                                    showManualTokenDialog = false
-                                    isAuthorized = true
-                                    accountId = accId
-                                    accountName = accLabel
-                                    subdomain = sub
-                                    Toast.makeText(context, context.getString(R.string.cf_deploy_token_saved), Toast.LENGTH_SHORT).show()
-
-                                    if (sub.isEmpty()) {
-                                        showSubdomainDialog = true
-                                    } else {
-                                        refreshWorkersList()
-                                    }
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = CfOrange),
-                            enabled = !isVerifying
-                        ) {
-                            if (isVerifying) {
-                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text(text = stringResource(R.string.cf_deploy_token_dialog_btn_save), color = Color.White, fontSize = 11.5.sp)
-                            }
-                        }
-                    }
+        CloudflareManualTokenSheet(
+            prefs = prefs,
+            onDismiss = { showManualTokenDialog = false },
+            onTokenSaved = { savedToken, accId, accName, sub ->
+                showManualTokenDialog = false
+                isAuthorized = true
+                isSessionExpired = false
+                accountId = accId
+                accountName = accName
+                subdomain = sub
+                if (sub.isEmpty()) {
+                    showSubdomainDialog = true
+                } else {
+                    refreshWorkersList()
                 }
             }
-        }
-    }
-
-    // ── Dialog: Setup Subdomain ──────────────────────────────────────────────
-    if (showSubdomainDialog) {
-        var subInput by remember { mutableStateOf("") }
-        var isSavingSub by remember { mutableStateOf(false) }
-
-        Dialog(onDismissRequest = { if (!isSavingSub) showSubdomainDialog = false }) {
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = DialogBg,
-                border = BorderStroke(1.dp, CardBorderFocused),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.cf_deploy_subdomain_dialog_title),
-                        color = TextWhite,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Text(
-                        text = stringResource(R.string.cf_deploy_subdomain_dialog_desc),
-                        color = TextMuted,
-                        fontSize = 11.5.sp,
-                        lineHeight = 15.sp
-                    )
-
-                    OutlinedTextField(
-                        value = subInput,
-                        onValueChange = { subInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = {
-                            Text(
-                                text = stringResource(R.string.cf_deploy_subdomain_dialog_hint),
-                                color = TextMuted,
-                                fontSize = 12.sp
-                            )
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CfOrange,
-                            unfocusedBorderColor = CardBorderDark,
-                            focusedTextColor = TextWhite,
-                            unfocusedTextColor = TextWhite,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        )
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { showSubdomainDialog = false },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, CardBorderDark)
-                        ) {
-                            Text(text = stringResource(R.string.cf_deploy_btn_cancel), color = TextMuted, fontSize = 11.5.sp)
-                        }
-
-                        Button(
-                            onClick = {
-                                val token = prefs.getCloudflareToken() ?: return@Button
-                                val accId = prefs.getCloudflareAccountId() ?: return@Button
-                                val clean = CloudflareWorkerPayload.normalizeWorkerName(subInput)
-                                if (clean.isBlank()) return@Button
-
-                                isSavingSub = true
-                                scope.launch {
-                                    val res = CloudflareApiClient.registerSubdomain(token, accId, clean)
-                                    isSavingSub = false
-                                    if (res.isSuccess) {
-                                        val registered = res.getOrNull() ?: clean
-                                        prefs.setCloudflareSubdomain(registered)
-                                        subdomain = registered
-                                        showSubdomainDialog = false
-                                        Toast.makeText(context, context.getString(R.string.cf_deploy_subdomain_activated, registered), Toast.LENGTH_SHORT).show()
-                                        refreshWorkersList()
-                                    } else {
-                                        val err = res.exceptionOrNull()?.message ?: context.getString(R.string.cf_deploy_subdomain_reg_error)
-                                        Toast.makeText(context, err, Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(36.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = CfOrange),
-                            enabled = !isSavingSub
-                        ) {
-                            if (isSavingSub) {
-                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text(text = stringResource(R.string.action_save), color = Color.White, fontSize = 11.5.sp)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ── Dialog: Confirm Delete Worker ────────────────────────────────────────
-    workerToDelete?.let { worker ->
-        AlertDialog(
-            onDismissRequest = { workerToDelete = null },
-            title = {
-                Text(
-                    text = stringResource(R.string.cf_deploy_delete_confirm_title),
-                    color = TextWhite,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Text(
-                    text = stringResource(R.string.cf_deploy_delete_confirm_desc, worker.id),
-                    color = TextMuted,
-                    fontSize = 12.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val w = worker
-                        workerToDelete = null
-                        deleteWorkerFromCf(w)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5252)),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.height(34.dp)
-                ) {
-                    Text(text = stringResource(R.string.action_delete), color = Color.White, fontSize = 11.5.sp)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { workerToDelete = null }) {
-                    Text(text = stringResource(R.string.cf_deploy_btn_cancel), color = TextMuted, fontSize = 11.5.sp)
-                }
-            },
-            containerColor = DialogBg,
-            shape = RoundedCornerShape(14.dp)
         )
     }
 
-    // ── Dialog: Cloudflare Account Management & Switch ─────────────────────
-    if (showAccountManageDialog) {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        Dialog(
-            onDismissRequest = { showAccountManageDialog = false },
-            properties = androidx.compose.ui.window.DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false,
-                dismissOnBackPress = true,
-                dismissOnClickOutside = true
-            )
-        ) {
-            DialogBackdropBox(onDismiss = { showAccountManageDialog = false }) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(horizontal = 24.dp)
-                        .fillMaxWidth(0.92f)
-                        .clickable(remember { MutableInteractionSource() }, null) {}
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = DialogBg,
-                        border = BorderStroke(1.dp, CfOrange.copy(alpha = 0.35f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            // Header: Cloudflare Icon Badge + Title
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(CfOrange.copy(alpha = 0.12f))
-                                        .border(1.dp, CfOrange.copy(alpha = 0.35f), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_diag_cloudflare),
-                                        contentDescription = null,
-                                        tint = CfOrange,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                                Column {
-                                    Text(
-                                        text = stringResource(R.string.cf_account_dialog_title),
-                                        color = TextWhite,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.cf_account_dialog_subtitle),
-                                        color = TextMuted,
-                                        fontSize = 11.5.sp
-                                    )
-                                }
-                            }
-
-                            // Details Card
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFF111724),
-                                border = BorderStroke(1.dp, CardBorderDark),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    // Row 1: Profile / Email
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.cf_account_dialog_label_account),
-                                            color = TextMuted,
-                                            fontSize = 11.5.sp
-                                        )
-                                        Text(
-                                            text = accountName.ifBlank { "Cloudflare User" },
-                                            color = TextWhite,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-
-                                    // Row 2: Subdomain
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.cf_account_dialog_label_subdomain),
-                                            color = TextMuted,
-                                            fontSize = 11.5.sp
-                                        )
-                                        Text(
-                                            text = if (subdomain.isNotBlank()) "$subdomain.workers.dev" else stringResource(R.string.cf_deploy_subdomain_missing),
-                                            color = if (subdomain.isNotBlank()) activeProtoColor else TextMuted,
-                                            fontSize = 11.5.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-
-                                    // Row 3: Account ID (with copy)
-                                    if (accountId.isNotBlank()) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = stringResource(R.string.cf_account_dialog_label_id),
-                                                color = TextMuted,
-                                                fontSize = 11.5.sp
-                                            )
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                modifier = Modifier.clickable {
-                                                    clipboard?.setPrimaryClip(ClipData.newPlainText("Cloudflare Account ID", accountId))
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    Toast.makeText(context, context.getString(R.string.cf_account_dialog_id_copied), Toast.LENGTH_SHORT).show()
-                                                }
-                                            ) {
-                                                Text(
-                                                    text = accountId.take(10) + "...",
-                                                    color = TextWhite.copy(alpha = 0.85f),
-                                                    fontSize = 11.sp,
-                                                    fontFamily = FontFamily.Monospace
-                                                )
-                                                Icon(
-                                                    painter = painterResource(id = R.drawable.ic_copy),
-                                                    contentDescription = null,
-                                                    tint = CfOrange,
-                                                    modifier = Modifier.size(13.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    // Row 4: Quota info
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.cf_account_dialog_label_quota),
-                                            color = TextMuted,
-                                            fontSize = 11.5.sp
-                                        )
-                                        Text(
-                                            text = stringResource(R.string.cf_account_dialog_quota_val),
-                                            color = TextWhite,
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-
-                                    // Row 5: Status pill
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.cf_account_session_status),
-                                            color = TextMuted,
-                                            fontSize = 11.5.sp
-                                        )
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(6.dp)
-                                                    .clip(CircleShape)
-                                                    .background(if (isSessionExpired) Color(0xFFEF4444) else Color(0xFF00E676))
-                                            )
-                                            Text(
-                                                text = if (isSessionExpired) stringResource(R.string.cf_account_dialog_status_expired) else stringResource(R.string.cf_account_dialog_status_active),
-                                                color = if (isSessionExpired) Color(0xFFEF4444) else Color(0xFF00E676),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Action Buttons
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                // 1. Switch Account: Re-triggers browser OAuth
-                                Button(
-                                    onClick = {
-                                        showAccountManageDialog = false
-                                        prefs.clearCloudflareSession()
-                                        isAuthorized = false
-                                        isSessionExpired = false
-                                        accountName = ""
-                                        accountId = ""
-                                        subdomain = ""
-                                        cfWorkers = emptyList()
-                                        startBrowserAuth()
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(40.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = CfOrange)
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.cf_account_dialog_btn_switch),
-                                        color = Color.White,
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-
-                                // 2. Log Out: Simply resets session and stays in app
-                                OutlinedButton(
-                                    onClick = {
-                                        showAccountManageDialog = false
-                                        prefs.clearCloudflareSession()
-                                        isAuthorized = false
-                                        isSessionExpired = false
-                                        accountName = ""
-                                        accountId = ""
-                                        subdomain = ""
-                                        cfWorkers = emptyList()
-                                        Toast.makeText(context, context.getString(R.string.cf_session_reset), Toast.LENGTH_SHORT).show()
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(36.dp),
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, CardBorderFocused)
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.cf_account_dialog_btn_logout),
-                                        color = TextWhite.copy(alpha = 0.85f),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-
-                                // 3. Dismiss
-                                TextButton(
-                                    onClick = { showAccountManageDialog = false },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(32.dp)
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.cf_account_dialog_btn_close),
-                                        color = TextMuted,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
+    // ── Bottom Sheet: Setup Subdomain ──────────────────────────────────────────────
+    if (showSubdomainDialog) {
+        CloudflareSubdomainSetupDialog(
+            onDismiss = {
+                showSubdomainDialog = false
+                pendingDeployAfterSubdomain = false
+            },
+            onSubdomainConfigured = { registered ->
+                showSubdomainDialog = false
+                subdomain = registered
+                if (pendingDeployAfterSubdomain) {
+                    pendingDeployAfterSubdomain = false
+                    deployNewWorker()
+                } else {
+                    refreshWorkersList()
                 }
+            },
+            initialSubdomain = subdomain
+        )
+    }
+
+    // ── Bottom Sheet: Confirm Delete Worker ────────────────────────────────────────
+    workerToDelete?.let { worker ->
+        CloudflareDeleteConfirmSheet(
+            workerName = worker.id,
+            onConfirm = {
+                val w = worker
+                workerToDelete = null
+                deleteWorkerFromCf(w)
+            },
+            onDismiss = { workerToDelete = null }
+        )
+    }
+
+    // ── Bottom Sheet: Cloudflare Account Management & Switch ─────────────────────
+    if (showAccountManageDialog) {
+        CloudflareAccountManageSheet(
+            prefs = prefs,
+            accountName = accountName,
+            accountId = accountId,
+            subdomain = subdomain,
+            isSessionExpired = isSessionExpired,
+            onDismiss = { showAccountManageDialog = false },
+            onSetupSubdomain = {
+                showAccountManageDialog = false
+                showSubdomainDialog = true
+            },
+            onSwitchAccount = {
+                showAccountManageDialog = false
+                prefs.clearCloudflareSession()
+                val app = com.mirrly.tgproxy.MirrlyApplication.instance
+                app.config.customCfDomain = ""
+                app.prefsManager.saveConfig(app.config)
+                isAuthorized = false
+                isSessionExpired = false
+                accountName = ""
+                accountId = ""
+                subdomain = ""
+                cfWorkers = emptyList()
+                startBrowserAuth()
+            },
+            onLogout = {
+                showAccountManageDialog = false
+                prefs.clearCloudflareSession()
+                val app = com.mirrly.tgproxy.MirrlyApplication.instance
+                app.config.customCfDomain = ""
+                app.prefsManager.saveConfig(app.config)
+                isAuthorized = false
+                isSessionExpired = false
+                accountName = ""
+                accountId = ""
+                subdomain = ""
+                cfWorkers = emptyList()
+                Toast.makeText(context, context.getString(R.string.cf_session_reset), Toast.LENGTH_SHORT).show()
+            },
+            onSessionRefreshed = { freshToken ->
+                isSessionExpired = false
+                refreshWorkersList()
             }
-        }
+        )
     }
 }

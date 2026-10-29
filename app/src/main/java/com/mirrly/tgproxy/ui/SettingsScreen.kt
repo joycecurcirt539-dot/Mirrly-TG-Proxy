@@ -23,8 +23,18 @@ import android.content.pm.PackageManager
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
+import kotlin.math.roundToInt
+import java.io.File
+import com.mirrly.tgproxy.service.PreferencesManager
+import com.mirrly.tgproxy.service.WallpaperProcessor
+import com.mirrly.tgproxy.service.WallpaperPreset
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import androidx.core.view.WindowCompat
@@ -86,6 +96,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.core.NagleMode
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.core.ProxyMode
 import com.mirrly.tgproxy.core.TcpNoDelayMode
@@ -183,95 +194,61 @@ fun InfoButton(
     }
 }
 
-/** Popup dialog window with detailed description configuring */
+/** Bottom sheet for detailed settings help descriptions (Zero-Popup dogma) */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InfoDialog(title: String, body: String, onDismiss: () -> Unit) {
     val haptic = LocalHapticFeedback.current
 
-    Dialog(
+    MirrlyModalBottomSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true
-        )
+        maxTabletWidth = 460.dp
     ) {
-        DialogBackdropBox(
-            onDismiss = onDismiss
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .fadingEdges(topFadeHeight = 16.dp, bottomFadeHeight = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 20.dp, top = 4.dp)
         ) {
-            // Scrollable Detailed Info Content with Smooth Fading Edges into background blur
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .adaptiveContainerWidth(440.dp)
-                    .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 44.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(
-                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
-                    )
-                    .padding(horizontal = 24.dp)
-                    .clickable(enabled = false) {}
-            ) {
-                // Category Pill
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = ActiveGreenLed.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_help_title),
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = ActiveGreenLed,
-                        letterSpacing = 1.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                    )
-                }
+            // Title
+            Text(
+                text = title,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextWhite,
+                textAlign = TextAlign.Center,
+                letterSpacing = 0.3.sp
+            )
 
-                // Title
-                Text(
-                    text = title,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    textAlign = TextAlign.Center,
-                    letterSpacing = 0.3.sp
-                )
+            // Formatted body content with transparent glass cards & left-aligned text
+            FormattedInfoBody(body = body)
 
-                // Formatted body content with transparent glass cards & left-aligned text
-                FormattedInfoBody(body = body)
+            // Footnote section with glossary and simple language explanation of terms
+            InfoFootnoteCard(title = title, body = body)
 
-                // Footnote section with glossary and simple language explanation of terms
-                InfoFootnoteCard(title = title, body = body)
-
-                // Keep the final card clear of the navigation area and fading edge.
-                Spacer(modifier = Modifier.height(72.dp))
-            }
-
-            // Top Header with Back Button (pinned at top left over blurred background)
+            // Close button (Outline-Only springPress)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .align(Alignment.TopStart)
-                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp)
-            ) {
-                IconButton(
-                    onClick = {
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
+                    .springPress(onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onDismiss()
-                    }
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_arrow_left),
-                        contentDescription = stringResource(R.string.action_back),
-                        tint = TextWhite,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
+                    }),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.action_close),
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextWhite
+                )
             }
         }
     }
@@ -296,34 +273,14 @@ private fun FormattedInfoBody(body: String) {
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(9.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = ActiveGreenLed.copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
-                        ) {
-                            Text(
-                                text = (index + 1).toString().padStart(2, '0'),
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Black,
-                                color = ActiveGreenLed,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-
-                        section.heading?.let { heading ->
-                            Text(
-                                text = heading,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = ActiveGreenLed,
-                                letterSpacing = 0.35.sp,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                    section.heading?.let { heading ->
+                        Text(
+                            text = heading,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ActiveGreenLed,
+                            letterSpacing = 0.35.sp
+                        )
                     }
 
                     section.lines.forEach { line ->
@@ -382,9 +339,9 @@ internal fun InfoFootnoteCard(title: String, body: String) {
                 ) {
                     Text(
                         text = when (currentLang) {
-                            "en" -> "FOOTNOTE: GLOSSARY"
-                            "fa" -> "یادداشت: واژه‌نامه اصطلاحات"
-                            else -> "СНОСКА: ПОЯСНЕНИЕ ТЕРМИНОВ"
+                            "en" -> "TERM EXPLANATIONS"
+                            "fa" -> "توضیح اصطلاحات"
+                            else -> "ПОЯСНЕНИЕ ТЕРМИНОВ"
                         },
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Black,
@@ -394,17 +351,6 @@ internal fun InfoFootnoteCard(title: String, body: String) {
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
-
-                Text(
-                    text = when (currentLang) {
-                        "en" -> "Plain language explanation"
-                        "fa" -> "توضیح به زبان ساده"
-                        else -> "Понятным языком"
-                    },
-                    fontSize = 11.5.sp,
-                    color = TextMuted,
-                    fontWeight = FontWeight.Medium
-                )
             }
 
             Column(
@@ -453,9 +399,9 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
     val allTerms = when (lang) {
         "en" -> listOf(
             TermGlossaryItem(
-                term = "Proxy / Gateway",
+                term = "Proxy Gateway",
                 definition = "A secure intermediate server routing Telegram data to bypass network restrictions without affecting other apps.",
-                keywords = listOf("proxy", "gateway", "relay", "port", "шлюз")
+                keywords = listOf("proxy", "gateway", "relay", "port")
             ),
             TermGlossaryItem(
                 term = "MTProto",
@@ -468,17 +414,37 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
                 keywords = listOf("socks5", "10808")
             ),
             TermGlossaryItem(
-                term = "Worker (Cloudflare Worker)",
+                term = "Cloudflare Worker",
                 definition = "A cloud microserver receiving traffic from your phone and securely forwarding it to Telegram data centers.",
                 keywords = listOf("worker", "cloudflare", "domain")
             ),
             TermGlossaryItem(
-                term = "Uplink / Route",
-                definition = "The external server route (Cloudflare Worker, WARP, VLESS) through which the proxy reaches Telegram.",
-                keywords = listOf("uplink", "warp", "vless", "masque", "route")
+                term = "System VPN",
+                definition = "Android system-level network interface routing app traffic through an encrypted tunnel without manual proxy configuration.",
+                keywords = listOf("vpn", "tunnel", "vpnservice")
             ),
             TermGlossaryItem(
-                term = "Ping (RTT) & Latency",
+                term = "Split Tunneling",
+                definition = "Selective routing allowing specific applications to pass through VPN while other apps connect directly.",
+                keywords = listOf("split", "splittunnel", "apps", "disallow", "allow")
+            ),
+            TermGlossaryItem(
+                term = "WireGuard and AmneziaWG",
+                definition = "High-performance encrypted protocols optimized for mobile networks and DPI resistance.",
+                keywords = listOf("wireguard", "amnezia", "awg")
+            ),
+            TermGlossaryItem(
+                term = "MASQUE Protocol",
+                definition = "Modern IETF tunneling standard over HTTP/3 and QUIC cloaking connection as standard web traffic.",
+                keywords = listOf("masque", "quic", "http/3")
+            ),
+            TermGlossaryItem(
+                term = "Uplink Route",
+                definition = "The external server route through which the proxy reaches target data centers.",
+                keywords = listOf("uplink", "warp", "vless", "route")
+            ),
+            TermGlossaryItem(
+                term = "Network Latency RTT",
                 definition = "Round-trip time in milliseconds for a network signal. Lower numbers mean faster app responsiveness.",
                 keywords = listOf("ping", "rtt", "latency", "delay")
             ),
@@ -488,49 +454,49 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
                 keywords = listOf("jitter", "variation")
             ),
             TermGlossaryItem(
-                term = "Traffic Cloaking (FakeTLS / Obfuscation)",
+                term = "Traffic Cloaking FakeTLS",
                 definition = "Disguising proxy data as normal HTTPS website browsing to prevent ISP deep packet inspection from blocking it.",
                 keywords = listOf("obfuscation", "faketls", "cloaking", "secret", "tls")
             ),
             TermGlossaryItem(
-                term = "DNS / DoH (DNS-over-HTTPS)",
+                term = "Encrypted DNS",
                 definition = "Encrypted resolution of server IP addresses, protecting your DNS requests from ISP snooping and tampering.",
-                keywords = listOf("dns", "doh")
+                keywords = listOf("dns")
             ),
             TermGlossaryItem(
-                term = "Bufferbloat",
+                term = "Queue Bufferbloat",
                 definition = "Sudden network lag spikes caused by overloaded router queues during large background file downloads.",
                 keywords = listOf("bufferbloat", "buffer")
             ),
             TermGlossaryItem(
-                term = "TCP_NODELAY",
+                term = "Immediate Send TCP_NODELAY",
                 definition = "Socket setting sending packets immediately instead of waiting to batch them, minimizing chat latency.",
                 keywords = listOf("tcp_nodelay", "nodelay")
             ),
             TermGlossaryItem(
-                term = "Happy Eyeballs",
+                term = "Fast Path Happy Eyeballs",
                 definition = "Smart dual-stack algorithm testing IPv6 and IPv4 simultaneously, connecting to whichever responds first.",
                 keywords = listOf("happy eyeballs", "eyeballs", "ipv6", "ipv4")
             ),
             TermGlossaryItem(
-                term = "Connection Pool (WsPool)",
+                term = "Connection Pool WsPool",
                 definition = "Pre-warmed open connections maintained in standby, removing cold-start dial delays when opening chats.",
                 keywords = listOf("pool", "wspool", "standby")
             ),
             TermGlossaryItem(
-                term = "Handshake",
+                term = "Security Handshake",
                 definition = "Initial cryptographic security key exchange between smartphone and proxy before data transfer begins.",
                 keywords = listOf("handshake", "agreement")
             ),
             TermGlossaryItem(
                 term = "Multiplexing",
-                definition = "Streaming multiple data flows (text and media) through one shared secure tunnel without opening extra connections.",
+                definition = "Streaming multiple data flows through one shared secure tunnel without opening extra connections.",
                 keywords = listOf("multiplex", "mux", "stream")
             )
         )
         "fa" -> listOf(
             TermGlossaryItem(
-                term = "پروکسی / درگاه (Proxy)",
+                term = "درگاه پروکسی",
                 definition = "سرور واسط امنی که ترافیک تلگرام را بدون درگیر کردن کل سیستم به سرورها می‌رساند.",
                 keywords = listOf("proxy", "پروکسی", "درگاه", "پورت")
             ),
@@ -545,65 +511,85 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
                 keywords = listOf("socks5", "10808")
             ),
             TermGlossaryItem(
-                term = "ورکر (Cloudflare Worker)",
+                term = "ورکر کلودفلر",
                 definition = "میکروسرور ابری که ترافیک گوشی را دریافت کرده و با امنیت کامل به دیتاسنترهای تلگرام هدایت می‌کند.",
                 keywords = listOf("worker", "ورکر", "کلودفلر", "دامنه")
             ),
             TermGlossaryItem(
-                term = "سرور بالادست (Uplink)",
-                definition = "مسیر یا سرور خروجی (ورکر کلودفلر، وارپ و غیره) که پروکسی از طریق آن به اینترنت متصل می‌شود.",
+                term = "وی‌پی‌ان سیستمی",
+                definition = "رابط شبکه در سطح سیستم‌عامل اندروید برای هدایت ترافیک برنامه‌ها از طریق تونل رمزگذاری‌شده.",
+                keywords = listOf("vpn", "وی‌پی‌ان", "تونل", "vpnservice")
+            ),
+            TermGlossaryItem(
+                term = "تونل‌بندی تفکیکی",
+                definition = "امکان عبور برنامه‌های مشخص از وی‌پی‌ان و اتصال مستقیم مابقی برنامه‌ها به اینترنت عادی.",
+                keywords = listOf("split", "تفکیک", "برنامه‌ها", "استثنا")
+            ),
+            TermGlossaryItem(
+                term = "پروتکل‌های WireGuard و AmneziaWG",
+                definition = "پروتکل‌های پرسرعت رمزنگاری‌شده با مقاومت در برابر فیلترینگ عمیق بسته‌ها.",
+                keywords = listOf("wireguard", "amnezia", "awg")
+            ),
+            TermGlossaryItem(
+                term = "پروتکل MASQUE",
+                definition = "استاندارد نوین اینترنت بر پایه HTTP/3 و QUIC با استتار به عنوان ترافیک عادی وب.",
+                keywords = listOf("masque", "quic", "http/3")
+            ),
+            TermGlossaryItem(
+                term = "مسیر بالادست",
+                definition = "مسیر یا سرور خروجی که پروکسی از طریق آن به اینترنت متصل می‌شود.",
                 keywords = listOf("uplink", "وارپ", "بالادست", "مسیر")
             ),
             TermGlossaryItem(
-                term = "پینگ (RTT) و تأخیر",
+                term = "تأخیر شبکه RTT",
                 definition = "مدت‌زمان رفت و برگشت داده بر حسب میلی‌ثانیه؛ عدد کمتر نشان‌دهنده سرعت و پاسخ‌دهی بهتر است.",
                 keywords = listOf("پینگ", "rtt", "تأخیر", "ping")
             ),
             TermGlossaryItem(
-                term = "نوسان پینگ (Jitter)",
+                term = "نوسان پینگ",
                 definition = "تغییرات ناگهانی تأخیر در شبکه همراه؛ نوسان بالا باعث لکنت و قطعی صدا در تماس‌ها می‌شود.",
                 keywords = listOf("jitter", "نوسان")
             ),
             TermGlossaryItem(
-                term = "استتار ترافیک (FakeTLS / Obfuscation)",
-                definition = "شبیه‌سازی ترافیک پروکسی به عنوان وبگردی عادی و امن (HTTPS) برای جلوگیری از شناسایی و فیلترینگ.",
+                term = "استتار FakeTLS",
+                definition = "شبیه‌سازی ترافیک پروکسی به عنوان وبگردی عادی و امن جهت جلوگیری از شناسایی و فیلترینگ.",
                 keywords = listOf("استتار", "faketls", "رمزنگاری", "tls", "مبدل")
             ),
             TermGlossaryItem(
-                term = "دی‌ان‌اس امن (DoH)",
-                definition = "یافتن آدرس‌های اینترنتی به صورت رمزنگاری‌شده تا اپراتور نتواند مسیرهای شما را شنود یا دستکاری کند.",
-                keywords = listOf("dns", "doh", "دی‌ان‌اس")
+                term = "دی‌ان‌اس رمزنگاری‌شده",
+                definition = "یافتن آدرس‌های اینترنتی به صورت رمزنگاری‌شده تا اپراتور نتواند مسیرهای شما را شنود کند.",
+                keywords = listOf("dns", "دی‌ان‌اس")
             ),
             TermGlossaryItem(
-                term = "بافر بلوت (Bufferbloat)",
+                term = "صف بافر بلوت",
                 definition = "کندی شدید اینترنت ناشی از پر شدن صف‌های داده مودم هنگام دانلود سنگین در پس‌زمینه.",
                 keywords = listOf("bufferbloat", "صف", "بافر")
             ),
             TermGlossaryItem(
-                term = "ارسال فوری (TCP_NODELAY)",
+                term = "ارسال فوری TCP_NODELAY",
                 definition = "ارسال لحظه‌ای بسته‌ها بدون معطلی در بافر حافظه، جهت به حداقل رسیدن تأخیر پیام‌ها.",
                 keywords = listOf("tcp_nodelay", "nodelay")
             ),
             TermGlossaryItem(
-                term = "اتصال سریع (Happy Eyeballs)",
+                term = "اتصال سریع Happy Eyeballs",
                 definition = "آزمایش هم‌زمان پروتکل‌های IPv6 و IPv4 و برقراری ارتباط با هر کدام که سریع‌تر پاسخ دهد.",
                 keywords = listOf("happy eyeballs", "ipv6", "ipv4")
             ),
             TermGlossaryItem(
-                term = "استخر اتصالات (WsPool)",
+                term = "استخر اتصالات WsPool",
                 definition = "کانال‌های از پیش آماده در پس‌زمینه برای ارسال آنی پیام‌ها بدون تأخیر در اتصال مجدد.",
                 keywords = listOf("pool", "استخر", "wspool")
             ),
             TermGlossaryItem(
-                term = "توافق کلیدها (Handshake)",
+                term = "توافق کلیدها Handshake",
                 definition = "مبادله امن کلیدهای رمزنگاری بین گوشی و سرور پیش از آغاز تبادل داده.",
                 keywords = listOf("handshake", "توافق")
             )
         )
         else -> listOf(
             TermGlossaryItem(
-                term = "Прокси / Шлюз (Proxy)",
-                definition = "Промежуточный узел, который безопасно перенаправляет трафик Telegram в обход ограничений, не влияя на другие приложения и не расходуя батарею.",
+                term = "Прокси-шлюз",
+                definition = "Промежуточный узел, который безопасно перенаправляет сетевой трафик в обход ограничений, не влияя на другие приложения и экономя батарею.",
                 keywords = listOf("прокси", "релей", "proxy", "relay", "шлюз", "порт")
             ),
             TermGlossaryItem(
@@ -613,67 +599,87 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
             ),
             TermGlossaryItem(
                 term = "SOCKS5",
-                definition = "Универсальный сетевой протокол. Необходим для четких аудио/видеозвонков и быстрой загрузки больших медиафайлов.",
+                definition = "Универсальный сетевой протокол. Необходим для четких аудио и видеозвонков и быстрой загрузки больших медиафайлов.",
                 keywords = listOf("socks5", "сокс", "10808")
             ),
             TermGlossaryItem(
-                term = "Воркер (Cloudflare Worker)",
-                definition = "Облачный микросервер, принимающий трафик от смартфона и безопасно передающий его на дата-центры Telegram.",
+                term = "Cloudflare Worker",
+                definition = "Облачный микросервер, принимающий трафик от смартфона и безопасно передающий его на целевые дата-центры.",
                 keywords = listOf("воркер", "worker", "cloudflare", "домен")
             ),
             TermGlossaryItem(
-                term = "Аплинк / Сервер подключения",
-                definition = "Внешний маршрут (Cloudflare Worker, WARP, VLESS), через который приложение связывается с интернетом.",
-                keywords = listOf("аплинк", "uplink", "warp", "vless", "masque", "маршрут")
+                term = "Системный VPN",
+                definition = "Интерфейс операционной системы Android для перенаправления сетевого трафика через зашифрованный туннель без ручной настройки прокси.",
+                keywords = listOf("vpn", "туннел", "tunnel", "vpnservice", "системн")
             ),
             TermGlossaryItem(
-                term = "Пинг (RTT) и Задержка",
-                definition = "Время в миллисекундах (мс), за которое сигнал доходит до сервера и возвращается. Чем меньше пинг, тем быстрее отклик.",
+                term = "Раздельное туннелирование",
+                definition = "Выборочная передача трафика указанных приложений через VPN либо их исключение для прямой работы через оператора связи.",
+                keywords = listOf("раздельное", "splittunnel", "split", "исключ", "приложен")
+            ),
+            TermGlossaryItem(
+                term = "Протоколы WireGuard и AmneziaWG",
+                definition = "Высокоскоростные криптографические протоколы с защитой от глубокого анализа пакетов ТСПУ.",
+                keywords = listOf("wireguard", "amnezia", "awg")
+            ),
+            TermGlossaryItem(
+                term = "Протокол MASQUE",
+                definition = "Современный стандарт IETF на базе HTTP/3 и QUIC, маскирующий сетевое соединение под обычный веб-трафик к CDN.",
+                keywords = listOf("masque", "quic", "http/3")
+            ),
+            TermGlossaryItem(
+                term = "Сервер подключения",
+                definition = "Внешний маршрут через который приложение связывается с целевой сетью.",
+                keywords = listOf("аплинк", "uplink", "warp", "vless", "маршрут")
+            ),
+            TermGlossaryItem(
+                term = "Сетевая задержка RTT",
+                definition = "Время в миллисекундах за которое сигнал доходит до сервера и возвращается. Чем меньше значение, тем быстрее отклик.",
                 keywords = listOf("пинг", "rtt", "задержк", "latency", "ping")
             ),
             TermGlossaryItem(
-                term = "Джиттер (Колебание пинга)",
-                definition = "Нестабильность задержки сотовой связи. Высокий джиттер приводит к заиканиям и прерываниям звука в звонках.",
+                term = "Джиттер",
+                definition = "Нестабильность сетевой задержки. Высокий джиттер приводит к заиканиям и прерываниям звука при звонках.",
                 keywords = listOf("джиттер", "jitter", "разброс", "колебан")
             ),
             TermGlossaryItem(
-                term = "Маскировка (FakeTLS / Обфускация)",
-                definition = "Технология сокрытия прокси-трафика под обычный защищенный сайт (HTTPS), чтобы оператор связи не мог его заблокировать.",
+                term = "Маскировка FakeTLS",
+                definition = "Технология сокрытия сетевого трафика под стандартный защищенный веб-сайт для предотвращения блокировок провайдером.",
                 keywords = listOf("маскировк", "обфус", "faketls", "tls", "секрет", "secret")
             ),
             TermGlossaryItem(
-                term = "DNS / DoH (Защищенный DNS)",
-                definition = "Зашифрованное определение IP-адресов серверов Telegram, предотвращающее перехват и блокировку запросов провайдером.",
-                keywords = listOf("dns", "doh", "днс")
+                term = "Шифрованный DNS",
+                definition = "Зашифрованное определение IP-адресов серверов, исключающее перехват и подмену сетевых запросов.",
+                keywords = listOf("dns", "днс")
             ),
             TermGlossaryItem(
-                term = "Буферблоат (Bufferbloat)",
-                definition = "Всплеск сетевой задержки из-за переполнения очередей в роутере во время фонового скачивания файлов.",
+                term = "Очередь Bufferbloat",
+                definition = "Всплеск сетевой задержки из-за переполнения буферных очередей в оборудовании во время фоновой загрузки файлов.",
                 keywords = listOf("bufferbloat", "буферблоат", "очеред", "раздуван")
             ),
             TermGlossaryItem(
-                term = "Мгновенная отправка (TCP_NODELAY)",
-                definition = "Режим сокета, принуждающий смартфон отправлять пакеты сразу без ожидания буфера, исключая задержки в чатах.",
+                term = "Мгновенная отправка TCP_NODELAY",
+                definition = "Режим сокета, заставляющий устройство отправлять пакеты сразу без ожидания наполнения буфера.",
                 keywords = listOf("tcp_nodelay", "nodelay")
             ),
             TermGlossaryItem(
-                term = "Быстрый выбор адреса (Happy Eyeballs)",
-                definition = "Умный алгоритм, одновременно тестирующий адреса IPv6 и IPv4 и мгновенно подключающий тот, который ответит первым.",
+                term = "Выбор адреса Happy Eyeballs",
+                definition = "Алгоритм одновременного тестирования адресов IPv6 и IPv4 с подключением к первому ответившему узлу.",
                 keywords = listOf("happy eyeballs", "eyeballs", "ipv6", "ipv4")
             ),
             TermGlossaryItem(
-                term = "Пул соединений (WsPool)",
-                definition = "Набор заранее открытых каналов в режиме ожидания, исключающий задержки подключения при открытии новых чатов.",
+                term = "Пул соединений WsPool",
+                definition = "Набор открытых резервных каналов в режиме ожидания, исключающий задержки подключения.",
                 keywords = listOf("пул", "wspool", "standby")
             ),
             TermGlossaryItem(
-                term = "Рукопожатие (Handshake)",
-                definition = "Начальное согласование секретных ключей шифрования между телефоном и сервером перед передачей сообщений.",
+                term = "Рукопожатие Handshake",
+                definition = "Начальное согласование криптографических ключей шифрования между клиентом и сервером.",
                 keywords = listOf("рукопожат", "handshake", "согласован")
             ),
             TermGlossaryItem(
                 term = "Мультиплексирование",
-                definition = "Передача нескольких потоков данных (текст и медиа) через один общий защищенный туннель без лишних подключений.",
+                definition = "Передача нескольких независимых потоков данных через единый защищенный туннель.",
                 keywords = listOf("мультиплекс", "mux", "поток")
             )
         )
@@ -686,7 +692,7 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
     return if (matched.isNotEmpty()) {
         matched.take(3)
     } else {
-        allTerms.take(2)
+        emptyList()
     }
 }
 
@@ -817,7 +823,7 @@ private fun InfoBulletItem(text: String) {
 enum class SettingsCategory(@StringRes val titleRes: Int) {
     ALL(R.string.settings_category_all),
     NETWORK(R.string.settings_category_network),
-    UPLINK_DOH(R.string.settings_category_uplink),
+    UPLINK(R.string.settings_category_uplink),
     SYSTEM(R.string.settings_category_system),
     MISC(R.string.settings_category_other)
 }
@@ -860,8 +866,8 @@ fun SettingsSafetyBadge(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(color.copy(alpha = 0.10f))
-            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+            .background(Color.Transparent)
+            .border(1.dp, color.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
             .padding(horizontal = 6.dp, vertical = 2.dp)
     ) {
         Text(
@@ -923,12 +929,15 @@ private fun SettingsVpnDevBanner(
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenAbout: () -> Unit = {},
+    onOpenTelegramChannel: () -> Unit = {},
     onOpenUpdate: () -> Unit = {},
     onOpenWorkerGuide: () -> Unit = {},
-    onOpenWorkerManager: () -> Unit = {},
+    onOpenWorkerManager: (com.mirrly.tgproxy.core.ProxyMode?) -> Unit = {},
     onOpenHallOfFame: () -> Unit = {},
     onOpenOnboarding: () -> Unit = {},
+    onOpenVpnOnboarding: (() -> Unit)? = null,
     onOpenDiagnosticReport: () -> Unit = {},
+    onOpenWarpGenerator: () -> Unit = {},
     initialIsVpn: Boolean = false
 ) {
     val context = LocalContext.current
@@ -955,8 +964,10 @@ fun SettingsScreen(
     var showSocks5Pass by remember { mutableStateOf(false) }
     var secretText by remember(config.secretHex) { mutableStateOf(config.secretHex) }
     var showSecret by remember { mutableStateOf(false) }
+    var socks5Optimistic by remember { mutableStateOf(app.prefsManager.isSocks5OptimisticResponse()) }
     val proxyMode by app.prefsManager.proxyModeFlow.collectAsState(initial = app.config.proxyMode)
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState(initial = app.config.isSocks5Mode)
+    val useWorkerMtproto by app.prefsManager.useWorkerMtprotoFlow.collectAsState()
     val isSwitching by com.mirrly.tgproxy.service.ProtocolSwitchManager.isSwitching.collectAsState()
 
     var activeProtocolMode by remember(proxyMode, initialIsVpn) {
@@ -971,8 +982,6 @@ fun SettingsScreen(
             }
         )
     }
-    var showVpnInDevDialog by remember { mutableStateOf(false) }
-
     LaunchedEffect(proxyMode, initialIsVpn) {
         if (!initialIsVpn) {
             activeProtocolMode = when (proxyMode) {
@@ -988,7 +997,6 @@ fun SettingsScreen(
     var autostart by remember { mutableStateOf(config.autostartOnBoot) }
     var infoKey by remember { mutableStateOf<String?>(null) }
     var pendingIssueRedirectUrl by remember { mutableStateOf<String?>(null) }
-    var enabledDohProviderIds by remember { mutableStateOf(config.enabledDohProviderIds) }
     var isProxyRunning by remember { mutableStateOf(server.isRunning) }
     LaunchedEffect(Unit) {
         while (isActive) {
@@ -999,18 +1007,11 @@ fun SettingsScreen(
             delay(300)
         }
     }
-    var isBenchmarkingDoh by remember { mutableStateOf(false) }
-    var benchmarkProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    var benchmarkResults by remember { mutableStateOf<Map<String, com.mirrly.tgproxy.core.DohBenchmarkResult>>(emptyMap()) }
-    var benchmarkSummary by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
     val uplinkMode by app.prefsManager.uplinkModeFlow.collectAsState()
     val vpnUplinkMode by app.prefsManager.vpnUplinkModeFlow.collectAsState()
     val vpnState by com.mirrly.tgproxy.service.MirrlyVpnService.vpnState.collectAsState()
-    val vpnMtu by app.prefsManager.vpnMtuFlow.collectAsState()
-    val vpnBlockQuic by app.prefsManager.vpnBlockQuicFlow.collectAsState()
-    val vpnBlockIpv6Leaks by app.prefsManager.vpnBlockIpv6LeaksFlow.collectAsState()
     val vpnSplitTunnelEnabled by app.prefsManager.vpnSplitTunnelEnabledFlow.collectAsState()
     val vpnSplitTunnelAllowlist by app.prefsManager.vpnSplitTunnelAllowlistFlow.collectAsState()
     val vpnSplitTunnelPackages by app.prefsManager.vpnSplitTunnelPackagesFlow.collectAsState()
@@ -1019,21 +1020,40 @@ fun SettingsScreen(
     var showSplitTunnelAppsDialog by rememberSaveable { mutableStateOf(false) }
     var warpProfile by remember { mutableStateOf(app.prefsManager.getWarpProfile()) }
     var isRegisteringWarp by remember { mutableStateOf(false) }
+    var isRegisterWarpViaWorker by remember { mutableStateOf(config.isRegisterWarpViaWorker) }
     var vlessUuid by remember { mutableStateOf<String>(app.prefsManager.getVlessUuid().ifEmpty { config.vlessUuid }) }
     var sleepTimerInitialTab by remember { mutableStateOf(TimerDialogTab.TIMER) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
-    var showDonateConfirmDialog by remember { mutableStateOf(false) }
+    var showDonationDialog by remember { mutableStateOf(false) }
     var showWarpRegistrationDialog by remember { mutableStateOf(false) }
     var warpDialogStartRegistrationImmediately by remember { mutableStateOf(false) }
+    var showCfAuthDialog by remember { mutableStateOf(false) }
+    var showOnboardingDialog by remember { mutableStateOf(false) }
+    var showVpnOnboardingDialog by remember { mutableStateOf(false) }
+    val triggerVpnOnboarding: () -> Unit = onOpenVpnOnboarding ?: { showVpnOnboardingDialog = true }
+
+    val cfAuthState by com.mirrly.tgproxy.service.cloudflare.CloudflareOAuthManager.authState.collectAsState()
+    LaunchedEffect(cfAuthState) {
+        val state = cfAuthState
+        if (state is com.mirrly.tgproxy.service.cloudflare.ServerAuthState.Success && showCfAuthDialog) {
+            showCfAuthDialog = false
+            com.mirrly.tgproxy.service.cloudflare.CloudflareOAuthManager.finalizeSuccessfulAuth(state.tokens, app.prefsManager)
+            com.mirrly.tgproxy.service.cloudflare.CloudflareOAuthManager.cancelActiveListener()
+            showOnboardingDialog = true
+        }
+    }
 
     val density = LocalDensity.current.density
     val langBlurAnim = remember { Animatable(0f) }
     val langBlurVal = langBlurAnim.value
 
-    val langBlurModifier = if (langBlurVal > 0.005f) {
+    val isSheetOpen = BottomSheetStateTracker.isAnySheetOpen
+    val effectiveBlurVal = if (isSheetOpen) 1f else langBlurVal
+
+    val langBlurModifier = if (effectiveBlurVal > 0.005f) {
         Modifier.graphicsLayer {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val blurPx = langBlurVal * 16f * density
+                val blurPx = effectiveBlurVal * 20f * density
                 if (blurPx > 0.5f) {
                     renderEffect = RenderEffect.createBlurEffect(
                         blurPx,
@@ -1042,7 +1062,7 @@ fun SettingsScreen(
                     ).asComposeRenderEffect()
                 }
             }
-            alpha = (1f - langBlurVal * 0.45f).coerceIn(0.55f, 1f)
+            alpha = (1f - effectiveBlurVal * 0.45f).coerceIn(0.55f, 1f)
         }
     } else {
         Modifier
@@ -1088,6 +1108,7 @@ fun SettingsScreen(
             app.prefsManager.resetAdvancedSettingsToDefaults(config)
             app.saveConfig()
             selectedSpeedPresetName = config.speedPresetName
+            socks5Optimistic = config.socks5OptimisticResponse
             restartProxyIfNeeded()
             Toast.makeText(
                 context,
@@ -1191,7 +1212,7 @@ fun SettingsScreen(
         contentAlignment = Alignment.TopCenter
     ) {
         val showNetwork = selectedCategory == SettingsCategory.ALL || selectedCategory == SettingsCategory.NETWORK
-        val showUplinkDoh = selectedCategory == SettingsCategory.ALL || selectedCategory == SettingsCategory.UPLINK_DOH
+        val showUplink = selectedCategory == SettingsCategory.ALL || selectedCategory == SettingsCategory.UPLINK
         val showSystem = selectedCategory == SettingsCategory.ALL || selectedCategory == SettingsCategory.SYSTEM
         val showMisc = selectedCategory == SettingsCategory.ALL || selectedCategory == SettingsCategory.MISC
 
@@ -1216,14 +1237,6 @@ fun SettingsScreen(
                     vpnColors = systemVpnColors,
                     onInfoClick = { infoKey = "protocols_info" },
                     onModeSelect = { mode ->
-                        if (mode == SettingsProtocolMode.VPN) {
-                            if (!isDevVpnUnlocked) {
-                                showVpnInDevDialog = true
-                                return@SettingsProtocolSection
-                            }
-                            activeProtocolMode = mode
-                            return@SettingsProtocolSection
-                        }
                         activeProtocolMode = mode
                         when (mode) {
                             SettingsProtocolMode.MTPROTO -> {
@@ -1245,104 +1258,25 @@ fun SettingsScreen(
 
                 when (activeProtocolMode) {
                     SettingsProtocolMode.VPN -> {
-                        if (!isDevVpnUnlocked) {
-                            Surface(
-                                onClick = { showVpnInDevDialog = true },
-                                shape = RoundedCornerShape(16.dp),
-                                color = Color(0xFF1E293B).copy(alpha = 0.35f),
-                                border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.35f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(42.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFFFB74D).copy(alpha = 0.12f))
-                                            .border(1.dp, Color(0xFFFFB74D).copy(alpha = 0.45f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_settings),
-                                            contentDescription = null,
-                                            tint = Color(0xFFFFB74D),
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
+                        SettingsVpnStatusOverviewSection(
+                            vpnColors = systemVpnColors,
+                            vpnState = vpnState,
+                            onOpenVpnDialog = { showVpnProtocolDialog = true },
+                            onInfoClick = { key -> infoKey = key }
+                        )
 
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Text(
-                                                text = stringResource(R.string.vpn_in_dev_card_title),
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = TextWhite
-                                            )
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0xFFFFB74D).copy(alpha = 0.16f),
-                                                border = BorderStroke(0.6.dp, Color(0xFFFFB74D).copy(alpha = 0.50f))
-                                            ) {
-                                                Text(
-                                                    text = stringResource(R.string.settings_vpn_in_dev_badge),
-                                                    fontSize = 8.5.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    color = Color(0xFFFFB74D),
-                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                        }
-                                        Text(
-                                            text = stringResource(R.string.vpn_in_dev_card_desc),
-                                            fontSize = 11.5.sp,
-                                            color = TextMuted,
-                                            lineHeight = 15.sp
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            SettingsVpnStatusOverviewSection(
-                                vpnColors = systemVpnColors,
-                                vpnState = vpnState,
-                                onOpenVpnDialog = { showVpnProtocolDialog = true }
-                            )
+                        SettingsDivider()
 
-                            SettingsDivider()
-
-                            SettingsVpnCoreSection(
-                                vpnColors = systemVpnColors,
-                                mtu = vpnMtu,
-                                onMtuSelect = { app.prefsManager.setVpnMtu(it) },
-                                blockQuic = vpnBlockQuic,
-                                onToggleBlockQuic = { app.prefsManager.setVpnBlockQuic(it) },
-                                blockIpv6Leaks = vpnBlockIpv6Leaks,
-                                onToggleBlockIpv6Leaks = { app.prefsManager.setVpnBlockIpv6Leaks(it) },
-                                onInfoClick = { key -> infoKey = key }
-                            )
-
-                            SettingsDivider()
-
-                            SettingsVpnSplitTunnelSection(
-                                vpnColors = systemVpnColors,
-                                isEnabled = vpnSplitTunnelEnabled,
-                                onToggleEnabled = { app.prefsManager.setVpnSplitTunnelEnabled(it) },
-                                isAllowlist = vpnSplitTunnelAllowlist,
-                                onToggleAllowlist = { app.prefsManager.setVpnSplitTunnelAllowlist(it) },
-                                packageCount = vpnSplitTunnelPackages.size,
-                                onOpenAppPicker = { showSplitTunnelAppsDialog = true }
-                            )
-                        }
+                        SettingsVpnSplitTunnelSection(
+                            vpnColors = systemVpnColors,
+                            isEnabled = vpnSplitTunnelEnabled,
+                            onToggleEnabled = { app.prefsManager.setVpnSplitTunnelEnabled(it) },
+                            isAllowlist = vpnSplitTunnelAllowlist,
+                            onToggleAllowlist = { app.prefsManager.setVpnSplitTunnelAllowlist(it) },
+                            packageCount = vpnSplitTunnelPackages.size,
+                            onOpenAppPicker = { showSplitTunnelAppsDialog = true },
+                            onInfoClick = { key -> infoKey = key }
+                        )
                     }
                     SettingsProtocolMode.MTPROTO -> {
                         SettingsNetworkSection(
@@ -1387,6 +1321,13 @@ fun SettingsScreen(
                                 secretText = newSecret
                                 config.secretHex = newSecret
                                 restartProxyIfNeeded()
+                            },
+                            socks5Optimistic = socks5Optimistic,
+                            onToggleSocks5Optimistic = { checked ->
+                                socks5Optimistic = checked
+                                config.socks5OptimisticResponse = checked
+                                app.prefsManager.setSocks5OptimisticResponse(checked)
+                                app.saveConfig()
                             },
                             onInfoClick = { infoKey = it }
                         )
@@ -1435,6 +1376,13 @@ fun SettingsScreen(
                                 config.secretHex = newSecret
                                 restartProxyIfNeeded()
                             },
+                            socks5Optimistic = socks5Optimistic,
+                            onToggleSocks5Optimistic = { checked ->
+                                socks5Optimistic = checked
+                                config.socks5OptimisticResponse = checked
+                                app.prefsManager.setSocks5OptimisticResponse(checked)
+                                app.saveConfig()
+                            },
                             onInfoClick = { infoKey = it }
                         )
 
@@ -1442,12 +1390,12 @@ fun SettingsScreen(
 
                 }
 
-                if (showUplinkDoh || showSystem || showMisc) {
+                if (showUplink || showSystem || showMisc) {
                     SettingsDivider()
                 }
             }
 
-            if (showUplinkDoh) {
+            if (showUplink) {
                 if (activeProtocolMode == SettingsProtocolMode.VPN) {
                     SettingsUplinkWarpSection(
                         config = config,
@@ -1476,7 +1424,6 @@ fun SettingsScreen(
                             val newUuid = com.mirrly.tgproxy.core.ProxyConfig.generateVlessUuid()
                             vlessUuid = newUuid
                             config.vlessUuid = newUuid
-                            app.prefsManager.setVlessUuid(newUuid)
                             app.saveConfig()
                             Toast.makeText(context, context.getString(R.string.toast_vless_uuid_generated), Toast.LENGTH_SHORT).show()
                             if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
@@ -1494,127 +1441,30 @@ fun SettingsScreen(
                 } else if (activeProtocolMode == SettingsProtocolMode.SOCKS5) {
                     SettingsWorkerSection(
                         config = config,
-                        onOpenWorkerManager = onOpenWorkerManager,
-                        onOpenWorkerGuide = onOpenWorkerGuide,
+                        onOpenWorkerManager = { onOpenWorkerManager(com.mirrly.tgproxy.core.ProxyMode.SOCKS5) },
                         onInfoClick = { infoKey = it }
                     )
 
                     SettingsDivider()
                 } else {
+                    val activeWorker = app.prefsManager.getActiveWorker(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
+                    SettingsMtprotoWorkerCard(
+                        useWorker = useWorkerMtproto,
+                        activeWorker = activeWorker,
+                        onToggleWorker = { enabled ->
+                            if (enabled && activeWorker.domain.isBlank()) {
+                                showCfAuthDialog = true
+                            } else {
+                                app.prefsManager.setUseWorkerMtproto(enabled)
+                            }
+                        },
+                        onOpenWorkerManager = { onOpenWorkerManager(com.mirrly.tgproxy.core.ProxyMode.MTPROTO) }
+                    )
+
                     SettingsMtprotoCdnOverviewCard()
 
                     SettingsDivider()
                 }
-
-                SettingsDohSection(
-                    enabledProviderIds = enabledDohProviderIds,
-                    isProxyRunning = isProxyRunning,
-                    onStopProxy = {
-                        isProxyRunning = false
-                        try {
-                            val stopIntent = Intent(context, ProxyForegroundService::class.java).apply {
-                                action = ProxyForegroundService.ACTION_STOP
-                            }
-                            context.startService(stopIntent)
-                            server.stop()
-                        } catch (e: Exception) {
-                            server.stop()
-                        }
-                    },
-                    onToggleProvider = { providerId, isEnabled ->
-                        if (isProxyRunning || server.isRunning) {
-                            Toast.makeText(context, context.getString(R.string.toast_stop_proxy_change_dns), Toast.LENGTH_SHORT).show()
-                            return@SettingsDohSection
-                        }
-                        val newSet = if (isEnabled) {
-                            enabledDohProviderIds + providerId
-                        } else {
-                            if (enabledDohProviderIds.size <= 1 && enabledDohProviderIds.contains(providerId)) {
-                                Toast.makeText(context, context.getString(R.string.toast_doh_keep_at_least_one), Toast.LENGTH_SHORT).show()
-                                enabledDohProviderIds
-                            } else {
-                                enabledDohProviderIds - providerId
-                            }
-                        }
-                        enabledDohProviderIds = newSet
-                        config.enabledDohProviderIds = newSet
-                        app.saveConfig()
-                        server.applyDohConfig(newSet)
-                    },
-                    onResetDefaults = {
-                        if (isProxyRunning || server.isRunning) {
-                            Toast.makeText(context, context.getString(R.string.toast_stop_proxy_reset_dns), Toast.LENGTH_SHORT).show()
-                            return@SettingsDohSection
-                        }
-                        val defaults = com.mirrly.tgproxy.core.DohResolver.getDefaultEnabledProviderIds(currentAppLanguage)
-                        enabledDohProviderIds = defaults
-                        config.enabledDohProviderIds = defaults
-                        app.saveConfig()
-                        server.applyDohConfig(defaults)
-                        benchmarkResults = emptyMap()
-                        benchmarkSummary = null
-                        Toast.makeText(context, context.getString(R.string.toast_doh_reset_defaults), Toast.LENGTH_SHORT).show()
-                    },
-                    onSelectAllProviders = {
-                        if (isProxyRunning || server.isRunning) {
-                            Toast.makeText(context, context.getString(R.string.toast_stop_proxy_change_dns), Toast.LENGTH_SHORT).show()
-                            return@SettingsDohSection
-                        }
-                        val visibleProviders = com.mirrly.tgproxy.core.DohResolver.getAvailableProviders(currentAppLanguage)
-                        val allIds = visibleProviders.map { it.id }.toSet()
-                        enabledDohProviderIds = allIds
-                        config.enabledDohProviderIds = allIds
-                        app.saveConfig()
-                        server.applyDohConfig(allIds)
-                        Toast.makeText(context, context.getString(R.string.toast_doh_all_enabled, allIds.size.toString()), Toast.LENGTH_SHORT).show()
-                    },
-                    isBenchmarking = isBenchmarkingDoh,
-                    benchmarkProgress = benchmarkProgress,
-                    benchmarkResults = benchmarkResults,
-                    benchmarkSummary = benchmarkSummary,
-                    currentAppLanguage = currentAppLanguage,
-                    onStartBenchmark = {
-                        if (isProxyRunning || server.isRunning) {
-                            Toast.makeText(context, context.getString(R.string.toast_stop_proxy_start_benchmark), Toast.LENGTH_SHORT).show()
-                            return@SettingsDohSection
-                        }
-                        if (isBenchmarkingDoh) return@SettingsDohSection
-                        val visibleProviders = com.mirrly.tgproxy.core.DohResolver.getAvailableProviders(currentAppLanguage)
-                        isBenchmarkingDoh = true
-                        benchmarkProgress = Pair(0, visibleProviders.size)
-                        benchmarkSummary = null
-                        coroutineScope.launch {
-                            try {
-                                val report = com.mirrly.tgproxy.core.DohBenchmarkEngine.benchmarkAll(
-                                    providers = visibleProviders,
-                                    onProgress = { current, total, result ->
-                                        benchmarkProgress = Pair(current, total)
-                                        benchmarkResults = benchmarkResults + (result.providerId to result)
-                                    }
-                                )
-                                benchmarkSummary = report.summaryText
-                                if (report.recommendedProviderIds.isNotEmpty()) {
-                                    enabledDohProviderIds = report.recommendedProviderIds
-                                    config.enabledDohProviderIds = report.recommendedProviderIds
-                                    app.saveConfig()
-                                    server.applyDohConfig(report.recommendedProviderIds)
-                                    val selected = report.results.filter { it.isRecommended }
-                                    val namesWithPing = selected.joinToString(", ") { "${it.providerName} (${it.latencyMs} ms)" }
-                                    val toastMsg = context.getString(R.string.toast_doh_selected_best, selected.size, namesWithPing)
-                                    Toast.makeText(context, toastMsg, Toast.LENGTH_LONG).show()
-                                } else {
-                                    Toast.makeText(context, context.getString(R.string.toast_doh_all_unreachable), Toast.LENGTH_LONG).show()
-                                }
-                            } catch (e: Exception) {
-                                Toast.makeText(context, context.getString(R.string.toast_doh_benchmark_err, e.message ?: ""), Toast.LENGTH_SHORT).show()
-                            } finally {
-                                isBenchmarkingDoh = false
-                                benchmarkProgress = null
-                            }
-                        }
-                    },
-                    onInfoClick = { infoKey = it }
-                )
 
                 if (showSystem || showMisc) {
                     SettingsDivider()
@@ -1639,6 +1489,7 @@ fun SettingsScreen(
                         showSleepTimerDialog = true
                     },
                     onOpenOnboarding = onOpenOnboarding,
+                    onOpenVpnOnboarding = triggerVpnOnboarding,
                     onOpenDiagnosticReport = onOpenDiagnosticReport,
                     onInfoClick = { infoKey = it },
                     onLanguageChange = onLanguageChange
@@ -1646,10 +1497,16 @@ fun SettingsScreen(
 
                 SettingsDivider()
 
+                SettingsAdvancedModeToggleCard(
+                    isAdvancedMode = isAdvancedMode,
+                    onToggle = toggleAdvancedMode,
+                    onInfoClick = { infoKey = it }
+                )
+
                 AnimatedVisibility(
                     visible = isAdvancedMode,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
                         SettingsPerformanceSection(
@@ -1672,16 +1529,8 @@ fun SettingsScreen(
                             onInfoClick = { infoKey = it },
                             onRestartProxy = { restartProxyIfNeeded() }
                         )
-
-                        SettingsDivider()
                     }
                 }
-
-                SettingsAdvancedModeToggleCard(
-                    isAdvancedMode = isAdvancedMode,
-                    onToggle = toggleAdvancedMode,
-                    onInfoClick = { infoKey = it }
-                )
 
                 if (showMisc) {
                     SettingsDivider()
@@ -1689,9 +1538,14 @@ fun SettingsScreen(
             }
 
             if (showMisc) {
+                SettingsCustomizationSection(
+                    onInfoClick = { infoKey = it }
+                )
+                SettingsDivider()
                 SettingsAboutSection(
                     onOpenAbout = onOpenAbout,
-                    onDonateClick = { showDonateConfirmDialog = true },
+                    onOpenTelegramChannel = onOpenTelegramChannel,
+                    onDonateClick = { showDonationDialog = true },
                     onOpenUpdate = onOpenUpdate,
                     onOpenHallOfFame = onOpenHallOfFame
                 )
@@ -1715,12 +1569,9 @@ fun SettingsScreen(
             alphaMultiplier = 0.50f
         )
 
-        if (showDonateConfirmDialog) {
-            ExternalLinkConfirmDialog(
-                url = "https://dalink.to/cartneyzix",
-                title = stringResource(R.string.settings_support_dev),
-                description = stringResource(R.string.settings_support_dev_desc),
-                onDismiss = { showDonateConfirmDialog = false }
+        if (showDonationDialog) {
+            DonationDialog(
+                onDismiss = { showDonationDialog = false }
             )
         }
 
@@ -1750,10 +1601,57 @@ fun SettingsScreen(
             )
         }
 
-        if (showVpnInDevDialog) {
-            VpnInDevDialog(
-                vpnColors = systemVpnColors,
-                onDismiss = { showVpnInDevDialog = false }
+        if (showCfAuthDialog) {
+            Socks5CloudflareAuthDialog(
+                onDismiss = { showCfAuthDialog = false },
+                onAuthSuccess = {
+                    showCfAuthDialog = false
+                    showOnboardingDialog = true
+                },
+                onCustomWorkerSaved = { domain ->
+                    showCfAuthDialog = false
+                    app.config.customCfDomain = domain
+                    app.config.useDefaultWorkerSocks5 = false
+                    app.prefsManager.saveConfig(app.config)
+                    app.prefsManager.setUseWorkerMtproto(true)
+                },
+                onOpenManualGuide = {
+                    showCfAuthDialog = false
+                    onOpenWorkerGuide()
+                }
+            )
+        }
+
+        if (showOnboardingDialog) {
+            Socks5OnboardingDialog(
+                onDismiss = {
+                    showOnboardingDialog = false
+                    if (app.prefsManager.getActiveWorker(com.mirrly.tgproxy.core.ProxyMode.MTPROTO).domain.isNotBlank()) {
+                        app.prefsManager.setUseWorkerMtproto(true)
+                    }
+                },
+                onOpenWorkerManager = {
+                    showOnboardingDialog = false
+                    app.prefsManager.setSocks5OnboardingCompleted(true)
+                    app.prefsManager.setUseWorkerMtproto(true)
+                    onOpenWorkerManager(com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
+                }
+            )
+        }
+
+        if (showVpnOnboardingDialog) {
+            VpnOnboardingDialog(
+                onDismiss = { showVpnOnboardingDialog = false },
+                onCreateProfileAuto = {
+                    showVpnOnboardingDialog = false
+                    onOpenWarpGenerator()
+                },
+                onOpenImport = {
+                    showVpnOnboardingDialog = false
+                    warpDialogStartRegistrationImmediately = false
+                    showWarpRegistrationDialog = true
+                },
+                onOpenGenerator = onOpenWarpGenerator
             )
         }
     }
@@ -2005,7 +1903,8 @@ private fun SettingsProtocolSection(
 private fun SettingsVpnStatusOverviewSection(
     vpnColors: ProtocolColors,
     vpnState: com.mirrly.tgproxy.ui.theme.VpnUiState,
-    onOpenVpnDialog: () -> Unit
+    onOpenVpnDialog: () -> Unit,
+    onInfoClick: (String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     val vpnStatus by com.mirrly.tgproxy.service.MirrlyVpnService.vpnStatus.collectAsState()
@@ -2016,43 +1915,72 @@ private fun SettingsVpnStatusOverviewSection(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = stringResource(R.string.vpn_system_title_dev),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 1.3.sp,
-                color = TextMuted
-            )
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(
-                        if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) ActiveGreenLed.copy(alpha = 0.12f)
-                        else vpnColors.primary.copy(alpha = 0.12f)
-                    )
-                    .border(
-                        1.dp,
-                        if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) ActiveGreenLed.copy(alpha = 0.35f)
-                        else vpnColors.primary.copy(alpha = 0.35f),
-                        RoundedCornerShape(6.dp)
-                    )
-                    .padding(horizontal = 7.dp, vertical = 2.5.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = when (vpnState) {
-                        com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED -> stringResource(R.string.vpn_status_active_badge)
-                        com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTING -> stringResource(R.string.status_connecting_caps)
-                        else -> stringResource(R.string.vpn_status_inactive_badge)
-                    },
-                    color = if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) ActiveGreenLed else vpnColors.primary,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
+                    text = stringResource(R.string.vpn_system_title_dev),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted
                 )
+                InfoButton { onInfoClick("vpn_core_info") }
+            }
+        }
+
+        val vpnWarnColor = Color(0xFFFFB74D)
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = vpnWarnColor.copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, vpnWarnColor.copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(vpnWarnColor.copy(alpha = 0.15f))
+                        .border(1.dp, vpnWarnColor.copy(alpha = 0.35f), CircleShape)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_vpn),
+                        contentDescription = null,
+                        tint = vpnWarnColor,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.vpn_maintenance_notice_title),
+                        color = vpnWarnColor,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = stringResource(R.string.vpn_maintenance_notice_desc),
+                        color = TextWhite.copy(alpha = 0.85f),
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 13.5.sp
+                    )
+                }
             }
         }
 
@@ -2061,7 +1989,11 @@ private fun SettingsVpnStatusOverviewSection(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(18.dp))
                 .background(Color.Transparent)
-                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .border(
+                    1.dp,
+                    if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) ActiveGreenLed.copy(alpha = 0.45f) else AmoledBorder,
+                    RoundedCornerShape(18.dp)
+                )
         ) {
             Column {
                 Column(
@@ -2105,7 +2037,7 @@ private fun SettingsVpnStatusOverviewSection(
                     Column(horizontalAlignment = Alignment.End) {
                         Text(text = stringResource(R.string.vpn_network_gen_label), color = TextMuted, fontSize = 11.sp)
                         Text(
-                            text = "gen-${vpnStatus.generation}",
+                            text = stringResource(R.string.vpn_network_gen_format, vpnStatus.generation),
                             color = vpnColors.primary,
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.SemiBold
@@ -2126,10 +2058,12 @@ private fun SettingsVpnStatusOverviewSection(
                         border = BorderStroke(1.dp, vpnColors.primary.copy(alpha = 0.35f)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onOpenVpnDialog()
-                            }
+                            .springPress(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onOpenVpnDialog()
+                                }
+                            )
                     ) {
                         Row(
                             modifier = Modifier
@@ -2156,14 +2090,14 @@ private fun SettingsVpnStatusOverviewSection(
 }
 
 @Composable
-private fun SettingsVpnCoreSection(
+private fun SettingsVpnSplitTunnelSection(
     vpnColors: ProtocolColors,
-    mtu: Int,
-    onMtuSelect: (Int) -> Unit,
-    blockQuic: Boolean,
-    onToggleBlockQuic: (Boolean) -> Unit,
-    blockIpv6Leaks: Boolean,
-    onToggleBlockIpv6Leaks: (Boolean) -> Unit,
+    isEnabled: Boolean,
+    onToggleEnabled: (Boolean) -> Unit,
+    isAllowlist: Boolean,
+    onToggleAllowlist: (Boolean) -> Unit,
+    packageCount: Int,
+    onOpenAppPicker: () -> Unit,
     onInfoClick: (String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
@@ -2174,228 +2108,7 @@ private fun SettingsVpnCoreSection(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.vpn_architecture_title).uppercase(),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
-            }
-            InfoButton { onInfoClick("vpn_core_info") }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Transparent)
-                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
-        ) {
-            Column {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text(
-                                text = stringResource(R.string.vpn_mtu_title),
-                                color = TextWhite,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.5.sp
-                            )
-                            Text(
-                                text = stringResource(R.string.vpn_mtu_desc),
-                                color = TextMuted,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(vpnColors.primary.copy(alpha = 0.12f))
-                                .border(1.dp, vpnColors.primary.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 7.dp, vertical = 2.5.dp)
-                        ) {
-                            Text(
-                                text = "$mtu B",
-                                color = vpnColors.primary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(
-                            1280 to "1280 (Safe)",
-                            1420 to "1420 (WARP)",
-                            1500 to "1500 (Max)"
-                        ).forEach { (size, label) ->
-                            val isSelected = mtu == size
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isSelected) vpnColors.primary.copy(alpha = 0.15f) else Color.Transparent,
-                                border = BorderStroke(1.dp, if (isSelected) vpnColors.primary.copy(alpha = 0.5f) else AmoledBorder),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onMtuSelect(size)
-                                    }
-                            ) {
-                                Text(
-                                    text = label,
-                                    color = if (isSelected) vpnColors.primary else TextMuted,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(vertical = 7.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text(
-                            text = stringResource(R.string.vpn_block_quic_title),
-                            color = TextWhite,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = stringResource(R.string.vpn_block_quic_desc),
-                            color = TextMuted,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
-                    }
-                    InertialSpringSwitch(
-                        checked = blockQuic,
-                        onCheckedChange = onToggleBlockQuic,
-                        activeColor = vpnColors.primary
-                    )
-                }
-
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text(
-                            text = stringResource(R.string.vpn_block_ipv6_title),
-                            color = TextWhite,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = stringResource(R.string.vpn_block_ipv6_desc),
-                            color = TextMuted,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
-                    }
-                    InertialSpringSwitch(
-                        checked = blockIpv6Leaks,
-                        onCheckedChange = onToggleBlockIpv6Leaks,
-                        activeColor = vpnColors.primary
-                    )
-                }
-
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text(
-                            text = stringResource(R.string.vpn_dns_tunnel_title),
-                            color = TextWhite,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = stringResource(R.string.vpn_dns_tunnel_desc),
-                            color = TextMuted,
-                            fontSize = 11.sp
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(ActiveGreenLed.copy(alpha = 0.12f))
-                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.badge_secured_short),
-                            color = ActiveGreenLed,
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsVpnSplitTunnelSection(
-    vpnColors: ProtocolColors,
-    isEnabled: Boolean,
-    onToggleEnabled: (Boolean) -> Unit,
-    isAllowlist: Boolean,
-    onToggleAllowlist: (Boolean) -> Unit,
-    packageCount: Int,
-    onOpenAppPicker: () -> Unit
-) {
-    val haptic = LocalHapticFeedback.current
-
-    Column(
-        modifier = Modifier.staggeredEntrance(index = 3),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
@@ -2412,32 +2125,7 @@ private fun SettingsVpnSplitTunnelSection(
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(
-                        if (isEnabled) vpnColors.primary.copy(alpha = 0.12f)
-                        else AmoledBorder.copy(alpha = 0.4f)
-                    )
-                    .border(
-                        1.dp,
-                        if (isEnabled) vpnColors.primary.copy(alpha = 0.35f)
-                        else AmoledBorder,
-                        RoundedCornerShape(6.dp)
-                    )
-                    .padding(horizontal = 7.dp, vertical = 2.5.dp)
-            ) {
-                Text(
-                    text = if (isEnabled) stringResource(R.string.vpn_status_active_badge) else stringResource(R.string.badge_disabled_caps),
-                    color = if (isEnabled) vpnColors.primary else TextMuted,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
+                InfoButton { onInfoClick("vpn_splittunnel_info") }
             }
         }
 
@@ -2503,10 +2191,12 @@ private fun SettingsVpnSplitTunnelSection(
                                 border = BorderStroke(1.dp, if (isDisallow) vpnColors.primary.copy(alpha = 0.5f) else AmoledBorder),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onToggleAllowlist(false)
-                                    }
+                                    .springPress(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onToggleAllowlist(false)
+                                        }
+                                    )
                             ) {
                                 Text(
                                     text = stringResource(R.string.vpn_split_tunnel_mode_disallow),
@@ -2525,10 +2215,12 @@ private fun SettingsVpnSplitTunnelSection(
                                 border = BorderStroke(1.dp, if (isAllow) vpnColors.primary.copy(alpha = 0.5f) else AmoledBorder),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onToggleAllowlist(true)
-                                    }
+                                    .springPress(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onToggleAllowlist(true)
+                                        }
+                                    )
                             ) {
                                 Text(
                                     text = stringResource(R.string.vpn_split_tunnel_mode_allow),
@@ -2555,10 +2247,12 @@ private fun SettingsVpnSplitTunnelSection(
                             border = BorderStroke(1.dp, vpnColors.primary.copy(alpha = 0.4f)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onOpenAppPicker()
-                                }
+                                .springPress(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onOpenAppPicker()
+                                    }
+                                )
                         ) {
                             Row(
                                 modifier = Modifier
@@ -2588,12 +2282,14 @@ private fun SettingsVpnSplitTunnelSection(
     }
 }
 
+
 private data class InstalledAppItem(
     val packageName: String,
     val label: String,
     val icon: android.graphics.drawable.Drawable?
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SplitTunnelAppsDialog(
     vpnColors: ProtocolColors,
@@ -2650,276 +2346,289 @@ fun SplitTunnelAppsDialog(
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
+    MirrlyModalBottomSheet(
+        onDismissRequest = onDismiss
     ) {
-        DialogBackdropBox(onDismiss = onDismiss) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 20.dp, vertical = 32.dp)
-                    .adaptiveContainerWidth(460.dp)
-                    .fillMaxHeight(0.85f)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(AmoledSurface)
-                    .border(1.dp, AmoledBorder, RoundedCornerShape(24.dp))
-                    .clickable(enabled = false) {}
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = stringResource(R.string.vpn_split_tunnel_dialog_title),
-                                color = TextWhite,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = stringResource(R.string.vpn_selected_count, currentSelection.size, installedApps.size),
-                                color = vpnColors.primary,
-                                fontSize = 11.5.sp
-                            )
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Text("✕", color = TextMuted, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        }
+                Column {
+                    Text(
+                        text = stringResource(R.string.vpn_split_tunnel_dialog_title),
+                        color = TextWhite,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = stringResource(R.string.vpn_selected_count, currentSelection.size, installedApps.size),
+                        color = vpnColors.primary,
+                        fontSize = 11.5.sp
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onDismiss()
                     }
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_close),
+                        contentDescription = stringResource(R.string.action_cancel),
+                        tint = TextMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            BasicTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                singleLine = true,
-                                textStyle = TextStyle(color = TextWhite, fontSize = 13.sp),
-                                modifier = Modifier.weight(1f),
-                                decorationBox = { innerTextField ->
-                                    if (searchQuery.isEmpty()) {
-                                        Text(
-                                            text = stringResource(R.string.vpn_split_tunnel_search_hint),
-                                            color = TextMuted,
-                                            fontSize = 13.sp
-                                        )
-                                    }
-                                    innerTextField()
-                                }
-                            )
-                            if (searchQuery.isNotEmpty()) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        singleLine = true,
+                        textStyle = TextStyle(color = TextWhite, fontSize = 13.sp),
+                        modifier = Modifier.weight(1f),
+                        decorationBox = { innerTextField ->
+                            if (searchQuery.isEmpty()) {
                                 Text(
-                                    text = "✕",
+                                    text = stringResource(R.string.vpn_split_tunnel_search_hint),
                                     color = TextMuted,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.clickable { searchQuery = "" }.padding(horizontal = 4.dp)
+                                    fontSize = 13.sp
                                 )
                             }
+                            innerTextField()
                         }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, AmoledBorder),
+                    )
+                    if (searchQuery.isNotEmpty()) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_close),
+                            contentDescription = null,
+                            tint = TextMuted,
                             modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    val allPkgs = installedApps.map { it.packageName }.toSet()
-                                    currentSelection = allPkgs
-                                }
-                        ) {
-                            Text(
-                                text = stringResource(R.string.vpn_split_tunnel_select_all),
-                                color = TextMuted,
-                                fontSize = 11.5.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(vertical = 6.dp)
-                            )
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, AmoledBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    currentSelection = emptySet()
-                                }
-                        ) {
-                            Text(
-                                text = stringResource(R.string.vpn_split_tunnel_deselect_all),
-                                color = TextMuted,
-                                fontSize = 11.5.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(vertical = 6.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    if (isLoading) {
-                        Box(
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = vpnColors.primary, strokeWidth = 2.dp)
-                        }
-                    } else {
-                        androidx.compose.foundation.lazy.LazyColumn(
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            items(filteredApps.size, key = { filteredApps[it].packageName }) { idx ->
-                                val app = filteredApps[idx]
-                                val isChecked = currentSelection.contains(app.packageName)
-
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (isChecked) vpnColors.primary.copy(alpha = 0.08f) else Color.Transparent,
-                                    border = BorderStroke(1.dp, if (isChecked) vpnColors.primary.copy(alpha = 0.35f) else Color.Transparent),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            currentSelection = if (isChecked) {
-                                                currentSelection - app.packageName
-                                            } else {
-                                                currentSelection + app.packageName
-                                            }
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        val iconBitmap = remember(app.packageName) {
-                                            app.icon?.let { d ->
-                                                try {
-                                                    val w = if (d.intrinsicWidth > 0) d.intrinsicWidth else 72
-                                                    val h = if (d.intrinsicHeight > 0) d.intrinsicHeight else 72
-                                                    val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
-                                                    val c = android.graphics.Canvas(bmp)
-                                                    d.setBounds(0, 0, w, h)
-                                                    d.draw(c)
-                                                    bmp.asImageBitmap()
-                                                } catch (_: Throwable) {
-                                                    null
-                                                }
-                                            }
-                                        }
-
-                                        if (iconBitmap != null) {
-                                            androidx.compose.foundation.Image(
-                                                bitmap = iconBitmap,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp))
-                                            )
-                                        } else {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(32.dp)
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(AmoledSurfaceHigh),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = app.label.take(1).uppercase(),
-                                                    color = TextMuted,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = app.label,
-                                                color = TextWhite,
-                                                fontSize = 12.5.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                maxLines = 1,
-                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = app.packageName,
-                                                color = TextMuted,
-                                                fontSize = 10.5.sp,
-                                                maxLines = 1,
-                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                            )
-                                        }
-
-                                        Checkbox(
-                                            checked = isChecked,
-                                            onCheckedChange = { checked ->
-                                                currentSelection = if (checked) {
-                                                    currentSelection + app.packageName
-                                                } else {
-                                                    currentSelection - app.packageName
-                                                }
-                                            },
-                                            colors = CheckboxDefaults.colors(
-                                                checkedColor = vpnColors.primary,
-                                                uncheckedColor = AmoledBorder,
-                                                checkmarkColor = Color.Black
-                                            )
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = vpnColors.primary,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onSave(currentSelection)
-                            }
-                    ) {
-                        Text(
-                            text = stringResource(R.string.vpn_split_tunnel_apply),
-                            color = Color.Black,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(vertical = 11.dp)
+                                .size(16.dp)
+                                .clickable { searchQuery = "" }
                         )
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, AmoledBorder),
+                    modifier = Modifier
+                        .weight(1f)
+                        .springPress(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val allPkgs = installedApps.map { it.packageName }.toSet()
+                                currentSelection = allPkgs
+                            }
+                        )
+                ) {
+                    Text(
+                        text = stringResource(R.string.vpn_split_tunnel_select_all),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(vertical = 7.dp)
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, AmoledBorder),
+                    modifier = Modifier
+                        .weight(1f)
+                        .springPress(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                currentSelection = emptySet()
+                            }
+                        )
+                ) {
+                    Text(
+                        text = stringResource(R.string.vpn_split_tunnel_deselect_all),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(vertical = 7.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = vpnColors.primary, strokeWidth = 2.dp)
+                }
+            } else {
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 340.dp)
+                        .fadingEdges(topFadeHeight = 12.dp, bottomFadeHeight = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(filteredApps.size, key = { filteredApps[it].packageName }) { idx ->
+                        val app = filteredApps[idx]
+                        val isChecked = currentSelection.contains(app.packageName)
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isChecked) vpnColors.primary.copy(alpha = 0.08f) else Color.Transparent,
+                            border = BorderStroke(1.dp, if (isChecked) vpnColors.primary.copy(alpha = 0.35f) else Color.Transparent),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .springPress(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        currentSelection = if (isChecked) {
+                                            currentSelection - app.packageName
+                                        } else {
+                                            currentSelection + app.packageName
+                                        }
+                                    }
+                                )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                val iconBitmap = remember(app.packageName) {
+                                    app.icon?.let { d ->
+                                        try {
+                                            val w = if (d.intrinsicWidth > 0) d.intrinsicWidth else 72
+                                            val h = if (d.intrinsicHeight > 0) d.intrinsicHeight else 72
+                                            val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                                            val c = android.graphics.Canvas(bmp)
+                                            d.setBounds(0, 0, w, h)
+                                            d.draw(c)
+                                            bmp.asImageBitmap()
+                                        } catch (_: Throwable) {
+                                            null
+                                        }
+                                    }
+                                }
+
+                                if (iconBitmap != null) {
+                                    androidx.compose.foundation.Image(
+                                        bitmap = iconBitmap,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp))
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(AmoledSurfaceHigh),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = app.label.take(1).uppercase(),
+                                            color = TextMuted,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = app.label,
+                                        color = TextWhite,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = app.packageName,
+                                        color = TextMuted,
+                                        fontSize = 10.5.sp,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                Checkbox(
+                                    checked = isChecked,
+                                    onCheckedChange = { checked ->
+                                        currentSelection = if (checked) {
+                                            currentSelection + app.packageName
+                                        } else {
+                                            currentSelection - app.packageName
+                                        }
+                                    },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = vpnColors.primary,
+                                        uncheckedColor = AmoledBorder,
+                                        checkmarkColor = Color.Black
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = vpnColors.primary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .springPress(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onSave(currentSelection)
+                        }
+                    )
+            ) {
+                Text(
+                    text = stringResource(R.string.vpn_split_tunnel_apply),
+                    color = Color.Black,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(vertical = 12.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
@@ -2948,6 +2657,8 @@ private fun SettingsNetworkSection(
     showSecret: Boolean,
     onToggleShowSecret: () -> Unit,
     onRefreshSecret: () -> Unit,
+    socks5Optimistic: Boolean = true,
+    onToggleSocks5Optimistic: (Boolean) -> Unit = {},
     onInfoClick: (String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
@@ -3084,12 +2795,12 @@ private fun SettingsNetworkSection(
                                         modifier = Modifier
                                             .width(76.dp)
                                             .height(34.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color.White.copy(alpha = 0.04f))
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color.Transparent)
                                             .border(
                                                 width = 1.dp,
                                                 color = if (isPortError) Color(0xFFEF4444) else AmoledBorder,
-                                                shape = RoundedCornerShape(8.dp)
+                                                shape = RoundedCornerShape(10.dp)
                                             )
                                             .padding(horizontal = 6.dp),
                                         contentAlignment = Alignment.Center
@@ -3124,15 +2835,20 @@ private fun SettingsNetworkSection(
                                 }
 
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    IconButton(
-                                        onClick = {
-                                            onToggleShowSecret()
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        },
-                                        modifier = Modifier.size(28.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color.Transparent)
+                                            .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                            .springPress(onClick = {
+                                                onToggleShowSecret()
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            }),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Crossfade(targetState = showSecret, animationSpec = tween(180), label = "eyeFade") { isVisible ->
                                             Icon(
@@ -3144,12 +2860,17 @@ private fun SettingsNetworkSection(
                                         }
                                     }
 
-                                    IconButton(
-                                        onClick = {
-                                            onRefreshSecret()
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        },
-                                        modifier = Modifier.size(28.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color.Transparent)
+                                            .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                            .springPress(onClick = {
+                                                onRefreshSecret()
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            }),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             painter = painterResource(id = R.drawable.ic_refresh),
@@ -3179,9 +2900,9 @@ private fun SettingsNetworkSection(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(34.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color.White.copy(alpha = 0.04f))
-                                            .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color.Transparent)
+                                            .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
                                             .padding(horizontal = 10.dp),
                                         contentAlignment = Alignment.CenterStart
                                     ) {
@@ -3286,7 +3007,7 @@ private fun SettingsNetworkSection(
                                         .width(76.dp)
                                         .height(34.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Color.White.copy(alpha = 0.04f))
+                                        .background(Color.Transparent)
                                         .border(
                                             width = 1.dp,
                                             color = if (isSocks5PortError) Color(0xFFEF4444) else AmoledBorder,
@@ -3327,20 +3048,6 @@ private fun SettingsNetworkSection(
                                 Text(stringResource(R.string.settings_socks5_auth_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
                                 InfoButton { onInfoClick("socks5_auth") }
                             }
-
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (hasAuth) Socks5Accent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f),
-                                border = BorderStroke(1.dp, if (hasAuth) Socks5Accent.copy(alpha = 0.4f) else AmoledBorder)
-                            ) {
-                                Text(
-                                    text = if (hasAuth) "RFC 1929" else stringResource(R.string.settings_socks5_auth_open),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (hasAuth) Socks5Accent else TextMuted,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
-                                )
-                            }
                         }
 
                         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
@@ -3376,7 +3083,7 @@ private fun SettingsNetworkSection(
                                             .fillMaxWidth()
                                             .height(32.dp)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .background(Color.White.copy(alpha = 0.03f))
+                                            .background(Color.Transparent)
                                             .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
                                             .padding(horizontal = 9.dp),
                                         contentAlignment = Alignment.CenterStart
@@ -3424,7 +3131,7 @@ private fun SettingsNetworkSection(
                                             .fillMaxWidth()
                                             .height(32.dp)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .background(Color.White.copy(alpha = 0.03f))
+                                            .background(Color.Transparent)
                                             .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
                                             .padding(start = 9.dp, end = 4.dp),
                                         contentAlignment = Alignment.CenterStart
@@ -3464,7 +3171,7 @@ private fun SettingsNetworkSection(
 
                         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
 
-                        // Compact Actions
+                        // Compact Actions (Outline-Only springPress)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -3472,37 +3179,198 @@ private fun SettingsNetworkSection(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Button(
-                                onClick = {
-                                    onGenerateSocks5Auth()
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Socks5Accent.copy(alpha = 0.16f),
-                                    contentColor = Socks5Accent
-                                ),
-                                border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.35f)),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                modifier = Modifier.weight(1f).height(32.dp)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(34.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .border(1.dp, Socks5Accent.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                                    .springPress(onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onGenerateSocks5Auth()
+                                    }),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(stringResource(R.string.settings_btn_generate_creds), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = stringResource(R.string.settings_btn_generate_creds),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Socks5Accent
+                                )
                             }
 
                             if (hasAuth) {
-                                OutlinedButton(
-                                    onClick = {
-                                        onClearSocks5Auth()
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(32.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .height(34.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                                        .springPress(onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onClearSocks5Auth()
+                                        })
+                                        .padding(horizontal = 14.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text(stringResource(R.string.settings_btn_clear), color = TextWhite, fontSize = 11.5.sp)
+                                    Text(
+                                        text = stringResource(R.string.settings_btn_clear),
+                                        color = TextWhite,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // SOCKS5 Optimistic Early Response Card (Zero-Popup Expandable)
+            SettingsSocks5OptimisticCard(
+                isOptimistic = socks5Optimistic,
+                onToggleOptimistic = onToggleSocks5Optimistic
+            )
+        }
+
+        val forceMobileMode by app.prefsManager.forceMobileModeFlow.collectAsState()
+        SettingsForceMobileCard(
+            isForceMobile = forceMobileMode,
+            onToggleForceMobile = { checked ->
+                app.prefsManager.setForceMobileModeEnabled(checked)
+            }
+        )
+
+        val dialThrottling by app.prefsManager.dialThrottlingFlow.collectAsState()
+        SettingsDialThrottlingCard(
+            isThrottling = dialThrottling,
+            onToggleThrottling = { checked ->
+                app.prefsManager.setDialThrottlingEnabled(checked)
+            }
+        )
+    }
+}
+
+/**
+ * Inline expandable card for SOCKS5 optimistic early response (0x00 Fallback).
+ * Adheres strictly to MirrlyUI (Zero-Popup, Outline-Only, AMOLED black, Socks5Accent).
+ */
+@Composable
+private fun SettingsSocks5OptimisticCard(
+    isOptimistic: Boolean,
+    onToggleOptimistic: (Boolean) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    var isExpanded by remember { mutableStateOf(false) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 90f else 0f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "optimisticChevron"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.Transparent)
+            .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+            .padding(14.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            isExpanded = !isExpanded
+                        }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_socks5_optimistic_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                            contentDescription = null,
+                            tint = if (isExpanded) Socks5Accent else TextMuted,
+                            modifier = Modifier
+                                .size(13.dp)
+                                .graphicsLayer { rotationZ = chevronRotation }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = stringResource(R.string.settings_socks5_optimistic_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                InertialSpringSwitch(
+                    checked = isOptimistic,
+                    onCheckedChange = { checked ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (!checked) {
+                            isExpanded = true
+                        }
+                        onToggleOptimistic(checked)
+                    },
+                    activeColor = Socks5Accent
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(AmoledBorder)
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, Socks5Accent.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = stringResource(R.string.settings_socks5_optimistic_card_title),
+                                color = Socks5Accent,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_socks5_optimistic_card_desc),
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
                         }
                     }
                 }
@@ -3511,7 +3379,231 @@ private fun SettingsNetworkSection(
     }
 }
 
+/**
+ * Inline expandable card for Force Mobile / Hotspot Mode.
+ * Adheres strictly to MirrlyUI (Zero-Popup, Outline-Only, AMOLED black).
+ */
+@Composable
+private fun SettingsForceMobileCard(
+    isForceMobile: Boolean,
+    onToggleForceMobile: (Boolean) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    var isExpanded by remember { mutableStateOf(false) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 90f else 0f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "forceMobileChevron"
+    )
 
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.Transparent)
+            .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+            .padding(14.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            isExpanded = !isExpanded
+                        }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_force_mobile_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                            contentDescription = null,
+                            tint = if (isExpanded) ActiveGreenLed else TextMuted,
+                            modifier = Modifier
+                                .size(13.dp)
+                                .graphicsLayer { rotationZ = chevronRotation }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = stringResource(R.string.settings_force_mobile_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                InertialSpringSwitch(
+                    checked = isForceMobile,
+                    onCheckedChange = { checked ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onToggleForceMobile(checked)
+                    }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically(animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(200))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = stringResource(R.string.settings_force_mobile_card_title),
+                            color = ActiveGreenLed,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_force_mobile_card_desc),
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Inline expandable card for cellular dial throttling (bufferbloat mitigation on tethered hotspots).
+ * Adheres strictly to MirrlyUI (Zero-Popup, Outline-Only, AMOLED black).
+ */
+@Composable
+private fun SettingsDialThrottlingCard(
+    isThrottling: Boolean,
+    onToggleThrottling: (Boolean) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    var isExpanded by remember { mutableStateOf(false) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 90f else 0f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "dialThrottlingChevron"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.Transparent)
+            .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+            .padding(14.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            isExpanded = !isExpanded
+                        }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_dial_throttling_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                            contentDescription = null,
+                            tint = if (isExpanded) ActiveGreenLed else TextMuted,
+                            modifier = Modifier
+                                .size(13.dp)
+                                .graphicsLayer { rotationZ = chevronRotation }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = stringResource(R.string.settings_dial_throttling_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                InertialSpringSwitch(
+                    checked = isThrottling,
+                    onCheckedChange = { checked ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onToggleThrottling(checked)
+                    }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically(animationSpec = tween(200)) + fadeIn(animationSpec = tween(200)),
+                exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(200))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = stringResource(R.string.settings_dial_throttling_card_title),
+                            color = ActiveGreenLed,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_dial_throttling_card_desc),
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun SettingsPerformanceSection(
@@ -3624,12 +3716,11 @@ private fun SettingsPerformanceSection(
             }
         }
 
-        var tcpNoDelayModeState by remember { mutableStateOf(config.tcpNoDelayMode) }
+        var nagleModeState by remember { mutableStateOf(config.nagleMode) }
 
-        val tcpNoDelayStatusText = when (tcpNoDelayModeState) {
-            TcpNoDelayMode.AUTO -> adaptiveDecision.statusDescription
-            TcpNoDelayMode.ON -> stringResource(R.string.settings_tcp_nodelay_on)
-            TcpNoDelayMode.OFF -> stringResource(R.string.settings_tcp_nodelay_off)
+        val nagleStatusText = when (nagleModeState) {
+            NagleMode.ENABLED -> stringResource(R.string.settings_nagle_status_on)
+            NagleMode.DISABLED -> stringResource(R.string.settings_nagle_status_off)
         }
 
         Column(
@@ -3645,32 +3736,39 @@ private fun SettingsPerformanceSection(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(stringResource(R.string.settings_tcp_nodelay_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(stringResource(R.string.settings_nagle_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     InfoButton { onInfoClick("tcp_nodelay") }
                 }
             }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(TcpNoDelayMode.AUTO, TcpNoDelayMode.ON, TcpNoDelayMode.OFF).forEach { mode ->
-                    val isSelected = tcpNoDelayModeState == mode
+                listOf(NagleMode.ENABLED, NagleMode.DISABLED).forEach { mode ->
+                    val isSelected = nagleModeState == mode
+                    val isWarning = mode == NagleMode.DISABLED
+                    val activeColor = if (isWarning) Color(0xFFFFB300) else ActiveGreenLed
                     val chipBorder by animateColorAsState(
-                        targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
+                        targetValue = if (isSelected) activeColor else AmoledBorder,
                         animationSpec = tween(200),
-                        label = "tcpBorder_${mode.name}"
+                        label = "nagleBorder_${mode.name}"
                     )
                     val chipBg by animateColorAsState(
-                        targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
+                        targetValue = if (isSelected) activeColor.copy(alpha = 0.08f) else Color.Transparent,
                         animationSpec = tween(200),
-                        label = "tcpBg_${mode.name}"
+                        label = "nagleBg_${mode.name}"
                     )
                     val chipTextColor by animateColorAsState(
-                        targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                        targetValue = if (isSelected) activeColor else TextWhite,
                         animationSpec = tween(200),
-                        label = "tcpText_${mode.name}"
+                        label = "nagleText_${mode.name}"
                     )
+
+                    val label = when (mode) {
+                        NagleMode.ENABLED -> stringResource(R.string.settings_nagle_on)
+                        NagleMode.DISABLED -> stringResource(R.string.settings_nagle_off)
+                    }
 
                     Box(
                         modifier = Modifier
@@ -3683,22 +3781,16 @@ private fun SettingsPerformanceSection(
                                 indication = null
                             ) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                tcpNoDelayModeState = mode
-                                config.tcpNoDelayModeName = mode.name
-                                val effective = when (mode) {
-                                    TcpNoDelayMode.ON -> true
-                                    TcpNoDelayMode.OFF -> false
-                                    TcpNoDelayMode.AUTO -> adaptiveDecision.recommendedTcpNoDelay
-                                }
-                                config.tcpNoDelay = effective
-                                server.setTcpNoDelayMode(mode)
+                                nagleModeState = mode
+                                config.nagleMode = mode
+                                server.setNagleMode(mode)
                                 app.saveConfig()
                             }
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = mode.displayName,
+                            text = label,
                             fontSize = 12.5.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = chipTextColor
@@ -3708,11 +3800,29 @@ private fun SettingsPerformanceSection(
             }
 
             Text(
-                text = tcpNoDelayStatusText,
-                color = if (tcpNoDelayModeState == TcpNoDelayMode.AUTO && adaptiveDecision.recommendedTcpNoDelay) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
+                text = nagleStatusText,
+                color = if (nagleModeState == NagleMode.DISABLED) Color(0xFFFFB300).copy(alpha = 0.9f) else TextMuted,
                 fontSize = 11.5.sp,
                 lineHeight = 15.sp
             )
+
+            if (nagleModeState == NagleMode.DISABLED) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFFFFB300).copy(alpha = 0.08f))
+                        .border(1.dp, Color(0xFFFFB300).copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_nagle_warning),
+                        color = Color(0xFFFFD54F),
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
         }
     }
 }
@@ -3725,7 +3835,7 @@ private fun SettingsAdvancedModeToggleCard(
 ) {
     val haptic = LocalHapticFeedback.current
     val borderAnim by animateColorAsState(
-        targetValue = if (isAdvancedMode) ActiveGreenLed.copy(alpha = 0.40f) else AmoledBorder,
+        targetValue = if (isAdvancedMode) ActiveGreenLed.copy(alpha = 0.5f) else AmoledBorder,
         animationSpec = tween(250),
         label = "advModeBorder"
     )
@@ -3784,38 +3894,45 @@ private fun SettingsAdvancedModeToggleCard(
                         .background(AmoledBorder)
                 )
 
-                // Warning & Disclaimer
+                // Single compact contour warning block (Dogma 1: Zero-Background / Outline-Only)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFF59E0B).copy(alpha = 0.08f))
-                        .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.25f), RoundedCornerShape(12.dp))
-                        .padding(10.dp)
+                        .background(Color.Transparent)
+                        .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                        .padding(12.dp)
                 ) {
-                    Text(
-                        text = stringResource(R.string.settings_advanced_mode_warning),
-                        color = Color(0xFFFBBF24),
-                        fontSize = 11.sp,
-                        lineHeight = 14.5.sp
-                    )
-                }
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_safety_expert),
+                                color = Color(0xFFFFB74D),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                            SettingsSafetyBadge(level = SettingsSafetyLevel.EXPERT)
+                        }
 
-                // Automatic rollback notice
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.03f))
-                        .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
-                        .padding(10.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_advanced_mode_rollback_notice),
-                        color = TextMuted,
-                        fontSize = 11.sp,
-                        lineHeight = 14.5.sp
-                    )
+                        Text(
+                            text = stringResource(R.string.settings_advanced_mode_warning),
+                            color = Color(0xFFFFB74D).copy(alpha = 0.95f),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+
+                        Text(
+                            text = stringResource(R.string.settings_advanced_mode_rollback_notice),
+                            color = TextMuted,
+                            fontSize = 10.5.sp,
+                            lineHeight = 14.sp
+                        )
+                    }
                 }
             }
         }
@@ -3834,7 +3951,6 @@ private fun SettingsAdvancedEngineeringSection(
     var happyEyeballsDelay by remember { mutableStateOf(config.happyEyeballsDelayMs) }
     var ipFamilyPref by remember { mutableStateOf(config.ipFamilyPreferenceName) }
     var customAnycastEndpoint by remember { mutableStateOf(config.warpUserEndpointOverride) }
-    var bufferSize by remember { mutableStateOf(config.bufferSizeBytes) }
     var keepAliveSeconds by remember { mutableStateOf(config.webSocketKeepAliveSeconds) }
 
     Column(
@@ -3846,18 +3962,14 @@ private fun SettingsAdvancedEngineeringSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.settings_advanced_section_title),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
-            }
+            Text(
+                text = stringResource(R.string.settings_advanced_section_title),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.3.sp,
+                color = TextMuted
+            )
         }
 
         // 1. Happy Eyeballs Delay (RFC 8305)
@@ -3902,11 +4014,6 @@ private fun SettingsAdvancedEngineeringSection(
                             animationSpec = tween(200),
                             label = "heBorder_$delayMs"
                         )
-                        val chipBg by animateColorAsState(
-                            targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
-                            animationSpec = tween(200),
-                            label = "heBg_$delayMs"
-                        )
                         val chipTextColor by animateColorAsState(
                             targetValue = if (isSelected) ActiveGreenLed else TextWhite,
                             animationSpec = tween(200),
@@ -3917,17 +4024,16 @@ private fun SettingsAdvancedEngineeringSection(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(chipBg)
+                                .background(Color.Transparent)
                                 .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
+                                .springPress(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     happyEyeballsDelay = delayMs
+                                    config.happyEyeballsDelayMs = delayMs
+                                    app.prefsManager.setHappyEyeballsDelayMs(delayMs)
                                     app.proxyServer.applyAdvancedNetworkSettings(happyEyeballsDelayMs = delayMs)
                                     app.saveConfig()
-                                }
+                                })
                                 .padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -3979,8 +4085,8 @@ private fun SettingsAdvancedEngineeringSection(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     listOf(
-                        "DUAL_STACK" to stringResource(R.string.settings_ip_family_dual),
                         "IPV4_ONLY" to stringResource(R.string.settings_ip_family_v4),
+                        "DUAL_STACK" to "Dual-Stack",
                         "IPV6_FIRST" to stringResource(R.string.settings_ip_family_v6)
                     ).forEach { (prefKey, label) ->
                         val isSelected = ipFamilyPref == prefKey
@@ -3988,11 +4094,6 @@ private fun SettingsAdvancedEngineeringSection(
                             targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
                             animationSpec = tween(200),
                             label = "ipBorder_$prefKey"
-                        )
-                        val chipBg by animateColorAsState(
-                            targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
-                            animationSpec = tween(200),
-                            label = "ipBg_$prefKey"
                         )
                         val chipTextColor by animateColorAsState(
                             targetValue = if (isSelected) ActiveGreenLed else TextWhite,
@@ -4004,20 +4105,18 @@ private fun SettingsAdvancedEngineeringSection(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(chipBg)
+                                .background(Color.Transparent)
                                 .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
+                                .springPress(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     ipFamilyPref = prefKey
                                     config.ipFamilyPreferenceName = prefKey
+                                    app.prefsManager.setIpFamilyPreference(prefKey)
                                     app.proxyServer.applyAdvancedNetworkSettings(
                                         ipFamilyPreference = config.ipFamilyPreference
                                     )
                                     app.saveConfig()
-                                }
+                                })
                                 .padding(vertical = 8.dp, horizontal = 2.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -4091,9 +4190,9 @@ private fun SettingsAdvancedEngineeringSection(
                         decorationBox = { inner ->
                             Box(
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(Color.White.copy(alpha = 0.04f))
+                                    .background(Color.Transparent)
                                     .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
                                     .padding(horizontal = 12.dp, vertical = 9.dp),
                                 contentAlignment = Alignment.CenterStart
@@ -4116,108 +4215,25 @@ private fun SettingsAdvancedEngineeringSection(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(Color.White.copy(alpha = 0.06f))
-                                .clickable {
+                                .background(Color.Transparent)
+                                .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     customAnycastEndpoint = ""
                                     config.warpUserEndpointOverride = ""
                                     if (config.isVpnAnyWarpUplink) {
                                         app.proxyServer.applyWarpEndpoint(config.warpPeerEndpoint)
                                     }
                                     app.saveConfig()
-                                }
-                                .padding(horizontal = 10.dp, vertical = 9.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(stringResource(R.string.action_reset), fontSize = 11.sp, color = TextMuted)
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. Socket Buffer Size (TCP RX/TX)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Transparent)
-                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
-                .padding(14.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_socket_buffer_title),
-                            color = TextWhite,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.5.sp
-                        )
-                        InfoButton { onInfoClick("socket_buffer") }
-                    }
-                    Text(
-                        text = stringResource(R.string.settings_socket_buffer_desc),
-                        color = TextMuted,
-                        fontSize = 11.5.sp,
-                        lineHeight = 15.sp
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        131072 to "128 KB",
-                        262144 to "256 KB",
-                        524288 to "512 KB",
-                        1048576 to "1 MB",
-                        2097152 to "2 MB"
-                    ).forEach { (sizeBytes, label) ->
-                        val isSelected = bufferSize == sizeBytes
-                        val chipBorder by animateColorAsState(
-                            targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
-                            animationSpec = tween(200),
-                            label = "bufBorder_$sizeBytes"
-                        )
-                        val chipBg by animateColorAsState(
-                            targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
-                            animationSpec = tween(200),
-                            label = "bufBg_$sizeBytes"
-                        )
-                        val chipTextColor by animateColorAsState(
-                            targetValue = if (isSelected) ActiveGreenLed else TextWhite,
-                            animationSpec = tween(200),
-                            label = "bufText_$sizeBytes"
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(chipBg)
-                                .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    bufferSize = sizeBytes
-                                    app.proxyServer.applyBufferSizeBytes(sizeBytes)
-                                    app.saveConfig()
-                                }
-                                .padding(vertical = 8.dp),
+                                })
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = label,
+                                text = stringResource(R.string.action_reset),
                                 fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = chipTextColor,
-                                textAlign = TextAlign.Center
+                                fontWeight = FontWeight.Medium,
+                                color = TextMuted
                             )
                         }
                     }
@@ -4225,7 +4241,7 @@ private fun SettingsAdvancedEngineeringSection(
             }
         }
 
-        // 5. WebSocket Keep-Alive Interval
+        // 4. WebSocket Keep-Alive Interval
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -4267,11 +4283,6 @@ private fun SettingsAdvancedEngineeringSection(
                             animationSpec = tween(200),
                             label = "kaBorder_$seconds"
                         )
-                        val chipBg by animateColorAsState(
-                            targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent,
-                            animationSpec = tween(200),
-                            label = "kaBg_$seconds"
-                        )
                         val chipTextColor by animateColorAsState(
                             targetValue = if (isSelected) ActiveGreenLed else TextWhite,
                             animationSpec = tween(200),
@@ -4282,17 +4293,16 @@ private fun SettingsAdvancedEngineeringSection(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(chipBg)
+                                .background(Color.Transparent)
                                 .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
+                                .springPress(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     keepAliveSeconds = seconds
+                                    config.webSocketKeepAliveSeconds = seconds
+                                    app.prefsManager.setSocketKeepAliveSeconds(seconds)
                                     app.proxyServer.applyAdvancedNetworkSettings(webSocketKeepAliveSeconds = seconds)
                                     app.saveConfig()
-                                }
+                                })
                                 .padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -4308,14 +4318,14 @@ private fun SettingsAdvancedEngineeringSection(
             }
         }
 
-        // 6. Reset Engineering Defaults
+        // 5. Reset Engineering Defaults
         Surface(
             shape = RoundedCornerShape(14.dp),
-            color = Color.White.copy(alpha = 0.04f),
+            color = Color.Transparent,
             border = BorderStroke(1.dp, AmoledBorder),
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable {
+                .springPress(onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     app.prefsManager.resetAdvancedSettingsToDefaults(config)
                     app.saveConfig()
@@ -4324,7 +4334,6 @@ private fun SettingsAdvancedEngineeringSection(
                     happyEyeballsDelay = config.happyEyeballsDelayMs
                     ipFamilyPref = config.ipFamilyPreferenceName
                     customAnycastEndpoint = config.warpUserEndpointOverride
-                    bufferSize = config.bufferSizeBytes
                     keepAliveSeconds = config.webSocketKeepAliveSeconds
                     onRestartProxy()
                     Toast.makeText(
@@ -4332,7 +4341,7 @@ private fun SettingsAdvancedEngineeringSection(
                         context.getString(R.string.toast_advanced_settings_reverted),
                         Toast.LENGTH_SHORT
                     ).show()
-                }
+                })
         ) {
             Box(
                 modifier = Modifier
@@ -4356,12 +4365,11 @@ private fun SettingsAdvancedEngineeringSection(
 private fun SettingsWorkerSection(
     config: ProxyConfig,
     onOpenWorkerManager: () -> Unit,
-    onOpenWorkerGuide: () -> Unit,
     onInfoClick: (String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     val app = MirrlyApplication.instance
-    val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
+    val activeWorker = remember(app.prefsManager.getActiveWorkerId(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)) { app.prefsManager.getActiveWorker(com.mirrly.tgproxy.core.ProxyMode.SOCKS5) }
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 3),
@@ -4388,266 +4396,58 @@ private fun SettingsWorkerSection(
                 .background(Color.Transparent)
                 .border(1.dp, AmoledBorder, RoundedCornerShape(20.dp))
         ) {
-            Column {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onOpenWorkerManager()
-                        }
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_settings),
-                                contentDescription = null,
-                                tint = ActiveGreenLed,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-
-                        Column {
-                            Text(
-                                text = stringResource(R.string.settings_worker_manager),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                            Text(
-                                text = stringResource(R.string.settings_worker_active, activeWorker.name),
-                                fontSize = 11.5.sp,
-                                color = TextMuted
-                            )
-                        }
-                    }
-
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_chevron_right),
-                        contentDescription = null,
-                        tint = TextMuted,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onOpenWorkerGuide()
-                        }
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_speed_turbo),
-                                contentDescription = null,
-                                tint = ActiveGreenLed,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-
-                        Column {
-                            Text(
-                                text = stringResource(R.string.settings_worker_guide),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                            Text(
-                                text = stringResource(R.string.settings_worker_guide_desc),
-                                fontSize = 11.5.sp,
-                                color = TextMuted
-                            )
-                        }
-                    }
-
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_chevron_right),
-                        contentDescription = null,
-                        tint = TextMuted,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-        }
-
-
-
-        // WSS Session Randomization Card (Cloudflare Worker dynamic WebSocket path & headers)
-        val isWsRandomizationEnabled by app.prefsManager.isWsRandomizationEnabledFlow.collectAsState()
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Transparent)
-                .border(1.dp, if (isWsRandomizationEnabled) ActiveGreenLed.copy(alpha = 0.35f) else AmoledBorder, RoundedCornerShape(18.dp))
-                .padding(14.dp)
-        ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .springPress(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onOpenWorkerManager()
+                    })
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
-                    modifier = Modifier.weight(1f).padding(end = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .size(34.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isWsRandomizationEnabled) ActiveGreenLed.copy(alpha = 0.12f) else AmoledBorder.copy(alpha = 0.2f))
-                            .border(1.dp, if (isWsRandomizationEnabled) ActiveGreenLed.copy(alpha = 0.3f) else AmoledBorder, RoundedCornerShape(10.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
                     ) {
                         Icon(
-                            painter = painterResource(id = R.drawable.ic_shield),
+                            painter = painterResource(id = R.drawable.ic_settings),
                             contentDescription = null,
-                            tint = if (isWsRandomizationEnabled) ActiveGreenLed else TextMuted,
+                            tint = ActiveGreenLed,
                             modifier = Modifier.size(16.dp)
                         )
                     }
 
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
+                    Column {
                         Text(
-                            text = stringResource(R.string.settings_ws_randomization_title),
-                            fontSize = 13.5.sp,
+                            text = stringResource(R.string.settings_worker_manager),
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color = TextWhite,
-                            lineHeight = 18.sp
+                            color = TextWhite
                         )
                         Text(
-                            text = stringResource(R.string.settings_ws_randomization_desc),
+                            text = stringResource(R.string.settings_worker_active, activeWorker.name),
                             fontSize = 11.5.sp,
-                            lineHeight = 15.sp,
                             color = TextMuted
                         )
                     }
                 }
 
-                InertialSpringSwitch(
-                    checked = isWsRandomizationEnabled,
-                    onCheckedChange = { checked ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        app.prefsManager.setWsRandomizationEnabled(checked)
-                        app.proxyServer.applyWsRandomizationEnabled(checked)
-                    }
-                )
-            }
-        }
-
-        // ECH (Encrypted Client Hello) Card
-        val isEchEnabled by app.prefsManager.isEchEnabledFlow.collectAsState()
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Transparent)
-                .border(1.dp, if (isEchEnabled) ActiveGreenLed.copy(alpha = 0.35f) else AmoledBorder, RoundedCornerShape(18.dp))
-                .padding(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f).padding(end = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isEchEnabled) ActiveGreenLed.copy(alpha = 0.12f) else AmoledBorder.copy(alpha = 0.2f))
-                            .border(1.dp, if (isEchEnabled) ActiveGreenLed.copy(alpha = 0.3f) else AmoledBorder, RoundedCornerShape(10.dp))
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_shield),
-                            contentDescription = null,
-                            tint = if (isEchEnabled) ActiveGreenLed else TextMuted,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_ech_title),
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite,
-                            lineHeight = 18.sp
-                        )
-                        Text(
-                            text = stringResource(R.string.settings_ech_desc),
-                            fontSize = 11.5.sp,
-                            lineHeight = 15.sp,
-                            color = TextMuted
-                        )
-                        Text(
-                            text = stringResource(R.string.settings_ech_experimental_hint),
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp,
-                            color = Color(0xFFFBBF24).copy(alpha = 0.9f),
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                InertialSpringSwitch(
-                    checked = isEchEnabled,
-                    onCheckedChange = { checked ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        app.prefsManager.setEchEnabled(checked)
-                        app.proxyServer.applyEchEnabled(checked)
-                    }
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_chevron_right),
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
@@ -4658,7 +4458,6 @@ private fun SettingsWorkerSection(
 private fun UplinkModeChip(
     mode: com.mirrly.tgproxy.core.UplinkMode,
     displayName: String,
-    badge: String,
     subtitle: String,
     isSelected: Boolean,
     onClick: () -> Unit,
@@ -4694,34 +4493,14 @@ private fun UplinkModeChip(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = displayName,
-                    fontSize = 12.5.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                    color = if (isSelected) TextWhite else TextWhite.copy(alpha = 0.85f),
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                )
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (isSelected) ActiveGreenLed.copy(alpha = 0.20f) else Color.Transparent)
-                        .border(0.8.dp, if (isSelected) ActiveGreenLed.copy(alpha = 0.40f) else AmoledBorder, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 4.dp, vertical = 1.dp)
-                ) {
-                    Text(
-                        text = badge,
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isSelected) ActiveGreenLed else TextMuted
-                    )
-                }
-            }
+            Text(
+                text = displayName,
+                fontSize = 12.5.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                color = if (isSelected) TextWhite else TextWhite.copy(alpha = 0.85f),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
             Text(
                 text = subtitle,
                 fontSize = 10.5.sp,
@@ -4753,14 +4532,11 @@ private fun SettingsUplinkWarpSection(
     val devWorkers = remember { app.prefsManager.getDeveloperWorkers() }
     val customWorkers = remember { app.prefsManager.getCustomWorkers() }
     val allWorkers = remember(devWorkers, customWorkers) { devWorkers + customWorkers }
-    val operaNodes = remember { com.mirrly.tgproxy.core.OperaVpnRepository.NODES }
 
-    var useOperaForVless by remember { mutableStateOf(config.useOperaVpnForVless) }
-    var useOperaForWarp by remember { mutableStateOf(config.useOperaVpnForWarp) }
-    var activeOperaNodeId by remember { mutableStateOf(config.operaVpnNodeId) }
     var activeVlessDomain by remember { mutableStateOf(config.getEffectiveVlessDomain()) }
     var activeAwgStrategy by remember { mutableStateOf(config.awgStrategy) }
     var customAwgIniText by remember { mutableStateOf(config.awgCustomIni) }
+    var isRegisterWarpViaWorker by remember { mutableStateOf(config.isRegisterWarpViaWorker) }
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 4),
@@ -4769,7 +4545,7 @@ private fun SettingsUplinkWarpSection(
         // Section header
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
@@ -4787,102 +4563,34 @@ private fun SettingsUplinkWarpSection(
                 )
                 InfoButton { onInfoClick("uplink_modes_info") }
             }
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(ActiveGreenLed.copy(alpha = 0.12f))
-                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = "VPN",
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Black,
-                    color = ActiveGreenLed,
-                    letterSpacing = 0.8.sp
-                )
-            }
         }
 
-        // note note note
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                UplinkModeChip(
-                    mode = com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
-                    displayName = "WARP Cascade",
-                    badge = "Dual Anycast",
-                    subtitle = stringResource(R.string.settings_uplink_cascade_sub),
-                    isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
-                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE) },
-                    modifier = Modifier.weight(1f)
-                )
-                UplinkModeChip(
-                    mode = com.mirrly.tgproxy.core.UplinkMode.VLESS,
-                    displayName = "VLESS over WS",
-                    badge = "Anycast CDN",
-                    subtitle = "TLS 1.3 Camouflage",
-                    isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.VLESS,
-                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.VLESS) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                UplinkModeChip(
-                    mode = com.mirrly.tgproxy.core.UplinkMode.MASQUE,
-                    displayName = "WARP MASQUE",
-                    badge = "QUIC H3",
-                    subtitle = stringResource(R.string.settings_uplink_masque_sub),
-                    isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE,
-                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.MASQUE) },
-                    modifier = Modifier.weight(1f)
-                )
-                UplinkModeChip(
-                    mode = com.mirrly.tgproxy.core.UplinkMode.AWG,
-                    displayName = "WARP AWG",
-                    badge = "WireGuard",
-                    subtitle = stringResource(R.string.settings_anycast_obfuscation),
-                    isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
-                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                UplinkModeChip(
-                    mode = com.mirrly.tgproxy.core.UplinkMode.OPERA,
-                    displayName = "Opera VPN",
-                    badge = "HTTP CONNECT",
-                    subtitle = "DoH + Anycast",
-                    isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.OPERA,
-                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.OPERA) },
-                    modifier = Modifier.weight(1f)
-                )
-                UplinkModeChip(
-                    mode = com.mirrly.tgproxy.core.UplinkMode.PROTON,
-                    displayName = "Proton VPN",
-                    badge = "WireGuard",
-                    subtitle = "Бесплатные узлы",
-                    isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.PROTON,
-                    onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.PROTON) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            UplinkModeChip(
+                mode = com.mirrly.tgproxy.core.UplinkMode.MASQUE,
+                displayName = "WARP MASQUE",
+                subtitle = stringResource(R.string.settings_uplink_masque_sub),
+                isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE,
+                onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.MASQUE) },
+                modifier = Modifier.weight(1f)
+            )
+            UplinkModeChip(
+                mode = com.mirrly.tgproxy.core.UplinkMode.AWG,
+                displayName = "WARP AWG",
+                subtitle = stringResource(R.string.settings_anycast_obfuscation),
+                isSelected = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
+                onClick = { onSelectUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG) },
+                modifier = Modifier.weight(1f)
+            )
         }
 
-        // note profile Cloudflare WARP MASQUE
+        // Profile Cloudflare WARP (MASQUE and AWG)
         AnimatedVisibility(
             visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE
-                || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.HYBRID
-                || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG
-                || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
+                || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically()
         ) {
@@ -4903,6 +4611,7 @@ private fun SettingsUplinkWarpSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            val isPlus = config.isWarpPlus || warpProfile?.isWarpPlus == true
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -4923,25 +4632,14 @@ private fun SettingsUplinkWarpSection(
                                         fontWeight = FontWeight.Bold,
                                         color = TextWhite
                                     )
-                                    val isPlus = config.isWarpPlus || warpProfile?.isWarpPlus == true
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = if (isPlus) ActiveGreenLed.copy(alpha = 0.15f) else Color.Transparent,
-                                        border = BorderStroke(1.dp, if (isPlus) ActiveGreenLed.copy(alpha = 0.4f) else AmoledBorder)
-                                    ) {
-                                        Text(
-                                            text = if (isPlus) "WARP+" else "FREE",
-                                            fontSize = 8.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = if (isPlus) ActiveGreenLed else TextMuted,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                        )
-                                    }
                                     InfoButton { onInfoClick("warp_masque_info") }
                                 }
                             }
                             Text(
-                                text = if (hasProfile) "${warpProfile?.clientIpv4} • Anycast" else stringResource(R.string.settings_unregistered_autoreg),
+                                text = if (hasProfile) {
+                                    val plusText = if (isPlus) " · WARP+" else ""
+                                    "${warpProfile?.clientIpv4} · Anycast$plusText"
+                                } else stringResource(R.string.settings_unregistered_autoreg),
                                 fontSize = 11.sp,
                                 color = if (hasProfile) ActiveGreenLed else TextMuted
                             )
@@ -5090,9 +4788,50 @@ private fun SettingsUplinkWarpSection(
                         }
                     }
 
-                    // Блок выбора стратегии обфускации AmneziaWG (AWG & WARP_CASCADE)
+                    // Переключатель регистрации через Worker Relay vs прямой SNI spoofing
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                                Text(
+                                    text = stringResource(R.string.settings_warp_reg_via_worker_title),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = stringResource(R.string.settings_warp_reg_via_worker_desc),
+                                    fontSize = 10.sp,
+                                    color = TextMuted,
+                                    lineHeight = 13.5.sp
+                                )
+                            }
+                            InertialSpringSwitch(
+                                checked = isRegisterWarpViaWorker,
+                                onCheckedChange = { checked ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    isRegisterWarpViaWorker = checked
+                                    app.prefsManager.setWarpRegisterViaWorker(checked)
+                                    app.config.isRegisterWarpViaWorker = checked
+                                    app.saveConfig()
+                                }
+                            )
+                        }
+                    }
+
                     AnimatedVisibility(
-                        visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG || uplinkMode == com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
+                        visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
                         enter = fadeIn() + expandVertically(),
                         exit = fadeOut() + shrinkVertically()
                     ) {
@@ -5193,1008 +4932,10 @@ private fun SettingsUplinkWarpSection(
                             }
                         }
                     }
-
-                    // note WARP note Opera VPN Upstream
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                    Text(
-                                        text = stringResource(R.string.settings_opera_upstream_title),
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextWhite
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.settings_opera_upstream_desc),
-                                        fontSize = 9.5.sp,
-                                        color = TextMuted
-                                    )
-                                }
-                                InertialSpringSwitch(
-                                    checked = useOperaForWarp,
-                                    onCheckedChange = { enabled ->
-                                        useOperaForWarp = enabled
-                                        config.useOperaVpnForWarp = enabled
-                                        config.allowOperaDirectExit = enabled
-                                        app.saveConfig()
-                                        app.proxyServer.applyOperaVpnConfig()
-                                        onRestartProxy()
-                                    }
-                                )
-                            }
-
-                            if (useOperaForWarp) {
-                                Text(
-                                    text = stringResource(R.string.settings_opera_node_select),
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.8.sp,
-                                    color = TextMuted
-                                )
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    operaNodes.forEach { node ->
-                                        val isSelected = node.id == activeOperaNodeId
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = if (isSelected) ActiveGreenLed.copy(alpha = 0.15f) else Color.Transparent,
-                                            border = BorderStroke(1.dp, if (isSelected) ActiveGreenLed.copy(alpha = 0.5f) else AmoledBorder),
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .clickable {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    activeOperaNodeId = node.id
-                                                    config.operaVpnNodeId = node.id
-                                                    config.operaVpnEndpoint = node.endpoint
-                                                    app.saveConfig()
-                                                    app.proxyServer.applyOperaVpnConfig()
-                                                    onRestartProxy()
-                                                    Toast.makeText(context, context.getString(R.string.settings_opera_node_selected, node.name), Toast.LENGTH_SHORT).show()
-                                                }
-                                        ) {
-                                            Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
-                                                Text(
-                                                    text = "${node.countryCode} (${node.name})",
-                                                    fontSize = 10.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                    color = if (isSelected) ActiveGreenLed else TextWhite
-                                                )
-                                                Text(
-                                                    text = node.endpoint,
-                                                    fontSize = 8.5.sp,
-                                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                                    color = TextMuted
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
 
-        // note note VLESS over WebSocket
-        AnimatedVisibility(
-            visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.VLESS,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            val app = MirrlyApplication.instance
-            val coroutineScope = rememberCoroutineScope()
-            var vlessPresets by remember { mutableStateOf(com.mirrly.tgproxy.core.VlessPresetsRepository.getAllPresets()) }
-            var activePresetId by remember { mutableStateOf(config.vlessPresetId) }
-            var isFetchingPresets by remember { mutableStateOf(false) }
-            var isDetailsExpanded by remember { mutableStateOf(false) }
-            val chevronRotation by animateFloatAsState(
-                targetValue = if (isDetailsExpanded) 90f else 0f,
-                animationSpec = tween(durationMillis = 200),
-                label = "vlessChevronRotation"
-            )
-
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = Color.Transparent,
-                border = BorderStroke(1.dp, AmoledBorder),
-                modifier = Modifier.fillMaxWidth().animateContentSize()
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(9.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                isDetailsExpanded = !isDetailsExpanded
-                            },
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(RoundedCornerShape(7.dp))
-                                    .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(7.dp))
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_shield),
-                                    contentDescription = null,
-                                    tint = ActiveGreenLed,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
-
-                            Column {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = "VLESS over WebSocket",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextWhite
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(ActiveGreenLed.copy(alpha = 0.15f))
-                                            .padding(horizontal = 4.dp, vertical = 1.dp)
-                                    ) {
-                                        Text(
-                                            text = "WSS",
-                                            fontSize = 8.5.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = ActiveGreenLed
-                                        )
-                                    }
-                                    InfoButton { onInfoClick("vless_info") }
-                                }
-                                Text(
-                                    text = "${config.getEffectiveVlessDomain()} • TLS 1.3",
-                                    fontSize = 10.5.sp,
-                                    color = ActiveGreenLed
-                                )
-                            }
-                        }
-
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_chevron_right),
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier
-                                .size(15.dp)
-                                .graphicsLayer { rotationZ = chevronRotation }
-                        )
-                    }
-
-                    // note note note VLESS
-                    Text(
-                        text = stringResource(R.string.settings_vless_pages_title),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        color = TextMuted
-                    )
-
-                    // note note note with note
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        vlessPresets.forEach { preset ->
-                            val isSelected = !useOperaForVless && (preset.id == activePresetId || (activePresetId.isEmpty() && preset.id == "cf_pages_global"))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isSelected) ActiveGreenLed.copy(alpha = 0.15f) else Color.Transparent,
-                                border = BorderStroke(1.dp, if (isSelected) ActiveGreenLed.copy(alpha = 0.5f) else AmoledBorder),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        activePresetId = preset.id
-                                        activeVlessDomain = preset.domain
-                                        useOperaForVless = false
-                                        config.useOperaVpnForVless = false
-                                        config.vlessPresetId = preset.id
-                                        com.mirrly.tgproxy.core.VlessPresetsRepository.applyPreset(preset, config)
-                                        app.prefsManager.setVlessPresetId(preset.id)
-                                        app.prefsManager.setVlessDomain(preset.domain)
-                                        app.prefsManager.setVlessPath(preset.path)
-                                        app.prefsManager.setVlessUuid(preset.uuid)
-                                        app.prefsManager.setUseOperaVpnForVless(false)
-                                        app.saveConfig()
-                                        app.proxyServer.applyOperaVpnConfig()
-                                        app.proxyServer.applyVlessPreset(preset)
-                                        onRestartProxy()
-                                        Toast.makeText(context, context.getString(R.string.settings_vless_page_selected, preset.name), Toast.LENGTH_SHORT).show()
-                                    }
-                            ) {
-                                Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
-                                    Text(
-                                        text = preset.name,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) ActiveGreenLed else TextWhite
-                                    )
-                                    Text(
-                                        text = preset.domain,
-                                        fontSize = 9.sp,
-                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                        color = TextMuted
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // note Cloudflare Worker for VLESS
-                    Text(
-                        text = stringResource(R.string.settings_vless_cf_workers_title),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        color = TextMuted
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        allWorkers.forEach { worker ->
-                            val isSelected = !useOperaForVless && (activeVlessDomain == worker.domain || (config.vlessDomain == worker.domain && activePresetId == "worker_${worker.id}"))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isSelected) ActiveGreenLed.copy(alpha = 0.15f) else Color.Transparent,
-                                border = BorderStroke(1.dp, if (isSelected) ActiveGreenLed.copy(alpha = 0.5f) else AmoledBorder),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        activeVlessDomain = worker.domain
-                                        activePresetId = "worker_${worker.id}"
-                                        useOperaForVless = false
-                                        config.useOperaVpnForVless = false
-                                        config.vlessDomain = worker.domain
-                                        config.vlessPresetId = "worker_${worker.id}"
-                                        app.prefsManager.setVlessDomain(worker.domain)
-                                        app.prefsManager.setVlessPresetId("worker_${worker.id}")
-                                        app.prefsManager.setUseOperaVpnForVless(false)
-                                        app.saveConfig()
-                                        app.proxyServer.applyOperaVpnConfig()
-                                        app.proxyServer.applyVlessConfig(config.vlessUuid, config.vlessPath, worker.domain)
-                                        onRestartProxy()
-                                        Toast.makeText(context, context.getString(R.string.settings_vless_worker_selected, worker.name), Toast.LENGTH_SHORT).show()
-                                    }
-                            ) {
-                                Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
-                                    Text(
-                                        text = worker.name,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) ActiveGreenLed else TextWhite
-                                    )
-                                    Text(
-                                        text = worker.domain,
-                                        fontSize = 9.sp,
-                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                        color = TextMuted
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // note Opera VPN (VLESS note)
-                    Text(
-                        text = stringResource(R.string.settings_vless_opera_servers_title),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        color = TextMuted
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        operaNodes.forEach { node ->
-                            val isSelected = useOperaForVless && (activePresetId == "opera_${node.id}" || activeOperaNodeId == node.id)
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isSelected) ActiveGreenLed.copy(alpha = 0.15f) else Color.Transparent,
-                                border = BorderStroke(1.dp, if (isSelected) ActiveGreenLed.copy(alpha = 0.5f) else AmoledBorder),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        activeOperaNodeId = node.id
-                                        activePresetId = "opera_${node.id}"
-                                        activeVlessDomain = node.endpoint
-                                        useOperaForVless = true
-                                        config.useOperaVpnForVless = true
-                                        config.operaVpnNodeId = node.id
-                                        config.operaVpnEndpoint = node.endpoint
-                                        config.vlessPresetId = "opera_${node.id}"
-                                        config.vlessDomain = node.endpoint
-                                        app.prefsManager.setUseOperaVpnForVless(true)
-                                        app.prefsManager.setOperaVpnNodeId(node.id)
-                                        app.prefsManager.setOperaVpnEndpoint(node.endpoint)
-                                        app.prefsManager.setVlessPresetId("opera_${node.id}")
-                                        app.prefsManager.setVlessDomain(node.endpoint)
-                                        app.saveConfig()
-                                        app.proxyServer.applyOperaVpnConfig()
-                                        app.proxyServer.applyVlessConfig(config.vlessUuid, config.vlessPath, node.endpoint)
-                                        onRestartProxy()
-                                        Toast.makeText(context, context.getString(R.string.settings_vless_opera_selected, node.name), Toast.LENGTH_SHORT).show()
-                                    }
-                            ) {
-                                Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
-                                    Text(
-                                        text = "${node.countryCode} (${node.name})",
-                                        fontSize = 10.5.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) ActiveGreenLed else TextWhite
-                                    )
-                                    Text(
-                                        text = node.endpoint,
-                                        fontSize = 9.sp,
-                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                        color = TextMuted
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // note UUID note
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("VLESS UUID", vlessUuid))
-                                Toast.makeText(context, context.getString(R.string.settings_vless_uuid_copied), Toast.LENGTH_SHORT).show()
-                            }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 6.dp)) {
-                                Text(stringResource(R.string.settings_vless_uuid_client), fontSize = 9.5.sp, color = TextMuted)
-                                Text(
-                                    text = vlessUuid,
-                                    fontSize = 10.5.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    color = TextWhite,
-                                    maxLines = 1,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                )
-                            }
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_copy),
-                                contentDescription = stringResource(R.string.action_copy),
-                                tint = ActiveGreenLed,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
-
-                    // note note note
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, AmoledBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onRegenerateVlessUuid()
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 7.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_refresh),
-                                    contentDescription = null,
-                                    tint = ActiveGreenLed,
-                                    modifier = Modifier.size(11.dp)
-                                )
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = stringResource(R.string.settings_btn_new_uuid),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = TextWhite
-                                )
-                            }
-                        }
-
-                        // note vless:// note note note
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, AmoledBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                                    val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim() ?: ""
-                                    if (clipText.startsWith("vless://", ignoreCase = true)) {
-                                        val parseResult = com.mirrly.tgproxy.core.VlessPresetsRepository.parseVlessUriResult(clipText)
-                                        when (parseResult) {
-                                            is com.mirrly.tgproxy.core.VlessParseResult.Success -> {
-                                                val parsed = parseResult.preset
-                                                com.mirrly.tgproxy.core.VlessPresetsRepository.addCustomPreset(parsed)
-                                                com.mirrly.tgproxy.core.VlessPresetsRepository.applyPreset(parsed, config)
-                                                activePresetId = parsed.id
-                                                config.vlessPresetId = parsed.id
-                                                vlessPresets = com.mirrly.tgproxy.core.VlessPresetsRepository.getAllPresets()
-                                                app.prefsManager.setVlessPresetId(parsed.id)
-                                                app.prefsManager.setVlessDomain(parsed.domain)
-                                                app.prefsManager.setVlessPath(parsed.path)
-                                                app.prefsManager.setVlessUuid(parsed.uuid)
-                                                app.saveConfig()
-                                                app.proxyServer.applyVlessPreset(parsed)
-                                                onRestartProxy()
-                                                Toast.makeText(context, context.getString(R.string.settings_vless_node_imported, parsed.name), Toast.LENGTH_SHORT).show()
-                                            }
-                                            is com.mirrly.tgproxy.core.VlessParseResult.Failure -> {
-                                                Toast.makeText(context, context.getString(R.string.settings_vless_err, parseResult.reason), Toast.LENGTH_LONG).show()
-                                            }
-                                        }
-                                    } else {
-                                        Toast.makeText(context, context.getString(R.string.settings_vless_no_link_in_clip), Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                        ) {
-                            Text(
-                                text = stringResource(R.string.settings_vless_btn_import),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextWhite,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(vertical = 7.dp)
-                            )
-                        }
-
-                        // note note note note note note
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, AmoledBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable(enabled = !isFetchingPresets) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    coroutineScope.launch {
-                                        isFetchingPresets = true
-                                        val fresh = com.mirrly.tgproxy.core.VlessPresetsRepository.fetchFreshPublicPresets(socks5Port = app.config.socks5Port)
-                                        vlessPresets = fresh
-                                        isFetchingPresets = false
-                                        Toast.makeText(context, context.getString(R.string.settings_vless_nodes_available, fresh.size.toString()), Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 7.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (isFetchingPresets) {
-                                    CircularProgressIndicator(modifier = Modifier.size(11.dp), strokeWidth = 1.5.dp, color = ActiveGreenLed)
-                                } else {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_refresh),
-                                        contentDescription = null,
-                                        tint = ActiveGreenLed,
-                                        modifier = Modifier.size(11.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = if (isFetchingPresets) stringResource(R.string.state_loading) else stringResource(R.string.settings_btn_refresh),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = TextWhite
-                                )
-                            }
-                        }
-
-                        // note note
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = ActiveGreenLed.copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    val vlessUrl = config.getVlessShareUrl()
-                                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("VLESS URI", vlessUrl))
-                                    Toast.makeText(context, context.getString(R.string.settings_vless_link_copied), Toast.LENGTH_SHORT).show()
-                                }
-                        ) {
-                            Text(
-                                text = stringResource(R.string.settings_vless_btn_export),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = ActiveGreenLed,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(vertical = 7.dp)
-                            )
-                        }
-                    }
-
-                    // note note with note note
-                    AnimatedVisibility(
-                        visible = isDetailsExpanded,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, AmoledBorder),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(stringResource(R.string.settings_vless_active_host), fontSize = 10.5.sp, color = TextMuted)
-                                    Text(config.getEffectiveVlessDomain(), fontSize = 10.5.sp, color = TextWhite, fontWeight = FontWeight.Medium)
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    val currentPreset = vlessPresets.firstOrNull { it.id == activePresetId }
-                                    Text(stringResource(R.string.settings_vless_node_region), fontSize = 10.5.sp, color = TextMuted)
-                                    Text(currentPreset?.region ?: stringResource(R.string.vless_preset_default_region), fontSize = 10.5.sp, color = ActiveGreenLed, fontWeight = FontWeight.Medium)
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(stringResource(R.string.settings_vless_ws_path), fontSize = 10.5.sp, color = TextMuted)
-                                    Text(config.vlessPath, fontSize = 10.5.sp, color = TextWhite, fontWeight = FontWeight.Medium)
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(stringResource(R.string.settings_vless_transport_port), fontSize = 10.5.sp, color = TextMuted)
-                                    Text("443 (HTTPS/WSS)", fontSize = 10.5.sp, color = TextWhite, fontWeight = FontWeight.Medium)
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(stringResource(R.string.settings_vless_browser_mimic), fontSize = 10.5.sp, color = TextMuted)
-                                    Text("Chrome 128", fontSize = 10.5.sp, color = ActiveGreenLed, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Card for Opera VPN Uplink
-        AnimatedVisibility(
-            visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.OPERA,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = Color.Transparent,
-                border = BorderStroke(1.dp, AmoledBorder),
-                modifier = Modifier.fillMaxWidth().animateContentSize()
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(9.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(RoundedCornerShape(7.dp))
-                                    .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(7.dp))
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_vpn),
-                                    contentDescription = null,
-                                    tint = ActiveGreenLed,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = "Opera VPN Uplink",
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextWhite
-                                )
-                                Text(
-                                    text = "HTTP CONNECT + DoH RFC 8484",
-                                    fontSize = 10.sp,
-                                    color = TextMuted
-                                )
-                            }
-                        }
-                    }
-
-                    Text(
-                        text = "Доступные узлы Opera VPN:",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextMuted
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        operaNodes.forEach { node ->
-                            val isSelected = node.id == activeOperaNodeId
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isSelected) ActiveGreenLed.copy(alpha = 0.15f) else Color.Transparent,
-                                border = BorderStroke(1.dp, if (isSelected) ActiveGreenLed.copy(alpha = 0.5f) else AmoledBorder),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        activeOperaNodeId = node.id
-                                        config.operaVpnNodeId = node.id
-                                        config.operaVpnEndpoint = node.endpoint
-                                        app.saveConfig()
-                                        com.mirrly.tgproxy.core.NativeProxy.setOperaVpnEndpoint(node.endpoint)
-                                        Toast.makeText(context, "Узел Opera: ${node.name}", Toast.LENGTH_SHORT).show()
-                                    }
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(
-                                        text = node.countryCode,
-                                        fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) ActiveGreenLed else TextWhite
-                                    )
-                                    Text(
-                                        text = node.name,
-                                        fontSize = 8.5.sp,
-                                        color = TextMuted,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Эндпоинт узла", fontSize = 10.5.sp, color = TextMuted)
-                                Text(
-                                    config.operaVpnEndpoint.ifBlank { "77.111.247.139:443" },
-                                    fontSize = 10.5.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ActiveGreenLed
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("DNS-резолвер", fontSize = 10.5.sp, color = TextMuted)
-                                Text(
-                                    "DoH RFC 8484 (порт 53 перехват)",
-                                    fontSize = 10.5.sp,
-                                    color = TextWhite
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Card for Proton VPN Uplink
-        AnimatedVisibility(
-            visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.PROTON,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            val protonNodes = remember {
-                val json = try {
-                    context.assets.open("proton_nodes.json").bufferedReader().use { it.readText() }
-                } catch (_: Exception) {
-                    null
-                }
-                com.mirrly.tgproxy.core.ProtonManager.loadNodes(json)
-            }
-            var activeProtonNodeName by remember { mutableStateOf(config.protonNodeName) }
-            var protonPrivKey by remember { mutableStateOf(config.protonPrivateKey) }
-
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = Color.Transparent,
-                border = BorderStroke(1.dp, AmoledBorder),
-                modifier = Modifier.fillMaxWidth().animateContentSize()
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(9.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(RoundedCornerShape(7.dp))
-                                    .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(7.dp))
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_shield),
-                                    contentDescription = null,
-                                    tint = ActiveGreenLed,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = "Proton VPN Uplink",
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextWhite
-                                )
-                                Text(
-                                    text = "Бесплатные узлы WireGuard",
-                                    fontSize = 10.sp,
-                                    color = TextMuted
-                                )
-                            }
-                        }
-                    }
-
-                    Text(
-                        text = "Бесплатные серверы Proton VPN:",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextMuted
-                    )
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        protonNodes.chunked(3).forEach { rowNodes ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                rowNodes.forEach { node ->
-                                    val isSelected = node.name == activeProtonNodeName
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (isSelected) ActiveGreenLed.copy(alpha = 0.15f) else Color.Transparent,
-                                        border = BorderStroke(1.dp, if (isSelected) ActiveGreenLed.copy(alpha = 0.5f) else AmoledBorder),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable {
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                activeProtonNodeName = node.name
-                                                com.mirrly.tgproxy.core.ProtonManager.applyNode(config, node)
-                                                app.saveConfig()
-                                                com.mirrly.tgproxy.core.NativeProxy.setProtonConfig(
-                                                    serverIp = config.protonServerIp,
-                                                    serverPort = config.protonServerPort,
-                                                    peerPubKey = config.protonServerPublicKey,
-                                                    privateKey = config.protonPrivateKey,
-                                                    clientIp = config.protonClientIp,
-                                                    dnsIp = config.protonDnsIp,
-                                                    nodeName = config.protonNodeName
-                                                )
-                                                Toast.makeText(context, "Выбран сервер: ${node.name}", Toast.LENGTH_SHORT).show()
-                                            }
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            Text(
-                                                text = "${node.country} (${node.city.ifBlank { node.name }})",
-                                                fontSize = 10.5.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (isSelected) ActiveGreenLed else TextWhite,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = node.ip,
-                                                fontSize = 8.sp,
-                                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                                color = TextMuted
-                                            )
-                                        }
-                                    }
-                                }
-                                if (rowNodes.size < 3) {
-                                    Spacer(modifier = Modifier.weight((3 - rowNodes.size).toFloat()))
-                                }
-                            }
-                        }
-                    }
-
-                    // Key management
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Приватный ключ WireGuard", fontSize = 10.5.sp, color = TextMuted)
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = ActiveGreenLed.copy(alpha = 0.12f),
-                                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
-                                    modifier = Modifier.clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        val newKey = com.mirrly.tgproxy.core.ProtonManager.generateWireGuardPrivateKey()
-                                        config.protonPrivateKey = newKey
-                                        protonPrivKey = newKey
-                                        app.saveConfig()
-                                        Toast.makeText(context, "Сгенерирован новый ключ WireGuard", Toast.LENGTH_SHORT).show()
-                                    }
-                                ) {
-                                    Text(
-                                        text = "Пересоздать ключ",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = ActiveGreenLed,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                    )
-                                }
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Публичный ключ сервера", fontSize = 10.5.sp, color = TextMuted)
-                                Text(
-                                    if (config.protonServerPublicKey.length > 16) config.protonServerPublicKey.take(8) + "..." + config.protonServerPublicKey.takeLast(6) else config.protonServerPublicKey,
-                                    fontSize = 10.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    color = TextWhite
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Клиентский адрес / DNS", fontSize = 10.5.sp, color = TextMuted)
-                                Text(
-                                    "${config.protonClientIp} / ${config.protonDnsIp}",
-                                    fontSize = 10.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    color = ActiveGreenLed
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -6206,6 +4947,7 @@ private fun SettingsSystemSection(
     onOpenSleepTimer: () -> Unit,
     onOpenSchedule: () -> Unit,
     onOpenOnboarding: () -> Unit = {},
+    onOpenVpnOnboarding: () -> Unit = {},
     onOpenDiagnosticReport: () -> Unit = {},
     onInfoClick: (String) -> Unit,
     onLanguageChange: (String) -> Unit = {}
@@ -6225,18 +4967,14 @@ private fun SettingsSystemSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.settings_system_title),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
-            }
+            Text(
+                text = stringResource(R.string.settings_system_title),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.3.sp,
+                color = TextMuted
+            )
         }
 
         // ── 1. АВТОМАТИЗАЦИЯ И ТАЙМЕРЫ (CARD) ──
@@ -6249,7 +4987,7 @@ private fun SettingsSystemSection(
                 .padding(14.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // Autostart row
+                // Автозапуск при старте системы
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -6260,10 +4998,19 @@ private fun SettingsSystemSection(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text(stringResource(R.string.settings_autostart_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(
+                                text = stringResource(R.string.settings_autostart_title),
+                                color = TextWhite,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
+                            )
                             InfoButton { onInfoClick("autostart") }
                         }
-                        Text(stringResource(R.string.settings_autostart_desc), color = TextMuted, fontSize = 11.5.sp)
+                        Text(
+                            text = stringResource(R.string.settings_autostart_desc),
+                            color = TextMuted,
+                            fontSize = 11.5.sp
+                        )
                     }
                     InertialSpringSwitch(
                         checked = autostart,
@@ -6273,26 +5020,52 @@ private fun SettingsSystemSection(
 
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
 
-                // Sleep timer row
+                // Таймер сна
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable {
+                        .springPress(onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onOpenSleepTimer()
-                        }
+                        })
                         .padding(vertical = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text(stringResource(R.string.settings_sleep_timer_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         Text(
-                            text = if (timerState.isActive) stringResource(R.string.settings_sleep_timer_active, timerState.formatRemainingTime()) else stringResource(R.string.settings_sleep_timer_off),
-                            color = if (timerState.isActive) ActiveGreenLed else TextMuted,
-                            fontSize = 11.5.sp
+                            text = stringResource(R.string.settings_sleep_timer_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp
                         )
+                        if (timerState.isActive) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(top = 2.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(ActiveGreenLed)
+                                )
+                                Text(
+                                    text = stringResource(R.string.settings_sleep_timer_active, timerState.formatRemainingTime()),
+                                    color = ActiveGreenLed,
+                                    fontSize = 11.5.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = stringResource(R.string.settings_sleep_timer_off),
+                                color = TextMuted,
+                                fontSize = 11.5.sp
+                            )
+                        }
                     }
                     Icon(
                         painter = painterResource(id = R.drawable.ic_timer),
@@ -6304,26 +5077,51 @@ private fun SettingsSystemSection(
 
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
 
-                // Schedule row
+                // Расписание работы
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable {
+                        .springPress(onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onOpenSchedule()
-                        }
+                        })
                         .padding(vertical = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text(stringResource(R.string.settings_schedule_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         Text(
-                            text = if (scheduleConfig.isEnabled) stringResource(R.string.settings_schedule_active, scheduleConfig.getSummaryText(context)) else stringResource(R.string.settings_schedule_off),
-                            color = if (scheduleConfig.isEnabled) ActiveGreenLed else TextMuted,
-                            fontSize = 11.5.sp
+                            text = stringResource(R.string.settings_schedule_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp
                         )
+                        if (scheduleConfig.isEnabled) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(top = 2.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(ActiveGreenLed)
+                                )
+                                Text(
+                                    text = stringResource(R.string.settings_schedule_active, scheduleConfig.getSummaryText(context)),
+                                    color = ActiveGreenLed,
+                                    fontSize = 11.5.sp
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = stringResource(R.string.settings_schedule_off),
+                                color = TextMuted,
+                                fontSize = 11.5.sp
+                            )
+                        }
                     }
                     Icon(
                         painter = painterResource(id = R.drawable.ic_chevron_right),
@@ -6335,194 +5133,12 @@ private fun SettingsSystemSection(
             }
         }
 
-        // ── note note (BATTERY SAVER GUARD) ──
+        // ── 2. ПИТАНИЕ И ФОНОВАЯ РАБОТА (CARD) ──
         var isBatteryGuardEnabled by remember { mutableStateOf(app.config.isBatteryGuardEnabled) }
         var batteryGuardThreshold by remember { mutableStateOf(app.config.batteryGuardThreshold) }
         var batteryGuardStopOnPowerSave by remember { mutableStateOf(app.config.batteryGuardStopOnPowerSave) }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Transparent)
-                .border(1.dp, if (isBatteryGuardEnabled) ActiveGreenLed.copy(alpha = 0.35f) else AmoledBorder, RoundedCornerShape(18.dp))
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(stringResource(R.string.settings_battery_guard_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        InfoButton { onInfoClick("battery_guard") }
-                    }
-                    Text(
-                        text = if (isBatteryGuardEnabled) stringResource(R.string.settings_battery_guard_active, batteryGuardThreshold.toString()) else stringResource(R.string.settings_battery_guard_off),
-                        color = if (isBatteryGuardEnabled) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
-                        fontSize = 11.5.sp,
-                        lineHeight = 15.sp
-                    )
-                }
-                InertialSpringSwitch(
-                    checked = isBatteryGuardEnabled,
-                    onCheckedChange = { checked ->
-                        isBatteryGuardEnabled = checked
-                        app.config.isBatteryGuardEnabled = checked
-                        app.saveConfig()
-                    }
-                )
-            }
-
-            AnimatedVisibility(
-                visible = isBatteryGuardEnabled,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.padding(top = 4.dp)
-                ) {
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
-
-                    // Threshold selector
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = stringResource(R.string.settings_battery_threshold),
-                            color = TextWhite.copy(alpha = 0.9f),
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            listOf(5, 10, 15, 20, 25).forEach { threshold ->
-                                val isSelected = batteryGuardThreshold == threshold
-                                val chipBorder by animateColorAsState(
-                                    targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
-                                    animationSpec = tween(200),
-                                    label = "threshBorder_$threshold"
-                                )
-                                val chipBg by animateColorAsState(
-                                    targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.12f) else Color.Transparent,
-                                    animationSpec = tween(200),
-                                    label = "threshBg_$threshold"
-                                )
-                                val chipTextColor by animateColorAsState(
-                                    targetValue = if (isSelected) ActiveGreenLed else TextWhite,
-                                    animationSpec = tween(200),
-                                    label = "threshText_$threshold"
-                                )
-
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(chipBg)
-                                        .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null
-                                        ) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            batteryGuardThreshold = threshold
-                                            app.config.batteryGuardThreshold = threshold
-                                            app.saveConfig()
-                                        }
-                                        .padding(vertical = 8.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "$threshold%",
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = chipTextColor
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Power Save Mode trigger switch
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text(
-                                text = stringResource(R.string.settings_battery_android_saver),
-                                color = TextWhite.copy(alpha = 0.9f),
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = stringResource(R.string.settings_battery_android_saver_desc),
-                                color = TextMuted,
-                                fontSize = 11.sp
-                            )
-                        }
-                        InertialSpringSwitch(
-                            checked = batteryGuardStopOnPowerSave,
-                            onCheckedChange = { checked ->
-                                batteryGuardStopOnPowerSave = checked
-                                app.config.batteryGuardStopOnPowerSave = checked
-                                app.saveConfig()
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // ── note QOS note note ──
         var isAdaptiveQoSEnabled by remember { mutableStateOf(app.config.isAdaptiveQoSEnabled) }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Transparent)
-                .border(1.dp, if (isAdaptiveQoSEnabled) ActiveGreenLed.copy(alpha = 0.35f) else AmoledBorder, RoundedCornerShape(18.dp))
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(stringResource(R.string.settings_qos_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    InfoButton { onInfoClick("adaptive_qos") }
-                }
-                Text(
-                    text = if (isAdaptiveQoSEnabled) stringResource(R.string.settings_qos_active) else stringResource(R.string.settings_qos_off),
-                    color = if (isAdaptiveQoSEnabled) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
-                    fontSize = 11.5.sp,
-                    lineHeight = 15.sp
-                )
-            }
-            InertialSpringSwitch(
-                checked = isAdaptiveQoSEnabled,
-                onCheckedChange = { checked ->
-                    isAdaptiveQoSEnabled = checked
-                    app.config.isAdaptiveQoSEnabled = checked
-                    app.saveConfig()
-                    app.proxyServer.setAdaptiveQoSEnabled(checked)
-                }
-            )
-        }
-
-        // ── note note note note (DOZE MODE) ──
-        val context = LocalContext.current
         val powerManager = remember { context.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager }
         var isIgnoringBatteryOptimizations by remember {
             mutableStateOf(
@@ -6547,75 +5163,28 @@ private fun SettingsSystemSection(
             onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Transparent)
-                .border(
-                    1.dp,
-                    if (isIgnoringBatteryOptimizations) ActiveGreenLed.copy(alpha = 0.35f) else AmoledBorder,
-                    RoundedCornerShape(18.dp)
-                )
-                .clickable {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        try {
-                            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                data = Uri.parse("package:${context.packageName}")
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            context.startActivity(intent)
-                        } catch (_: Exception) {
-                            try {
-                                val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                }
-                                context.startActivity(intent)
-                            } catch (_: Exception) {
-                                Toast.makeText(context, context.getString(R.string.settings_err_open_battery_settings), Toast.LENGTH_SHORT).show()
-                            }
+        val openBatterySettings: () -> Unit = {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                } catch (_: Exception) {
+                    try {
+                        val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
+                        context.startActivity(intent)
+                    } catch (_: Exception) {
+                        Toast.makeText(context, context.getString(R.string.settings_err_open_battery_settings), Toast.LENGTH_SHORT).show()
                     }
                 }
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(stringResource(R.string.settings_doze_mode_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    InfoButton { onInfoClick("doze_mode") }
-                }
-                Text(
-                    text = if (isIgnoringBatteryOptimizations) {
-                        stringResource(R.string.settings_doze_mode_allowed)
-                    } else {
-                        stringResource(R.string.settings_doze_mode_optimizing)
-                    },
-                    color = if (isIgnoringBatteryOptimizations) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
-                    fontSize = 11.5.sp,
-                    lineHeight = 15.sp
-                )
-            }
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = if (isIgnoringBatteryOptimizations) ActiveGreenLed.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.05f),
-                border = BorderStroke(1.dp, if (isIgnoringBatteryOptimizations) ActiveGreenLed.copy(alpha = 0.4f) else AmoledBorder)
-            ) {
-                Text(
-                    text = if (isIgnoringBatteryOptimizations) stringResource(R.string.settings_doze_status_active) else stringResource(R.string.settings_doze_btn_configure),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isIgnoringBatteryOptimizations) ActiveGreenLed else TextWhite,
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
-                )
             }
         }
 
-        // ── 5. ЭНЕРГОСБЕРЕЖЕНИЕ (CARD) ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -6624,122 +5193,270 @@ private fun SettingsSystemSection(
                 .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
                 .padding(14.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(stringResource(R.string.settings_power_saver_title), color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        InfoButton { onInfoClick("disable_animations") }
-                    }
-                    Text(stringResource(R.string.settings_power_saver_desc), color = TextMuted, fontSize = 11.5.sp)
-                }
-                InertialSpringSwitch(
-                    checked = disableAnimations,
-                    onCheckedChange = { newValue ->
-                        disableAnimations = newValue
-                        app.prefsManager.setAnimationsDisabled(newValue)
-                    }
-                )
-            }
-        }
-
-        // ── note note (APP LANGUAGE) ──
-        val currentAppLanguage by app.prefsManager.appLanguageFlow.collectAsState()
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Transparent)
-                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Column {
-                Text(
-                    text = stringResource(R.string.settings_language_title),
-                    color = TextWhite,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
-                )
-                Text(
-                    text = stringResource(R.string.settings_language_desc),
-                    color = TextMuted,
-                    fontSize = 11.5.sp
-                )
-            }
-
-            // Two fixed, equal-width slots per row keep language controls compact on 320–360dp phones.
-            // A single four-item Row overflows as soon as a locale label becomes longer.
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    "system" to stringResource(R.string.settings_language_system),
-                    "ru" to stringResource(R.string.settings_language_ru),
-                    "en" to stringResource(R.string.settings_language_en),
-                    "fa" to stringResource(R.string.settings_language_fa)
-                ).chunked(2).forEach { languageRow ->
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Блок 2.1: Защита батареи (Battery Guard)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        languageRow.forEach { (langCode, langLabel) ->
-                    val isSelected = currentAppLanguage == langCode
-                    val chipBorder by animateColorAsState(
-                        targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
-                        animationSpec = tween(200),
-                        label = "langBorder_$langCode"
-                    )
-                    val chipBg by animateColorAsState(
-                        targetValue = if (isSelected) ActiveGreenLed.copy(alpha = 0.12f) else Color.Transparent,
-                        animationSpec = tween(200),
-                        label = "langBg_$langCode"
-                    )
-                    val chipTextColor by animateColorAsState(
-                        targetValue = if (isSelected) ActiveGreenLed else TextWhite,
-                        animationSpec = tween(200),
-                        label = "langText_$langCode"
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(chipBg)
-                            .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                if (currentAppLanguage == langCode) return@clickable
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onLanguageChange(langCode)
+                                Text(
+                                    text = stringResource(R.string.settings_battery_guard_title),
+                                    color = TextWhite,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                                InfoButton { onInfoClick("battery_guard") }
                             }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = langLabel,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = chipTextColor,
-                            maxLines = 1,
-                            textAlign = TextAlign.Center
+                            Text(
+                                text = if (isBatteryGuardEnabled) stringResource(R.string.settings_battery_guard_active, batteryGuardThreshold.toString()) else stringResource(R.string.settings_battery_guard_off),
+                                color = if (isBatteryGuardEnabled) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
+                                fontSize = 11.5.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
+                        InertialSpringSwitch(
+                            checked = isBatteryGuardEnabled,
+                            onCheckedChange = { checked ->
+                                isBatteryGuardEnabled = checked
+                                app.config.isBatteryGuardEnabled = checked
+                                app.saveConfig()
+                            }
                         )
                     }
+
+                    AnimatedVisibility(
+                        visible = isBatteryGuardEnabled,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+                            // Пороги батареи (контурные чипы)
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = stringResource(R.string.settings_battery_threshold),
+                                    color = TextWhite.copy(alpha = 0.9f),
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    listOf(5, 10, 15, 20, 25).forEach { threshold ->
+                                        val isSelected = batteryGuardThreshold == threshold
+                                        val chipBorder by animateColorAsState(
+                                            targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
+                                            animationSpec = tween(200),
+                                            label = "threshBorder_$threshold"
+                                        )
+                                        val chipTextColor by animateColorAsState(
+                                            targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                                            animationSpec = tween(200),
+                                            label = "threshText_$threshold"
+                                        )
+
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color.Transparent)
+                                                .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
+                                                .springPress(onClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    batteryGuardThreshold = threshold
+                                                    app.config.batteryGuardThreshold = threshold
+                                                    app.saveConfig()
+                                                })
+                                                .padding(vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "$threshold%",
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = chipTextColor
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Остановка при режиме энергосбережения Android
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                    Text(
+                                        text = stringResource(R.string.settings_battery_android_saver),
+                                        color = TextWhite.copy(alpha = 0.9f),
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.settings_battery_android_saver_desc),
+                                        color = TextMuted,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                                InertialSpringSwitch(
+                                    checked = batteryGuardStopOnPowerSave,
+                                    onCheckedChange = { checked ->
+                                        batteryGuardStopOnPowerSave = checked
+                                        app.config.batteryGuardStopOnPowerSave = checked
+                                        app.saveConfig()
+                                    }
+                                )
+                            }
                         }
-                        if (languageRow.size == 1) Spacer(modifier = Modifier.weight(1f))
                     }
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+                // Блок 2.2: Адаптивный QoS
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_qos_title),
+                                color = TextWhite,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
+                            )
+                            InfoButton { onInfoClick("adaptive_qos") }
+                        }
+                        Text(
+                            text = if (isAdaptiveQoSEnabled) stringResource(R.string.settings_qos_active) else stringResource(R.string.settings_qos_off),
+                            color = if (isAdaptiveQoSEnabled) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                    InertialSpringSwitch(
+                        checked = isAdaptiveQoSEnabled,
+                        onCheckedChange = { checked ->
+                            isAdaptiveQoSEnabled = checked
+                            app.config.isAdaptiveQoSEnabled = checked
+                            app.saveConfig()
+                            app.proxyServer.setAdaptiveQoSEnabled(checked)
+                        }
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+                // Блок 2.3: Работа в фоне (Doze Mode)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .springPress(onClick = openBatterySettings)
+                        .padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_doze_mode_title),
+                                color = TextWhite,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
+                            )
+                            InfoButton { onInfoClick("doze_mode") }
+                        }
+                        Text(
+                            text = if (isIgnoringBatteryOptimizations) {
+                                stringResource(R.string.settings_doze_mode_allowed)
+                            } else {
+                                stringResource(R.string.settings_doze_mode_optimizing)
+                            },
+                            color = if (isIgnoringBatteryOptimizations) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, if (isIgnoringBatteryOptimizations) ActiveGreenLed.copy(alpha = 0.5f) else AmoledBorder)
+                    ) {
+                        Text(
+                            text = if (isIgnoringBatteryOptimizations) stringResource(R.string.settings_doze_status_active) else stringResource(R.string.settings_doze_btn_configure),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isIgnoringBatteryOptimizations) ActiveGreenLed else TextWhite,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+                // Блок 2.4: Режим энергосбережения (Отключение анимаций)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_power_saver_title),
+                                color = TextWhite,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
+                            )
+                            InfoButton { onInfoClick("disable_animations") }
+                        }
+                        Text(
+                            text = stringResource(R.string.settings_power_saver_desc),
+                            color = TextMuted,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    InertialSpringSwitch(
+                        checked = disableAnimations,
+                        onCheckedChange = { newValue ->
+                            disableAnimations = newValue
+                            app.prefsManager.setAnimationsDisabled(newValue)
+                        }
+                    )
                 }
             }
         }
 
-        // ── СПРАВКА И ДИАГНОСТИКА (CARD) ──
+        // ── 3. ЯЗЫК ПРИЛОЖЕНИЯ (CARD) ──
+        val currentAppLanguage by app.prefsManager.appLanguageFlow.collectAsState()
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -6749,15 +5466,95 @@ private fun SettingsSystemSection(
                 .padding(14.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Onboarding Replay
+                Column {
+                    Text(
+                        text = stringResource(R.string.settings_language_title),
+                        color = TextWhite,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_language_desc),
+                        color = TextMuted,
+                        fontSize = 11.5.sp
+                    )
+                }
+
+                // Two fixed, equal-width slots per row keep language controls compact on 320–360dp phones.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "system" to stringResource(R.string.settings_language_system),
+                        "ru" to stringResource(R.string.settings_language_ru),
+                        "en" to stringResource(R.string.settings_language_en),
+                        "fa" to stringResource(R.string.settings_language_fa)
+                    ).chunked(2).forEach { languageRow ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            languageRow.forEach { (langCode, langLabel) ->
+                                val isSelected = currentAppLanguage == langCode
+                                val chipBorder by animateColorAsState(
+                                    targetValue = if (isSelected) ActiveGreenLed else AmoledBorder,
+                                    animationSpec = tween(200),
+                                    label = "langBorder_$langCode"
+                                )
+                                val chipTextColor by animateColorAsState(
+                                    targetValue = if (isSelected) ActiveGreenLed else TextWhite,
+                                    animationSpec = tween(200),
+                                    label = "langText_$langCode"
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color.Transparent)
+                                        .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
+                                        .springPress(onClick = {
+                                            if (currentAppLanguage == langCode) return@springPress
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            onLanguageChange(langCode)
+                                        })
+                                        .padding(vertical = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = langLabel,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = chipTextColor,
+                                        maxLines = 1,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                            if (languageRow.size == 1) Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 4. СПРАВКА И ДИАГНОСТИКА (CARD) ──
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Обучение и подсказки
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable {
+                        .springPress(onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onOpenOnboarding()
-                        }
+                        })
                         .padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -6785,15 +5582,51 @@ private fun SettingsSystemSection(
 
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
 
-                // Diagnostic Report
+                // Руководство по VPN
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable {
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenVpnOnboarding()
+                        })
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = stringResource(R.string.settings_vpn_onboarding_replay),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_vpn_onboarding_replay_desc),
+                            color = TextMuted,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+                // Диагностический отчет
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .springPress(onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onOpenDiagnosticReport()
-                        }
+                        })
                         .padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -6824,8 +5657,956 @@ private fun SettingsSystemSection(
 }
 
 @Composable
+private fun SettingsCustomizationSection(
+    onInfoClick: (String) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
+    val prefs = MirrlyApplication.instance.prefsManager
+
+    val accentColor = Color(0xFF3B82F6)
+    val activeLedColor = Color(0xFF22C55E)
+
+    val wallpaperUri by prefs.customBackgroundUriFlow.collectAsState()
+    val wallpaperRevision by prefs.customBackgroundRevisionFlow.collectAsState()
+    val wallpaperType by prefs.customBackgroundTypeFlow.collectAsState()
+    val videoPowerSave by prefs.customBackgroundVideoPowerSaveFlow.collectAsState()
+    val videoMetadata by prefs.customBackgroundVideoMetadataFlow.collectAsState()
+    val blurDp by prefs.customBackgroundBlurFlow.collectAsState()
+    val dimFactor by prefs.customBackgroundDimFlow.collectAsState()
+    val particlesEnabled by prefs.customBackgroundParticlesFlow.collectAsState()
+    val activePresetId by prefs.customBackgroundActivePresetIdFlow.collectAsState()
+    val userPresets by prefs.customBackgroundUserPresetsFlow.collectAsState()
+    val allPresets = remember(userPresets) { WallpaperPreset.BUILTIN_PRESETS + userPresets }
+
+    var showResetConfirm by remember { mutableStateOf(false) }
+    var showSavePresetCard by remember { mutableStateOf(false) }
+    var newPresetTitle by remember { mutableStateOf("") }
+    var isProcessing by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    var sliderBlur by remember(blurDp) { mutableFloatStateOf(blurDp) }
+    var sliderDim by remember(dimFactor) { mutableFloatStateOf(dimFactor) }
+
+    val mediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { selectedUri ->
+        if (selectedUri != null) {
+            coroutineScope.launch {
+                isProcessing = true
+                errorMessage = null
+                try {
+                    val result = prefs.setCustomMediaWallpaper(selectedUri)
+                    if (result.isFailure) {
+                        errorMessage = result.exceptionOrNull()?.localizedMessage ?: "Unknown error"
+                    } else {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showResetConfirm = false
+                    }
+                } catch (e: Exception) {
+                    errorMessage = e.localizedMessage ?: "Unknown error"
+                } finally {
+                    isProcessing = false
+                }
+            }
+        }
+    }
+
+    val hasCustomWallpaper = !wallpaperUri.isNullOrBlank()
+    val isVideo = wallpaperType == PreferencesManager.WALLPAPER_TYPE_VIDEO
+    val previewPath = remember(wallpaperUri, wallpaperRevision, wallpaperType) {
+        prefs.getWallpaperPreviewFile()?.absolutePath
+    }
+    val wallpaperImage = rememberWallpaperImage(previewPath, wallpaperRevision)
+
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 4),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.settings_customization_category_title),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.3.sp,
+            color = TextMuted
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        WallpaperGlyph(
+                            color = if (hasCustomWallpaper) accentColor else TextWhite,
+                            pulse = if (isProcessing) 1f else 0f,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_customization_wallpaper_title),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .springPress()
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onInfoClick("custom_wallpaper_info")
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_info_circle),
+                                    contentDescription = null,
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = if (hasCustomWallpaper) {
+                                if (isVideo) {
+                                    stringResource(R.string.settings_customization_wallpaper_active_video)
+                                } else {
+                                    stringResource(R.string.settings_customization_wallpaper_active_image)
+                                }
+                            } else {
+                                stringResource(R.string.settings_customization_wallpaper_default)
+                            },
+                            fontSize = 11.sp,
+                            color = if (hasCustomWallpaper) activeLedColor else TextMuted
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = stringResource(R.string.settings_customization_wallpaper_desc),
+                fontSize = 12.sp,
+                color = TextMuted,
+                lineHeight = 16.sp
+            )
+
+            if (errorMessage != null) {
+                Text(
+                    text = errorMessage.orEmpty(),
+                    fontSize = 11.sp,
+                    color = Color(0xFFEF4444),
+                    lineHeight = 14.sp
+                )
+            }
+
+            if (hasCustomWallpaper && wallpaperImage != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
+                ) {
+                    WallpaperBlurredImage(
+                        image = wallpaperImage,
+                        blurDp = sliderBlur,
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = sliderDim))
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.65f))
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        if (isVideo && videoMetadata != null) {
+                            val sizeMb = String.format(java.util.Locale.US, "%.1f", videoMetadata!!.fileSizeBytes / (1024f * 1024f))
+                            Text(
+                                text = stringResource(
+                                    R.string.settings_customization_wallpaper_video_metrics,
+                                    videoMetadata!!.width,
+                                    videoMetadata!!.height,
+                                    videoMetadata!!.durationSec,
+                                    sizeMb
+                                ),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = TextWhite
+                            )
+                        } else {
+                            val sizeKb = (wallpaperImage.fileSizeBytes / 1024L).coerceAtLeast(1L)
+                            Text(
+                                text = stringResource(
+                                    R.string.settings_customization_wallpaper_metrics,
+                                    wallpaperImage.width,
+                                    wallpaperImage.height,
+                                    sizeKb.toString()
+                                ),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = TextWhite
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── Presets Section ─────────────────────────────────────
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_customization_presets_title),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
+                    )
+
+                    if (hasCustomWallpaper) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.6f)),
+                            modifier = Modifier
+                                .springPress()
+                                .clickable(enabled = !isProcessing) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    showSavePresetCard = !showSavePresetCard
+                                }
+                        ) {
+                            Text(
+                                text = "+ ${stringResource(R.string.settings_customization_preset_save_current)}",
+                                color = accentColor,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = showSavePresetCard,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_customization_preset_save_title),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = if (isVideo) "Видео • ${sliderBlur.roundToInt()} dp • ${(sliderDim * 100).roundToInt()}%"
+                                else "Фото • ${sliderBlur.roundToInt()} dp • ${(sliderDim * 100).roundToInt()}%",
+                                fontSize = 10.sp,
+                                color = accentColor
+                            )
+                        }
+
+                        BasicTextField(
+                            value = newPresetTitle,
+                            onValueChange = { newPresetTitle = it },
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                color = TextWhite,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Default
+                            ),
+                            cursorBrush = SolidColor(accentColor),
+                            decorationBox = { innerTextField ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color.Transparent)
+                                        .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    if (newPresetTitle.isEmpty()) {
+                                        Text(
+                                            text = stringResource(R.string.settings_customization_preset_name_hint),
+                                            color = TextMuted,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.Transparent)
+                                    .border(1.dp, accentColor, RoundedCornerShape(8.dp))
+                                    .springPress()
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        val titleToSave = newPresetTitle.trim().ifEmpty {
+                                            if (isVideo) "Видео пресет" else "Фото пресет"
+                                        }
+                                        coroutineScope.launch {
+                                            prefs.saveCurrentAsUserPreset(titleToSave)
+                                            newPresetTitle = ""
+                                            showSavePresetCard = false
+                                        }
+                                    }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.settings_customization_preset_save_btn),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = accentColor
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.Transparent)
+                                    .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                    .springPress()
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        showSavePresetCard = false
+                                    }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.settings_customization_wallpaper_cancel),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                    }
+                }
+
+                val presetsScrollState = rememberScrollState()
+                val startFadeWidth by animateDpAsState(
+                    targetValue = if (presetsScrollState.canScrollBackward) 16.dp else 0.dp,
+                    animationSpec = tween(180),
+                    label = "presetStartFade"
+                )
+                val endFadeWidth by animateDpAsState(
+                    targetValue = if (presetsScrollState.canScrollForward) 24.dp else 0.dp,
+                    animationSpec = tween(180),
+                    label = "presetEndFade"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalFadingEdges(
+                            startFadeWidth = startFadeWidth,
+                            endFadeWidth = endFadeWidth
+                        )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(presetsScrollState),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        allPresets.forEach { preset ->
+                            val isPresetActive = hasCustomWallpaper && activePresetId == preset.id
+                            WallpaperPresetCard(
+                                preset = preset,
+                                isActive = isPresetActive,
+                                accentColor = accentColor,
+                                onSelect = {
+                                    coroutineScope.launch {
+                                        isProcessing = true
+                                        errorMessage = null
+                                        try {
+                                            val res = prefs.applyPreset(preset)
+                                            if (res.isFailure) {
+                                                errorMessage = res.exceptionOrNull()?.localizedMessage ?: "Unknown error"
+                                            } else {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                showResetConfirm = false
+                                            }
+                                        } catch (e: Exception) {
+                                            errorMessage = e.localizedMessage ?: "Unknown error"
+                                        } finally {
+                                            isProcessing = false
+                                        }
+                                    }
+                                },
+                                onDelete = if (!preset.isBuiltIn) {
+                                    {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        prefs.deleteUserPreset(preset.id)
+                                    }
+                                } else null
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (!hasCustomWallpaper) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                            .springPress()
+                            .clickable(enabled = !isProcessing) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                mediaPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            }
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        WallpaperGlyph(
+                            color = accentColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.settings_customization_wallpaper_choose_image),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                            .springPress()
+                            .clickable(enabled = !isProcessing) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                mediaPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                                )
+                            }
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_video),
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.settings_customization_wallpaper_choose_video),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                            .springPress()
+                            .clickable(enabled = !isProcessing) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                mediaPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                                )
+                            }
+                            .padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_refresh),
+                            contentDescription = null,
+                            tint = TextWhite,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isVideo) {
+                                stringResource(R.string.settings_customization_wallpaper_replace_video)
+                            } else {
+                                stringResource(R.string.settings_customization_wallpaper_replace_image)
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                            .springPress()
+                            .clickable(enabled = !isProcessing) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showResetConfirm = !showResetConfirm
+                            }
+                            .padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_trash),
+                            contentDescription = null,
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.settings_customization_wallpaper_reset),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFEF4444)
+                        )
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = showResetConfirm,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_customization_wallpaper_reset_confirm_title),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFEF4444)
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_customization_wallpaper_reset_confirm_desc),
+                            fontSize = 11.sp,
+                            color = TextMuted,
+                            lineHeight = 15.sp
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.Transparent)
+                                    .border(1.dp, Color(0xFFEF4444), RoundedCornerShape(10.dp))
+                                    .springPress()
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        prefs.clearCustomWallpaper()
+                                        showResetConfirm = false
+                                    }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.settings_customization_wallpaper_reset_confirm_btn),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFEF4444)
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.Transparent)
+                                    .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                                    .springPress()
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        showResetConfirm = false
+                                    }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.settings_customization_wallpaper_cancel),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_customization_wallpaper_blur),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = "${sliderBlur.roundToInt()} dp",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = accentColor
+                            )
+                        }
+
+                        Slider(
+                            value = sliderBlur,
+                            onValueChange = {
+                                sliderBlur = it
+                                prefs.setWallpaperBlur(it, persist = false)
+                            },
+                            onValueChangeFinished = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                prefs.setWallpaperBlur(sliderBlur, persist = true)
+                            },
+                            valueRange = 0f..25f,
+                            steps = 24,
+                            colors = SliderDefaults.colors(
+                                thumbColor = accentColor,
+                                activeTrackColor = accentColor,
+                                inactiveTrackColor = AmoledBorder
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_customization_wallpaper_dim),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = "${(sliderDim * 100f).roundToInt()}%",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = accentColor
+                            )
+                        }
+
+                        Slider(
+                            value = sliderDim,
+                            onValueChange = {
+                                sliderDim = it
+                                prefs.setWallpaperDim(it, persist = false)
+                            },
+                            onValueChangeFinished = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                prefs.setWallpaperDim(sliderDim, persist = true)
+                            },
+                            valueRange = 0.10f..0.85f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = accentColor,
+                                activeTrackColor = accentColor,
+                                inactiveTrackColor = AmoledBorder
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    if (isVideo) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                Text(
+                                    text = stringResource(R.string.settings_customization_wallpaper_video_power_save),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextWhite
+                                )
+                                Text(
+                                    text = stringResource(R.string.settings_customization_wallpaper_video_power_save_desc),
+                                    fontSize = 11.sp,
+                                    color = TextMuted,
+                                    lineHeight = 14.sp
+                                )
+                            }
+
+                            InertialSpringSwitch(
+                                checked = videoPowerSave,
+                                onCheckedChange = { checked ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    prefs.setWallpaperVideoPowerSave(checked)
+                                }
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                            Text(
+                                text = stringResource(R.string.settings_customization_wallpaper_particles),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_customization_wallpaper_particles_desc),
+                                fontSize = 11.sp,
+                                color = TextMuted,
+                                lineHeight = 14.sp
+                            )
+                        }
+
+                        InertialSpringSwitch(
+                            checked = particlesEnabled,
+                            onCheckedChange = { checked ->
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                prefs.setWallpaperParticlesEnabled(checked)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WallpaperPresetCard(
+    preset: WallpaperPreset,
+    isActive: Boolean,
+    accentColor: Color,
+    onSelect: () -> Unit,
+    onDelete: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    val previewImage = rememberWallpaperImage(
+        path = preset.previewAssetPath ?: preset.previewFilePath ?: preset.filePath,
+        revision = 0L
+    )
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color.Transparent,
+        border = BorderStroke(
+            width = if (isActive) 1.5.dp else 1.dp,
+            color = if (isActive) accentColor else AmoledBorder
+        ),
+        modifier = modifier
+            .width(112.dp)
+            .height(168.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .springPress()
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onSelect()
+            }
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(108.dp)
+                    .clip(RoundedCornerShape(topStart = 13.dp, topEnd = 13.dp))
+                    .background(Color.Black)
+            ) {
+                if (preset.type == PreferencesManager.WALLPAPER_TYPE_VIDEO) {
+                    PresetVideoPreview(
+                        videoPath = preset.filePath,
+                        assetPath = preset.previewAssetPath?.takeIf { it.endsWith(".mp4") } ?: preset.assetPath,
+                        previewImage = previewImage,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else if (previewImage != null) {
+                    Image(
+                        bitmap = previewImage.bitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                // Delete Button for user custom presets (top end)
+                if (onDelete != null && !preset.isBuiltIn) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.70f))
+                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f), CircleShape)
+                            .springPress()
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onDelete()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "×",
+                            color = Color(0xFFEF4444),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // Title & Parameters
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 7.dp, vertical = 5.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                val displayTitle = preset.titleRes?.let { stringResource(it) } ?: preset.title
+                Text(
+                    text = displayTitle,
+                    fontSize = 11.sp,
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isActive) TextWhite else TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${preset.blurDp.roundToInt()} dp • ${(preset.dimFactor * 100).roundToInt()}%",
+                    fontSize = 9.sp,
+                    color = TextMuted,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsAboutSection(
     onOpenAbout: () -> Unit,
+    onOpenTelegramChannel: () -> Unit,
     onDonateClick: () -> Unit,
     onOpenUpdate: () -> Unit,
     onOpenHallOfFame: () -> Unit
@@ -6853,25 +6634,23 @@ private fun SettingsAboutSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(18.dp))
-                .background(Color.Transparent)
                 .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
         ) {
-            // ── 1. STANDOUT HALL OF FAME BUTTON ──
+            // ── 1. STANDOUT HALL OF FAME ROW ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .lightSweep(
                         isEnabled = true,
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
                         sweepColor = ActiveGreenLed
                     )
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onOpenHallOfFame()
-                    }
+                    .springPress(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenHallOfFame()
+                        }
+                    )
                     .padding(horizontal = 14.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -6886,8 +6665,7 @@ private fun SettingsAboutSection(
                         modifier = Modifier
                             .size(34.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(ActiveGreenLed.copy(alpha = 0.12f))
-                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_hall_of_fame),
@@ -6910,8 +6688,8 @@ private fun SettingsAboutSection(
                             )
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = ActiveGreenLed.copy(alpha = 0.15f),
-                                border = androidx.compose.foundation.BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.4f))
+                                color = Color.Transparent,
+                                border = BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.5f))
                             ) {
                                 Text(
                                     text = stringResource(R.string.badge_top),
@@ -6938,17 +6716,18 @@ private fun SettingsAboutSection(
                 )
             }
 
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+            // ── 2. TELEGRAM COMMUNITY ROW ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onOpenAbout()
-                    }
+                    .springPress(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenTelegramChannel()
+                        }
+                    )
                     .padding(horizontal = 14.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -6963,8 +6742,84 @@ private fun SettingsAboutSection(
                         modifier = Modifier
                             .size(34.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(ActiveGreenLed.copy(alpha = 0.12f))
-                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_telegram),
+                            contentDescription = null,
+                            tint = ActiveGreenLed,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.tg_channel_topbar_title),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(0.8.dp, AmoledBorder)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.tg_channel_tag_handle),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextMuted,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = stringResource(R.string.tg_channel_btn_sub),
+                            fontSize = 11.5.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_chevron_right),
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
+            // ── 3. ABOUT DEV ROW ──
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .springPress(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenAbout()
+                        }
+                    )
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_user),
@@ -6997,18 +6852,18 @@ private fun SettingsAboutSection(
                 )
             }
 
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
 
+            // ── 4. DONATION ROW ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onDonateClick()
-                    }
+                    .springPress(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDonateClick()
+                        }
+                    )
                     .padding(horizontal = 14.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -7023,8 +6878,7 @@ private fun SettingsAboutSection(
                         modifier = Modifier
                             .size(34.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(ActiveGreenLed.copy(alpha = 0.12f))
-                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_donate),
@@ -7057,53 +6911,47 @@ private fun SettingsAboutSection(
                 )
             }
 
-            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder))
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
 
-            val itemBgColor = if (isUpdateAvailable) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent
-            val iconBoxBgColor = if (isUpdateAvailable) ActiveGreenLed.copy(alpha = 0.2f) else ActiveGreenLed.copy(alpha = 0.12f)
-            val iconTint = ActiveGreenLed
-            val titleColor = if (isUpdateAvailable) ActiveGreenLed else TextWhite
-
+            // ── 5. CHECK UPDATES ROW ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(itemBgColor)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        if (isUpdateAvailable) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onOpenUpdate()
-                        } else if (!isCheckingUpdate) {
-                            isCheckingUpdate = true
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            coroutineScope.launch {
-                                val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false, forceRefresh = true)
-                                isCheckingUpdate = false
-                                result.fold(
-                                    onSuccess = { info ->
-                                        if (info.isUpdateAvailable) {
-                                            onOpenUpdate()
-                                        } else {
+                    .springPress(
+                        onClick = {
+                            if (isUpdateAvailable) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onOpenUpdate()
+                            } else if (!isCheckingUpdate) {
+                                isCheckingUpdate = true
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                coroutineScope.launch {
+                                    val result = com.mirrly.tgproxy.service.UpdateManager.checkForUpdates(context, notifyIfFound = false, forceRefresh = true)
+                                    isCheckingUpdate = false
+                                    result.fold(
+                                        onSuccess = { info ->
+                                            if (info.isUpdateAvailable) {
+                                                onOpenUpdate()
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    context.getString(R.string.settings_update_actual),
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        },
+                                        onFailure = { err ->
                                             Toast.makeText(
                                                 context,
-                                                context.getString(R.string.settings_update_actual),
+                                                context.getString(R.string.settings_update_check_err, err.localizedMessage ?: ""),
                                                 Toast.LENGTH_SHORT
                                             ).show()
                                         }
-                                    },
-                                    onFailure = { err ->
-                                        Toast.makeText(
-                                            context,
-                                            context.getString(R.string.settings_update_check_err, err.localizedMessage ?: ""),
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
-                    }
+                    )
                     .padding(horizontal = 14.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -7118,13 +6966,16 @@ private fun SettingsAboutSection(
                         modifier = Modifier
                             .size(34.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(iconBoxBgColor)
-                            .border(1.dp, iconTint.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                            .border(
+                                1.dp,
+                                if (isUpdateAvailable) ActiveGreenLed.copy(alpha = 0.6f) else AmoledBorder,
+                                RoundedCornerShape(10.dp)
+                            )
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_refresh),
                             contentDescription = null,
-                            tint = iconTint,
+                            tint = ActiveGreenLed,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -7134,7 +6985,7 @@ private fun SettingsAboutSection(
                             text = if (isUpdateAvailable) stringResource(R.string.settings_update_available) else stringResource(R.string.settings_btn_check_updates),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color = titleColor
+                            color = if (isUpdateAvailable) ActiveGreenLed else TextWhite
                         )
                         Text(
                             text = when {
@@ -7185,631 +7036,20 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
         "battery_guard", "battery_guard_info" -> R.string.info_battery_guard_title to R.string.info_battery_guard_body
         "adaptive_qos", "qos_info" -> R.string.info_qos_title to R.string.info_qos_body
         "doze_mode", "doze_mode_info" -> R.string.info_doze_mode_title to R.string.info_doze_mode_body
-        "doh_providers", "doh_info" -> R.string.info_doh_title to R.string.info_doh_body
         "advanced_mode" -> R.string.settings_advanced_mode_title to R.string.settings_advanced_mode_desc
         "happy_eyeballs" -> R.string.info_happy_eyeballs_title to R.string.info_happy_eyeballs_body
         "ip_family" -> R.string.info_ip_family_title to R.string.info_ip_family_body
         "warp_anycast" -> R.string.info_warp_anycast_title to R.string.info_warp_anycast_body
         "socket_buffer" -> R.string.info_socket_buffer_title to R.string.info_socket_buffer_body
         "ws_keepalive" -> R.string.info_ws_keepalive_title to R.string.info_ws_keepalive_body
-        "vpn_core_info" -> R.string.vpn_architecture_title to R.string.vpn_splittunnel_desc
+        "vpn_core_info" -> R.string.info_vpn_system_title to R.string.info_vpn_system_body
+        "vpn_splittunnel_info" -> R.string.info_vpn_splittunnel_title to R.string.info_vpn_splittunnel_body
+        "custom_wallpaper_info", "customization_info" -> R.string.settings_customization_info_title to R.string.settings_customization_info_desc
         else -> return
     }
     val dlgTitle = stringResource(dlgTitleRes)
     val dlgBody = stringResource(dlgBodyRes)
     InfoDialog(title = dlgTitle, body = dlgBody, onDismiss = onDismiss)
-}
-
-private data class DohBadgeStyle(
-    val bg: Color,
-    val border: Color,
-    val text: Color,
-    val label: String
-)
-
-@Composable
-private fun SettingsDohSection(
-    enabledProviderIds: Set<String>,
-    isProxyRunning: Boolean,
-    onStopProxy: () -> Unit,
-    onSelectAllProviders: () -> Unit,
-    onToggleProvider: (String, Boolean) -> Unit,
-    onResetDefaults: () -> Unit,
-    isBenchmarking: Boolean,
-    benchmarkProgress: Pair<Int, Int>?,
-    benchmarkResults: Map<String, com.mirrly.tgproxy.core.DohBenchmarkResult>,
-    benchmarkSummary: String?,
-    currentAppLanguage: String = "system",
-    onStartBenchmark: () -> Unit,
-    onInfoClick: (String) -> Unit
-) {
-    val haptic = LocalHapticFeedback.current
-    val allProviders = remember(currentAppLanguage) {
-        com.mirrly.tgproxy.core.DohResolver.getAvailableProviders(currentAppLanguage)
-    }
-    var isListExpanded by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isBenchmarking) {
-        if (isBenchmarking) {
-            isListExpanded = true
-        }
-    }
-
-    Column(
-        modifier = Modifier.staggeredEntrance(index = 2),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        // note note with note note note
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.settings_doh_section_header),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
-                InfoButton { onInfoClick("doh_providers") }
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                // note note note note
-                if (enabledProviderIds.size < allProviders.size) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = ActiveGreenLed.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable(
-                                enabled = !isProxyRunning,
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onSelectAllProviders()
-                            }
-                    ) {
-                        Text(
-                            text = stringResource(R.string.doh_btn_enable_all, allProviders.size),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isProxyRunning) TextMuted else ActiveGreenLed,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                        )
-                    }
-                } else {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = ActiveGreenLed.copy(alpha = 0.10f),
-                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.30f))
-                    ) {
-                        Text(
-                            text = stringResource(R.string.doh_btn_enable_all_ok, allProviders.size),
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ActiveGreenLed,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-
-                // note note note by note
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, AmoledBorder),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable(
-                            enabled = !isProxyRunning,
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onResetDefaults()
-                        }
-                ) {
-                    Text(
-                        text = stringResource(R.string.doh_btn_reset),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isProxyRunning) TextMuted else TextWhite.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                    )
-                }
-            }
-        }
-
-        // note note note note note note note note
-        if (isProxyRunning) {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = Color.Transparent,
-                border = BorderStroke(1.dp, AmoledBorder),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = stringResource(R.string.doh_notice_proxy_running),
-                        fontSize = 11.sp,
-                        color = TextMuted,
-                        modifier = Modifier.weight(1f).padding(end = 8.dp)
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFFEF4444).copy(alpha = 0.15f),
-                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.40f)),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onStopProxy()
-                            }
-                    ) {
-                        Text(
-                            text = stringResource(R.string.action_stop),
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFEF4444),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        // note note note note
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color.Transparent,
-            border = BorderStroke(
-                1.dp,
-                if (isBenchmarking) ActiveGreenLed.copy(alpha = 0.6f)
-                else if (isProxyRunning) AmoledBorder
-                else ActiveGreenLed.copy(alpha = 0.35f)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .clickable(
-                    enabled = !isBenchmarking && !isProxyRunning,
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onStartBenchmark()
-                }
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text(
-                        text = if (isBenchmarking) {
-                            val cur = benchmarkProgress?.first ?: 0
-                            val tot = benchmarkProgress?.second ?: allProviders.size
-                            stringResource(R.string.doh_testing_progress, cur.toString(), tot.toString())
-                        } else {
-                            stringResource(R.string.doh_smart_selection_title)
-                        },
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isProxyRunning) TextMuted else ActiveGreenLed
-                    )
-                    Text(
-                        text = if (isBenchmarking) stringResource(R.string.doh_measuring_rtt)
-                               else if (isProxyRunning) stringResource(R.string.doh_stop_to_measure)
-                               else stringResource(R.string.doh_auto_pick_fastest),
-                        fontSize = 10.5.sp,
-                        color = TextMuted,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
-                }
-
-                if (isBenchmarking) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = ActiveGreenLed
-                    )
-                } else {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isProxyRunning) Color.Transparent else ActiveGreenLed.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, if (isProxyRunning) AmoledBorder else ActiveGreenLed.copy(alpha = 0.35f))
-                    ) {
-                        Text(
-                            text = stringResource(R.string.doh_btn_test),
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isProxyRunning) TextMuted else ActiveGreenLed,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        // note note note note
-        AnimatedVisibility(
-            visible = benchmarkSummary != null && !isBenchmarking,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            benchmarkSummary?.let { summary ->
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.3f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(5.dp)
-                                .background(ActiveGreenLed, CircleShape)
-                        )
-                        Text(
-                            text = summary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = TextWhite,
-                            lineHeight = 14.sp
-                        )
-                    }
-                }
-            }
-        }
-
-        // note note note note DoH-note
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, if (isListExpanded) ActiveGreenLed.copy(alpha = 0.35f) else AmoledBorder),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                // note title
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            isListExpanded = !isListExpanded
-                        }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(9.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(ActiveGreenLed.copy(alpha = 0.12f))
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_shield),
-                                contentDescription = null,
-                                tint = ActiveGreenLed,
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.doh_list_title),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextWhite
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(5.dp),
-                                    color = ActiveGreenLed.copy(alpha = 0.15f),
-                                    border = BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.4f))
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.doh_list_ratio, enabledProviderIds.size.toString(), allProviders.size.toString()),
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = ActiveGreenLed,
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                text = if (isListExpanded) stringResource(R.string.doh_hide_list_hint) else stringResource(R.string.doh_active_race_hint, enabledProviderIds.size.toString()),
-                                fontSize = 11.sp,
-                                color = TextMuted
-                            )
-                        }
-                    }
-
-                    val chevronRotation by animateFloatAsState(
-                        targetValue = if (isListExpanded) 90f else 0f,
-                        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
-                        label = "doh_chevron_rot"
-                    )
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_chevron_right),
-                        contentDescription = null,
-                        tint = if (isListExpanded) ActiveGreenLed else TextMuted,
-                        modifier = Modifier
-                            .size(15.dp)
-                            .graphicsLayer { rotationZ = chevronRotation }
-                    )
-                }
-
-                // note note note note note
-                AnimatedVisibility(
-                    visible = isListExpanded,
-                    enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = tween(220)),
-                    exit = fadeOut(animationSpec = tween(140)) + shrinkVertically(animationSpec = tween(180))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(AmoledBorder)
-                        )
-
-                        allProviders.forEach { provider ->
-                            val isChecked = enabledProviderIds.contains(provider.id)
-                            val result = benchmarkResults[provider.id]
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(9.dp))
-                                    .background(if (isChecked) ActiveGreenLed.copy(alpha = 0.08f) else Color.Transparent)
-                                    .border(
-                                        1.dp,
-                                        if (isChecked) ActiveGreenLed.copy(alpha = 0.25f) else AmoledBorder,
-                                        RoundedCornerShape(9.dp)
-                                    )
-                                    .clickable(
-                                        enabled = !isProxyRunning,
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onToggleProvider(provider.id, !isChecked)
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(end = 8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(1.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        Text(
-                                            text = provider.name,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isChecked) TextWhite else TextMuted
-                                        )
-
-                                        if (result != null) {
-                                            val style = when (result.status) {
-                                                com.mirrly.tgproxy.core.DohHealthStatus.EXCELLENT -> DohBadgeStyle(
-                                                    ActiveGreenLed.copy(alpha = 0.12f),
-                                                    ActiveGreenLed.copy(alpha = 0.35f),
-                                                    ActiveGreenLed,
-                                                    stringResource(R.string.unit_ms_val, result.latencyMs.toString())
-                                                )
-                                                com.mirrly.tgproxy.core.DohHealthStatus.GOOD -> DohBadgeStyle(
-                                                    ActiveGreenLed.copy(alpha = 0.10f),
-                                                    ActiveGreenLed.copy(alpha = 0.30f),
-                                                    ActiveGreenLed,
-                                                    stringResource(R.string.unit_ms_val, result.latencyMs.toString())
-                                                )
-                                                com.mirrly.tgproxy.core.DohHealthStatus.MODERATE,
-                                                com.mirrly.tgproxy.core.DohHealthStatus.SLOW -> DohBadgeStyle(
-                                                    Color.Transparent,
-                                                    AmoledBorder,
-                                                    TextWhite.copy(alpha = 0.85f),
-                                                    stringResource(R.string.unit_ms_val, result.latencyMs.toString())
-                                                )
-                                                com.mirrly.tgproxy.core.DohHealthStatus.BLOCKED -> DohBadgeStyle(
-                                                    Color(0xFFEF4444).copy(alpha = 0.12f),
-                                                    Color(0xFFEF4444).copy(alpha = 0.35f),
-                                                    Color(0xFFEF4444),
-                                                    stringResource(R.string.doh_status_tspu_block)
-                                                )
-                                                com.mirrly.tgproxy.core.DohHealthStatus.TIMEOUT -> DohBadgeStyle(
-                                                    Color(0xFFEF4444).copy(alpha = 0.12f),
-                                                    Color(0xFFEF4444).copy(alpha = 0.35f),
-                                                    Color(0xFFEF4444),
-                                                    stringResource(R.string.doh_status_timeout)
-                                                )
-                                                com.mirrly.tgproxy.core.DohHealthStatus.POISONED -> DohBadgeStyle(
-                                                    Color(0xFFEF4444).copy(alpha = 0.12f),
-                                                    Color(0xFFEF4444).copy(alpha = 0.35f),
-                                                    Color(0xFFEF4444),
-                                                    stringResource(R.string.doh_status_ip_poison)
-                                                )
-                                            }
-
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = style.bg,
-                                                border = BorderStroke(0.8.dp, style.border)
-                                            ) {
-                                                Text(
-                                                    text = style.label,
-                                                    fontSize = 8.5.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = style.text,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                )
-                                            }
-
-                                            if (result.isRecommended) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = ActiveGreenLed.copy(alpha = 0.15f),
-                                                    border = BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.40f))
-                                                ) {
-                                                    Text(
-                                                        text = stringResource(R.string.doh_badge_top),
-                                                        fontSize = 8.5.sp,
-                                                        fontWeight = FontWeight.Black,
-                                                        color = ActiveGreenLed,
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                    )
-                                                }
-                                            }
-                                        } else if (isBenchmarking) {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color.White.copy(alpha = 0.05f),
-                                                border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.1f))
-                                            ) {
-                                                Text(
-                                                    text = stringResource(R.string.doh_status_pending),
-                                                    fontSize = 8.5.sp,
-                                                    fontWeight = FontWeight.Normal,
-                                                    color = TextMuted,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                        } else {
-                                            if (provider.isIranOnly) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = Color(0xFF06B6D4).copy(alpha = 0.12f),
-                                                    border = BorderStroke(0.8.dp, Color(0xFF06B6D4).copy(alpha = 0.35f))
-                                                ) {
-                                                    Text(
-                                                        text = stringResource(R.string.doh_status_iran_ok),
-                                                        fontSize = 8.5.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFF06B6D4),
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                    )
-                                                }
-                                            } else if (provider.id == "adguard" || provider.id == "dnssb" || provider.id == "nextdns" || provider.id == "controld" || provider.id == "quad9") {
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = ActiveGreenLed.copy(alpha = 0.10f),
-                                                    border = BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.30f))
-                                                ) {
-                                                    Text(
-                                                        text = stringResource(R.string.doh_status_tspu_ok),
-                                                        fontSize = 8.5.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = ActiveGreenLed,
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                    )
-                                                }
-                                            }
-                                            if (provider.id == "cloudflare") {
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = Color(0xFFEF4444).copy(alpha = 0.10f),
-                                                    border = BorderStroke(0.8.dp, Color(0xFFEF4444).copy(alpha = 0.30f))
-                                                ) {
-                                                    Text(
-                                                        text = stringResource(R.string.doh_status_rkn_block),
-                                                        fontSize = 8.5.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFFEF4444),
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Text(
-                                        text = if (result != null && result.statusDetail.isNotEmpty() && !result.isUsable) {
-                                            result.statusDetail
-                                        } else {
-                                            provider.description
-                                        },
-                                        fontSize = 10.sp,
-                                        color = if (result != null && !result.isUsable) Color(0xFFEF4444).copy(alpha = 0.85f) else TextMuted,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                    )
-                                }
-
-                                InertialSpringSwitch(
-                                    checked = isChecked,
-                                    enabled = !isProxyRunning,
-                                    activeColor = ActiveGreenLed,
-                                    onCheckedChange = { checked ->
-                                        onToggleProvider(provider.id, checked)
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-        }
-    }
-}
 }
 
 @Composable
@@ -7820,7 +7060,7 @@ private fun SettingsMtprotoCdnOverviewCard() {
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -7832,21 +7072,6 @@ private fun SettingsMtprotoCdnOverviewCard() {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFF29B6F6).copy(alpha = 0.12f))
-                    .border(1.dp, Color(0xFF29B6F6).copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = "FLOWSEAL CDN",
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color(0xFF29B6F6),
-                    letterSpacing = 0.8.sp
-                )
-            }
         }
 
         Surface(
@@ -7874,6 +7099,125 @@ private fun SettingsMtprotoCdnOverviewCard() {
                     color = TextMuted,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+        }
+    }
+}
+
+
+/**
+ * Inline card for MTProto Cloudflare Worker tunneling toggle.
+ * Adheres strictly to MirrlyUI (Zero-Popup, Outline-Only, AMOLED black, MtprotoAccent).
+ */
+@Composable
+private fun SettingsMtprotoWorkerCard(
+    useWorker: Boolean,
+    activeWorker: com.mirrly.tgproxy.core.WorkerProfile,
+    onToggleWorker: (Boolean) -> Unit,
+    onOpenWorkerManager: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+
+    Column(
+        modifier = Modifier.staggeredEntrance(index = 3),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, AmoledBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_mtproto_worker_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = stringResource(R.string.settings_mtproto_worker_desc),
+                            color = TextMuted,
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp
+                        )
+                    }
+
+                    InertialSpringSwitch(
+                        checked = useWorker,
+                        onCheckedChange = { checked ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleWorker(checked)
+                        },
+                        activeColor = MtprotoAccent
+                    )
+                }
+
+                // Active Uplink status chip
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(
+                            1.dp,
+                            if (useWorker && activeWorker.domain.isNotBlank()) MtprotoAccent.copy(alpha = 0.35f) else AmoledBorder,
+                            RoundedCornerShape(10.dp)
+                        )
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onOpenWorkerManager()
+                        })
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(if (useWorker && activeWorker.domain.isNotBlank()) MtprotoAccent else TextMuted)
+                        )
+                        Text(
+                            text = if (useWorker && activeWorker.domain.isNotBlank()) {
+                                stringResource(R.string.settings_mtproto_worker_active, activeWorker.name)
+                            } else {
+                                stringResource(R.string.settings_mtproto_worker_cdn)
+                            },
+                            color = if (useWorker && activeWorker.domain.isNotBlank()) MtprotoAccent else TextMuted,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        tint = if (useWorker && activeWorker.domain.isNotBlank()) MtprotoAccent else TextMuted,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
             }
         }
     }

@@ -1,0 +1,30 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <!-- CloudTips Blue Squircle Background -->
+    <path
+        android:pathData="M 28,0 L 72,0 C 88,0 100,12 100,28 L 100,72 C 100,88 88,100 72,100 L 28,100 C 12,100 0,88 0,72 L 0,28 C 0,12 12,0 28,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="100"
+                android:endY="100"
+                android:type="linear">
+                <item android:color="#FF5A8FE6" android:offset="0.0" />
+                <item android:color="#FF5F95ED" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Left Capsule -->
+    <path
+        android:pathData="M 60.23,36.26 L 56.73,33.33 L 52.05,31.58 L 45.03,31.58 L 39.18,33.92 L 36.84,35.67 L 35.67,37.43 L 34.50,38.01 L 34.50,38.60 L 33.33,39.18 L 33.33,39.77 L 32.16,40.35 L 32.16,40.94 L 29.82,42.69 L 29.82,43.27 L 28.65,43.86 L 28.65,44.44 L 27.49,45.03 L 27.49,45.61 L 26.32,46.20 L 25.15,47.95 L 21.64,51.46 L 21.05,51.46 L 20.47,52.63 L 17.54,55.56 L 16.96,55.56 L 14.62,58.48 L 14.62,59.65 L 14.04,60.23 L 14.04,64.33 L 15.79,67.84 L 18.13,69.59 L 21.05,70.18 L 21.64,70.76 L 25.15,70.18 L 28.07,68.42 L 33.33,63.16 L 33.33,62.57 L 34.50,61.99 L 53.80,42.69 L 53.80,42.11 L 59.06,37.43 L 59.65,36.26 Z"
+        android:fillColor="#FFFFFFFF" />
+    <!-- Right Capsule -->
+    <path
+        android:pathData="M 84.80,33.33 L 81.87,30.41 L 78.95,29.82 L 78.36,29.24 L 77.19,29.82 L 74.85,29.82 L 71.93,31.58 L 39.77,63.74 L 42.11,66.08 L 47.95,68.42 L 54.97,68.42 L 60.82,66.08 L 84.80,42.11 L 85.96,39.18 L 85.96,36.26 Z"
+        android:fillColor="#FFFFFFFF" />
+</vector>

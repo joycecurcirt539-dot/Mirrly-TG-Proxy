@@ -20,14 +20,14 @@ class AppLoggerTest {
 
     @Test
     fun `logs flow remains the authoritative bounded history`() {
-        repeat(260) { index ->
+        repeat(510) { index ->
             AppLogger.i("Test", "message-$index")
         }
 
         val snapshot = AppLogger.logsFlow.value
-        assertEquals(250, snapshot.size)
+        assertEquals(500, snapshot.size)
         assertEquals("message-10", snapshot.first().rawMessage)
-        assertEquals("message-259", snapshot.last().rawMessage)
+        assertEquals("message-509", snapshot.last().rawMessage)
         assertEquals(AppLogger.getLogs(), snapshot)
     }
 

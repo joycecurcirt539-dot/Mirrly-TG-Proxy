@@ -7,6 +7,7 @@
 
 package com.mirrly.tgproxy.ui
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -19,8 +20,11 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import com.mirrly.tgproxy.core.VpnDnsMode
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,7 +38,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,6 +52,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ui.theme.*
+import com.mirrly.tgproxy.service.MirrlyVpnService
+import com.mirrly.tgproxy.service.humanBytes
 import androidx.compose.runtime.withFrameNanos
 import kotlin.math.cos
 import kotlin.math.sin
@@ -80,10 +88,10 @@ fun RotatingVpnRing(
     val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
     val isRunning = state == VpnUiState.CONNECTED || state == VpnUiState.CONNECTING
 
-    val timeState = produceState(initialValue = 0L, isAppResumed, isAnimationsDisabled, isRunning) {
-        if (!isAppResumed || isAnimationsDisabled || !isRunning) return@produceState
+    val timeState = produceState(initialValue = 0L, isAppResumed, isAnimationsDisabled) {
+        if (!isAppResumed || isAnimationsDisabled) return@produceState
         val startNano = System.nanoTime() - value
-        while (isAppResumed && !isAnimationsDisabled && isRunning) {
+        while (isAppResumed && !isAnimationsDisabled) {
             withFrameNanos { frameTimeNanos ->
                 value = frameTimeNanos - startNano
             }
@@ -92,8 +100,24 @@ fun RotatingVpnRing(
 
     val density = LocalDensity.current
     val strokeWidthPx = remember(density) { with(density) { 5.dp.toPx() } }
-    val wavePath = remember { Path() }
-    val innerPath = remember { Path() }
+    val outerStroke = remember(strokeWidthPx) { Stroke(width = strokeWidthPx, cap = StrokeCap.Round) }
+    val innerStroke = remember(strokeWidthPx) { Stroke(width = strokeWidthPx * 0.65f, cap = StrokeCap.Round) }
+
+    val sweepColors = remember(vpnColors) {
+        listOf(
+            Color.Transparent,
+            vpnColors.primary.copy(alpha = 0.20f),
+            vpnColors.primary.copy(alpha = 0.65f),
+            vpnColors.light
+        )
+    }
+    val innerSweepColors = remember(vpnColors) {
+        listOf(
+            Color.Transparent,
+            vpnColors.primary.copy(alpha = 0.15f),
+            vpnColors.light.copy(alpha = 0.85f)
+        )
+    }
 
     Canvas(modifier = modifier) {
         val t = if (!isAnimationsDisabled) timeState.value / 1_000_000_000f else 0f
@@ -101,57 +125,71 @@ fun RotatingVpnRing(
         val center = Offset(size.width / 2f, size.height / 2f)
         val outerRadius = (diameter - strokeWidthPx) / 2f
 
-        // 1. STATIC CALIBRATION TRACK (1dp subtle AMOLED border circle)
+        // 1. CALIBRATION TRACK (Subtle AMOLED circular guide)
         drawCircle(
-            color = vpnColors.primary.copy(alpha = 0.14f),
+            color = vpnColors.primary.copy(alpha = if (isRunning) 0.16f else 0.10f),
             radius = outerRadius,
             center = center,
             style = Stroke(width = with(density) { 1.dp.toPx() })
         )
 
-        // 4 Static Cyber Reticle Ticks at 0, 90, 180, 270 degrees
+        // Reticle ticks: idle slow rotation (6 deg/s), locked in position when active
+        val reticleAngle = if (isRunning) 0f else (t * 6f) % 360f
         val tickLen = with(density) { 4.5.dp.toPx() }
-        for (deg in listOf(0f, 90f, 180f, 270f)) {
-            val rad = Math.toRadians(deg.toDouble()).toFloat()
-            val rStart = outerRadius - tickLen
-            val rEnd = outerRadius + tickLen
-            drawLine(
-                color = vpnColors.primary.copy(alpha = 0.40f),
-                start = Offset(center.x + rStart * cos(rad), center.y + rStart * sin(rad)),
-                end = Offset(center.x + rEnd * cos(rad), center.y + rEnd * sin(rad)),
-                strokeWidth = with(density) { 1.2.dp.toPx() },
-                cap = StrokeCap.Round
-            )
+        rotate(degrees = reticleAngle, pivot = center) {
+            for (deg in listOf(0f, 90f, 180f, 270f)) {
+                val rad = Math.toRadians(deg.toDouble()).toFloat()
+                val rStart = outerRadius - tickLen
+                val rEnd = outerRadius + tickLen
+                drawLine(
+                    color = vpnColors.primary.copy(alpha = if (isRunning) 0.40f else 0.22f),
+                    start = Offset(center.x + rStart * cos(rad), center.y + rStart * sin(rad)),
+                    end = Offset(center.x + rEnd * cos(rad), center.y + rEnd * sin(rad)),
+                    strokeWidth = with(density) { 1.2.dp.toPx() },
+                    cap = StrokeCap.Round
+                )
+            }
         }
+
+        // Idle perimeter beacons (gentle scanning markers)
+        if (!isRunning) {
+            for (k in 0..1) {
+                val beaconAngle = Math.toRadians(((t * 12f + k * 180f) % 360f).toDouble()).toFloat()
+                val bx = center.x + outerRadius * cos(beaconAngle)
+                val by = center.y + outerRadius * sin(beaconAngle)
+                drawCircle(
+                    color = vpnColors.primary.copy(alpha = 0.22f),
+                    radius = with(density) { 2.dp.toPx() },
+                    center = Offset(bx, by)
+                )
+            }
+        }
+
         // 2. PRIMARY KINETIC ORBITAL RING (Circular sweeping arc + glowing comet head) - Only when running
         if (isRunning) {
-            val outerAngle = (t * 36f) % 360f
+            // Synchronized acceleration surge during cloud struggle
+            val strugglePeriod = 1.5f
+            val cycleProgress = (t % strugglePeriod) / strugglePeriod
+            val surgeAngle = if (state == VpnUiState.CONNECTING && cycleProgress < 0.60f) {
+                (sin(cycleProgress / 0.60f * Math.PI.toFloat()) * 32f)
+            } else {
+                0f
+            }
+            val outerAngle = (t * 36f + surgeAngle) % 360f
             val sweepAngle = 240f
             val sweepRad = Math.toRadians(sweepAngle.toDouble()).toFloat()
-            val steps = 72
+
+            val sweepBrush = Brush.sweepGradient(colors = sweepColors, center = center)
 
             rotate(degrees = outerAngle, pivot = center) {
-                wavePath.reset()
-                for (i in 0..steps) {
-                    val stepFrac = i.toFloat() / steps
-                    val currentRad = stepFrac * sweepRad
-                    val px = center.x + outerRadius * cos(currentRad)
-                    val py = center.y + outerRadius * sin(currentRad)
-                    if (i == 0) wavePath.moveTo(px, py) else wavePath.lineTo(px, py)
-                }
-
-                drawPath(
-                    path = wavePath,
-                    brush = Brush.sweepGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            vpnColors.primary.copy(alpha = 0.20f),
-                            vpnColors.primary.copy(alpha = 0.65f),
-                            vpnColors.light
-                        ),
-                        center = center
-                    ),
-                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+                drawArc(
+                    brush = sweepBrush,
+                    startAngle = 0f,
+                    sweepAngle = sweepAngle,
+                    useCenter = false,
+                    topLeft = Offset(center.x - outerRadius, center.y - outerRadius),
+                    size = Size(outerRadius * 2f, outerRadius * 2f),
+                    style = outerStroke
                 )
 
                 // High-intensity leading comet head
@@ -203,29 +241,17 @@ fun RotatingVpnRing(
             val innerSweepAngle = 180f
             val innerSweepRad = Math.toRadians(innerSweepAngle.toDouble()).toFloat()
             val innerRotateAngle = (t * 50f) % 360f
+            val innerSweepBrush = Brush.sweepGradient(colors = innerSweepColors, center = center)
 
             rotate(degrees = innerRotateAngle, pivot = center) {
-                innerPath.reset()
-                val innerSteps = 48
-                for (j in 0..innerSteps) {
-                    val jFrac = j.toFloat() / innerSteps
-                    val jRad = jFrac * innerSweepRad
-                    val jx = center.x + innerRadius * cos(jRad)
-                    val jy = center.y + innerRadius * sin(jRad)
-                    if (j == 0) innerPath.moveTo(jx, jy) else innerPath.lineTo(jx, jy)
-                }
-
-                drawPath(
-                    path = innerPath,
-                    brush = Brush.sweepGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            vpnColors.primary.copy(alpha = 0.15f),
-                            vpnColors.light.copy(alpha = 0.85f)
-                        ),
-                        center = center
-                    ),
-                    style = Stroke(width = strokeWidthPx * 0.65f, cap = StrokeCap.Round)
+                drawArc(
+                    brush = innerSweepBrush,
+                    startAngle = 0f,
+                    sweepAngle = innerSweepAngle,
+                    useCenter = false,
+                    topLeft = Offset(center.x - innerRadius, center.y - innerRadius),
+                    size = Size(innerRadius * 2f, innerRadius * 2f),
+                    style = innerStroke
                 )
 
                 // Inner Satellite Comet Head
@@ -249,436 +275,6 @@ fun RotatingVpnRing(
 }
 
 // =============================================================================
-// AnimatedVpnShield — High-Fidelity Kinetic Cyber Aegis Shield
-// Features: aerodynamic banking, levitation drift, micro-rumble, defensive pulse
-// shockwaves, twin plasma thrusters, 3D specular facets, gyroscopic quantum lock core,
-// continuous photon spine data streams, and apex diffraction beacon.
-// =============================================================================
-@Composable
-fun AnimatedVpnShield(
-    vpnColors: ProtocolColors,
-    state: VpnUiState = VpnUiState.CONNECTED,
-    modifier: Modifier = Modifier
-) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var isAppResumed by remember { mutableStateOf(true) }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> isAppResumed = false
-                Lifecycle.Event.ON_RESUME, Lifecycle.Event.ON_START -> isAppResumed = true
-                else -> {}
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    val app = com.mirrly.tgproxy.MirrlyApplication.instance
-    val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
-
-    val timeState = produceState(initialValue = 0L, isAppResumed, isAnimationsDisabled) {
-        if (!isAppResumed || isAnimationsDisabled) return@produceState
-        val startNano = System.nanoTime() - value
-        while (isAppResumed && !isAnimationsDisabled) {
-            withFrameNanos { frameTimeNanos ->
-                value = frameTimeNanos - startNano
-            }
-        }
-    }
-
-    val targetJetColor = when (state) {
-        VpnUiState.CONNECTING -> vpnColors.light
-        VpnUiState.CONNECTED -> vpnColors.primary
-        VpnUiState.DISCONNECTING -> vpnColors.primary.copy(alpha = 0.65f)
-        VpnUiState.DISCONNECTED -> vpnColors.primary
-    }
-    val animatedJetColor by animateColorAsState(
-        targetValue = targetJetColor,
-        animationSpec = tween(550, easing = FastOutSlowInEasing),
-        label = "vpnShieldColor"
-    )
-
-    val targetThrust = when (state) {
-        VpnUiState.CONNECTING -> 0.95f
-        VpnUiState.CONNECTED -> 1.0f
-        VpnUiState.DISCONNECTING -> 0.35f
-        VpnUiState.DISCONNECTED -> 0.0f
-    }
-    val animatedThrust by animateFloatAsState(
-        targetValue = targetThrust,
-        animationSpec = tween(600, easing = FastOutSlowInEasing),
-        label = "vpnShieldThrust"
-    )
-
-    val targetLiftDp = when (state) {
-        VpnUiState.CONNECTING -> (-4).dp
-        VpnUiState.CONNECTED -> (-2.5).dp
-        VpnUiState.DISCONNECTING -> (-1).dp
-        VpnUiState.DISCONNECTED -> 0.dp
-    }
-    val animatedLiftDp by animateDpAsState(
-        targetValue = targetLiftDp,
-        animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessLow),
-        label = "vpnShieldLift"
-    )
-
-    val density = LocalDensity.current
-    val strokeWidthPx = remember(density) { with(density) { 2.dp.toPx() } }
-    val haloStrokePx = remember(density) { with(density) { 4.5.dp.toPx() } }
-    val spineStrokePx = remember(density) { with(density) { 2.2.dp.toPx() } }
-    val dotRadiusPx = remember(density) { with(density) { 2.2.dp.toPx() } }
-    val liftPx = with(density) { animatedLiftDp.toPx() }
-
-    val shieldContourPath = remember { Path() }
-    val leftWingPath = remember { Path() }
-    val rightWingPath = remember { Path() }
-    val flameLeftPath = remember { Path() }
-    val flameRightPath = remember { Path() }
-
-    Canvas(modifier = modifier) {
-        val t = if (!isAnimationsDisabled) timeState.value / 1_000_000_000f else 0f
-        val diameter = size.minDimension
-        val cx = size.width / 2f
-        val cy = size.height / 2f + liftPx
-
-        // Flight & levitation dynamics
-        val floatAmp = diameter * 0.024f
-        val floatFrequency = 2.0f
-        val driftY = sin(t * floatFrequency) * floatAmp
-        val rumbleY = if (state == VpnUiState.CONNECTING) sin(t * 36f) * (diameter * 0.008f) else 0f
-        val effectiveCy = cy + driftY + rumbleY
-
-        val rollAngle = sin(t * 1.6f) * 2.5f
-
-        val shieldH = diameter * 0.54f
-        val shieldW = diameter * 0.48f
-
-        // Geometry key vertices for high-tech Aegis stealth contour
-        val apex = Offset(cx, effectiveCy - shieldH * 0.46f)
-        val crownLeft = Offset(cx - shieldW * 0.22f, effectiveCy - shieldH * 0.40f)
-        val crownRight = Offset(cx + shieldW * 0.22f, effectiveCy - shieldH * 0.40f)
-        val leftShoulder = Offset(cx - shieldW * 0.48f, effectiveCy - shieldH * 0.18f)
-        val rightShoulder = Offset(cx + shieldW * 0.48f, effectiveCy - shieldH * 0.18f)
-        val leftWaist = Offset(cx - shieldW * 0.44f, effectiveCy + shieldH * 0.10f)
-        val rightWaist = Offset(cx + shieldW * 0.44f, effectiveCy + shieldH * 0.10f)
-        val bottomTip = Offset(cx, effectiveCy + shieldH * 0.48f)
-        val centerCore = Offset(cx, effectiveCy + shieldH * 0.02f)
-
-        rotate(degrees = rollAngle, pivot = Offset(cx, effectiveCy)) {
-            // ── 1. DUAL PLASMA AFTERBURNER THRUSTER PLUMES ──
-            if (animatedThrust > 0.02f) {
-                val flameFlicker = 0.88f + 0.24f * sin(t * 24f)
-                val flameLen = shieldH * 0.22f * flameFlicker * animatedThrust
-                val jetBaseY = effectiveCy + shieldH * 0.32f
-                val jetOffsetW = shieldW * 0.18f
-
-                // Left thruster plume
-                flameLeftPath.reset()
-                flameLeftPath.moveTo(cx - jetOffsetW - 4.dp.toPx(), jetBaseY)
-                flameLeftPath.lineTo(cx - jetOffsetW, jetBaseY + flameLen)
-                flameLeftPath.lineTo(cx - jetOffsetW + 4.dp.toPx(), jetBaseY)
-                flameLeftPath.close()
-
-                drawPath(
-                    path = flameLeftPath,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = animatedThrust * 0.95f),
-                            vpnColors.light.copy(alpha = animatedThrust * 0.80f),
-                            animatedJetColor.copy(alpha = animatedThrust * 0.40f),
-                            Color.Transparent
-                        ),
-                        startY = jetBaseY,
-                        endY = jetBaseY + flameLen
-                    )
-                )
-
-                // Right thruster plume
-                flameRightPath.reset()
-                flameRightPath.moveTo(cx + jetOffsetW - 4.dp.toPx(), jetBaseY)
-                flameRightPath.lineTo(cx + jetOffsetW, jetBaseY + flameLen)
-                flameRightPath.lineTo(cx + jetOffsetW + 4.dp.toPx(), jetBaseY)
-                flameRightPath.close()
-
-                drawPath(
-                    path = flameRightPath,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = animatedThrust * 0.95f),
-                            vpnColors.light.copy(alpha = animatedThrust * 0.80f),
-                            animatedJetColor.copy(alpha = animatedThrust * 0.40f),
-                            Color.Transparent
-                        ),
-                        startY = jetBaseY,
-                        endY = jetBaseY + flameLen
-                    )
-                )
-            }
-
-            // ── 3. LEFT SHIELD WING (Ambient Specular Facet) ──
-            leftWingPath.reset()
-            leftWingPath.moveTo(apex.x, apex.y)
-            leftWingPath.lineTo(crownLeft.x, crownLeft.y)
-            leftWingPath.lineTo(leftShoulder.x, leftShoulder.y)
-            leftWingPath.lineTo(leftWaist.x, leftWaist.y)
-            leftWingPath.lineTo(bottomTip.x, bottomTip.y)
-            leftWingPath.lineTo(centerCore.x, centerCore.y)
-            leftWingPath.close()
-
-            drawPath(
-                path = leftWingPath,
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        vpnColors.primary.copy(alpha = 0.24f),
-                        vpnColors.primary.copy(alpha = 0.08f),
-                        Color.Transparent
-                    ),
-                    start = apex,
-                    end = leftWaist
-                )
-            )
-
-            // ── 4. RIGHT SHIELD WING (High-Gloss Specular Facet) ──
-            rightWingPath.reset()
-            rightWingPath.moveTo(apex.x, apex.y)
-            rightWingPath.lineTo(crownRight.x, crownRight.y)
-            rightWingPath.lineTo(rightShoulder.x, rightShoulder.y)
-            rightWingPath.lineTo(rightWaist.x, rightWaist.y)
-            rightWingPath.lineTo(bottomTip.x, bottomTip.y)
-            rightWingPath.lineTo(centerCore.x, centerCore.y)
-            rightWingPath.close()
-
-            drawPath(
-                path = rightWingPath,
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        vpnColors.light.copy(alpha = 0.38f),
-                        vpnColors.primary.copy(alpha = 0.14f),
-                        Color.Transparent
-                    ),
-                    start = apex,
-                    end = rightWaist
-                )
-            )
-
-            // ── 5. INNER GEOMETRIC LATTICE TRACES ──
-            val latticeAlpha = 0.35f + 0.15f * sin(t * 3f)
-            drawLine(
-                color = animatedJetColor.copy(alpha = latticeAlpha),
-                start = centerCore,
-                end = crownLeft,
-                strokeWidth = with(density) { 0.8.dp.toPx() },
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = animatedJetColor.copy(alpha = latticeAlpha),
-                start = centerCore,
-                end = crownRight,
-                strokeWidth = with(density) { 0.8.dp.toPx() },
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = animatedJetColor.copy(alpha = latticeAlpha),
-                start = centerCore,
-                end = leftWaist,
-                strokeWidth = with(density) { 0.8.dp.toPx() },
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = animatedJetColor.copy(alpha = latticeAlpha),
-                start = centerCore,
-                end = rightWaist,
-                strokeWidth = with(density) { 0.8.dp.toPx() },
-                cap = StrokeCap.Round
-            )
-
-            // ── 6. DUAL-PASS SHIELD OUTLINE (Outer Halo Glow + Inner Sharp Rim) ──
-            shieldContourPath.reset()
-            shieldContourPath.moveTo(apex.x, apex.y)
-            shieldContourPath.lineTo(crownLeft.x, crownLeft.y)
-            shieldContourPath.lineTo(leftShoulder.x, leftShoulder.y)
-            shieldContourPath.lineTo(leftWaist.x, leftWaist.y)
-            shieldContourPath.lineTo(bottomTip.x, bottomTip.y)
-            shieldContourPath.lineTo(rightWaist.x, rightWaist.y)
-            shieldContourPath.lineTo(rightShoulder.x, rightShoulder.y)
-            shieldContourPath.lineTo(crownRight.x, crownRight.y)
-            shieldContourPath.close()
-
-            // Pass A: Outer soft neon halo glow
-            drawPath(
-                path = shieldContourPath,
-                color = animatedJetColor.copy(alpha = 0.28f),
-                style = Stroke(width = haloStrokePx, cap = StrokeCap.Round, join = StrokeJoin.Round)
-            )
-            // Pass B: Inner crisp neon contour
-            drawPath(
-                path = shieldContourPath,
-                color = animatedJetColor,
-                style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round, join = StrokeJoin.Round)
-            )
-
-            // ── 7. CENTRAL GYROSCOPIC CYBER LOCK NODE ──
-            val lockW = shieldW * 0.26f
-            val lockH = shieldH * 0.22f
-            val lockLeft = cx - lockW / 2f
-            val lockTop = effectiveCy - lockH * 0.20f
-
-            // Padlock shackle arc
-            val shackleR = lockW * 0.32f
-            val shackleCenterY = lockTop - with(density) { 1.5.dp.toPx() }
-            drawArc(
-                color = vpnColors.light,
-                startAngle = 180f,
-                sweepAngle = 180f,
-                useCenter = false,
-                topLeft = Offset(cx - shackleR, shackleCenterY - shackleR),
-                size = Size(shackleR * 2f, shackleR * 2f),
-                style = Stroke(width = strokeWidthPx * 0.95f, cap = StrokeCap.Round)
-            )
-
-            // Padlock chassis
-            drawRoundRect(
-                color = animatedJetColor.copy(alpha = 0.20f),
-                topLeft = Offset(lockLeft, lockTop),
-                size = Size(lockW, lockH),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(with(density) { 5.dp.toPx() })
-            )
-            drawRoundRect(
-                color = animatedJetColor,
-                topLeft = Offset(lockLeft, lockTop),
-                size = Size(lockW, lockH),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(with(density) { 5.dp.toPx() }),
-                style = Stroke(width = strokeWidthPx * 0.90f)
-            )
-
-            // Core illuminated keyhole
-            val keyholeCy = lockTop + lockH * 0.42f
-            drawCircle(
-                color = Color.White,
-                radius = dotRadiusPx * 0.9f,
-                center = Offset(cx, keyholeCy)
-            )
-            drawLine(
-                color = Color.White,
-                start = Offset(cx, keyholeCy),
-                end = Offset(cx, keyholeCy + lockH * 0.26f),
-                strokeWidth = strokeWidthPx * 0.8f,
-                cap = StrokeCap.Round
-            )
-
-            // Gyroscopic Quantum Orbital Satellites around lock node
-            val orbRadiusX = lockW * 0.72f
-            val orbRadiusY = lockH * 0.48f
-            val orbAngle = t * 3.8f
-            val sat1X = cx + cos(orbAngle) * orbRadiusX
-            val sat1Y = keyholeCy + sin(orbAngle) * orbRadiusY
-            val sat2X = cx - cos(orbAngle) * orbRadiusX
-            val sat2Y = keyholeCy - sin(orbAngle) * orbRadiusY
-
-            // Orbital trace ring
-            drawOval(
-                color = vpnColors.primary.copy(alpha = 0.20f),
-                topLeft = Offset(cx - orbRadiusX, keyholeCy - orbRadiusY),
-                size = Size(orbRadiusX * 2f, orbRadiusY * 2f),
-                style = Stroke(width = with(density) { 0.8.dp.toPx() })
-            )
-
-            // Satellite 1
-            drawCircle(
-                color = Color.White,
-                radius = dotRadiusPx * 0.75f,
-                center = Offset(sat1X, sat1Y)
-            )
-            drawCircle(
-                color = vpnColors.light.copy(alpha = 0.5f),
-                radius = dotRadiusPx * 1.5f,
-                center = Offset(sat1X, sat1Y)
-            )
-
-            // Satellite 2
-            drawCircle(
-                color = Color.White,
-                radius = dotRadiusPx * 0.75f,
-                center = Offset(sat2X, sat2Y)
-            )
-            drawCircle(
-                color = vpnColors.light.copy(alpha = 0.5f),
-                radius = dotRadiusPx * 1.5f,
-                center = Offset(sat2X, sat2Y)
-            )
-
-            // ── 8. CENTRAL ENERGY SPINE & RUNNING DATA PACKETS ──
-            drawLine(
-                color = animatedJetColor.copy(alpha = 0.85f),
-                start = apex,
-                end = Offset(cx, shackleCenterY - shackleR),
-                strokeWidth = spineStrokePx,
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = animatedJetColor.copy(alpha = 0.65f),
-                start = Offset(cx, lockTop + lockH),
-                end = bottomTip,
-                strokeWidth = strokeWidthPx * 0.85f,
-                cap = StrokeCap.Round
-            )
-
-            // 2 Continuous flowing photon data packets traveling down the spine (only when active)
-            if (animatedThrust > 0.05f) {
-                for (pIndex in 0..1) {
-                    val packetPhase = (t * 2.4f + pIndex * 0.5f) % 1.0f
-                    val packetY = apex.y + (bottomTip.y - apex.y) * packetPhase
-
-                    drawCircle(
-                        color = Color.White,
-                        radius = dotRadiusPx,
-                        center = Offset(cx, packetY)
-                    )
-                    drawCircle(
-                        color = vpnColors.light.copy(alpha = 0.65f),
-                        radius = dotRadiusPx * 2.4f,
-                        center = Offset(cx, packetY)
-                    )
-                }
-            }
-
-            // ── 9. APEX DIFFRACTION STAR BEACON ──
-            val beaconAlpha = 0.85f + 0.15f * sin(t * 6f)
-            val flareLen = with(density) { 5.dp.toPx() }
-            // Horizontal flare
-            drawLine(
-                color = Color.White.copy(alpha = beaconAlpha),
-                start = Offset(apex.x - flareLen, apex.y),
-                end = Offset(apex.x + flareLen, apex.y),
-                strokeWidth = with(density) { 0.9.dp.toPx() },
-                cap = StrokeCap.Round
-            )
-            // Vertical flare
-            drawLine(
-                color = Color.White.copy(alpha = beaconAlpha),
-                start = Offset(apex.x, apex.y - flareLen),
-                end = Offset(apex.x, apex.y + flareLen),
-                strokeWidth = with(density) { 0.9.dp.toPx() },
-                cap = StrokeCap.Round
-            )
-            // Star center
-            drawCircle(
-                color = Color.White,
-                radius = dotRadiusPx * 0.95f,
-                center = apex
-            )
-            drawCircle(
-                color = vpnColors.primary.copy(alpha = 0.55f),
-                radius = dotRadiusPx * 2.2f,
-                center = apex
-            )
-        }
-    }
-}
-
-// =============================================================================
 // VpnInfoWidget — Transparent AMOLED Information Row
 // Absolutely ZERO background (color = Color.Transparent). Clean 1dp AmoledBorder.
 // =============================================================================
@@ -687,58 +283,106 @@ fun VpnInfoWidget(
     isCompact: Boolean,
     vpnState: VpnUiState,
     vpnColors: ProtocolColors,
-    vpnUplinkMode: com.mirrly.tgproxy.core.UplinkMode = com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
-    onTap: () -> Unit,
+    vpnUplinkMode: com.mirrly.tgproxy.core.UplinkMode = com.mirrly.tgproxy.core.UplinkMode.AWG,
+    onTap: () -> Unit = {},
+    onTapProfile: () -> Unit = onTap,
+    onTapDns: () -> Unit = onTap,
     modifier: Modifier = Modifier
 ) {
-    val isActive = vpnState == VpnUiState.CONNECTED
-    val protocolLabel = when (vpnUplinkMode) {
-        com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> "Cascade"
-        com.mirrly.tgproxy.core.UplinkMode.VLESS -> "VLESS"
-        com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "MASQUE"
-        com.mirrly.tgproxy.core.UplinkMode.AWG -> "AWG"
-        com.mirrly.tgproxy.core.UplinkMode.OPERA -> "Opera"
-        com.mirrly.tgproxy.core.UplinkMode.PROTON -> "Proton"
-        else -> vpnUplinkMode.displayName
+    val context = LocalContext.current
+    val app = com.mirrly.tgproxy.MirrlyApplication.instance
+    val profileManager = app.warpProfileManager
+    val activeProfileId by profileManager.activeProfileIdFlow.collectAsState()
+    val profiles by profileManager.profilesFlow.collectAsState()
+    val isAutoProfileEnabled by app.prefsManager.vpnAutoProfileEnabledFlow.collectAsState()
+    val effectiveProfile = remember(activeProfileId, profiles, isAutoProfileEnabled) {
+        profileManager.getEffectiveActiveProfile()
     }
+    val currentDnsMode by app.prefsManager.vpnDnsModeFlow.collectAsState()
+    val vpnStatus by MirrlyVpnService.vpnStatus.collectAsState()
+
+    val isActive = vpnState == VpnUiState.CONNECTED
+    val profileLabel = stringResource(R.string.vpn_stat_profile).uppercase()
+    val profileValue = if (isAutoProfileEnabled && profiles.size > 1 && effectiveProfile != null) {
+        "${effectiveProfile.name} (Авто)"
+    } else {
+        effectiveProfile?.name ?: "Стандартный"
+    }
+
+    val dnsLabel = "ДНС"
+    val dnsValue = when (currentDnsMode) {
+        VpnDnsMode.CLOUDFLARE -> "Cloudflare"
+        VpnDnsMode.COMSS_DNS -> "Comss.one"
+        VpnDnsMode.CUSTOM -> "Свой"
+        else -> "Cloudflare"
+    }
+
+    val orbTransition = rememberInfiniteTransition(label = "vpnOrbPulse")
+    val orbPulseScale by orbTransition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1300, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "orbPulseScale"
+    )
 
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = Color.Transparent,
-        border = BorderStroke(1.dp, if (isActive) vpnColors.primary.copy(alpha = 0.25f) else AmoledBorder),
-        modifier = modifier.fillMaxWidth().padding(horizontal = 2.dp)
+        border = BorderStroke(1.dp, if (isActive) vpnColors.primary.copy(alpha = 0.30f) else AmoledBorder),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 2.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = if (isCompact) 8.dp else 10.dp)
+                .padding(horizontal = 6.dp, vertical = if (isCompact) 6.dp else 8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                VpnInfoCell(
-                    label = stringResource(R.string.vpn_stat_servers),
-                    value = if (isActive) "Anycast" else "—",
-                    isActive = isActive,
-                    isCompact = isCompact,
-                    modifier = Modifier.weight(1f).clickable(remember { MutableInteractionSource() }, null) { onTap() }
-                )
+                // Left Half: Profile
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .springPress(onClick = onTapProfile)
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    VpnInfoCell(
+                        label = profileLabel,
+                        value = profileValue,
+                        isActive = isActive,
+                        isCompact = isCompact
+                    )
+                }
 
-                // Central VPN cyber orb
+                // Central VPN live cyber orb
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .size(34.dp)
                         .clip(CircleShape)
-                        .background(Color.Transparent)
+                        .background(if (isActive) vpnColors.primary.copy(alpha = 0.08f) else Color.Transparent)
                         .border(
                             1.dp,
-                            if (isActive) vpnColors.primary.copy(alpha = 0.40f) else AmoledBorder,
+                            if (isActive) vpnColors.primary.copy(alpha = 0.50f) else AmoledBorder,
                             CircleShape
                         )
-                        .clickable(remember { MutableInteractionSource() }, null) { onTap() }
                 ) {
+                    if (isActive) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            drawCircle(
+                                color = vpnColors.primary.copy(alpha = 0.16f),
+                                radius = (size.minDimension / 2f) * orbPulseScale
+                            )
+                        }
+                    }
                     Icon(
                         painter = painterResource(R.drawable.ic_vpn),
                         contentDescription = "VPN",
@@ -747,56 +391,101 @@ fun VpnInfoWidget(
                     )
                 }
 
-                VpnInfoCell(
-                    label = stringResource(R.string.vpn_stat_protocol),
-                    value = protocolLabel,
-                    isActive = isActive,
-                    isCompact = isCompact,
-                    modifier = Modifier.weight(1f).clickable(remember { MutableInteractionSource() }, null) { onTap() }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(if (isCompact) 5.dp else 7.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(0.8.dp)
-                    .background(AmoledBorder.copy(alpha = 0.5f))
-            )
-            Spacer(modifier = Modifier.height(if (isCompact) 4.dp else 6.dp))
-
-            // Notice bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(remember { MutableInteractionSource() }, null) { onTap() }
-                    .padding(vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
+                // Right Half: DNS
                 Box(
                     modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(if (isActive) vpnColors.primary else vpnColors.primary.copy(alpha = 0.65f))
-                )
-                Spacer(modifier = Modifier.width(7.dp))
-                val noticeText = if (isActive) {
-                    stringResource(R.string.status_vpn_system_connected_desc)
-                } else {
-                    stringResource(R.string.vpn_device_tunnel_inactive, vpnUplinkMode.displayName)
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .springPress(onClick = onTapDns)
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    VpnInfoCell(
+                        label = dnsLabel,
+                        value = dnsValue,
+                        isActive = isActive,
+                        isCompact = isCompact
+                    )
                 }
-                Text(
-                    text = noticeText,
-                    color = if (isActive) TextWhite.copy(alpha = 0.85f) else TextMuted.copy(alpha = 0.75f),
-                    fontSize = if (isCompact) 9.5.sp else 10.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 13.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+            }
+
+            // Live Network Telemetry strip when connected
+            if (isActive) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(0.6.dp)
+                        .background(vpnColors.primary.copy(alpha = 0.16f))
                 )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Download
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "↓",
+                            color = vpnColors.primary,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = humanBytes(vpnStatus.bytesIn),
+                            color = TextWhite,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    // Flows
+                    val totalFlows = vpnStatus.activeTcpFlows + vpnStatus.activeUdpSessions
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (totalFlows > 0) vpnColors.primary else Color(0xFF64748B),
+                            modifier = Modifier.size(5.dp)
+                        ) {}
+                        Text(
+                            text = "Потоки: $totalFlows",
+                            color = TextMuted,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Upload
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "↑",
+                            color = Color(0xFF81D4FA),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = humanBytes(vpnStatus.bytesOut),
+                            color = TextWhite,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
         }
     }
@@ -825,7 +514,9 @@ private fun VpnInfoCell(
             text = value,
             color = if (isActive) TextWhite else TextMuted,
             fontWeight = FontWeight.Bold,
-            fontSize = if (isCompact) 14.sp else 16.sp
+            fontSize = if (isCompact) 14.sp else 16.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -835,69 +526,163 @@ private fun VpnInfoCell(
 // =============================================================================
 @Composable
 fun VpnActionDock(
-    onTapProtocol: () -> Unit,
-    onTapKillSwitch: () -> Unit,
+    onTapDns: () -> Unit,
+    onTapSplitTunnel: () -> Unit,
+    splitTunnelCount: Int = 0,
+    onTapImportProfile: (() -> Unit)? = null,
+    onTapGuide: (() -> Unit)? = null,
+    onTapGenerator: (() -> Unit)? = null,
+    onTapProtocol: () -> Unit = onTapDns,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    Column(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Surface(
-            onClick = onTapProtocol,
-            modifier = Modifier.weight(1f).height(44.dp).springPress(onClick = onTapProtocol),
-            shape = RoundedCornerShape(12.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, AmoledBorder)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+            Surface(
+                onClick = onTapDns,
+                modifier = Modifier.weight(1f).height(44.dp).springPress(onClick = onTapDns),
+                shape = RoundedCornerShape(12.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder)
             ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_info_circle),
-                    contentDescription = stringResource(R.string.vpn_stat_protocol),
-                    tint = TextMuted.copy(alpha = 0.60f),
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stringResource(R.string.vpn_stat_protocol),
-                    color = TextMuted.copy(alpha = 0.65f),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
-                )
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_globe),
+                        contentDescription = stringResource(R.string.vpn_action_dns),
+                        tint = TextMuted.copy(alpha = 0.75f),
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text(
+                        text = stringResource(R.string.vpn_action_dns),
+                        color = TextMuted.copy(alpha = 0.75f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            Surface(
+                onClick = onTapSplitTunnel,
+                modifier = Modifier.weight(1f).height(44.dp).springPress(onClick = onTapSplitTunnel),
+                shape = RoundedCornerShape(12.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_split_tunnel),
+                        contentDescription = stringResource(R.string.vpn_action_split_tunnel),
+                        tint = TextMuted.copy(alpha = 0.75f),
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(7.dp))
+                    val splitLabel = if (splitTunnelCount > 0) {
+                        "${stringResource(R.string.vpn_action_split_tunnel)} ($splitTunnelCount)"
+                    } else {
+                        stringResource(R.string.vpn_action_split_tunnel)
+                    }
+                    Text(
+                        text = splitLabel,
+                        color = TextMuted.copy(alpha = 0.75f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                }
             }
         }
 
-        Surface(
-            onClick = onTapKillSwitch,
-            modifier = Modifier.weight(1f).height(44.dp).springPress(onClick = onTapKillSwitch),
-            shape = RoundedCornerShape(12.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, AmoledBorder)
-        ) {
+        if (onTapGenerator != null || onTapImportProfile != null || onTapGuide != null) {
             Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_shield),
-                    contentDescription = stringResource(R.string.vpn_killswitch_title),
-                    tint = TextMuted.copy(alpha = 0.60f),
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stringResource(R.string.vpn_killswitch_title),
-                    color = TextMuted.copy(alpha = 0.65f),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
+                if (onTapGenerator != null) {
+                    Surface(
+                        onClick = onTapGenerator,
+                        modifier = Modifier.weight(1f).height(40.dp).springPress(onClick = onTapGenerator),
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.warp_gen_btn_short),
+                                color = TextMuted.copy(alpha = 0.85f),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+
+                if (onTapImportProfile != null) {
+                    Surface(
+                        onClick = onTapImportProfile,
+                        modifier = Modifier.weight(1f).height(40.dp).springPress(onClick = onTapImportProfile),
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_vpn_import_custom),
+                                color = TextMuted.copy(alpha = 0.85f),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+
+                if (onTapGuide != null) {
+                    Surface(
+                        onClick = onTapGuide,
+                        modifier = Modifier.weight(1f).height(40.dp).springPress(onClick = onTapGuide),
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.vpn_action_guide),
+                                color = TextMuted.copy(alpha = 0.75f),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -907,6 +692,7 @@ fun VpnActionDock(
 // VpnProtocolSelectorDialog — Frosted-glass modal dialog (DialogBackdropBox)
 // Strict factual text, NO emoji, unified with system-selected VPN accent.
 // =============================================================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VpnProtocolSelectorDialog(
     vpnColors: ProtocolColors,
@@ -917,331 +703,370 @@ fun VpnProtocolSelectorDialog(
     val app = com.mirrly.tgproxy.MirrlyApplication.instance
     val currentMode by app.prefsManager.vpnUplinkModeFlow.collectAsState()
     var selectedMode by remember(currentMode) { mutableStateOf(currentMode) }
+    val currentDnsMode by app.prefsManager.vpnDnsModeFlow.collectAsState()
+    var selectedDnsMode by remember(currentDnsMode) { mutableStateOf(currentDnsMode) }
     val vpnState by com.mirrly.tgproxy.service.MirrlyVpnService.vpnState.collectAsState()
 
-    val descWarpCascade = stringResource(R.string.vpn_protocol_warp_cascade_desc)
-    val descVless = stringResource(R.string.vpn_protocol_vless_desc)
-    val descMasque = stringResource(R.string.vpn_protocol_masque_desc)
-    val descAwg = stringResource(R.string.vpn_protocol_awg_desc)
-    val descOpera = stringResource(R.string.vpn_protocol_opera_desc)
-    val descProton = stringResource(R.string.vpn_protocol_proton_desc)
+    val awgDesc = stringResource(R.string.vpn_protocol_awg_desc)
+    val masqueDesc = stringResource(R.string.vpn_protocol_masque_desc)
 
-    val protocols = remember(descWarpCascade, descVless, descMasque, descAwg, descOpera, descProton) {
+    val protocols = remember(awgDesc, masqueDesc) {
         listOf(
-            Triple(
-                com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
-                "WARP Cascade",
-                descWarpCascade
-            ),
             Triple(
                 com.mirrly.tgproxy.core.UplinkMode.AWG,
                 "WARP AWG",
-                descAwg
+                awgDesc
             ),
             Triple(
                 com.mirrly.tgproxy.core.UplinkMode.MASQUE,
                 "WARP MASQUE",
-                descMasque
-            ),
-            Triple(
-                com.mirrly.tgproxy.core.UplinkMode.OPERA,
-                "Opera VPN",
-                descOpera
-            ),
-            Triple(
-                com.mirrly.tgproxy.core.UplinkMode.PROTON,
-                "Proton VPN",
-                descProton
-            ),
-            Triple(
-                com.mirrly.tgproxy.core.UplinkMode.VLESS,
-                "VLESS Reality",
-                descVless
+                masqueDesc
             )
         )
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true
+    val dnsModes = remember {
+        listOf(
+            Triple(
+                VpnDnsMode.CLOUDFLARE,
+                "Cloudflare DNS · 1.1.1.1",
+                "Anycast по умолчанию"
+            ),
+            Triple(
+                VpnDnsMode.COMSS_DNS,
+                "Comss.one DNS",
+                "ChatGPT, Claude, Gemini, Copilot"
+            ),
+            Triple(
+                VpnDnsMode.CUSTOM,
+                "Свой DNS",
+                "Пользовательские IPv4"
+            )
         )
-    ) {
-        DialogBackdropBox(onDismiss = onDismiss) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .adaptiveContainerWidth(400.dp)
-                    .padding(horizontal = 20.dp)
-                    .clickable(remember { MutableInteractionSource() }, null) {}
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFF0C0E14),
-                    border = BorderStroke(1.dp, vpnColors.primary.copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)
-                    ) {
-                        // Header
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(vpnColors.primary.copy(alpha = 0.12f))
-                                .border(1.dp, vpnColors.primary.copy(alpha = 0.35f), CircleShape)
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_vpn),
-                                contentDescription = null,
-                                tint = vpnColors.primary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = stringResource(R.string.vpn_protocol_dialog_title),
-                            color = TextWhite,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.vpn_protocol_dialog_desc),
-                            color = TextMuted,
-                            fontSize = 12.sp,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
+    }
 
-                        // Protocol List
+    fun applySelection(modeToApply: com.mirrly.tgproxy.core.UplinkMode, dnsToApply: VpnDnsMode) {
+        app.prefsManager.setVpnUplinkMode(modeToApply)
+        app.config.vpnUplinkModeName = modeToApply.name
+        app.prefsManager.setVpnDnsMode(dnsToApply)
+        app.config.vpnDnsModeName = dnsToApply.name
+        app.saveConfig()
+        if (vpnState == VpnUiState.CONNECTED) {
+            com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+        }
+        onDismiss()
+    }
+
+    var customIpsText by remember { mutableStateOf(app.prefsManager.getVpnCustomDnsIps()) }
+
+    MirrlyModalBottomSheet(
+        onDismissRequest = onDismiss
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .fadingEdges(topFadeHeight = 16.dp, bottomFadeHeight = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+
+            Text(
+                text = stringResource(R.string.vpn_protocol_dialog_title),
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextWhite,
+                textAlign = TextAlign.Center,
+                letterSpacing = 0.3.sp
+            )
+
+            Text(
+                text = stringResource(R.string.vpn_protocol_dialog_desc),
+                fontSize = 12.sp,
+                color = TextMuted,
+                textAlign = TextAlign.Center,
+                lineHeight = 16.sp,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            if (protocols.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_vpn_uplink_section).uppercase(),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = TextMuted,
+                        letterSpacing = 1.1.sp
+                    )
+                }
+
+                protocols.forEachIndexed { index, (mode, name, desc) ->
+                    val isSelected = selectedMode == mode
+                    val cardAccent = if (isSelected) vpnColors.primary else AmoledBorder
+
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) cardAccent.copy(alpha = 0.65f) else AmoledBorder
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .springPress(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    selectedMode = mode
+                                }
+                            )
+                    ) {
                         Column(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.padding(14.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            protocols.forEach { (mode, name, desc) ->
-                                val isSelected = selectedMode == mode
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = if (isSelected) vpnColors.primary.copy(alpha = 0.10f) else Color.Transparent,
-                                    border = BorderStroke(
-                                        1.dp,
-                                        if (isSelected) vpnColors.primary.copy(alpha = 0.60f) else AmoledBorder
-                                    ),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            selectedMode = mode
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(16.dp)
-                                                .clip(CircleShape)
-                                                .border(
-                                                    if (isSelected) 5.dp else 1.5.dp,
-                                                    if (isSelected) vpnColors.primary else AmoledBorder,
-                                                    CircleShape
-                                                )
-                                        )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = name,
-                                                color = if (isSelected) TextWhite else TextWhite.copy(alpha = 0.85f),
-                                                fontSize = 13.5.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
-                                            )
-                                            Text(
-                                                text = desc,
-                                                color = TextMuted,
-                                                fontSize = 10.5.sp,
-                                                lineHeight = 14.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        // Apply Button
-                        Surface(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                app.prefsManager.setVpnUplinkMode(selectedMode)
-                                app.config.vpnUplinkModeName = selectedMode.name
-                                app.saveConfig()
-                                if (vpnState == VpnUiState.CONNECTED) {
-                                    com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
-                                }
-                                onDismiss()
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            color = vpnColors.primary.copy(alpha = 0.15f),
-                            border = BorderStroke(1.dp, vpnColors.primary.copy(alpha = 0.60f)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.fillMaxSize()
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(9.dp)
                             ) {
                                 Text(
-                                    text = stringResource(R.string.action_understood_short),
-                                    color = vpnColors.primary,
+                                    text = name,
+                                    fontSize = 13.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
+                                    color = if (isSelected) TextWhite else TextWhite.copy(alpha = 0.85f),
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                Spacer(modifier = Modifier.width(4.dp))
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .border(
+                                            if (isSelected) 5.dp else 1.5.dp,
+                                            if (isSelected) cardAccent else AmoledBorder,
+                                            CircleShape
+                                        )
                                 )
                             }
+
+                            Text(
+                                text = desc,
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(4.dp))
             }
-        }
-    }
-}
 
-@Composable
-fun VpnInDevDialog(
-    vpnColors: ProtocolColors,
-    onDismiss: () -> Unit
-) {
-    val haptic = LocalHapticFeedback.current
-    var showProtocolSelector by remember { mutableStateOf(false) }
-
-    if (showProtocolSelector) {
-        VpnProtocolSelectorDialog(
-            vpnColors = vpnColors,
-            onDismiss = onDismiss
-        )
-        return
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
-    ) {
-        DialogBackdropBox(onDismiss = onDismiss) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .adaptiveContainerWidth(400.dp)
-                    .padding(horizontal = 20.dp)
-                    .clickable(remember { MutableInteractionSource() }, null) {}
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Text(
+                    text = stringResource(R.string.vpn_dns_selector_title).uppercase(),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    color = TextMuted,
+                    letterSpacing = 1.1.sp
+                )
+            }
+
+            dnsModes.forEachIndexed { index, (mode, name, desc) ->
+                val isSelected = selectedDnsMode == mode
+                val isComss = mode == VpnDnsMode.COMSS_DNS
+                val isCustom = mode == VpnDnsMode.CUSTOM
+                val dnsAccent = when {
+                    isComss && isSelected -> Color(0xFF10B981)
+                    isCustom && isSelected -> Color(0xFF3B82F6)
+                    isSelected -> vpnColors.primary
+                    else -> AmoledBorder
+                }
+
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFF0C0E14),
-                    border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.45f)),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(
+                        1.dp,
+                        if (isSelected) dnsAccent.copy(alpha = 0.65f) else AmoledBorder
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .springPress(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                selectedDnsMode = mode
+                            }
+                        )
                 ) {
                     Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFFFB74D).copy(alpha = 0.12f))
-                                .border(1.dp, Color(0xFFFFB74D).copy(alpha = 0.35f), CircleShape)
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_vpn),
-                                contentDescription = null,
-                                tint = Color(0xFFFFB74D),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.settings_vpn_in_dev_dialog_title),
-                                color = TextWhite,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
-                            )
-                            Text(
-                                text = stringResource(R.string.settings_vpn_in_dev_dialog_body),
-                                color = TextMuted,
-                                fontSize = 12.sp,
-                                lineHeight = 17.sp,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(9.dp)
                         ) {
+                            Text(
+                                text = name,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) TextWhite else TextWhite.copy(alpha = 0.85f),
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .border(
+                                        if (isSelected) 5.dp else 1.5.dp,
+                                        if (isSelected) dnsAccent else AmoledBorder,
+                                        CircleShape
+                                    )
+                            )
+                        }
+
+                        Text(
+                            text = desc,
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+
+                        if (isComss && isSelected) {
                             Surface(
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(8.dp),
                                 color = Color.Transparent,
                                 border = BorderStroke(1.dp, AmoledBorder),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        showProtocolSelector = true
-                                    }
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                             ) {
                                 Text(
-                                    text = stringResource(R.string.vpn_select_protocol_short),
-                                    color = TextWhite,
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(vertical = 11.dp)
+                                    text = stringResource(R.string.vpn_dns_ipv6_protection_note),
+                                    fontSize = 10.5.sp,
+                                    color = TextMuted,
+                                    lineHeight = 14.sp,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
                                 )
                             }
+                        }
 
-                            Button(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onDismiss()
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFFFB74D).copy(alpha = 0.15f),
-                                    contentColor = Color(0xFFFFB74D)
-                                ),
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.5f)),
-                                modifier = Modifier.weight(1f)
+                        if (isCustom && isSelected) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(
-                                    text = stringResource(R.string.settings_vpn_in_dev_dialog_ok),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
+                                BasicTextField(
+                                    value = customIpsText,
+                                    onValueChange = { customIpsText = it },
+                                    singleLine = true,
+                                    textStyle = TextStyle(
+                                        color = TextWhite,
+                                        fontSize = 12.5.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    ),
+                                    cursorBrush = SolidColor(Color(0xFF3B82F6)),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    decorationBox = { innerTextField ->
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(38.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color.Transparent)
+                                                .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 10.dp),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            if (customIpsText.isEmpty()) {
+                                                Text(
+                                                    text = stringResource(R.string.vpn_dns_custom_placeholder),
+                                                    color = TextMuted.copy(alpha = 0.6f),
+                                                    fontSize = 12.sp
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                    }
                                 )
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.Transparent,
+                                    border = BorderStroke(1.dp, AmoledBorder),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.vpn_dns_ipv6_protection_note),
+                                        fontSize = 10.5.sp,
+                                        color = TextMuted,
+                                        lineHeight = 14.sp,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Surface(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    if (selectedDnsMode == VpnDnsMode.CUSTOM) {
+                        val valid = com.mirrly.tgproxy.core.ProxyConfig.parseCustomDnsIps(customIpsText)
+                        if (valid.isEmpty() && customIpsText.isNotBlank()) {
+                            android.widget.Toast.makeText(
+                                context,
+                                context.getString(R.string.vpn_dns_invalid_ip_toast),
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                            return@Surface
+                        }
+                        val normalized = valid.joinToString(", ")
+                        customIpsText = normalized
+                        app.prefsManager.setVpnCustomDnsIps(normalized)
+                        app.config.vpnCustomDnsIps = normalized
+                    }
+                    applySelection(selectedMode, selectedDnsMode)
+                },
+                shape = RoundedCornerShape(14.dp),
+                color = vpnColors.primary.copy(alpha = 0.15f),
+                border = BorderStroke(1.dp, vpnColors.primary.copy(alpha = 0.60f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .springPress()
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Text(
+                        text = stringResource(R.string.action_understood_short),
+                        color = vpnColors.primary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        letterSpacing = 0.3.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
+

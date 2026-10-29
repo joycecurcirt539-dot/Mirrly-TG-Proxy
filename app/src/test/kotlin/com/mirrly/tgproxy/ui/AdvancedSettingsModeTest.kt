@@ -12,6 +12,7 @@ package com.mirrly.tgproxy.ui
 
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.core.SpeedPreset
+import com.mirrly.tgproxy.core.NagleMode
 import com.mirrly.tgproxy.core.TcpNoDelayMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -97,10 +98,14 @@ class AdvancedSettingsModeTest {
         assertEquals(SpeedPreset.AUTO.name, config.speedPresetName)
         assertEquals(SpeedPreset.AUTO, config.speedPreset)
         assertTrue(config.isAutoSpeedPreset)
-        assertEquals(TcpNoDelayMode.AUTO.name, config.tcpNoDelayModeName)
-        assertEquals(TcpNoDelayMode.AUTO, config.tcpNoDelayMode)
+        assertEquals(NagleMode.ENABLED.name, config.tcpNoDelayModeName)
+        assertEquals(NagleMode.ENABLED, config.nagleMode)
+        assertFalse(config.tcpNoDelay)
         assertTrue(config.warpUserEndpointOverride.isEmpty())
-        assertEquals(262144, config.bufferSizeBytes)
+        assertEquals(0, config.bufferSizeBytes)
+        assertFalse(config.isBatteryGuardEnabled)
+        assertFalse(config.batteryGuardStopOnPowerSave)
+        assertFalse(config.isAdaptiveQoSEnabled)
     }
 
     @Test
@@ -112,12 +117,12 @@ class AdvancedSettingsModeTest {
 
         assertEquals("162.159.192.1:2408", config.warpUserEndpointOverride)
         assertEquals(TcpNoDelayMode.ON, config.tcpNoDelayMode)
-        assertEquals(1048576, config.bufferSizeBytes)
+        assertEquals(524288, config.bufferSizeBytes)
         assertEquals(3, config.mtprotoStandbyPerActiveSlotValue)
 
         // Changing custom endpoint does not reset preset
         config.warpUserEndpointOverride = ""
-        assertEquals(1048576, config.bufferSizeBytes)
+        assertEquals(524288, config.bufferSizeBytes)
         assertEquals(SpeedPreset.TURBO.name, config.speedPresetName)
     }
 

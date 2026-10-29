@@ -87,3 +87,33 @@ mirrly_workers.txt
 
 # Local Release APKs Cache
 ci_release_apks/
+
+# Video, audio and promo artifacts (Repository Cleanliness Rule)
+brag-output/
+brag-output*/
+*.wav
+*.mp3
+*.mp4
+*.webm
+!app/src/main/assets/wallpapers/*.mp4
+!docs/assets/**
+
+# Intermediate vector sources
+docs/svg/
+*.svg
+!docs/assets/**/*.svg
+
+# Temporary Python / Jupyter analysis dumps
+*.pyc
+__pycache__/
+*.ipynb
+
+# Temporary drafts, logs, notes and build artifacts
+*.log
+*build*.log
+build_release.log
+*Gemini.md
+*gemini*.md
+temp_*.md
+test_*.md
+.system_generated/

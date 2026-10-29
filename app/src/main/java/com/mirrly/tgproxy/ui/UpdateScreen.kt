@@ -119,30 +119,7 @@ fun UpdateScreen(
         )
     }
 
-    // ── Temporary Update Simulation Toggle (For Testing UI/Multi-APK) ──
-    var isSimulatedUpdate by remember { mutableStateOf(false) }
-
-    val activeReleaseInfo = remember(releaseInfo, isSimulatedUpdate, defaultReleaseAssets) {
-        if (isSimulatedUpdate) {
-            val ver = com.mirrly.tgproxy.core.UpdateChecker.cleanVersionString(com.mirrly.tgproxy.BuildConfig.VERSION_NAME)
-            (releaseInfo ?: ReleaseInfo(
-                tagName = "v$ver",
-                versionName = ver,
-                htmlUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases",
-                releaseNotes = "",
-                isUpdateAvailable = true
-            )).copy(
-                isUpdateAvailable = true,
-                versionName = releaseInfo?.versionName ?: ver,
-                downloadUrl = releaseInfo?.downloadUrl ?: "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-universal-release.apk",
-                expectedSha256 = null,
-                expectedSha256List = emptyList(),
-                apkAssets = if (releaseInfo?.apkAssets.isNullOrEmpty()) defaultReleaseAssets else releaseInfo!!.apkAssets
-            )
-        } else {
-            releaseInfo
-        }
-    }
+    val activeReleaseInfo = releaseInfo
 
     val availableAssets = remember(activeReleaseInfo, defaultReleaseAssets) {
         if (activeReleaseInfo?.isUpdateAvailable == true && !activeReleaseInfo.apkAssets.isNullOrEmpty()) {
@@ -277,13 +254,7 @@ fun UpdateScreen(
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Black,
                             color = TextWhite,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                // Secret developer toggle for simulating updates
-                            }
+                            textAlign = TextAlign.Center
                         )
 
                         // Release Tag Badge
@@ -1305,50 +1276,6 @@ fun UpdateScreen(
                 }
             }
 
-            // ── 5. DISCREET DEVELOPER / DEBUG SIMULATION FOOTER ───────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp, bottom = 12.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, if (isSimulatedUpdate) Color(0xFFFFB703).copy(alpha = 0.55f) else Color(0xFF141926)),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .springPress(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            isSimulatedUpdate = !isSimulatedUpdate
-                            Toast.makeText(
-                                context,
-                                if (isSimulatedUpdate) context.getString(R.string.update_sim_active_desc) else context.getString(R.string.update_sim_inactive_desc),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        })
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_settings),
-                            contentDescription = null,
-                            tint = if (isSimulatedUpdate) Color(0xFFFFB703) else TextMuted.copy(alpha = 0.5f),
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Text(
-                            text = if (isSimulatedUpdate) stringResource(R.string.update_sim_btn_reset) else stringResource(R.string.update_sim_btn_test_ui),
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isSimulatedUpdate) Color(0xFFFFB703) else TextMuted.copy(alpha = 0.5f)
-                        )
-                    }
-                }
-            }
 
             Spacer(modifier = Modifier.height(16.dp))
         }

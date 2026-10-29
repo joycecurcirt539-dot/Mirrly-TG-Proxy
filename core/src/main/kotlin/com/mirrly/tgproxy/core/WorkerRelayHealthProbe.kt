@@ -30,7 +30,8 @@ class WorkerRelayHealthProbe(private val client: OkHttpClient) {
                     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                         // The four-byte control frame confirms v2 support AND upstream readiness.
                         val valid = bytes.size == 4 && bytes[0] == 0x56.toByte() &&
-                            bytes[1] == 0x02.toByte() && bytes[2] == 0.toByte() && bytes[3] == 0.toByte()
+                            (bytes[1] == 0x02.toByte() || bytes[1] == 0x03.toByte()) &&
+                            bytes[2] == 0.toByte() && bytes[3] == 0.toByte()
                         finish(webSocket, if (valid) WorkerStatus.ONLINE else WorkerStatus.ERROR_UNREACHABLE)
                     }
 

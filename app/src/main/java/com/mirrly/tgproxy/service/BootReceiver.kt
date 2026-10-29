@@ -32,6 +32,10 @@ class BootReceiver : BroadcastReceiver() {
                 if (prefsManager.isVpnModeEnabled() && MirrlyVpnService.prepare(context) == null) {
                     AppLogger.i("BootReceiver", "Автозапуск при загрузке: запуск системного VPN...")
                     MirrlyVpnService.start(context)
+                } else if (prefsManager.isVpnModeEnabled() && MirrlyVpnService.prepare(context) != null) {
+                    AppLogger.w("BootReceiver", "Автозапуск VPN при загрузке пропущен: требуется подтверждение разрешений системы")
+                } else if (config.isSocks5Mode && config.getEffectiveCfDomain().isBlank()) {
+                    AppLogger.w("BootReceiver", "Автозапуск при загрузке пропущен: в режиме SOCKS5 отсутствует персональный воркер")
                 } else {
                     AppLogger.i("BootReceiver", "Автозапуск при загрузке: запуск службы прокси...")
                     val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {

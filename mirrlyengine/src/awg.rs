@@ -759,11 +759,6 @@ pub fn set_peer_cookie(peer_pubkey: &[u8; 32], cookie: [u8; 16]) {
     );
 }
 
-pub fn clear_peer_cookies() {
-    let mut guard = PEER_COOKIES.write();
-    guard.clear();
-}
-
 /// Sets MAC2 on an initiation packet in-place using the specified cookie.
 pub fn set_initiation_mac2(
     packet: &mut [u8],
@@ -780,19 +775,6 @@ pub fn set_initiation_mac2(
     let mac2 = blake2s(cookie, &packet[s1..s1 + 132], 16);
     packet[s1 + 132..s1 + 148].copy_from_slice(&mac2);
     Ok(())
-}
-
-/// Verifies whether the MAC2 field of an initiation packet matches the expected cookie.
-pub fn verify_initiation_mac2(
-    packet: &[u8],
-    s1: usize,
-    cookie: &[u8; 16],
-) -> bool {
-    if packet.len() < s1 + 148 {
-        return false;
-    }
-    let expected = blake2s(cookie, &packet[s1..s1 + 132], 16);
-    &packet[s1 + 132..s1 + 148] == expected.as_slice()
 }
 
 /// Assembles a 64-byte WireGuard / AmneziaWG Cookie Reply message (Message Type 3 / H3).
@@ -1117,23 +1099,27 @@ impl AwgParams {
 pub const CLOUDFLARE_WARP_PEER_PUBKEY_B64: &str = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=";
 
 pub const CLOUDFLARE_WARP_ANYCAST_POOL: &[&str] = &[
-    "188.114.96.1:8095",
-    "188.114.97.1:8095",
-    "188.114.98.2:1701",
-    "188.114.99.3:1701",
-    "188.114.96.1:854",
-    "188.114.97.1:854",
-    "188.114.96.1:4500",
-    "188.114.97.1:4500",
-    "188.114.97.1:1701",
-    "188.114.96.1:500",
-    "162.159.195.5:1701",
     "162.159.193.10:1701",
     "162.159.192.1:1701",
+    "188.114.96.1:1701",
+    "188.114.97.1:1701",
+    "162.159.192.1:500",
+    "162.159.193.10:500",
+    "188.114.96.1:500",
+    "188.114.96.1:4500",
+    "188.114.97.1:4500",
+    "188.114.98.2:1701",
+    "188.114.99.3:1701",
+    "162.159.195.5:1701",
+    "188.114.96.1:854",
+    "188.114.97.1:854",
     "162.159.193.10:4500",
     "162.159.192.1:4500",
     "162.159.193.10:854",
     "162.159.192.1:854",
+    "162.159.192.1:2408",
+    "162.159.193.10:2408",
+    "162.159.195.5:2408",
 ];
 
 pub fn is_cloudflare_warp_peer(peer_pub: &[u8; 32]) -> bool {
@@ -1531,6 +1517,30 @@ impl AwgConfig {
                         }
                         awg_params.h4 = h;
                     }
+                    "s3" | "s4" => {
+                        let _s: usize = val.parse().map_err(|_| {
+                            format!("line {}: invalid {} value '{}': expected integer", line_num, key, val)
+                        })?;
+                    }
+                    "i1" => {
+                        let clean_hex = val
+                            .trim_start_matches("0x")
+                            .trim_start_matches("<b 0x")
+                            .trim_end_matches('>')
+                            .trim();
+                        let bytes = hex::decode(clean_hex).map_err(|e| {
+                            format!("line {}: invalid I1 hex format '{}': {}", line_num, val, e)
+                        })?;
+                        awg_params.i1 = Some(bytes);
+                    }
+                    "i2" | "i3" | "i4" | "i5" => {
+                        ldebug!("AWG config: parsed extended CPS directive {}: {}", key, val);
+                    }
+                    "contentpaddingaddition" | "rekeyaftertime" | "rekeytimeout" | "rejectaftertime"
+                    | "keepalivetimeout" | "maxhandshakeattempts" | "disablecookies" | "randomtrailers"
+                    | "persistentkeepalive" => {
+                        ldebug!("AWG config: parsed extended AWG parameter {}: {}", key, val);
+                    }
                     _ => {
                         return Err(format!(
                             "line {}: unrecognized configuration key '{}' in section [Interface]",
@@ -1718,6 +1728,18 @@ impl AwgConfig {
                             format!("line {}: invalid I1 hex format '{}': {}", line_num, val, e)
                         })?;
                         awg_params.i1 = Some(bytes);
+                    }
+                    "s3" | "s4" => {
+                        let _s: usize = val.parse().map_err(|_| {
+                            format!("line {}: invalid {} value '{}': expected integer", line_num, key, val)
+                        })?;
+                    }
+                    "i2" | "i3" | "i4" | "i5" => {
+                        ldebug!("AWG config: parsed extended CPS directive {}: {}", key, val);
+                    }
+                    "contentpaddingaddition" | "rekeyaftertime" | "rekeytimeout" | "rejectaftertime"
+                    | "keepalivetimeout" | "maxhandshakeattempts" | "disablecookies" | "randomtrailers" => {
+                        ldebug!("AWG config: parsed extended AWG parameter in peer {}: {}", key, val);
                     }
                     _ => {
                         return Err(format!(
@@ -1924,11 +1946,6 @@ pub fn set_awg_config(
     drop(cfg);
     invalidate_active_peer();
     reset_awg_circuit_breaker();
-}
-
-pub fn set_awg_fallback_endpoints(endpoints: &[String]) {
-    let mut cfg = AWG_CONFIG.write();
-    cfg.fallback_endpoints = endpoints.to_vec();
 }
 
 pub fn get_awg_status() -> String {
@@ -3559,6 +3576,8 @@ pub struct AwgPeerSession {
     pub cancel_token: CancellationToken,
     pub timer_notify: Arc<tokio::sync::Notify>,
     pub tun_sink: Arc<parking_lot::RwLock<Option<tokio::sync::mpsc::Sender<Vec<u8>>>>>,
+    pub last_rx_secs: Arc<AtomicU64>,
+    pub last_tx_secs: Arc<AtomicU64>,
 }
 
 impl std::fmt::Debug for AwgPeerSession {
@@ -3581,6 +3600,12 @@ impl AwgPeerSession {
         let cancel_token = CancellationToken::new();
         let timer_notify = Arc::new(tokio::sync::Notify::new());
         let tun_sink = Arc::new(parking_lot::RwLock::new(None));
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let last_rx_secs = Arc::new(AtomicU64::new(now));
+        let last_tx_secs = Arc::new(AtomicU64::new(now));
         let peer = Arc::new(Self {
             endpoint_addr,
             socket,
@@ -3591,6 +3616,8 @@ impl AwgPeerSession {
             cancel_token,
             timer_notify,
             tun_sink,
+            last_rx_secs,
+            last_tx_secs,
         });
 
         tokio::spawn(run_peer_receiver_loop(Arc::clone(&peer)));
@@ -3644,24 +3671,78 @@ impl AwgPeerSession {
             }
         };
 
-        let bind_addr = if endpoint_addr.is_ipv6() {
-            "[::]:0"
+        let bind_addr: SocketAddr = if endpoint_addr.is_ipv6() {
+            "[::]:0".parse().unwrap()
         } else {
-            "0.0.0.0:0"
+            "0.0.0.0:0".parse().unwrap()
         };
-        let socket = UdpSocket::bind(bind_addr)
-            .await
-            .map_err(|e| format!(
-                "[profile='{}', stage='udp_bind', endpoint='{}'] failed to bind local UDP socket: {}",
-                profile, endpoint, e
-            ))?;
+
+        let domain = if endpoint_addr.is_ipv6() {
+            socket2::Domain::IPV6
+        } else {
+            socket2::Domain::IPV4
+        };
+
+        let sock2 = socket2::Socket::new(
+            domain,
+            socket2::Type::DGRAM,
+            Some(socket2::Protocol::UDP),
+        ).map_err(|e| format!(
+            "[profile='{}', stage='udp_create', endpoint='{}'] failed to create UDP socket: {}",
+            profile, endpoint, e
+        ))?;
+
+        if endpoint_addr.is_ipv6() {
+            let _ = sock2.set_only_v6(true);
+        }
+        let _ = sock2.set_reuse_address(true);
+        #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+        {
+            let _ = sock2.set_reuse_port(true);
+        }
+        let _ = sock2.set_recv_buffer_size(2 * 1024 * 1024);
+        let _ = sock2.set_send_buffer_size(1024 * 1024);
+        let _ = sock2.set_nonblocking(true);
 
         #[cfg(unix)]
         {
             use std::os::unix::io::AsRawFd;
-            let raw_fd = socket.as_raw_fd();
-            crate::protect_socket_fd(raw_fd);
+            let raw_fd = sock2.as_raw_fd();
+            let mut protected = crate::protect_socket_fd(raw_fd);
+            if !protected {
+                crate::lwarn!("VPN [AWG]: protect_socket_fd(fd={}) failed, retrying once...", raw_fd);
+                protected = crate::protect_socket_fd(raw_fd);
+            }
+            if !protected && crate::is_protect_callback_registered() {
+                crate::lwarn!(
+                    "VPN [AWG]: protect_socket_fd(fd={}) returned false; continuing with UID routing protection (addDisallowedApplication)",
+                    raw_fd
+                );
+            } else if protected {
+                crate::linfo!("VPN [AWG]: protect_socket_fd(fd={}) -> true", raw_fd);
+            }
         }
+
+        sock2.bind(&bind_addr.into()).map_err(|e| format!(
+            "[profile='{}', stage='udp_bind', endpoint='{}'] failed to bind local UDP socket: {}",
+            profile, endpoint, e
+        ))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            let raw_fd = sock2.as_raw_fd();
+            let protected_post = crate::protect_socket_fd(raw_fd);
+            if !protected_post && crate::is_protect_callback_registered() {
+                crate::lwarn!("VPN [AWG]: protect_socket_fd(fd={}) returned false post-bind; socket already protected pre-bind", raw_fd);
+            }
+        }
+
+        let std_socket: std::net::UdpSocket = sock2.into();
+        let socket = UdpSocket::from_std(std_socket).map_err(|e| format!(
+            "[profile='{}', stage='udp_tokio', endpoint='{}'] failed to convert std socket: {}",
+            profile, endpoint, e
+        ))?;
 
         socket
             .connect(endpoint_addr)
@@ -3949,6 +4030,11 @@ impl AwgPeerSession {
     }
 
     pub async fn send_ip_packet(&self, ip_pkt: &[u8]) -> Result<(), std::io::Error> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.last_tx_secs.store(now, Ordering::Relaxed);
         crate::STATS.add_vpn_bytes_up(ip_pkt.len() as i64);
         let (wire_pkt, maybe_rekey) = self
             .session
@@ -3977,6 +4063,24 @@ impl AwgPeerSession {
         }
         let keys = self.session.current_keys();
         if keys.is_expired() {
+            return false;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let last_tx = self.last_tx_secs.load(Ordering::Relaxed);
+        let last_rx = self.last_rx_secs.load(Ordering::Relaxed);
+
+        // Liveness watchdog: only trigger if we have actively transmitted packets recently
+        // and have received NO packets for at least 45 seconds (prevent false failovers during normal idle).
+        if last_tx > 0 && last_tx > last_rx && now.saturating_sub(last_tx) < 30 && now.saturating_sub(last_rx) > 45 {
+            crate::lwarn!(
+                "AWG [{}]: liveness check failed (last_rx was {}s ago, last_tx was {}s ago); marking peer unhealthy",
+                self.config.endpoint,
+                now.saturating_sub(last_rx),
+                now.saturating_sub(last_tx)
+            );
             return false;
         }
         true
@@ -4032,6 +4136,11 @@ async fn run_peer_receiver_loop(peer: Arc<AwgPeerSession>) {
             res = socket.recv(&mut udp_rx_buf) => {
                 match res {
                     Ok(n) if n >= 4 => {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        peer.last_rx_secs.store(now, Ordering::Relaxed);
                         match session.decapsulate_incoming(&udp_rx_buf[..n]) {
                             Ok(IncomingPacket::Data(ip_pkt)) => {
                                 let tun_opt = peer.tun_sink.read().clone();
@@ -4685,9 +4794,53 @@ pub async fn get_or_connect_peer(
             Ok(peer)
         }
         Err(e) => {
-            if AWG_CONFIG.read().fallback_endpoints.is_empty() {
+            let (configured_ep, fallback_endpoints, is_warp, profile_name) = {
+                let cfg = AWG_CONFIG.read();
+                (
+                    cfg.endpoint.clone(),
+                    cfg.fallback_endpoints.clone(),
+                    cfg.is_warp_profile(),
+                    cfg.profile_name.clone(),
+                )
+            };
+            if fallback_endpoints.is_empty() {
                 AWG_CIRCUIT_BREAKER.write().record_failure();
+                return Err(e);
             }
+            lwarn!(
+                "[profile='{}', stage='vpn_probing_fallbacks', endpoint='{}'] primary dial failed ({}); probing {} fallback candidates for VPN...",
+                profile_name, configured_ep, e, fallback_endpoints.len()
+            );
+            for candidate in &fallback_endpoints {
+                if candidate == &configured_ep || cancel_token.is_cancelled() {
+                    continue;
+                }
+                if !is_warp && is_cloudflare_warp_endpoint(candidate) {
+                    continue;
+                }
+                let candidate_jitter_ms = rand::random::<u64>() % 100;
+                let candidate_timeout = 2000 + candidate_jitter_ms;
+                match AwgPeerSession::connect_internal(cancel_token, Some(candidate), candidate_timeout).await {
+                    Ok(peer) => {
+                        linfo!(
+                            "[profile='{}', stage='vpn_failover_success', endpoint='{}'] active VPN endpoint switched successfully",
+                            profile_name, candidate
+                        );
+                        let mut cfg = AWG_CONFIG.write();
+                        cfg.endpoint = candidate.to_string();
+                        AWG_CIRCUIT_BREAKER.write().record_success();
+                        *ACTIVE_AWG_PEER.write() = Some(Arc::clone(&peer));
+                        return Ok(peer);
+                    }
+                    Err(ce) => {
+                        ldebug!(
+                            "[profile='{}', stage='vpn_probe_failed', endpoint='{}'] fallback candidate failed: {}",
+                            profile_name, candidate, ce
+                        );
+                    }
+                }
+            }
+            AWG_CIRCUIT_BREAKER.write().record_failure();
             Err(e)
         }
     }

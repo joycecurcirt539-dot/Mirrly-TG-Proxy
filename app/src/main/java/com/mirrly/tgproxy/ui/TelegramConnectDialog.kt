@@ -17,46 +17,43 @@
  */
 
 package com.mirrly.tgproxy.ui
-import androidx.compose.ui.res.stringResource
 
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.os.Build
-import android.view.WindowManager
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
-import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.ui.theme.*
 
+/**
+ * Bottom sheet for connecting Telegram to local MTProto / SOCKS5 proxy relay.
+ * Strictly adheres to MirrlyUI: Zero-Popup, Zero-Background, Outline-Only, springPress.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TelegramConnectDialog(
     onDismiss: () -> Unit
@@ -69,126 +66,95 @@ fun TelegramConnectDialog(
     val mtprotoUrl = remember(app.config.secretHex, app.config.bindHost, app.config.bindPort) { server.getTelegramProxyUrl() }
     val socks5Url = remember(app.config.bindHost, app.config.activePort, app.config.socks5Username, app.config.socks5Password) { server.getTelegramSocks5Url() }
 
-    Dialog(
+    val isMtActive = app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO
+    val isSocks5Active = app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.SOCKS5
+
+    MirrlyModalBottomSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true
-        )
+        maxTabletWidth = 460.dp
     ) {
-        DialogBackdropBox(
-            onDismiss = onDismiss,
-            blurRadiusPx = 70
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .fadingEdges(topFadeHeight = 16.dp, bottomFadeHeight = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 20.dp, top = 4.dp)
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+            // Title
+            Text(
+                text = stringResource(R.string.tg_connect_dialog_title),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextWhite,
+                textAlign = TextAlign.Center,
+                letterSpacing = 0.3.sp
+            )
+
+            // Subtitle
+            Text(
+                text = stringResource(R.string.tg_connect_dialog_subtitle),
+                fontSize = 12.5.sp,
+                color = TextMuted,
+                textAlign = TextAlign.Center,
+                lineHeight = 17.sp,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+
+            // ─── CARD 1: MTProto Proxy (Recommended for chats) ───
+            Box(
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .adaptiveContainerWidth(440.dp)
-                    .navigationBarsPadding()
-                    .padding(bottom = 110.dp, top = 24.dp)
-                    .padding(horizontal = 20.dp)
-                    .verticalScroll(rememberScrollState())
-                    .clickable(enabled = false) {}
-            ) {
-                // Category Pill
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = ActiveGreenLed.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f))
-                ) {
-                    Text(
-                        text = stringResource(R.string.tg_connect_dialog_category),
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = ActiveGreenLed,
-                        letterSpacing = 1.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.Transparent)
+                    .border(
+                        1.dp,
+                        if (isMtActive) MtprotoAccent.copy(alpha = 0.65f) else AmoledBorder,
+                        RoundedCornerShape(16.dp)
                     )
-                }
-
-                Text(
-                    text = stringResource(R.string.tg_connect_dialog_title),
-                    fontSize = 21.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    textAlign = TextAlign.Center
-                )
-
-                Text(
-                    text = stringResource(R.string.tg_connect_dialog_subtitle),
-                    fontSize = 13.sp,
-                    color = TextWhite.copy(alpha = 0.85f),
-                    textAlign = TextAlign.Center,
-                    lineHeight = 18.sp
-                )
-
-                // ─── CARD 1: MTProto Proxy (Recommended for chats) ───
-                val isMtActive = app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO
-                val isSocks5Active = app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.SOCKS5
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = if (isMtActive) MtprotoAccent.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.04f),
-                    border = BorderStroke(1.dp, if (isMtActive) MtprotoAccent.copy(alpha = 0.7f) else Color(0xFF1E2433)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MtprotoAccent,
-                                    modifier = Modifier.size(8.dp)
-                                ) {}
-                                Text(
-                                    text = stringResource(R.string.tg_connect_proto_mtproto),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = TextWhite
-                                )
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MtprotoAccent.copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, MtprotoAccent.copy(alpha = 0.4f))
-                            ) {
-                                Text(
-                                    text = if (isMtActive) stringResource(R.string.tg_connect_mtproto_badge_active) else stringResource(R.string.tg_connect_mtproto_badge),
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = MtprotoAccent,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-
-                        Text(
-                            text = stringResource(R.string.tg_connect_mtproto_desc),
-                            fontSize = 12.5.sp,
-                            color = TextWhite.copy(alpha = 0.78f),
-                            lineHeight = 17.sp
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(MtprotoAccent)
                         )
+                        Text(
+                            text = stringResource(R.string.tg_connect_proto_mtproto),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.5.sp,
+                            color = TextWhite
+                        )
+                    }
 
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Button(
-                                onClick = {
+                    Text(
+                        text = stringResource(R.string.tg_connect_mtproto_desc),
+                        fontSize = 12.sp,
+                        color = TextMuted,
+                        lineHeight = 16.5.sp
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        // Open in Telegram
+                        Box(
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, MtprotoAccent, RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     if (app.config.proxyMode != com.mirrly.tgproxy.core.ProxyMode.MTPROTO) {
                                         app.config.proxyModeName = com.mirrly.tgproxy.core.ProxyMode.MTPROTO.name
@@ -199,132 +165,126 @@ fun TelegramConnectDialog(
                                     }
                                     onDismiss()
                                     applyToTelegramPackages(context, mtprotoUrl)
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MtprotoAccent.copy(alpha = 0.22f),
-                                    contentColor = MtprotoAccent
-                                ),
-                                border = BorderStroke(1.dp, MtprotoAccent.copy(alpha = 0.6f)),
-                                modifier = Modifier.weight(1.3f).height(42.dp)
-                            ) {
-                                Text(stringResource(R.string.tg_connect_btn_open_tg), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            }
+                                }),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.tg_connect_btn_open_tg),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = MtprotoAccent
+                            )
+                        }
 
-                            OutlinedButton(
-                                onClick = {
+                        // Copy link
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("Telegram MTProto", mtprotoUrl))
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     Toast.makeText(context, context.getString(R.string.tg_connect_toast_mtproto_copied), Toast.LENGTH_SHORT).show()
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                                modifier = Modifier.weight(1f).height(42.dp)
-                            ) {
-                                Text(stringResource(R.string.action_copy), color = TextWhite, fontSize = 12.sp)
-                            }
+                                }),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.action_copy),
+                                color = TextWhite,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
+            }
 
-                // ─── CARD 2: SOCKS5 Proxy (For calls) ───
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = if (isSocks5Active) Socks5Accent.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.04f),
-                    border = BorderStroke(1.dp, if (isSocks5Active) Socks5Accent.copy(alpha = 0.7f) else Color(0xFF1E2433)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+            // ─── CARD 2: SOCKS5 Proxy (For calls & general routing) ───
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.Transparent)
+                    .border(
+                        1.dp,
+                        if (isSocks5Active) Socks5Accent.copy(alpha = 0.65f) else AmoledBorder,
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Socks5Accent)
+                        )
+                        Text(
+                            text = stringResource(R.string.tg_connect_proto_socks5),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.5.sp,
+                            color = TextWhite
+                        )
+                    }
+
+                    Text(
+                        text = stringResource(R.string.tg_connect_socks5_desc),
+                        fontSize = 12.sp,
+                        color = TextMuted,
+                        lineHeight = 16.5.sp
+                    )
+
+                    if (app.config.hasSocks5Auth) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 12.dp, vertical = 7.dp)
                         ) {
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Socks5Accent,
-                                    modifier = Modifier.size(8.dp)
-                                ) {}
                                 Text(
-                                    text = stringResource(R.string.tg_connect_proto_socks5),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = TextWhite
+                                    text = stringResource(R.string.tg_connect_socks5_login_prefix, app.config.socks5Username.ifEmpty { "—" }),
+                                    fontSize = 11.5.sp,
+                                    color = TextWhite,
+                                    fontWeight = FontWeight.Medium
                                 )
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Socks5Accent.copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.5f))
-                            ) {
                                 Text(
-                                    text = if (isSocks5Active) stringResource(R.string.tg_connect_socks5_badge_active) else stringResource(R.string.tg_connect_socks5_badge),
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = Socks5Accent,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    text = stringResource(R.string.tg_connect_socks5_pass_prefix, if (app.config.socks5Password.isNotEmpty()) "••••••••" else "—"),
+                                    fontSize = 11.5.sp,
+                                    color = TextWhite,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
+                    }
 
-                        Text(
-                            text = stringResource(R.string.tg_connect_socks5_desc),
-                            fontSize = 12.5.sp,
-                            color = TextWhite.copy(alpha = 0.78f),
-                            lineHeight = 17.sp
-                        )
-
-                        if (app.config.hasSocks5Auth) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color.White.copy(alpha = 0.04f),
-                                border = BorderStroke(1.dp, Color(0xFF1E2433)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.tg_connect_socks5_login_prefix, app.config.socks5Username.ifEmpty { "—" }),
-                                        fontSize = 11.sp,
-                                        color = TextWhite.copy(alpha = 0.85f),
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.tg_connect_socks5_pass_prefix, if (app.config.socks5Password.isNotEmpty()) "••••••••" else "—"),
-                                        fontSize = 11.sp,
-                                        color = TextWhite.copy(alpha = 0.85f),
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
-                        }
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Button(
-                                onClick = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        // Open in Telegram
+                        Box(
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, Socks5Accent, RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (!app.config.hasSocks5Auth) {
-                                        val (u, p) = ProxyConfig.generateRandomSocks5Credentials()
-                                        app.config.socks5Username = u
-                                        app.config.socks5Password = p
-                                        app.prefsManager.saveConfig(app.config)
-                                        com.mirrly.tgproxy.core.NativeProxy.setSocks5Auth(u, p)
-                                    }
                                     if (!app.config.isSocks5Mode) {
                                         app.config.proxyModeName = com.mirrly.tgproxy.core.ProxyMode.SOCKS5.name
                                         app.prefsManager.saveConfig(app.config)
@@ -334,104 +294,85 @@ fun TelegramConnectDialog(
                                     }
                                     onDismiss()
                                     applyToTelegramPackages(context, server.getTelegramSocks5Url())
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Socks5Accent.copy(alpha = 0.22f),
-                                    contentColor = Socks5Accent
-                                ),
-                                border = BorderStroke(1.dp, Socks5Accent.copy(alpha = 0.6f)),
-                                modifier = Modifier.weight(1.3f).height(42.dp)
-                            ) {
-                                Text(stringResource(R.string.tg_connect_btn_open_tg), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            }
+                                }),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.tg_connect_btn_open_tg),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Socks5Accent
+                            )
+                        }
 
-                            OutlinedButton(
-                                onClick = {
+                        // Copy link
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("Telegram SOCKS5", socks5Url))
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     Toast.makeText(context, context.getString(R.string.tg_connect_toast_socks5_copied), Toast.LENGTH_SHORT).show()
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                                modifier = Modifier.weight(1f).height(42.dp)
-                            ) {
-                                Text(stringResource(R.string.action_copy), color = TextWhite, fontSize = 12.sp)
-                            }
-                        }
-                    }
-                }
-
-                // ─── CARD 3: Footnote / Note (Сноска / Примечание) ───
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                }),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = ActiveGreenLed.copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.45f))
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.tg_connect_footnote_badge),
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 1.sp,
-                                    color = ActiveGreenLed,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
                             Text(
-                                text = stringResource(R.string.tg_connect_footnote_title),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
+                                text = stringResource(R.string.action_copy),
+                                color = TextWhite,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
-                        Text(
-                            text = stringResource(R.string.tg_connect_footnote_desc),
-                            fontSize = 11.5.sp,
-                            lineHeight = 16.5.sp,
-                            color = TextWhite.copy(alpha = 0.78f)
-                        )
                     }
                 }
             }
 
-            // Bottom Action Button
-            Button(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onDismiss()
-                },
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White.copy(alpha = 0.20f),
-                    contentColor = TextWhite
-                ),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+            // ─── CARD 3: Footnote / Note ───
+            Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 32.dp)
-                    .fillMaxWidth(0.90f)
-                    .height(48.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
+                    .padding(12.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = stringResource(R.string.tg_connect_footnote_title),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
+                    )
+                    Text(
+                        text = stringResource(R.string.tg_connect_footnote_desc),
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp,
+                        color = TextMuted
+                    )
+                }
+            }
+
+            // Bottom Dismiss Button (Outline-Only springPress)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
+                    .springPress(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onDismiss()
+                    }),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = stringResource(R.string.action_close),
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Medium,
                     color = TextWhite
                 )
             }

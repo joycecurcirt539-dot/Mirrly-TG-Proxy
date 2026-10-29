@@ -34,7 +34,7 @@ class BatteryThermalQoSTest {
         val level = BatteryThermalQoSEngine.evaluateThrottleLevel(state)
         assertEquals(QoSThrottleLevel.NONE, level)
         assertEquals(4, level.maxPoolSize)
-        assertEquals(2097152, level.maxBufferSizeBytes)
+        assertEquals(1048576, level.maxBufferSizeBytes)
     }
 
     @Test
@@ -113,7 +113,7 @@ class BatteryThermalQoSTest {
         val level = BatteryThermalQoSEngine.evaluateThrottleLevel(state, isEnabled = false)
         assertEquals(QoSThrottleLevel.NONE, level, "Disabled QoS must allow full performance without power save restrictions")
         assertEquals(4, level.maxPoolSize)
-        assertEquals(2097152, level.maxBufferSizeBytes)
+        assertEquals(1048576, level.maxBufferSizeBytes)
     }
 
     @Test
@@ -148,7 +148,7 @@ class BatteryThermalQoSTest {
         engine.setEnabled(false)
         assertEquals(QoSThrottleLevel.NONE, engine.currentThrottleLevel)
         assertEquals(4, engine.maxAllowedPoolSize)
-        assertEquals(2097152, engine.maxAllowedBufferSizeBytes)
+        assertEquals(1048576, engine.maxAllowedBufferSizeBytes)
         assertEquals(QoSThrottleLevel.NONE, notifiedLevel)
 
         // User re-enables QoS throttling
@@ -156,5 +156,19 @@ class BatteryThermalQoSTest {
         assertEquals(QoSThrottleLevel.SEVERE, engine.currentThrottleLevel)
         assertEquals(1, engine.maxAllowedPoolSize)
         assertEquals(QoSThrottleLevel.SEVERE, notifiedLevel)
+    }
+
+    @Test
+    fun testDefaultEngineHasQoSDisabled() {
+        val engine = BatteryThermalQoSEngine()
+        org.junit.jupiter.api.Assertions.assertFalse(engine.isEnabled)
+        assertEquals(QoSThrottleLevel.NONE, engine.currentThrottleLevel)
+        engine.updateState(
+            batteryPercent = 5,
+            isCharging = false,
+            isPowerSaveMode = true,
+            thermalStatus = BatteryThermalQoSEngine.THERMAL_STATUS_NONE
+        )
+        assertEquals(QoSThrottleLevel.NONE, engine.currentThrottleLevel)
     }
 }

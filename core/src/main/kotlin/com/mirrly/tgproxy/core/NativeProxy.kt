@@ -36,6 +36,7 @@ interface ProxyLibrary : Library {
     fun StartSocks5Proxy(host: String, port: Int, verbose: Int): Int
     fun StopProxy(): Int
     fun ResetNetworkSockets()
+    fun ResetVpnSockets()
     fun EmergencyKillAllSockets()
     fun SetPoolSize(size: Int): Int
     fun SetTcpNoDelay(enabled: Int)
@@ -45,9 +46,13 @@ interface ProxyLibrary : Library {
     fun IsEchEnabled(): Int
     fun SetCustomEchConfig(base64Config: String): Int
     fun SetWsRandomizationEnabled(enabled: Int)
-        fun IsWsRandomizationEnabled(): Int
-        fun SetTlsRecordPaddingEnabled(enabled: Int)
+    fun IsWsRandomizationEnabled(): Int
+    fun SetTlsRecordPaddingEnabled(enabled: Int)
     fun IsTlsRecordPaddingEnabled(): Int
+    fun SetTlsClientHelloSplitEnabled(enabled: Int)
+    fun IsTlsClientHelloSplitEnabled(): Int
+    fun SetSocks5Optimistic(enabled: Int)
+    fun IsSocks5Optimistic(): Int
     fun PromoteCfproxyDomainForDc(dcId: Int, isMedia: Int, domain: String): Int
     fun SetWorkerProtocol(domain: String, proto: Int)
     fun SetSecret(secret: String)
@@ -120,6 +125,7 @@ interface ProxyLibrary : Library {
     fun SetIpv6OnlyNetwork(isIpv6Only: Int)
     fun SetMtprotoStandbyPerActiveSlot(size: Int): Int
     fun GetTransportPoolStatusJson(): Pointer?
+    fun GetWarmPoolStatusJson(): Pointer?
     fun SetSocketBufferSizes(recvSize: Int, sendSize: Int): Int
     fun GetSocketBufferStatusJson(): Pointer?
     fun GetLastOsSocketBufferSizes(recvOut: IntByReference, sendOut: IntByReference): Int
@@ -127,6 +133,8 @@ interface ProxyLibrary : Library {
     fun SetNetworkProfileJson(json: String): Int
     fun GetNetworkProfileJson(): Pointer?
     fun SuspendNetworkSockets()
+    fun SetDialThrottlingEnabled(enabled: Int)
+    fun IsDialThrottlingEnabled(): Int
     fun WarmupWsPool()
     fun OnScreenWakeup()
     fun SetTrustPolicy(isPrivateNode: Int, allowPublicRelayFallback: Int, allowOperaDirectExit: Int, allowOperaTransportHop: Int)
@@ -151,6 +159,11 @@ interface ProxyLibrary : Library {
     ): Int
     fun SetOperaVpnEndpoint(endpoint: String): Int
     fun SetProtectSocketCallback(cb: ProtectCallback?): Unit
+    fun ResolveDns(domain: String, scope: Int): Pointer?
+    fun ClearDnsCache()
+    fun ProbeWarpEndpoints(endpointsCsv: String, protocol: Int, timeoutMs: Int): Pointer?
+    fun PingHost(host: String, port: Int, timeoutMs: Int): Pointer?
+    fun PingWorker(domain: String, timeoutMs: Int): Pointer?
 }
 
 fun interface ProtectCallback : com.sun.jna.Callback {
@@ -211,6 +224,14 @@ object NativeProxy {
         }
     }
 
+    fun resetVpnSockets() {
+        try {
+            ProxyLibrary.INSTANCE.ResetVpnSockets()
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [ResetVpnSockets]: ${t.message}")
+        }
+    }
+
     fun getVpnStatusJson(): String? {
         return try {
             val ptr = ProxyLibrary.INSTANCE.GetVpnStatusJson() ?: return null
@@ -226,9 +247,7 @@ object NativeProxy {
     fun setVpnUplinkMode(mode: UplinkMode): Int {
         val nativeMode = when (mode) {
             UplinkMode.AWG -> 0
-            UplinkMode.MASQUE, UplinkMode.WARP_CASCADE, UplinkMode.HYBRID -> 1
-            UplinkMode.OPERA -> 2
-            UplinkMode.PROTON -> 3
+            UplinkMode.MASQUE -> 1
             UplinkMode.VLESS -> 4
             else -> 0
         }
@@ -237,6 +256,88 @@ object NativeProxy {
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "Сбой вызова FFI [SetVpnUplinkMode]: ${t.message}", t)
             -1
+        }
+    }
+
+    fun resolveDns(domain: String, scope: Int = 0): List<String> {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.ResolveDns(domain, scope) ?: return emptyList()
+            val jsonStr = try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+            val json = JSONObject(jsonStr)
+            val ipsArr = json.optJSONArray("ips") ?: return emptyList()
+            val result = ArrayList<String>(ipsArr.length())
+            for (i in 0 until ipsArr.length()) {
+                val ip = ipsArr.optString(i)
+                if (!ip.isNullOrBlank()) {
+                    result.add(ip)
+                }
+            }
+            result
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [ResolveDns] error: ${t.message}")
+            emptyList()
+        }
+    }
+
+    fun clearDnsCache() {
+        try {
+            ProxyLibrary.INSTANCE.ClearDnsCache()
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [ClearDnsCache] error: ${t.message}")
+        }
+    }
+
+    fun probeWarpEndpoints(endpointsCsv: String, protocol: Int = 0, timeoutMs: Int = 600): String {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.ProbeWarpEndpoints(endpointsCsv, protocol, timeoutMs) ?: return "[]"
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [ProbeWarpEndpoints] error: ${t.message}")
+            "[]"
+        }
+    }
+
+    fun pingHost(host: String, port: Int = 443, timeoutMs: Int = 2500): Pair<Boolean, Long> {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.PingHost(host, port, timeoutMs) ?: return Pair(false, -1L)
+            val jsonStr = try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+            val json = JSONObject(jsonStr)
+            val success = json.optBoolean("success", false)
+            val rtt = json.optLong("rtt_ms", -1L)
+            Pair(success, rtt)
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [PingHost] error: ${t.message}")
+            Pair(false, -1L)
+        }
+    }
+
+    fun pingWorker(domain: String, timeoutMs: Int = 5000): Pair<String, Long?> {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.PingWorker(domain, timeoutMs) ?: return Pair("ERR_NULL_PTR", null)
+            val jsonStr = try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+            val json = JSONObject(jsonStr)
+            val status = json.optString("status", "UNKNOWN")
+            val rtt = if (json.isNull("rtt_ms")) null else json.optLong("rtt_ms")
+            Pair(status, rtt)
+        } catch (t: Throwable) {
+            AppLogger.d("NativeProxy", "FFI [PingWorker] error: ${t.message}")
+            Pair("ERR_EXCEPTION", null)
         }
     }
 
@@ -409,6 +510,22 @@ object NativeProxy {
         }
     }
 
+    fun setSocks5Optimistic(enabled: Boolean) {
+        try {
+            ProxyLibrary.INSTANCE.SetSocks5Optimistic(if (enabled) 1 else 0)
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "FFI [SetSocks5Optimistic] не доступен: ${t.message}")
+        }
+    }
+
+    fun isSocks5Optimistic(): Boolean {
+        return try {
+            ProxyLibrary.INSTANCE.IsSocks5Optimistic() != 0
+        } catch (_: Throwable) {
+            true
+        }
+    }
+
     fun setDohEndpoints(endpoints: String) {
         try {
             ProxyLibrary.INSTANCE.SetDohEndpoints(endpoints)
@@ -422,10 +539,8 @@ object NativeProxy {
             val modeInt = when (mode) {
                 UplinkMode.WORKER -> 0
                 UplinkMode.MASQUE -> 1
-                UplinkMode.HYBRID -> 2
                 UplinkMode.VLESS -> 3
                 UplinkMode.AWG -> 4
-                UplinkMode.WARP_CASCADE -> 5
                 else -> 0
             }
             ProxyLibrary.INSTANCE.SetUplinkMode(modeInt)
@@ -990,6 +1105,22 @@ object NativeProxy {
         }
     }
 
+    fun setDialThrottlingEnabled(enabled: Boolean) {
+        try {
+            ProxyLibrary.INSTANCE.SetDialThrottlingEnabled(if (enabled) 1 else 0)
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "Сбой вызова FFI [SetDialThrottlingEnabled]: ${t.message}")
+        }
+    }
+
+    fun isDialThrottlingEnabled(): Boolean {
+        return try {
+            ProxyLibrary.INSTANCE.IsDialThrottlingEnabled() != 0
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     fun warmupWsPool() {
         if (!isStarted) return
         try {
@@ -1122,6 +1253,24 @@ object NativeProxy {
         return TlsObservabilityStatus.fromJson(json)
     }
 
+    fun getWarmPoolStatusJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetWarmPoolStatusJson() ?: return null
+            try {
+                ptr.getString(0, "UTF-8")
+            } finally {
+                ProxyLibrary.INSTANCE.FreeString(ptr)
+            }
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    fun getWarmPoolStatus(): WarmPoolStatus? {
+        val json = getWarmPoolStatusJson() ?: return null
+        return WarmPoolStatus.fromJson(json)
+    }
+
     fun setEchEnabled(enabled: Boolean) {
         try {
             ProxyLibrary.INSTANCE.SetEchEnabled(if (enabled) 1 else 0)
@@ -1178,6 +1327,23 @@ object NativeProxy {
             ProxyLibrary.INSTANCE.IsTlsRecordPaddingEnabled() != 0
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "FFI call failed [IsTlsRecordPaddingEnabled]: ${t.message}", t)
+            true
+        }
+    }
+
+    fun setTlsClientHelloSplitEnabled(enabled: Boolean) {
+        try {
+            ProxyLibrary.INSTANCE.SetTlsClientHelloSplitEnabled(if (enabled) 1 else 0)
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [SetTlsClientHelloSplitEnabled]: ${t.message}", t)
+        }
+    }
+
+    fun isTlsClientHelloSplitEnabled(): Boolean {
+        return try {
+            ProxyLibrary.INSTANCE.IsTlsClientHelloSplitEnabled() != 0
+        } catch (t: Throwable) {
+            AppLogger.e("NativeProxy", "FFI call failed [IsTlsClientHelloSplitEnabled]: ${t.message}", t)
             true
         }
     }
@@ -1486,3 +1652,42 @@ data class TlsObservabilityStatus(
         }
     }
 }
+
+data class WarmPoolStatus(
+    val ready_total: Int = 0,
+    val target_total: Int = 0,
+    val in_flight_total: Int = 0,
+    val dc2_chat_ready: Int = 0,
+    val dc2_chat_target: Int = 0,
+    val dc2_media_ready: Int = 0,
+    val dc2_media_target: Int = 0,
+    val dc4_media_ready: Int = 0,
+    val dc4_media_target: Int = 0
+) {
+    val remaining: Int
+        get() = (target_total - ready_total).coerceAtLeast(0)
+
+    companion object {
+        fun fromJson(json: String?): WarmPoolStatus? {
+            if (json.isNullOrBlank()) return null
+            return try {
+                val obj = JSONObject(json)
+                WarmPoolStatus(
+                    ready_total = obj.optInt("ready_total", 0),
+                    target_total = obj.optInt("target_total", 0),
+                    in_flight_total = obj.optInt("in_flight_total", 0),
+                    dc2_chat_ready = obj.optInt("dc2_chat_ready", 0),
+                    dc2_chat_target = obj.optInt("dc2_chat_target", 0),
+                    dc2_media_ready = obj.optInt("dc2_media_ready", 0),
+                    dc2_media_target = obj.optInt("dc2_media_target", 0),
+                    dc4_media_ready = obj.optInt("dc4_media_ready", 0),
+                    dc4_media_target = obj.optInt("dc4_media_target", 0)
+                )
+            } catch (t: Throwable) {
+                AppLogger.d("NativeProxy", "Failed to parse WarmPoolStatus JSON: ${t.message}")
+                null
+            }
+        }
+    }
+}
+

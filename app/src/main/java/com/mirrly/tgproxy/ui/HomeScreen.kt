@@ -23,10 +23,12 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import com.mirrly.tgproxy.core.AppLogger
-import com.mirrly.tgproxy.service.DeveloperModeManager
 import com.mirrly.tgproxy.util.findActivity
 import android.net.Uri
 import android.os.Build
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import android.widget.Toast
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -126,8 +128,8 @@ data class ProxyLiveTelemetry(
     val pingMs: Long = -1L,
     val jitterMs: Long = 0L,
     val healthScore: Int = 100,
-    val healthVerdict: String = "Optimal Connection",
-    val healthDetail: String = "Minimal latency and stable direct WSS tunnel",
+    val healthVerdict: String = "Stable Connection",
+    val healthDetail: String = "Low latency Cloudflare Worker WSS tunnel",
     val healthSuccessRate: Int = 100,
     val effectiveRoute: String = "",
     val operator: String = "",
@@ -143,10 +145,13 @@ fun HomeScreen(
     onOpenHistory: () -> Unit = {},
     onOpenUpdate: () -> Unit = {},
     onOpenWorkerGuide: () -> Unit = {},
-    onOpenWorkerManager: () -> Unit = {},
+    onOpenWorkerManager: (com.mirrly.tgproxy.core.ProxyMode?) -> Unit = {},
+    onOpenWorkerManagerSection: ((ManagerSection) -> Unit)? = null,
     onOpenDiagnostics: () -> Unit = {},
     onOpenSpeedTest: () -> Unit = {},
     onOpenVpnMode: () -> Unit = {},
+    onOpenWarpGenerator: () -> Unit = {},
+    onOpenAiChat: () -> Unit = {},
     onDragWorkerManager: (Float) -> Unit = {},
     onSettleWorkerManager: (Float) -> Unit = {},
     isVpnTabActive: Boolean = false,
@@ -162,8 +167,11 @@ fun HomeScreen(
 
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
     val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
-    val activeWorkerId by app.prefsManager.activeWorkerIdFlow.collectAsState()
-    val activeWorker = remember(activeWorkerId) { app.prefsManager.getActiveWorker(activeWorkerId) }
+    val activeWorkerIdMtproto by app.prefsManager.activeWorkerIdMtprotoFlow.collectAsState()
+    val activeWorkerIdSocks5 by app.prefsManager.activeWorkerIdSocks5Flow.collectAsState()
+    val activeWorkerMtproto = remember(activeWorkerIdMtproto) { app.prefsManager.getActiveWorker(com.mirrly.tgproxy.core.ProxyMode.MTPROTO, activeWorkerIdMtproto) }
+    val activeWorkerSocks5 = remember(activeWorkerIdSocks5) { app.prefsManager.getActiveWorker(com.mirrly.tgproxy.core.ProxyMode.SOCKS5, activeWorkerIdSocks5) }
+    val activeWorker = if (isSocks5) activeWorkerSocks5 else activeWorkerMtproto
     val proxyMode by app.prefsManager.proxyModeFlow.collectAsState(initial = app.config.proxyMode)
     val systemVpnColors = remember { com.mirrly.tgproxy.ui.theme.VpnThemeManager.getSystemVpnPalette(context) }
 
@@ -187,13 +195,12 @@ fun HomeScreen(
         vpnPalette = systemVpnColors
     )
     val protoColors = currentTabColors
-    val isDevVpnUnlocked by DeveloperModeManager.isDevVpnUnlocked.collectAsState()
-    var showVpnInDevDialog by remember { mutableStateOf(false) }
     var showVpnProtocolDialog by rememberSaveable { mutableStateOf(false) }
     var showSplitTunnelAppsDialog by rememberSaveable { mutableStateOf(false) }
     val vpnSplitTunnelPackages by app.prefsManager.vpnSplitTunnelPackagesFlow.collectAsState()
 
     val vpnState by com.mirrly.tgproxy.service.MirrlyVpnService.vpnState.collectAsState()
+    val vpnStatus by com.mirrly.tgproxy.service.MirrlyVpnService.vpnStatus.collectAsState()
     val vpnLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -248,19 +255,75 @@ fun HomeScreen(
 
     val uplinkMode by app.prefsManager.uplinkModeFlow.collectAsState()
     val vpnUplinkMode by app.prefsManager.vpnUplinkModeFlow.collectAsState()
+    val useWorkerMtproto by app.prefsManager.useWorkerMtprotoFlow.collectAsState()
     val warpProfile = remember(isAppResumed, isSocks5) { app.prefsManager.getWarpProfile() }
-    val vlessUuid = remember(isAppResumed) { app.prefsManager.getVlessUuid().ifEmpty { app.config.vlessUuid } }
-    val vlessPath = remember(isAppResumed) { app.prefsManager.getVlessPath().ifEmpty { app.config.vlessPath } }
     var showUplinkStateDialog by remember { mutableStateOf(false) }
 
     var pendingState by remember { mutableStateOf<ProxyUiState?>(null) }
     var lastPowerClickMs by remember { mutableLongStateOf(0L) }
+    var lastDisconnectClickMs by remember { mutableLongStateOf(0L) }
+
+    var hasTriggeredAutostart by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        if (!hasTriggeredAutostart && app.config.autostartOnBoot) {
+            hasTriggeredAutostart = true
+            val isProxyRunning = server.isRunning
+            val isVpnRunning = com.mirrly.tgproxy.service.MirrlyVpnService.isRunning
+
+            if (!isProxyRunning && !isVpnRunning) {
+                com.mirrly.tgproxy.core.AppLogger.i("HomeScreen", "Autostart: launching proxy on app entry...")
+                if (activeTab == HomeScreenTab.VPN || app.prefsManager.isVpnModeEnabled()) {
+                    val prepareIntent = com.mirrly.tgproxy.service.MirrlyVpnService.prepare(context)
+                    if (prepareIntent == null) {
+                        com.mirrly.tgproxy.service.MirrlyVpnService.start(context)
+                    } else {
+                        com.mirrly.tgproxy.core.AppLogger.w("HomeScreen", "Autostart VPN deferred: permission confirmation required")
+                    }
+                } else if (activeTab == HomeScreenTab.SOCKS5 || app.config.isSocks5Mode) {
+                    pendingState = ProxyUiState.CONNECTING
+                    val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
+                        action = ProxyForegroundService.ACTION_START
+                    }
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startForegroundService(serviceIntent)
+                        } else {
+                            context.startService(serviceIntent)
+                        }
+                    } catch (e: Exception) {
+                        pendingState = null
+                        com.mirrly.tgproxy.core.AppLogger.e("HomeScreen", "Autostart SOCKS5 failed: ${e.message}")
+                    }
+                } else {
+                    // MTProto mode
+                    pendingState = ProxyUiState.CONNECTING
+                    val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
+                        action = ProxyForegroundService.ACTION_START
+                    }
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startForegroundService(serviceIntent)
+                        } else {
+                            context.startService(serviceIntent)
+                        }
+                    } catch (e: Exception) {
+                        pendingState = null
+                        com.mirrly.tgproxy.core.AppLogger.e("HomeScreen", "Autostart MTProto failed: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
 
     val isSwitching by com.mirrly.tgproxy.service.ProtocolSwitchManager.isSwitching.collectAsState()
     val switchPhase by com.mirrly.tgproxy.service.ProtocolSwitchManager.switchPhase.collectAsState()
     val wasProxyRunningDuringSwitch by com.mirrly.tgproxy.service.ProtocolSwitchManager.wasProxyRunningDuringSwitch.collectAsState()
     val preflightStage by com.mirrly.tgproxy.service.PreflightDiagnosticsEngine.preflightStage.collectAsState()
     val preflightMessage by com.mirrly.tgproxy.service.PreflightDiagnosticsEngine.preflightStatusMessage.collectAsState()
+    val liveWarmPoolStatus by server.warmPoolStatus.collectAsState()
+    val preflightWarmPoolStatus by com.mirrly.tgproxy.service.PreflightDiagnosticsEngine.warmPoolStatus.collectAsState()
+    val warmPoolStatus = liveWarmPoolStatus ?: preflightWarmPoolStatus
     val warpProfilerPhase by com.mirrly.tgproxy.core.WarpPipelineProfiler.currentPhase.collectAsState()
 
     // ── GROUPED IMMUTABLE TELEMETRY WITH DISTINCT-UNTIL-CHANGED ──
@@ -334,15 +397,25 @@ fun HomeScreen(
     val isServerRunning by server.isRunningFlow.collectAsState()
     val isProxyRunning = telemetry.isRunning || isServerRunning || server.isRunning
 
+    val isPreflightActive = preflightStage != com.mirrly.tgproxy.service.PreflightStage.IDLE &&
+        preflightStage != com.mirrly.tgproxy.service.PreflightStage.COMPLETED &&
+        preflightStage != com.mirrly.tgproxy.service.PreflightStage.FAILED
+
     val currentState = when (switchPhase) {
         com.mirrly.tgproxy.service.SwitchPhase.DISCONNECTING -> ProxyUiState.DISCONNECTING
         com.mirrly.tgproxy.service.SwitchPhase.PAUSE_DARK -> ProxyUiState.DISCONNECTED
         com.mirrly.tgproxy.service.SwitchPhase.RECONNECTING -> ProxyUiState.CONNECTING
-        com.mirrly.tgproxy.service.SwitchPhase.IDLE -> pendingState ?: if (isProxyRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
+        com.mirrly.tgproxy.service.SwitchPhase.IDLE -> {
+            if (isPreflightActive) {
+                ProxyUiState.CONNECTING
+            } else {
+                pendingState ?: if (isProxyRunning) ProxyUiState.CONNECTED else ProxyUiState.DISCONNECTED
+            }
+        }
     }
 
-    LaunchedEffect(isProxyRunning, pendingState) {
-        if (pendingState == ProxyUiState.CONNECTING && isProxyRunning) {
+    LaunchedEffect(isProxyRunning, isPreflightActive, pendingState) {
+        if (pendingState == ProxyUiState.CONNECTING && isProxyRunning && !isPreflightActive) {
             pendingState = null
         } else if (pendingState == ProxyUiState.DISCONNECTING && !isProxyRunning) {
             pendingState = null
@@ -354,6 +427,30 @@ fun HomeScreen(
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showConnectDialog by remember { mutableStateOf(false) }
     var showSocks5AuthRequiredDialog by remember { mutableStateOf(false) }
+    var showSocks5CfAuthRequiredDialog by remember { mutableStateOf(false) }
+    var showSocks5OnboardingDialog by remember { mutableStateOf(false) }
+    var showVpnOnboardingDialog by remember { mutableStateOf(false) }
+    var showImportWarpProfileDialog by remember { mutableStateOf(false) }
+    var showVpnProfileSelectorDialog by remember { mutableStateOf(false) }
+    var isVpnMaintenanceNoticeDismissed by rememberSaveable { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(activeTab) {
+        if (activeTab == HomeScreenTab.VPN && !app.prefsManager.hasSeenVpnOnboarding()) {
+            showVpnOnboardingDialog = true
+        }
+    }
+
+    val cfAuthState by com.mirrly.tgproxy.service.cloudflare.CloudflareOAuthManager.authState.collectAsState()
+    LaunchedEffect(cfAuthState) {
+        val state = cfAuthState
+        if (state is com.mirrly.tgproxy.service.cloudflare.ServerAuthState.Success) {
+            showSocks5CfAuthRequiredDialog = false
+            com.mirrly.tgproxy.service.cloudflare.CloudflareOAuthManager.finalizeSuccessfulAuth(state.tokens, app.prefsManager)
+            com.mirrly.tgproxy.service.cloudflare.CloudflareOAuthManager.cancelActiveListener()
+            showSocks5OnboardingDialog = true
+        }
+    }
 
     // Safety timeout to prevent stuck connecting/disconnecting UI (accommodates pre-flight phase)
     LaunchedEffect(pendingState) {
@@ -470,13 +567,29 @@ fun HomeScreen(
                         modifier = Modifier.align(Alignment.Center)
                     )
 
-                    // Actions (Right) - Update, Settings
+                    // Actions (Right) - AI Chat, Update, Settings
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(1.dp),
                         modifier = Modifier.align(Alignment.CenterEnd)
                     ) {
-                        // 1. Update Center (note note)
+                        // 1. AI Chat (Gemini Neural Network)
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onOpenAiChat()
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_ai_chat),
+                                contentDescription = stringResource(R.string.content_desc_ai_chat),
+                                tint = TextWhite,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // 2. Update Center (note note)
                         val hasUpdate = updateInfo?.isUpdateAvailable == true
                         IconButton(
                             onClick = {
@@ -539,6 +652,8 @@ fun HomeScreen(
                         onVpnTabChange(newTab == HomeScreenTab.VPN)
                     },
                     activeWorker = activeWorker,
+                    activeWorkerMtproto = activeWorkerMtproto,
+                    activeWorkerSocks5 = activeWorkerSocks5,
                     protoColors = protoColors,
                     vpnColors = systemVpnColors,
                     isSwitching = isSwitching,
@@ -549,15 +664,11 @@ fun HomeScreen(
                     uplinkMode = uplinkMode,
                     vpnUplinkMode = vpnUplinkMode,
                     warpProfile = warpProfile,
-                    vlessUuid = vlessUuid,
                     onOpenUplinkState = { showUplinkStateDialog = true },
                     onOpenVpnInfo = {
-                        if (isDevVpnUnlocked) {
-                            showVpnProtocolDialog = true
-                        } else {
-                            showVpnInDevDialog = true
-                        }
-                    }
+                        showVpnProtocolDialog = true
+                    },
+                    useWorkerMtproto = useWorkerMtproto
                 )
             }
         },
@@ -650,11 +761,36 @@ fun HomeScreen(
                 label = "powerSpringScale"
             )
 
+            val isSheetOpen = BottomSheetStateTracker.isAnySheetOpen
+            val sheetBlurProgress by animateFloatAsState(
+                targetValue = if (isSheetOpen) 1f else 0f,
+                animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing),
+                label = "homeBodySheetBlur"
+            )
+            val density = LocalDensity.current.density
+            val bodySheetBlurModifier = if (sheetBlurProgress > 0.005f) {
+                Modifier.graphicsLayer {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val blurPx = sheetBlurProgress * 24f * density
+                        if (blurPx > 0.5f) {
+                            renderEffect = RenderEffect.createBlurEffect(
+                                blurPx,
+                                blurPx,
+                                Shader.TileMode.CLAMP
+                            ).asComposeRenderEffect()
+                        }
+                    }
+                }
+            } else {
+                Modifier
+            }
+
             // Dynamic unified vertical Column preventing any overlap across all screen ratios & DPIs
             Column(
                 modifier = Modifier
                     .adaptiveContainerWidth(600.dp)
                     .fillMaxHeight()
+                    .then(bodySheetBlurModifier)
                     .padding(
                         top = padding.calculateTopPadding(),
                         bottom = padding.calculateBottomPadding() + if (isCompactHeight) 4.dp else 8.dp
@@ -766,8 +902,11 @@ fun HomeScreen(
 
                 // ─── 2. CENTER SECTION (Power button) ───
                 val isProxyRunning = currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING
-                val isWarpMissing = false
-                val hasNoCustomWorker = isSocks5 && (activeWorker.domain.isBlank() || activeWorker.id == "no_worker" || activeWorker.isDeveloperWorker)
+                val hasNoCustomWorker = if (isSocks5) {
+                    activeWorkerSocks5.domain.isBlank() || activeWorkerSocks5.id == "no_worker" || activeWorkerSocks5.isDeveloperWorker
+                } else {
+                    useWorkerMtproto && (activeWorkerMtproto.domain.isBlank() || activeWorkerMtproto.id == "no_worker" || activeWorkerMtproto.isDeveloperWorker)
+                }
                 val shouldShowUplinkNotice = hasNoCustomWorker
                 var isUplinkNoticeVisible by remember { mutableStateOf(false) }
 
@@ -780,8 +919,10 @@ fun HomeScreen(
                     }
                 }
 
+                val isVpnNoticeShowing = (activeTab == HomeScreenTab.VPN && !isVpnMaintenanceNoticeDismissed)
+                val isUplinkNoticeShowing = (activeTab != HomeScreenTab.VPN && isUplinkNoticeVisible && shouldShowUplinkNotice)
                 val buttonInertiaOffsetY by animateDpAsState(
-                    targetValue = if (isUplinkNoticeVisible && shouldShowUplinkNotice) (-4).dp else 0.dp,
+                    targetValue = if (isVpnNoticeShowing || isUplinkNoticeShowing) (-4).dp else 0.dp,
                     animationSpec = spring(
                         dampingRatio = 0.88f,
                         stiffness = Spring.StiffnessLow
@@ -808,15 +949,30 @@ fun HomeScreen(
                                 indication = null
                             ) {
                                 if (activeTab == HomeScreenTab.VPN) {
-                                    if (!isDevVpnUnlocked) {
-                                        HapticHelper.performTapClick(context)
-                                        showVpnInDevDialog = true
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastPowerClickMs < 450L) return@clickable
+                                    lastPowerClickMs = now
+
+                                    HapticHelper.performTapClick(context)
+                                    if (vpnState == VpnUiState.DISCONNECTING) {
+                                        if (now - lastDisconnectClickMs < 1200L) {
+                                            AppLogger.d("HomeScreen", "VPN is currently disconnecting, ignoring click")
+                                            return@clickable
+                                        }
+                                        AppLogger.w("HomeScreen", "VPN is disconnecting for >1.2s, force triggering stop")
+                                        lastDisconnectClickMs = now
+                                        com.mirrly.tgproxy.service.MirrlyVpnService.stop(context)
                                         return@clickable
                                     }
-                                    HapticHelper.performTapClick(context)
                                     if (vpnState == VpnUiState.CONNECTED || vpnState == VpnUiState.CONNECTING) {
+                                        lastDisconnectClickMs = now
                                         com.mirrly.tgproxy.service.MirrlyVpnService.stop(context)
                                     } else {
+                                        if (app.warpProfileManager.getAllProfiles().isEmpty()) {
+                                            Toast.makeText(context, "Требуется создать или импортировать профиль WARP", Toast.LENGTH_SHORT).show()
+                                            onOpenWarpGenerator()
+                                            return@clickable
+                                        }
                                         val prepareIntent = com.mirrly.tgproxy.service.MirrlyVpnService.prepare(context)
                                         if (prepareIntent != null) {
                                             vpnLauncher.launch(prepareIntent)
@@ -839,9 +995,20 @@ fun HomeScreen(
                                         serviceIntent.action = ProxyForegroundService.ACTION_STOP
                                         context.startService(serviceIntent)
                                     } else {
-                                        if (app.config.isSocks5Mode && !app.config.hasSocks5Auth) {
-                                            showSocks5AuthRequiredDialog = true
-                                            return@clickable
+                                        val isSocks5Mode = (activeTab == HomeScreenTab.SOCKS5 || proxyMode == com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
+                                        val isMtprotoWithWorker = (activeTab == HomeScreenTab.MTPROTO || proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO) && useWorkerMtproto
+                                        if (isSocks5Mode) {
+                                            if (app.config.getEffectiveCfDomain().isBlank() && activeWorkerSocks5.domain.isBlank()) {
+                                                HapticHelper.performTapClick(context)
+                                                showSocks5CfAuthRequiredDialog = true
+                                                return@clickable
+                                            }
+                                        } else if (isMtprotoWithWorker) {
+                                            if (app.config.getEffectiveCfDomain().isBlank() && activeWorkerMtproto.domain.isBlank()) {
+                                                HapticHelper.performTapClick(context)
+                                                showSocks5CfAuthRequiredDialog = true
+                                                return@clickable
+                                            }
                                         }
                                         pendingState = ProxyUiState.CONNECTING
                                         serviceIntent.action = ProxyForegroundService.ACTION_START
@@ -865,7 +1032,7 @@ fun HomeScreen(
                                 modifier = Modifier.size(ringSize)
                             )
 
-                            AnimatedVpnShield(
+                            AnimatedWarpCloud(
                                 vpnColors = systemVpnColors,
                                 state = vpnState,
                                 modifier = Modifier.size(powerIconSize)
@@ -902,41 +1069,140 @@ fun HomeScreen(
                 ) {
                     if (activeTab == HomeScreenTab.VPN) {
                         // ─── VPN MODE DASHBOARD (AMOLED Transparent) ───
+                        AnimatedVisibility(
+                            visible = !isVpnMaintenanceNoticeDismissed,
+                            enter = scaleIn(
+                                initialScale = 0.92f,
+                                animationSpec = spring(
+                                    dampingRatio = 0.88f,
+                                    stiffness = Spring.StiffnessLow
+                                ),
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
+                            ) + expandVertically(
+                                animationSpec = spring(
+                                    dampingRatio = 0.88f,
+                                    stiffness = Spring.StiffnessLow
+                                ),
+                                expandFrom = Alignment.CenterVertically
+                            ) + fadeIn(animationSpec = tween(400, easing = LinearOutSlowInEasing)),
+                            exit = scaleOut(
+                                targetScale = 0.94f,
+                                animationSpec = tween(350, easing = FastOutSlowInEasing),
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
+                            ) + shrinkVertically(
+                                animationSpec = tween(350, easing = FastOutSlowInEasing),
+                                shrinkTowards = Alignment.CenterVertically
+                            ) + fadeOut(animationSpec = tween(280, easing = FastOutSlowInEasing))
+                        ) {
+                            val vpnWarnColor = Color(0xFFFFB74D)
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = vpnWarnColor.copy(alpha = 0.08f),
+                                border = BorderStroke(1.dp, vpnWarnColor.copy(alpha = 0.35f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp)
+                                    .padding(bottom = if (isCompactHeight) 5.dp else 7.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        showVpnOnboardingDialog = true
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = if (isCompactHeight) 6.dp else 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(vpnWarnColor.copy(alpha = 0.15f))
+                                            .border(1.dp, vpnWarnColor.copy(alpha = 0.35f), CircleShape)
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_vpn),
+                                            contentDescription = null,
+                                            tint = vpnWarnColor,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                    }
+
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.vpn_maintenance_notice_title),
+                                            color = vpnWarnColor,
+                                            fontSize = if (isCompactHeight) 10.5.sp else 11.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.vpn_maintenance_notice_desc),
+                                            color = TextWhite.copy(alpha = 0.85f),
+                                            fontSize = if (isCompactHeight) 9.5.sp else 10.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            lineHeight = if (isCompactHeight) 12.5.sp else 13.5.sp
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            isVpnMaintenanceNoticeDismissed = true
+                                        },
+                                        modifier = Modifier.size(22.dp)
+                                    ) {
+                                        Text(
+                                            text = "✕",
+                                            color = TextMuted,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center,
                             modifier = Modifier.padding(bottom = 4.dp)
                         ) {
                             Surface(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (!isDevVpnUnlocked) {
-                                        showVpnInDevDialog = true
-                                        return@Surface
-                                    }
-                                    if (vpnState == VpnUiState.CONNECTED || vpnState == VpnUiState.CONNECTING) {
-                                        com.mirrly.tgproxy.service.MirrlyVpnService.stop(context)
-                                    } else {
-                                        val prepareIntent = com.mirrly.tgproxy.service.MirrlyVpnService.prepare(context)
-                                        if (prepareIntent != null) {
-                                            vpnLauncher.launch(prepareIntent)
-                                        } else {
-                                            com.mirrly.tgproxy.service.MirrlyVpnService.start(context)
-                                        }
-                                    }
-                                },
                                 shape = RoundedCornerShape(16.dp),
                                 color = Color.Transparent,
                                 border = BorderStroke(1.dp, if (vpnState == VpnUiState.CONNECTED) systemVpnColors.primary.copy(alpha = 0.40f) else AmoledBorder),
                                 modifier = Modifier.springPress(onClick = {
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastPowerClickMs < 450L) return@springPress
+                                    lastPowerClickMs = now
+
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (!isDevVpnUnlocked) {
-                                        showVpnInDevDialog = true
+                                    if (vpnState == VpnUiState.DISCONNECTING) {
+                                        if (now - lastDisconnectClickMs < 1200L) {
+                                            AppLogger.d("HomeScreen", "VPN is currently disconnecting, ignoring badge click")
+                                            return@springPress
+                                        }
+                                        AppLogger.w("HomeScreen", "VPN is disconnecting for >1.2s, force triggering stop from badge")
+                                        lastDisconnectClickMs = now
+                                        com.mirrly.tgproxy.service.MirrlyVpnService.stop(context)
                                         return@springPress
                                     }
                                     if (vpnState == VpnUiState.CONNECTED || vpnState == VpnUiState.CONNECTING) {
+                                        lastDisconnectClickMs = now
                                         com.mirrly.tgproxy.service.MirrlyVpnService.stop(context)
                                     } else {
+                                        if (app.warpProfileManager.getAllProfiles().isEmpty()) {
+                                            Toast.makeText(context, "Требуется создать или импортировать профиль WARP", Toast.LENGTH_SHORT).show()
+                                            onOpenWarpGenerator()
+                                            return@springPress
+                                        }
                                         val prepareIntent = com.mirrly.tgproxy.service.MirrlyVpnService.prepare(context)
                                         if (prepareIntent != null) {
                                             vpnLauncher.launch(prepareIntent)
@@ -961,15 +1227,11 @@ fun HomeScreen(
                                         modifier = Modifier.size(6.dp)
                                     ) {}
 
-                                    val statusVpnText = if (isDevVpnUnlocked) {
-                                        when (vpnState) {
-                                            VpnUiState.CONNECTED -> stringResource(R.string.status_vpn_enabled)
-                                            VpnUiState.CONNECTING -> stringResource(R.string.status_vpn_connecting)
-                                            VpnUiState.DISCONNECTING -> stringResource(R.string.status_vpn_disconnecting)
-                                            VpnUiState.DISCONNECTED -> stringResource(R.string.status_vpn_disabled)
-                                        }
-                                    } else {
-                                        stringResource(R.string.status_vpn_in_dev)
+                                    val statusVpnText = when (vpnState) {
+                                        VpnUiState.CONNECTED -> stringResource(R.string.status_vpn_enabled)
+                                        VpnUiState.CONNECTING -> stringResource(R.string.status_vpn_connecting)
+                                        VpnUiState.DISCONNECTING -> stringResource(R.string.status_vpn_disconnecting)
+                                        VpnUiState.DISCONNECTED -> stringResource(R.string.status_vpn_disabled)
                                     }
 
                                     Text(
@@ -979,127 +1241,58 @@ fun HomeScreen(
                                         fontWeight = FontWeight.Bold,
                                         letterSpacing = 1.1.sp
                                     )
-                                }
-                            }
-                        }
 
-                        if (!isDevVpnUnlocked) {
-                            Text(
-                                text = stringResource(R.string.status_vpn_in_dev_desc),
-                                color = TextMuted,
-                                fontSize = if (isCompactHeight) 11.sp else 11.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        showVpnInDevDialog = true
-                                    }
-                            )
-
-                            Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
-
-                            Surface(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    showVpnInDevDialog = true
-                                },
-                                shape = RoundedCornerShape(16.dp),
-                                color = Color(0xFF1E293B).copy(alpha = 0.35f),
-                                border = BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.35f)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(42.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFFFB74D).copy(alpha = 0.12f))
-                                            .border(1.dp, Color(0xFFFFB74D).copy(alpha = 0.45f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_settings),
-                                            contentDescription = null,
-                                            tint = Color(0xFFFFB74D),
-                                            modifier = Modifier.size(20.dp)
+                                    if (vpnState == VpnUiState.CONNECTED) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(1.dp)
+                                                .height(13.dp)
+                                                .background(systemVpnColors.primary.copy(alpha = 0.35f))
                                         )
-                                    }
 
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Text(
-                                                text = stringResource(R.string.vpn_in_dev_card_title),
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = TextWhite
-                                            )
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0xFFFFB74D).copy(alpha = 0.16f),
-                                                border = BorderStroke(0.6.dp, Color(0xFFFFB74D).copy(alpha = 0.50f))
-                                            ) {
-                                                Text(
-                                                    text = stringResource(R.string.settings_vpn_in_dev_badge),
-                                                    fontSize = 8.5.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    color = Color(0xFFFFB74D),
-                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                        }
-                                        Text(
-                                            text = stringResource(R.string.vpn_in_dev_card_desc),
-                                            fontSize = 11.5.sp,
-                                            color = TextMuted,
-                                            lineHeight = 15.sp
+                                        RollingNumberText(
+                                            text = formatUptime(vpnStatus.uptimeMs / 1000L),
+                                            color = systemVpnColors.primary,
+                                            fontSize = if (isCompactHeight) 13.5.sp else 14.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 1.1.sp
                                         )
                                     }
                                 }
                             }
-                        } else {
-                            Text(
-                                text = when (vpnState) {
-                                    VpnUiState.CONNECTED -> stringResource(R.string.status_vpn_system_connected_desc)
-                                    else -> stringResource(R.string.status_vpn_system_mode_desc)
-                                },
-                                color = TextMuted,
-                                fontSize = if (isCompactHeight) 11.sp else 11.5.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
-
-                            VpnInfoWidget(
-                                isCompact = isCompactHeight,
-                                vpnState = vpnState,
-                                vpnColors = systemVpnColors,
-                                vpnUplinkMode = vpnUplinkMode,
-                                onTap = { showVpnProtocolDialog = true }
-                            )
-
-                            Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
-
-                            VpnActionDock(
-                                onTapProtocol = { showVpnProtocolDialog = true },
-                                onTapKillSwitch = { showSplitTunnelAppsDialog = true }
-                            )
                         }
+
+                        Text(
+                            text = when (vpnState) {
+                                VpnUiState.CONNECTED -> stringResource(R.string.status_vpn_system_connected_desc)
+                                else -> stringResource(R.string.status_vpn_system_mode_desc)
+                            },
+                            color = TextMuted,
+                            fontSize = if (isCompactHeight) 11.sp else 11.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
+
+                        VpnInfoWidget(
+                            isCompact = isCompactHeight,
+                            vpnState = vpnState,
+                            vpnColors = systemVpnColors,
+                            vpnUplinkMode = vpnUplinkMode,
+                            onTapProfile = { showVpnProfileSelectorDialog = true },
+                            onTapDns = { showVpnProtocolDialog = true }
+                        )
+
+                        Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
+
+                        VpnActionDock(
+                            onTapDns = { showVpnProtocolDialog = true },
+                            onTapSplitTunnel = { showSplitTunnelAppsDialog = true },
+                            splitTunnelCount = vpnSplitTunnelPackages.size,
+                            onTapImportProfile = { showImportWarpProfileDialog = true },
+                            onTapGuide = { showVpnOnboardingDialog = true },
+                            onTapGenerator = onOpenWarpGenerator
+                        )
                     } else {
                         // SOCKS5 Uplink / Worker Info Notice (Smooth expanding/shrinking from center with staggered delay)
                         AnimatedVisibility(
@@ -1127,82 +1320,46 @@ fun HomeScreen(
                             shrinkTowards = Alignment.CenterVertically
                         ) + fadeOut(animationSpec = tween(280, easing = FastOutSlowInEasing))
                     ) {
-                        if (isWarpMissing) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(1.dp, Color(0xFFFF9E00).copy(alpha = 0.45f)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp)
-                                    .padding(bottom = if (isCompactHeight) 5.dp else 7.dp)
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onOpenSettings()
-                                    }
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = if (uplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE) stringResource(R.string.warp_masque_registration_needed) else stringResource(R.string.warp_hybrid_registration_needed),
-                                        color = Color(0xFFFF9E00),
-                                        fontSize = if (isCompactHeight) 10.5.sp else 11.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = stringResource(R.string.warp_tap_settings_create_profile),
-                                        color = Color(0xFFFFB74D).copy(alpha = 0.70f),
-                                        fontSize = if (isCompactHeight) 9.5.sp else 10.5.sp,
-                                        textAlign = TextAlign.Center
-                                    )
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFF38020).copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, Color(0xFFF38020).copy(alpha = 0.35f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                                .padding(bottom = if (isCompactHeight) 5.dp else 7.dp)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onOpenWorkerManager(if (activeTab == HomeScreenTab.SOCKS5) com.mirrly.tgproxy.core.ProxyMode.SOCKS5 else com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
                                 }
-                            }
-                        } else if (hasNoCustomWorker) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFFF38020).copy(alpha = 0.08f),
-                                border = BorderStroke(1.dp, Color(0xFFF38020).copy(alpha = 0.35f)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 20.dp)
-                                    .padding(bottom = if (isCompactHeight) 5.dp else 7.dp)
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onOpenWorkerManager()
-                                    }
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                             ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.wm_dev_workers_removed_title),
-                                        color = Color(0xFFF38020),
-                                        fontSize = if (isCompactHeight) 10.5.sp else 11.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = stringResource(R.string.wm_dev_workers_removed_reason),
-                                        color = TextWhite.copy(alpha = 0.85f),
-                                        fontSize = if (isCompactHeight) 9.5.sp else 10.5.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = stringResource(R.string.wm_dev_workers_removed_desc),
-                                        color = TextMuted,
-                                        fontSize = if (isCompactHeight) 9.sp else 10.sp,
-                                        textAlign = TextAlign.Center,
-                                        lineHeight = if (isCompactHeight) 12.sp else 13.5.sp
-                                    )
-                                }
+                                Text(
+                                    text = stringResource(R.string.wm_dev_workers_removed_title),
+                                    color = Color(0xFFF38020),
+                                    fontSize = if (isCompactHeight) 10.5.sp else 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = stringResource(R.string.wm_dev_workers_removed_reason),
+                                    color = TextWhite.copy(alpha = 0.85f),
+                                    fontSize = if (isCompactHeight) 9.5.sp else 10.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = stringResource(R.string.wm_dev_workers_removed_desc),
+                                    color = TextMuted,
+                                    fontSize = if (isCompactHeight) 9.sp else 10.sp,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = if (isCompactHeight) 12.sp else 13.5.sp
+                                )
                             }
                         }
                     }
@@ -1261,13 +1418,18 @@ fun HomeScreen(
                                 val statusText = when (currentState) {
                                     ProxyUiState.CONNECTED -> formatUptime(telemetry.uptimeSeconds)
                                     ProxyUiState.CONNECTING -> {
-                                        if (preflightStage == com.mirrly.tgproxy.service.PreflightStage.OPTIMIZING_ROUTE ||
-                                            preflightStage == com.mirrly.tgproxy.service.PreflightStage.VALIDATING_DNS ||
-                                            preflightStage == com.mirrly.tgproxy.service.PreflightStage.PROBING_CANDIDATES
-                                        ) {
-                                            stringResource(R.string.status_optimizing_route)
-                                        } else {
-                                            stringResource(R.string.status_connecting_caps)
+                                        when (preflightStage) {
+                                            com.mirrly.tgproxy.service.PreflightStage.PHASE_1_START_SERVER -> "[1/3] СЕРВЕР"
+                                            com.mirrly.tgproxy.service.PreflightStage.PHASE_2_WARMUP_STREAMS -> {
+                                                val pool = warmPoolStatus
+                                                if (pool != null && pool.target_total > 0) {
+                                                    "[2/3] ПРОГРЕВ ${pool.ready_total}/${pool.target_total}"
+                                                } else {
+                                                    "[2/3] ПРОГРЕВ ПОТОКОВ"
+                                                }
+                                            }
+                                            com.mirrly.tgproxy.service.PreflightStage.PHASE_3_SOCKS5_READY -> "[3/3] ГОТОВ"
+                                            else -> stringResource(R.string.status_connecting_caps)
                                         }
                                     }
                                     ProxyUiState.DISCONNECTING -> stringResource(R.string.status_disconnecting_caps)
@@ -1377,13 +1539,10 @@ fun HomeScreen(
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
+                            .springPress(onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 showUplinkStateDialog = true
-                            }
+                            })
                     )
 
                     Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
@@ -1535,203 +1694,212 @@ fun HomeScreen(
                                     .fillMaxWidth()
                                     .height(if (isCompactHeight) 38.dp else 44.dp)
                             )
+
+                            if (warmPoolStatus != null && warmPoolStatus.target_total > 0 &&
+                                (currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING)
+                            ) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(0.8.dp)
+                                        .background(AmoledBorder.copy(alpha = 0.35f))
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    val isFull = warmPoolStatus.ready_total >= warmPoolStatus.target_total
+                                    val hasInFlight = warmPoolStatus.in_flight_total > 0
+                                    val statusLed = when {
+                                        isFull -> ActiveGreenLed
+                                        warmPoolStatus.ready_total > 0 || hasInFlight -> Color(0xFFFF9E00)
+                                        else -> Color(0xFFFF5252)
+                                    }
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(statusLed)
+                                        )
+                                        Text(
+                                            text = stringResource(
+                                                R.string.warm_pool_summary,
+                                                warmPoolStatus.ready_total,
+                                                warmPoolStatus.target_total
+                                            ),
+                                            color = TextWhite,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        if (hasInFlight) {
+                                            Text(
+                                                text = "(+${warmPoolStatus.in_flight_total})",
+                                                color = Color(0xFFFF9E00),
+                                                fontSize = 9.5.sp,
+                                                fontWeight = FontWeight.Normal,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "DC2 ${warmPoolStatus.dc2_chat_ready}/${warmPoolStatus.dc2_chat_target}",
+                                            color = if (warmPoolStatus.dc2_chat_ready >= warmPoolStatus.dc2_chat_target && warmPoolStatus.dc2_chat_target > 0) protoColors.primary else TextMuted,
+                                            fontSize = 9.5.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = "·",
+                                            color = TextMuted.copy(alpha = 0.5f),
+                                            fontSize = 9.sp
+                                        )
+                                        Text(
+                                            text = "DC2m ${warmPoolStatus.dc2_media_ready}/${warmPoolStatus.dc2_media_target}",
+                                            color = if (warmPoolStatus.dc2_media_ready >= warmPoolStatus.dc2_media_target && warmPoolStatus.dc2_media_target > 0) protoColors.primary else TextMuted,
+                                            fontSize = 9.5.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = "·",
+                                            color = TextMuted.copy(alpha = 0.5f),
+                                            fontSize = 9.sp
+                                        )
+                                        Text(
+                                            text = "DC4m ${warmPoolStatus.dc4_media_ready}/${warmPoolStatus.dc4_media_target}",
+                                            color = if (warmPoolStatus.dc4_media_ready >= warmPoolStatus.dc4_media_target && warmPoolStatus.dc4_media_target > 0) protoColors.primary else TextMuted,
+                                            fontSize = 9.5.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
+
+
+
+                    Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 8.dp))
 
                     // Action Buttons Dock (Always visible, requiring Proxy ON)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (activeTab == HomeScreenTab.VPN) {
-                            // Left Action: Select Protocol
-                            Surface(
-                                onClick = {
+                        // Left Action: Copy Link
+                        Surface(
+                            onClick = {
+                                if (currentState != ProxyUiState.CONNECTED) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (isDevVpnUnlocked) {
-                                        showVpnProtocolDialog = true
-                                    } else {
-                                        showVpnInDevDialog = true
+                                    Toast.makeText(context, context.getString(R.string.msg_start_proxy_first), Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val tgUrl = server.getTelegramUrl()
+                                    val label = when (app.config.proxyMode) {
+                                        com.mirrly.tgproxy.core.ProxyMode.SOCKS5 -> "SOCKS5"
+                                        com.mirrly.tgproxy.core.ProxyMode.MTPROTO -> "MTProto"
                                     }
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .springPress(),
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (vpnState == VpnUiState.CONNECTED) systemVpnColors.primary.copy(alpha = 0.50f) else AmoledBorder
-                                )
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
-                                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_settings),
-                                        contentDescription = null,
-                                        tint = if (vpnState == VpnUiState.CONNECTED) systemVpnColors.primary else TextMuted.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Протокол: ${vpnUplinkMode.displayName}",
-                                        color = if (vpnState == VpnUiState.CONNECTED) TextWhite else TextMuted,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 12.5.sp,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            // Right Action: Split Tunnel Exceptions
-                            Surface(
-                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Telegram Proxy", tgUrl)
+                                    clipboard.setPrimaryClip(clip)
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (isDevVpnUnlocked) {
-                                        showSplitTunnelAppsDialog = true
-                                    } else {
-                                        showVpnInDevDialog = true
-                                    }
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .springPress(),
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (vpnState == VpnUiState.CONNECTED) systemVpnColors.primary.copy(alpha = 0.50f) else AmoledBorder
-                                )
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
-                                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_shield),
-                                        contentDescription = null,
-                                        tint = if (vpnState == VpnUiState.CONNECTED) systemVpnColors.primary else TextMuted.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    val pkgCount = vpnSplitTunnelPackages.size
-                                    Text(
-                                        text = if (pkgCount > 0) "Исключения ($pkgCount)" else "Исключения",
-                                        color = if (vpnState == VpnUiState.CONNECTED) TextWhite else TextMuted,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 12.5.sp,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                    )
+                                    Toast.makeText(context, context.getString(R.string.msg_link_copied, label), Toast.LENGTH_SHORT).show()
                                 }
-                            }
-                        } else {
-                            // Left Action: Copy Link
-                            Surface(
-                                onClick = {
-                                    if (currentState != ProxyUiState.CONNECTED) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        Toast.makeText(context, context.getString(R.string.msg_start_proxy_first), Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        val tgUrl = server.getTelegramUrl()
-                                        val label = when (app.config.proxyMode) {
-                                            com.mirrly.tgproxy.core.ProxyMode.SOCKS5 -> "SOCKS5"
-                                            com.mirrly.tgproxy.core.ProxyMode.MTPROTO -> "MTProto"
-                                        }
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = ClipData.newPlainText("Telegram Proxy", tgUrl)
-                                        clipboard.setPrimaryClip(clip)
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        Toast.makeText(context, context.getString(R.string.msg_link_copied, label), Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .springPress(),
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.35f) else AmoledBorder
-                                )
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .springPress(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.35f) else AmoledBorder
+                            )
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
-                                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_copy),
-                                        contentDescription = stringResource(R.string.action_copy),
-                                        tint = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        stringResource(R.string.action_copy),
-                                        color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 13.sp,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                    )
-                                }
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_copy),
+                                    contentDescription = stringResource(R.string.action_copy),
+                                    tint = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    stringResource(R.string.action_copy),
+                                    color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
                             }
+                        }
 
-                            // Right Action: Apply to Telegram
-                            Surface(
-                                onClick = {
-                                    if (currentState != ProxyUiState.CONNECTED) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        Toast.makeText(context, context.getString(R.string.msg_start_proxy_first), Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        val tgUrl = server.getTelegramUrl()
-                                        applyToTelegramPackages(context, tgUrl)
-                                    }
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .springPress(),
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.12f) else Color.Transparent,
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.70f) else AmoledBorder
-                                )
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
-                                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_send),
-                                        contentDescription = stringResource(R.string.action_to_telegram),
-                                        tint = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else TextMuted.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        stringResource(R.string.action_to_telegram),
-                                        color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                    )
+                        // Right Action: Apply to Telegram
+                        Surface(
+                            onClick = {
+                                if (currentState != ProxyUiState.CONNECTED) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    Toast.makeText(context, context.getString(R.string.msg_start_proxy_first), Toast.LENGTH_SHORT).show()
+                                } else {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    val tgUrl = server.getTelegramUrl()
+                                    applyToTelegramPackages(context, tgUrl)
                                 }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .springPress(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.12f) else Color.Transparent,
+                            border = BorderStroke(
+                                1.dp,
+                                if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.70f) else AmoledBorder
+                            )
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_send),
+                                    contentDescription = stringResource(R.string.action_to_telegram),
+                                    tint = if (currentState == ProxyUiState.CONNECTED) protoColors.primary else TextMuted.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    stringResource(R.string.action_to_telegram),
+                                    color = if (currentState == ProxyUiState.CONNECTED) TextWhite else TextMuted.copy(alpha = 0.5f),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }
@@ -1798,6 +1966,7 @@ fun HomeScreen(
                 )
             }
 
+
             if (showSocks5AuthRequiredDialog) {
                 Socks5AuthRequiredDialog(
                     onDismiss = { showSocks5AuthRequiredDialog = false },
@@ -1807,6 +1976,8 @@ fun HomeScreen(
                         app.config.socks5Password = pass
                         app.prefsManager.saveConfig(app.config)
                         com.mirrly.tgproxy.core.NativeProxy.setSocks5Auth(user, pass)
+
+
 
                         pendingState = ProxyUiState.CONNECTING
                         val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
@@ -1826,14 +1997,138 @@ fun HomeScreen(
                 )
             }
 
+            if (showSocks5CfAuthRequiredDialog) {
+                Socks5CloudflareAuthDialog(
+                    onDismiss = { showSocks5CfAuthRequiredDialog = false },
+                    onAuthSuccess = {
+                        showSocks5CfAuthRequiredDialog = false
+                        showSocks5OnboardingDialog = true
+                    },
+                    onCustomWorkerSaved = { domain ->
+                        showSocks5CfAuthRequiredDialog = false
+                        app.config.customCfDomain = domain
+                        app.config.useDefaultWorkerSocks5 = false
+                        app.prefsManager.saveConfig(app.config)
+                        if (activeTab == HomeScreenTab.MTPROTO) {
+                            app.prefsManager.setUseWorkerMtproto(true)
+                        }
+
+                        pendingState = ProxyUiState.CONNECTING
+                        val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
+                            action = ProxyForegroundService.ACTION_START
+                        }
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                context.startForegroundService(serviceIntent)
+                            } else {
+                                context.startService(serviceIntent)
+                            }
+                        } catch (e: Exception) {
+                            pendingState = null
+                            AppLogger.e("HomeScreen", "Failed to start service after custom worker saved: ${e.message}")
+                        }
+                    },
+                    onOpenManualGuide = {
+                        showSocks5CfAuthRequiredDialog = false
+                        onOpenWorkerManagerSection?.invoke(ManagerSection.GUIDE) ?: onOpenWorkerManager(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
+                    }
+                )
+            }
+
+            if (showSocks5OnboardingDialog) {
+                Socks5OnboardingDialog(
+                    onDismiss = {
+                        showSocks5OnboardingDialog = false
+                    },
+                    onOpenWorkerManager = {
+                        showSocks5OnboardingDialog = false
+                        app.prefsManager.setSocks5OnboardingCompleted(true)
+                        onOpenWorkerManager(com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
+                    }
+                )
+            }
+
+            if (showVpnOnboardingDialog) {
+                VpnOnboardingDialog(
+                    onDismiss = {
+                        showVpnOnboardingDialog = false
+                        app.prefsManager.setHasSeenVpnOnboarding(true)
+                    },
+                    onCreateProfileAuto = {
+                        showVpnOnboardingDialog = false
+                        app.prefsManager.setHasSeenVpnOnboarding(true)
+                        onOpenWarpGenerator()
+                    },
+                    onOpenImport = {
+                        showVpnOnboardingDialog = false
+                        app.prefsManager.setHasSeenVpnOnboarding(true)
+                        showImportWarpProfileDialog = true
+                    },
+                    onOpenGenerator = onOpenWarpGenerator
+                )
+            }
+
+            if (showVpnProfileSelectorDialog) {
+                VpnProfileSelectorDialog(
+                    vpnColors = systemVpnColors,
+                    onDismiss = { showVpnProfileSelectorDialog = false }
+                )
+            }
+
+            if (showImportWarpProfileDialog) {
+                ImportWarpProfileDialog(
+                    onProfileImported = { importedProfile ->
+                        app.prefsManager.saveWarpProfile(importedProfile)
+                        app.config.applyWarpProfile(importedProfile)
+                        app.saveConfig()
+                        if (vpnState == VpnUiState.CONNECTED) {
+                            com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                        }
+                    },
+                    onLicenseKeyImported = { key ->
+                        app.config.warpLicenseKey = key
+                        app.saveConfig()
+                        coroutineScope.launch {
+                            val currentProf = app.prefsManager.getWarpProfile()
+                            if (currentProf != null && currentProf.accountId.isNotBlank() && currentProf.token.isNotBlank()) {
+                                val result = com.mirrly.tgproxy.core.WarpAccountManager.attachLicenseKey(
+                                    accountId = currentProf.accountId,
+                                    token = currentProf.token,
+                                    licenseKey = key,
+                                    workerDomain = app.config.getEffectiveWarpWorkerDomain()
+                                )
+                                result.onSuccess {
+                                    val updated = currentProf.copy(
+                                        licenseKey = key,
+                                        isWarpPlus = true,
+                                        entitlement = com.mirrly.tgproxy.core.WarpEntitlement.PLUS
+                                    )
+                                    app.prefsManager.saveWarpProfile(updated)
+                                    app.config.applyWarpProfile(updated)
+                                    app.saveConfig()
+                                    Toast.makeText(context, context.getString(R.string.vpn_import_key_success_toast), Toast.LENGTH_SHORT).show()
+                                    if (vpnState == VpnUiState.CONNECTED) {
+                                        com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
+                                    }
+                                }.onFailure { err ->
+                                    Toast.makeText(context, context.getString(R.string.warp_err_prefix, err.message ?: ""), Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                Toast.makeText(context, context.getString(R.string.vpn_import_key_success_toast), Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    onOpenGenerator = onOpenWarpGenerator,
+                    onDismiss = { showImportWarpProfileDialog = false }
+                )
+            }
+
             if (showUplinkStateDialog) {
                 UplinkStateDialog(
                     uplinkMode = uplinkMode,
                     isSocks5 = isSocks5,
                     activeWorker = activeWorker,
                     warpProfile = warpProfile,
-                    vlessUuid = vlessUuid,
-                    vlessPath = vlessPath,
                     effectiveRoute = telemetry.effectiveRoute,
                     operator = telemetry.operator,
                     isTrustBoundaryMaintained = telemetry.isTrustBoundaryMaintained,
@@ -1846,15 +2141,8 @@ fun HomeScreen(
                     },
                     onOpenWorkerManager = {
                         showUplinkStateDialog = false
-                        onOpenWorkerManager()
+                        onOpenWorkerManager(if (isSocks5) com.mirrly.tgproxy.core.ProxyMode.SOCKS5 else com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
                     }
-                )
-            }
-
-            if (showVpnInDevDialog) {
-                VpnInDevDialog(
-                    vpnColors = systemVpnColors,
-                    onDismiss = { showVpnInDevDialog = false }
                 )
             }
 
@@ -2345,6 +2633,13 @@ fun AnimatedWarpGlider(
                 val flameLenR = planeH * 0.24f * flameFlickerR * animatedThrust
                 val flameW = planeW * 0.065f * (0.6f + 0.4f * animatedThrust)
 
+                val thrusterGradientColors = listOf(
+                    Color.White.copy(alpha = animatedThrust * 0.95f),
+                    protoColors.light.copy(alpha = animatedThrust * 0.80f),
+                    animatedJetColor.copy(alpha = animatedThrust * 0.45f),
+                    Color.Transparent
+                )
+
                 // Left engine plume
                 flameLeftPath.reset()
                 flameLeftPath.moveTo(leftEngine.x - flameW, leftEngine.y)
@@ -2355,12 +2650,7 @@ fun AnimatedWarpGlider(
                 drawPath(
                     path = flameLeftPath,
                     brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = animatedThrust * 0.95f),
-                            protoColors.light.copy(alpha = animatedThrust * 0.80f),
-                            animatedJetColor.copy(alpha = animatedThrust * 0.45f),
-                            Color.Transparent
-                        ),
+                        colors = thrusterGradientColors,
                         startY = leftEngine.y,
                         endY = leftEngine.y + flameLenL
                     )
@@ -2376,12 +2666,7 @@ fun AnimatedWarpGlider(
                 drawPath(
                     path = flameRightPath,
                     brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = animatedThrust * 0.95f),
-                            protoColors.light.copy(alpha = animatedThrust * 0.80f),
-                            animatedJetColor.copy(alpha = animatedThrust * 0.45f),
-                            Color.Transparent
-                        ),
+                        colors = thrusterGradientColors,
                         startY = rightEngine.y,
                         endY = rightEngine.y + flameLenR
                     )
@@ -3172,17 +3457,19 @@ fun ProtocolSwitcherHeader(
     currentTab: HomeScreenTab,
     onSelectTab: (HomeScreenTab) -> Unit,
     activeWorker: com.mirrly.tgproxy.core.WorkerProfile,
+    activeWorkerMtproto: com.mirrly.tgproxy.core.WorkerProfile = activeWorker,
+    activeWorkerSocks5: com.mirrly.tgproxy.core.WorkerProfile = activeWorker,
     protoColors: ProtocolColors,
     vpnColors: ProtocolColors,
     isSwitching: Boolean,
     onSwitchProtocol: (com.mirrly.tgproxy.core.ProxyMode) -> Unit,
-    onOpenWorkerManager: () -> Unit = {},
+    onOpenWorkerManager: (com.mirrly.tgproxy.core.ProxyMode?) -> Unit = {},
     uplinkMode: com.mirrly.tgproxy.core.UplinkMode = com.mirrly.tgproxy.core.UplinkMode.WORKER,
-    vpnUplinkMode: com.mirrly.tgproxy.core.UplinkMode = com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE,
+    vpnUplinkMode: com.mirrly.tgproxy.core.UplinkMode = com.mirrly.tgproxy.core.UplinkMode.AWG,
     warpProfile: com.mirrly.tgproxy.core.WarpProfile? = null,
-    vlessUuid: String = "",
     onOpenUplinkState: () -> Unit = {},
     onOpenVpnInfo: () -> Unit = {},
+    useWorkerMtproto: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -3190,7 +3477,6 @@ fun ProtocolSwitcherHeader(
     val density = LocalDensity.current
 
     val dragOffsetX = remember { Animatable(0f) }
-    val badgeInteractionSource = remember { MutableInteractionSource() }
     val capsuleWidth = 270.dp
     val capsuleHeight = 31.dp
     val tabWidth = capsuleWidth / 3
@@ -3420,25 +3706,40 @@ fun ProtocolSwitcherHeader(
         val isWarpActive = warpProfile != null && warpProfile.isWarpEnabled
 
         val (badgeText, badgeBaseColor, badgeClick) = when (currentTab) {
-            HomeScreenTab.MTPROTO -> Triple(
-                "Flowseal Anycast CDN",
-                MtprotoAccent,
-                onOpenUplinkState
-            )
+            HomeScreenTab.MTPROTO -> {
+                if (useWorkerMtproto && activeWorkerMtproto.domain.isNotBlank()) {
+                    Triple(
+                        "Worker WSS • ${activeWorkerMtproto.name}",
+                        MtprotoAccent,
+                        { onOpenWorkerManager(com.mirrly.tgproxy.core.ProxyMode.MTPROTO) }
+                    )
+                } else {
+                    Triple(
+                        "Flowseal Anycast CDN",
+                        MtprotoAccent,
+                        onOpenUplinkState
+                    )
+                }
+            }
             HomeScreenTab.SOCKS5 -> {
-                Triple(
-                    "Worker WSS • ${activeWorker.name}",
-                    Socks5Accent,
-                    onOpenWorkerManager
-                )
+                if (activeWorkerSocks5.domain.isNotBlank()) {
+                    Triple(
+                        "Worker WSS • ${activeWorkerSocks5.name}",
+                        Socks5Accent,
+                        { onOpenWorkerManager(com.mirrly.tgproxy.core.ProxyMode.SOCKS5) }
+                    )
+                } else {
+                    Triple(
+                        "Cloudflare Worker Required",
+                        Socks5Accent,
+                        { onOpenWorkerManager(com.mirrly.tgproxy.core.ProxyMode.SOCKS5) }
+                    )
+                }
             }
             HomeScreenTab.VPN -> {
                 val vpnBadge = when (vpnUplinkMode) {
-                    com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE -> "WARP Cascade • Dual Anycast"
-                    com.mirrly.tgproxy.core.UplinkMode.VLESS -> "VLESS over WSS • Anycast CDN"
-                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "WARP MASQUE • HTTP/3 QUIC"
-                    com.mirrly.tgproxy.core.UplinkMode.AWG -> "WARP AWG • AmneziaWG"
-                    com.mirrly.tgproxy.core.UplinkMode.WORKER -> "Worker WSS • Anycast"
+                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "WARP MASQUE"
+                    com.mirrly.tgproxy.core.UplinkMode.AWG -> "WARP AWG"
                     else -> vpnUplinkMode.displayName
                 }
                 Triple(
@@ -3461,14 +3762,11 @@ fun ProtocolSwitcherHeader(
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.Transparent)
-                .border(0.8.dp, animatedBadgeColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-                .clickable(
-                    interactionSource = badgeInteractionSource,
-                    indication = null
-                ) {
+                .border(1.dp, animatedBadgeColor.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                .springPress(onClick = {
                     HapticHelper.performSoftTick(context)
                     badgeClick()
-                }
+                })
                 .padding(horizontal = 8.dp, vertical = 2.dp)
         ) {
             Box(
@@ -3477,7 +3775,7 @@ fun ProtocolSwitcherHeader(
                     .clip(CircleShape)
                     .background(animatedBadgeColor)
             )
-            Spacer(modifier = Modifier.width(4.5.dp))
+            Spacer(modifier = Modifier.width(5.dp))
             Text(
                 text = badgeText,
                 color = animatedBadgeColor,
@@ -3485,78 +3783,13 @@ fun ProtocolSwitcherHeader(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
-            if (currentTab == HomeScreenTab.SOCKS5 || currentTab == HomeScreenTab.VPN) {
+            if (currentTab == HomeScreenTab.VPN) {
                 Spacer(modifier = Modifier.width(4.dp))
                 Icon(
                     painter = painterResource(id = R.drawable.ic_arrow_down),
                     contentDescription = null,
                     tint = animatedBadgeColor.copy(alpha = 0.70f),
                     modifier = Modifier.size(9.dp)
-                )
-            }
-        }
-
-        // Interactive visual affordance: subtle bouncing pull-down hint for Worker Manager (SOCKS5 only)
-        if (currentTab == HomeScreenTab.SOCKS5) {
-            val infiniteSwipeTransition = rememberInfiniteTransition(label = "swipeHintBounce")
-            val bounceOffsetY by infiniteSwipeTransition.animateFloat(
-                initialValue = 0f,
-                targetValue = 3.5f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1200, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "bounceOffsetY"
-            )
-            val hintAlpha by infiniteSwipeTransition.animateFloat(
-                initialValue = 0.35f,
-                targetValue = 0.75f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1200, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "hintAlpha"
-            )
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier
-                    .padding(top = 4.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        HapticHelper.performSoftTick(context)
-                        onOpenWorkerManager()
-                    }
-                    .padding(horizontal = 8.dp, vertical = 2.dp)
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_arrow_down),
-                    contentDescription = null,
-                    tint = TextMuted.copy(alpha = hintAlpha),
-                    modifier = Modifier
-                        .size(9.5.dp)
-                        .offset(y = bounceOffsetY.dp)
-                )
-                Spacer(modifier = Modifier.width(5.dp))
-                Text(
-                    text = stringResource(R.string.home_swipe_down_workers_hint),
-                    color = TextMuted.copy(alpha = hintAlpha),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Normal,
-                    letterSpacing = 0.1.sp
-                )
-                Spacer(modifier = Modifier.width(5.dp))
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_arrow_down),
-                    contentDescription = null,
-                    tint = TextMuted.copy(alpha = hintAlpha),
-                    modifier = Modifier
-                        .size(9.5.dp)
-                        .offset(y = bounceOffsetY.dp)
                 )
             }
         }
@@ -3767,14 +4000,13 @@ fun LiquidWaveQualityCircle(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UplinkStateDialog(
     uplinkMode: com.mirrly.tgproxy.core.UplinkMode,
     isSocks5: Boolean,
     activeWorker: com.mirrly.tgproxy.core.WorkerProfile,
     warpProfile: com.mirrly.tgproxy.core.WarpProfile?,
-    vlessUuid: String,
-    vlessPath: String,
     effectiveRoute: String = "",
     operator: String = "",
     isTrustBoundaryMaintained: Boolean = true,
@@ -3793,159 +4025,251 @@ fun UplinkStateDialog(
         "Cloudflare Worker WSS"
     }
 
-    Dialog(
+    MirrlyModalBottomSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        maxTabletWidth = 480.dp
     ) {
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = Color(0xFF0C0C10),
-            border = BorderStroke(1.dp, AmoledBorder),
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .padding(vertical = 24.dp)
+                .fillMaxWidth()
+                .fadingEdges(topFadeHeight = 12.dp, bottomFadeHeight = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 6.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            // Category pill
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.8f))
             ) {
-                // Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                Text(
+                    text = stringResource(R.string.uplink_dialog_category),
+                    color = ActiveGreenLed,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    letterSpacing = 1.sp
+                )
+            }
+
+            // Title
+            Text(
+                text = stringResource(R.string.uplink_status_title),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextWhite,
+                textAlign = TextAlign.Center
+            )
+
+            // Subtitle Description
+            Text(
+                text = stringResource(R.string.uplink_status_desc),
+                fontSize = 13.sp,
+                color = TextWhite.copy(alpha = 0.85f),
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp
+            )
+
+            // Section 01: Protocol Parameters
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.uplink_dialog_section_protocol),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted,
+                            letterSpacing = 0.8.sp
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.8f))
                         ) {
                             Text(
-                                text = stringResource(R.string.uplink_status_title),
-                                fontSize = 15.sp,
+                                text = modeTitle,
+                                fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = TextWhite
+                                color = ActiveGreenLed,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
-                            InfoButton {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                showInfoDialog = true
-                            }
                         }
-                        Text(
-                            text = stringResource(R.string.uplink_status_desc),
-                            fontSize = 11.sp,
-                            color = TextMuted
-                        )
                     }
 
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(0.8.dp, ActiveGreenLed.copy(alpha = 0.5f))
-                    ) {
-                        Text(
-                            text = modeTitle,
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ActiveGreenLed,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
+                    HorizontalDivider(color = AmoledBorder, thickness = 0.8.dp)
 
-                // Details Card (100% transparent background, borders only)
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, AmoledBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp)
-                    ) {
-                        if (!isSocks5) {
-                            UplinkStateRow(stringResource(R.string.uplink_field_protocol), "Telegram MTProto (:1080)")
-                            UplinkStateRow(stringResource(R.string.uplink_field_transport), "Anycast CDN Flowseal (kws*.apiws)")
-                            UplinkStateRow(stringResource(R.string.uplink_field_encryption), "Fake-TLS 1.3 (dd-secret)")
-                            UplinkStateRow(stringResource(R.string.uplink_field_cache_nodes), stringResource(R.string.uplink_field_cache_nodes_val))
-                        } else {
-                            UplinkStateRow(stringResource(R.string.uplink_field_protocol), "SOCKS5 TCP Relay")
-                            UplinkStateRow(stringResource(R.string.uplink_field_transport), "Cloudflare Worker WSS :443")
+                    if (!isSocks5) {
+                        val context = LocalContext.current
+                        val app = context.applicationContext as? com.mirrly.tgproxy.MirrlyApplication
+                        val isWorkerActive = app?.prefsManager?.isUseWorkerMtproto() == true && activeWorker.domain.isNotBlank()
+                        UplinkStateRow(stringResource(R.string.uplink_field_protocol), "Telegram MTProto • :1443")
+                        UplinkStateRow(
+                            stringResource(R.string.uplink_field_transport),
+                            if (isWorkerActive) "Cloudflare Worker WSS • :443" else "Anycast CDN Flowseal • kws*.apiws"
+                        )
+                        if (isWorkerActive) {
                             UplinkStateRow(stringResource(R.string.uplink_field_active_worker), activeWorker.name)
                             UplinkStateRow(stringResource(R.string.uplink_field_node_domain), activeWorker.domain)
-                            UplinkStateRow(stringResource(R.string.uplink_field_conn_pool), if (activeWorker.isDeveloperWorker) stringResource(R.string.uplink_pool_shared) else stringResource(R.string.uplink_pool_personal))
                         }
-
-                        if (effectiveRoute.isNotBlank()) {
-                            UplinkStateRow(stringResource(R.string.uplink_actual_route), effectiveRoute)
-                            if (operator.isNotBlank()) {
-                                UplinkStateRow(stringResource(R.string.uplink_node_operator), operator)
-                            }
-                            UplinkStateRow(
-                                stringResource(R.string.uplink_trust_boundary),
-                                if (isTrustBoundaryMaintained) {
-                                    if (isPrivateNode) stringResource(R.string.uplink_trust_private) else stringResource(R.string.uplink_trust_default)
-                                } else {
-                                    stringResource(R.string.uplink_trust_third_party)
-                                },
-                                isAlert = !isTrustBoundaryMaintained
-                            )
+                        UplinkStateRow(stringResource(R.string.uplink_field_encryption), "Fake-TLS 1.3 • dd-secret")
+                        UplinkStateRow(stringResource(R.string.uplink_field_cache_nodes), stringResource(R.string.uplink_field_cache_nodes_val))
+                    } else {
+                        val isSocks5WorkerActive = activeWorker.domain.isNotBlank()
+                        UplinkStateRow(stringResource(R.string.uplink_field_protocol), "SOCKS5 TCP Relay • :10808")
+                        UplinkStateRow(
+                            stringResource(R.string.uplink_field_transport),
+                            "Cloudflare Worker WSS • :443"
+                        )
+                        if (isSocks5WorkerActive) {
+                            UplinkStateRow(stringResource(R.string.uplink_field_active_worker), activeWorker.name)
+                            UplinkStateRow(stringResource(R.string.uplink_field_node_domain), activeWorker.domain)
+                        } else {
+                            UplinkStateRow(stringResource(R.string.uplink_field_node_domain), stringResource(R.string.wm_dev_workers_removed_title))
                         }
-                        UplinkStateRow(stringResource(R.string.uplink_engine_status), if (isProxyRunning) stringResource(R.string.uplink_engine_running) else stringResource(R.string.uplink_engine_stopped))
+                        UplinkStateRow(stringResource(R.string.uplink_field_conn_pool), "WsPool • 4 сокета WSS")
                     }
                 }
+            }
 
-                // Action Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // Section 02: Routing and Status
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onOpenSettings()
-                        },
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = ActiveGreenLed
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.5f)),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(38.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = stringResource(R.string.uplink_settings_action),
+                            text = stringResource(R.string.uplink_dialog_section_routing),
                             fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted,
+                            letterSpacing = 0.8.sp
                         )
+                        InfoButton {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showInfoDialog = true
+                        }
                     }
 
-                    OutlinedButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onDismiss()
-                        },
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = TextWhite
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier
-                            .weight(0.7f)
-                            .height(38.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.action_close),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold
+                    HorizontalDivider(color = AmoledBorder, thickness = 0.8.dp)
+
+                    if (effectiveRoute.isNotBlank()) {
+                        UplinkStateRow(stringResource(R.string.uplink_actual_route), effectiveRoute)
+                        if (operator.isNotBlank()) {
+                            UplinkStateRow(stringResource(R.string.uplink_node_operator), operator)
+                        }
+                        UplinkStateRow(
+                            stringResource(R.string.uplink_trust_boundary),
+                            if (isTrustBoundaryMaintained) {
+                                if (isPrivateNode) stringResource(R.string.uplink_trust_private) else stringResource(R.string.uplink_trust_default)
+                            } else {
+                                stringResource(R.string.uplink_trust_third_party)
+                            },
+                            isAlert = !isTrustBoundaryMaintained
                         )
                     }
+                    UplinkStateRow(
+                        stringResource(R.string.uplink_engine_status),
+                        if (isProxyRunning) stringResource(R.string.uplink_engine_running) else stringResource(R.string.uplink_engine_stopped)
+                    )
+                }
+            }
+
+            // Primary Button: Open Settings
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.80f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .springPress(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onOpenSettings()
+                    })
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = stringResource(R.string.uplink_settings_action),
+                        color = ActiveGreenLed,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Secondary Button: Open Worker Manager (if worker is configured for MTProto or SOCKS5)
+            val isWorkerActive = (!isSocks5 && com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.isUseWorkerMtproto() && activeWorker.domain.isNotBlank()) || (isSocks5 && activeWorker.domain.isNotBlank())
+            if (isWorkerActive) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, AmoledBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onOpenWorkerManager()
+                        })
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stringResource(R.string.socks5_onboard_btn_manager),
+                            color = TextWhite.copy(alpha = 0.9f),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            // Dismiss / Close Button
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .springPress(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onDismiss()
+                    })
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = stringResource(R.string.action_close),
+                        color = TextMuted,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
         }

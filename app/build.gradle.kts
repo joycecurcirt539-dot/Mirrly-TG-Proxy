@@ -9,14 +9,14 @@ plugins {
 
 android {
     namespace = "com.mirrly.tgproxy"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.mirrly.tgproxy"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 29
-        versionName = "2.0.0.3"
+        targetSdk = 36
+        versionCode = 30
+        versionName = "2.1.0"
 
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -83,6 +83,10 @@ android {
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
             }
         }
     }
@@ -177,6 +181,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("androidx.browser:browser:1.8.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("net.java.dev.jna:jna:5.14.0@aar")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")

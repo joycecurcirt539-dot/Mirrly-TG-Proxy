@@ -32,6 +32,9 @@ class MirrlyApplication : Application() {
     lateinit var prefsManager: PreferencesManager
         private set
 
+    lateinit var warpProfileManager: com.mirrly.tgproxy.service.WarpProfileManager
+        private set
+
     lateinit var config: ProxyConfig
         private set
 
@@ -42,29 +45,13 @@ class MirrlyApplication : Application() {
         super.onCreate()
         instance = this
         prefsManager = PreferencesManager(this)
+        warpProfileManager = com.mirrly.tgproxy.service.WarpProfileManager.getInstance(this)
         com.mirrly.tgproxy.util.LocaleHelper.applyLocale(this, prefsManager.getAppLanguage())
         com.mirrly.tgproxy.service.SessionHistoryManager.init(this)
-        com.mirrly.tgproxy.service.SpeedTestHistoryManager.init(this)
         com.mirrly.tgproxy.service.WorkerRequestTracker.init(this)
         config = prefsManager.loadConfig()
+        com.mirrly.tgproxy.core.WarpAccountManager.isRegisterViaWorker = config.isRegisterWarpViaWorker
         proxyServer = LocalProxyServer(config)
-        proxyServer.speedTestEngine.onTestCompleted = { completedState ->
-            val isSocks = config.isSocks5Mode
-            com.mirrly.tgproxy.service.SpeedTestHistoryManager.addRecord(
-                com.mirrly.tgproxy.service.SpeedTestRecord(
-                    downloadSpeedMbps = completedState.downloadSpeedMbps,
-                    uploadSpeedMbps = completedState.uploadSpeedMbps,
-                    pingMs = completedState.pingMs,
-                    jitterMs = completedState.jitterMs,
-                    edgeColo = completedState.edgeColo,
-                    targetDomain = completedState.targetDomain,
-                    protocol = if (isSocks) "SOCKS5" else "MTProto",
-                    qualityGrade = completedState.qualityGrade,
-                    overallScore = completedState.suitability.overallScore,
-                    durationMs = completedState.durationMs
-                )
-            )
-        }
         proxyServer.stats.externalByteProvider = {
             val uid = android.os.Process.myUid()
             val rx = android.net.TrafficStats.getUidRxBytes(uid)
@@ -78,7 +65,7 @@ class MirrlyApplication : Application() {
             com.mirrly.tgproxy.service.WorkerRequestTracker.syncNativeConnectionsTotal(wsTotal)
         }
         UpdateManager.onAppInit(this)
-        UpdateManager.scheduleDaytimeCheck(this)
+        com.mirrly.tgproxy.service.sni.SniBypassManager.init(this)
         com.mirrly.tgproxy.service.WorkerFailoverManager.init()
         com.mirrly.tgproxy.service.ScheduleManager.syncSchedule(this)
 
@@ -86,7 +73,9 @@ class MirrlyApplication : Application() {
             val snapshot = proxyServer.pingEngine.currentSnapshot
             val generation = proxyServer.currentProfileGeneration.get()
             val observedAtMs = System.nanoTime() / 1_000_000L
-            if (proxyServer.config.isSocks5Mode) {
+            val isWorkerActive = proxyServer.config.isSocks5Mode ||
+                (proxyServer.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO && proxyServer.config.useWorkerMtproto)
+            if (isWorkerActive) {
                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                     com.mirrly.tgproxy.service.WorkerFailoverManager.handleActiveWorkerProbe(
                         probe, target, snapshot, generation, observedAtMs
@@ -97,6 +86,7 @@ class MirrlyApplication : Application() {
     }
 
     fun saveConfig() {
+        com.mirrly.tgproxy.core.WarpAccountManager.isRegisterViaWorker = config.isRegisterWarpViaWorker
         prefsManager.saveConfig(config)
     }
 

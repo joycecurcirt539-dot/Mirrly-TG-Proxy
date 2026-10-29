@@ -21,9 +21,6 @@ package com.mirrly.tgproxy.core
 import org.bouncycastle.crypto.digests.Blake2sDigest
 import java.net.DatagramPacket
 import java.net.DatagramSocket
-import java.net.Inet4Address
-import java.net.Inet6Address
-import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -47,7 +44,6 @@ object WarpPacketFragmenter {
 
     private val secureRandom = SecureRandom()
     private const val WIREGUARD_INITIATION_SIZE = 148
-    private const val DEFAULT_IPV4_SPLIT_OFFSET = 64
     const val CLOUDFLARE_WARP_PEER_PUBKEY_B64 = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
 
     /**
@@ -170,158 +166,6 @@ object WarpPacketFragmenter {
     }
 
     /**
-     * Разрезает UDP-пакет на 2 фрагмента IPv4 (IP Fragmentation).
-     *
-     * @param srcIp Локальный IP адрес
-     * @param srcPort Локальный UDP порт
-     * @param dstIp IP адрес Cloudflare
-     * @param dstPort UDP порт Cloudflare
-     * @param udpPayload Тело UDP пакета (например, 148 байт WireGuard)
-     * @param splitOffset Смещение разделения полезной нагрузки (кратно 8 байтам)
-     * @return Пара (Фрагмент 1, Фрагмент 2) в формате сырых IPv4-пакетов
-     */
-    fun fragmentIpv4Udp(
-        srcIp: InetAddress,
-        srcPort: Int,
-        dstIp: InetAddress,
-        dstPort: Int,
-        udpPayload: ByteArray,
-        splitOffset: Int = DEFAULT_IPV4_SPLIT_OFFSET
-    ): Pair<ByteArray, ByteArray> {
-        require(srcIp is Inet4Address && dstIp is Inet4Address) { "IP адреса должны быть IPv4" }
-        // В IPv4 смещение фрагмента выражается в 8-байтных блоках.
-        // Суммарный размер первого блока в UDP = 8 байт (UDP Header) + splitOffset.
-        val alignedSplit = (splitOffset / 8) * 8
-        val effectiveSplit = alignedSplit.coerceIn(16, (udpPayload.size - 16).coerceAtLeast(16))
-
-        val ipId = secureRandom.nextInt(0xFFFF)
-        val totalUdpLength = 8 + udpPayload.size
-
-        // Сборка полного заголовка UDP (8 байт)
-        val udpHeader = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN)
-        udpHeader.putShort(srcPort.toShort())
-        udpHeader.putShort(dstPort.toShort())
-        udpHeader.putShort(totalUdpLength.toShort())
-        udpHeader.putShort(0.toShort()) // Checksum (0 в IPv4 допустима)
-
-        // --- Фрагмент 1 ---
-        // Содержит: Заголовок IPv4 (20 байт) + Заголовок UDP (8 байт) + первые `effectiveSplit` байт полезной нагрузки
-        val frag1PayloadSize = 8 + effectiveSplit
-        val frag1TotalLength = 20 + frag1PayloadSize
-        val frag1Buf = ByteBuffer.allocate(frag1TotalLength).order(ByteOrder.BIG_ENDIAN)
-
-        frag1Buf.put(0x45.toByte()) // Version: 4, IHL: 5 (20 bytes)
-        frag1Buf.put(0x00.toByte()) // DSCP / ECN
-        frag1Buf.putShort(frag1TotalLength.toShort())
-        frag1Buf.putShort(ipId.toShort())
-        // Flags: More Fragments (MF = 1, бит 13) | Fragment Offset: 0
-        frag1Buf.putShort(0x2000.toShort())
-        frag1Buf.put(64.toByte()) // TTL
-        frag1Buf.put(17.toByte()) // Protocol: 17 (UDP)
-        frag1Buf.putShort(0.toShort()) // Placeholder для чексуммы
-        frag1Buf.put(srcIp.address)
-        frag1Buf.put(dstIp.address)
-
-        // Расчет контрольной суммы заголовка IPv4
-        val frag1HeaderChecksum = calculateIpChecksum(frag1Buf.array(), 0, 20)
-        frag1Buf.putShort(10, frag1HeaderChecksum.toShort())
-
-        // Добавление UDP заголовка и первой части данных
-        frag1Buf.put(udpHeader.array())
-        frag1Buf.put(udpPayload, 0, effectiveSplit)
-
-        // --- Фрагмент 2 ---
-        // Содержит: Заголовок IPv4 (20 байт) + остаток полезной нагрузки (без UDP заголовка)
-        val frag2PayloadSize = udpPayload.size - effectiveSplit
-        val frag2TotalLength = 20 + frag2PayloadSize
-        val frag2Buf = ByteBuffer.allocate(frag2TotalLength).order(ByteOrder.BIG_ENDIAN)
-
-        frag2Buf.put(0x45.toByte())
-        frag2Buf.put(0x00.toByte())
-        frag2Buf.putShort(frag2TotalLength.toShort())
-        frag2Buf.putShort(ipId.toShort())
-        // Flags: MF = 0 | Fragment Offset: (8 + effectiveSplit) / 8
-        val frag2OffsetUnits = (8 + effectiveSplit) / 8
-        frag2Buf.putShort(frag2OffsetUnits.toShort())
-        frag2Buf.put(64.toByte())
-        frag2Buf.put(17.toByte())
-        frag2Buf.putShort(0.toShort())
-        frag2Buf.put(srcIp.address)
-        frag2Buf.put(dstIp.address)
-
-        val frag2HeaderChecksum = calculateIpChecksum(frag2Buf.array(), 0, 20)
-        frag2Buf.putShort(10, frag2HeaderChecksum.toShort())
-
-        // Добавление остатка полезной нагрузки
-        frag2Buf.put(udpPayload, effectiveSplit, frag2PayloadSize)
-
-        return Pair(frag1Buf.array(), frag2Buf.array())
-    }
-
-    /**
-     * Разрезает UDP-пакет на 2 фрагмента IPv6 (IPv6 Fragment Extension Header, Next Header 44).
-     */
-    fun fragmentIpv6Udp(
-        srcIp: InetAddress,
-        srcPort: Int,
-        dstIp: InetAddress,
-        dstPort: Int,
-        udpPayload: ByteArray,
-        splitOffset: Int = DEFAULT_IPV4_SPLIT_OFFSET
-    ): Pair<ByteArray, ByteArray> {
-        require(srcIp is Inet6Address && dstIp is Inet6Address) { "IP адреса должны быть IPv6" }
-        val alignedSplit = (splitOffset / 8) * 8
-        val effectiveSplit = alignedSplit.coerceIn(16, (udpPayload.size - 16).coerceAtLeast(16))
-
-        val ipId = secureRandom.nextInt()
-        val totalUdpLength = 8 + udpPayload.size
-
-        val udpHeader = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN)
-        udpHeader.putShort(srcPort.toShort())
-        udpHeader.putShort(dstPort.toShort())
-        udpHeader.putShort(totalUdpLength.toShort())
-        udpHeader.putShort(0.toShort())
-
-        // Фрагмент 1
-        val frag1PayloadLen = 8 + 8 + effectiveSplit // 8 bytes frag header + 8 bytes udp + split
-        val frag1Buf = ByteBuffer.allocate(40 + frag1PayloadLen).order(ByteOrder.BIG_ENDIAN)
-        frag1Buf.putInt(0x60000000) // Version 6, Traffic Class 0, Flow Label 0
-        frag1Buf.putShort(frag1PayloadLen.toShort())
-        frag1Buf.put(44.toByte()) // Next Header: Fragment Header (44)
-        frag1Buf.put(64.toByte()) // Hop Limit
-        frag1Buf.put(srcIp.address)
-        frag1Buf.put(dstIp.address)
-        // Fragment Header: Next Header (17 UDP), Reserved (0), Offset (0) | M=1 (бит 0 = 1)
-        frag1Buf.put(17.toByte())
-        frag1Buf.put(0.toByte())
-        frag1Buf.putShort(0x0001.toShort()) // Offset 0, M=1
-        frag1Buf.putInt(ipId)
-        frag1Buf.put(udpHeader.array())
-        frag1Buf.put(udpPayload, 0, effectiveSplit)
-
-        // Фрагмент 2
-        val frag2Remaining = udpPayload.size - effectiveSplit
-        val frag2PayloadLen = 8 + frag2Remaining
-        val frag2Buf = ByteBuffer.allocate(40 + frag2PayloadLen).order(ByteOrder.BIG_ENDIAN)
-        frag2Buf.putInt(0x60000000)
-        frag2Buf.putShort(frag2PayloadLen.toShort())
-        frag2Buf.put(44.toByte())
-        frag2Buf.put(64.toByte())
-        frag2Buf.put(srcIp.address)
-        frag2Buf.put(dstIp.address)
-        // Fragment Header: Next Header (17 UDP), Reserved (0), Offset = (8 + effectiveSplit) / 8, M=0
-        val offsetUnits = (8 + effectiveSplit) / 8
-        val offsetAndM = (offsetUnits shl 3) and 0xFFF8 // M = 0
-        frag2Buf.put(17.toByte())
-        frag2Buf.put(0.toByte())
-        frag2Buf.putShort(offsetAndM.toShort())
-        frag2Buf.putInt(ipId)
-        frag2Buf.put(udpPayload, effectiveSplit, frag2Remaining)
-
-        return Pair(frag1Buf.array(), frag2Buf.array())
-    }
-
-    /**
      * Отправляет UDP-пакет с десинхронизацией DPI:
      * сначала отсылается маленький мусорный пакет для сбивания автомата состояний ТСПУ,
      * затем с микрозадержкой отправляется целевой пакет.
@@ -346,22 +190,5 @@ object WarpPacketFragmenter {
 
         val mainPacket = DatagramPacket(payload, payload.size, target)
         socket.send(mainPacket)
-    }
-
-    /**
-     * Контрольная сумма заголовка IPv4 (RFC 791).
-     */
-    private fun calculateIpChecksum(data: ByteArray, offset: Int, length: Int): Int {
-        var sum = 0
-        var i = offset
-        while (i < offset + length) {
-            val word = ((data[i].toInt() and 0xFF) shl 8) or (data[i + 1].toInt() and 0xFF)
-            sum += word
-            i += 2
-        }
-        while ((sum shr 16) > 0) {
-            sum = (sum and 0xFFFF) + (sum shr 16)
-        }
-        return sum.inv() and 0xFFFF
     }
 }

@@ -161,7 +161,8 @@ class Socks5ProtocolTest {
         val config = ProxyConfig()
         assertFalse(config.isBatteryGuardEnabled)
         assertEquals(15, config.batteryGuardThreshold)
-        assertTrue(config.batteryGuardStopOnPowerSave)
+        assertFalse(config.batteryGuardStopOnPowerSave)
+        assertFalse(config.isAdaptiveQoSEnabled)
 
         config.isBatteryGuardEnabled = true
         config.batteryGuardThreshold = 20
@@ -170,5 +171,26 @@ class Socks5ProtocolTest {
         assertTrue(config.isBatteryGuardEnabled)
         assertEquals(20, config.batteryGuardThreshold)
         assertFalse(config.batteryGuardStopOnPowerSave)
+    }
+
+    @Test
+    fun testLocalProxyServerSocks5WorkerIntegration() {
+        val configWithWorker = ProxyConfig(
+            proxyModeName = ProxyMode.SOCKS5.name,
+            customCfDomain = "custom-socks5.workers.dev"
+        )
+        val server = LocalProxyServer(configWithWorker)
+        server.updateWorkerConfig()
+        assertEquals("Cloudflare Worker WSS", server.stats.activeCascadeStage)
+        assertEquals("custom-socks5.workers.dev", server.stats.activeEffectiveRoute)
+
+        val configDirect = ProxyConfig(
+            proxyModeName = ProxyMode.SOCKS5.name,
+            customCfDomain = ""
+        )
+        val directServer = LocalProxyServer(configDirect)
+        directServer.updateWorkerConfig()
+        assertEquals("Cloudflare Worker WSS", directServer.stats.activeCascadeStage)
+        assertEquals("Cloudflare Worker", directServer.stats.activeEffectiveRoute)
     }
 }

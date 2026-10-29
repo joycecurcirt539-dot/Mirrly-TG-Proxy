@@ -88,17 +88,20 @@ object DohBenchmarkEngine {
     private const val TAG = "DohBenchmarkEngine"
     const val PROBE_DOMAIN = "api.telegram.org"
     const val PROBE_TIMEOUT_MS = 2500L
+    const val MIN_PROBE_TIMEOUT_MS = 1500L
+    const val MAX_PROBE_TIMEOUT_MS = 4500L
+
+    /**
+     * Возвращает адаптивный таймаут зондирования DoH в диапазоне [MIN_PROBE_TIMEOUT_MS .. MAX_PROBE_TIMEOUT_MS].
+     * Для сотовых сетей выделяется увеличенный диапазон для предотвращения ложных таймаутов при высоком RTT.
+     */
+    fun getAdaptiveProbeTimeoutMs(isCellular: Boolean = false): Long {
+        return if (isCellular) 3500L else 2000L
+    }
 
     // Официальные IPv4 подсети Telegram (AS44907, AS62041, AS59930, AS62014)
     val TG_IPV4_SUBNETS: List<Ipv4Cidr> = listOf(
-        Ipv4Cidr("91.108.4.0", 22),
-        Ipv4Cidr("91.108.8.0", 22),
-        Ipv4Cidr("91.108.12.0", 22),
-        Ipv4Cidr("91.108.16.0", 22),
-        Ipv4Cidr("91.108.20.0", 22),
-        Ipv4Cidr("91.108.36.0", 23),
-        Ipv4Cidr("91.108.38.0", 23),
-        Ipv4Cidr("91.108.56.0", 22),
+        Ipv4Cidr("91.108.0.0", 16),
         Ipv4Cidr("149.154.160.0", 20),
         Ipv4Cidr("91.105.192.0", 23),
         Ipv4Cidr("185.76.151.0", 24)
@@ -106,9 +109,19 @@ object DohBenchmarkEngine {
 
     // Официальные IPv6 префиксы Telegram
     val TG_IPV6_PREFIXES = listOf(
+        "2001:b28:f23c:",
         "2001:b28:f23d:",
+        "2001:b28:f23e:",
         "2001:b28:f23f:",
-        "2001:67c:4e8:"
+        "2001:67c:4e8:",
+        "2a0a:f280:",
+        "2a0a:f281:",
+        "2a0a:f282:",
+        "2a0a:f283:",
+        "2a0a:f284:",
+        "2a0a:f285:",
+        "2a0a:f286:",
+        "2a0a:f287:"
     )
 
     private val httpClient: OkHttpClient by lazy {
@@ -125,8 +138,10 @@ object DohBenchmarkEngine {
      */
     suspend fun probeProvider(
         provider: DohProvider,
-        domain: String = PROBE_DOMAIN
+        domain: String = PROBE_DOMAIN,
+        timeoutMs: Long = PROBE_TIMEOUT_MS
     ): DohBenchmarkResult = withContext(Dispatchers.IO) {
+        val effectiveTimeoutMs = timeoutMs.coerceIn(MIN_PROBE_TIMEOUT_MS, MAX_PROBE_TIMEOUT_MS)
         val queryUrl = DohResolver.buildDnsQueryUrl(provider, domain)
         val request = Request.Builder()
             .url(queryUrl)
@@ -134,9 +149,20 @@ object DohBenchmarkEngine {
             .header("User-Agent", "MirrlyTGProxy-Benchmark/2.0.0")
             .build()
 
+        val call = if (effectiveTimeoutMs == PROBE_TIMEOUT_MS) {
+            httpClient.newCall(request)
+        } else {
+            httpClient.newBuilder()
+                .connectTimeout(effectiveTimeoutMs, TimeUnit.MILLISECONDS)
+                .readTimeout(effectiveTimeoutMs, TimeUnit.MILLISECONDS)
+                .callTimeout(effectiveTimeoutMs + 500L, TimeUnit.MILLISECONDS)
+                .build()
+                .newCall(request)
+        }
+
         val startNs = System.nanoTime()
         try {
-            httpClient.newCall(request).execute().use { response ->
+            call.execute().use { response ->
                 val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
                 if (!response.isSuccessful) {
                     return@withContext DohBenchmarkResult(
@@ -178,7 +204,7 @@ object DohBenchmarkEngine {
                 latencyMs = elapsedMs,
                 status = DohHealthStatus.TIMEOUT,
                 resolvedIps = emptyList(),
-                statusDetail = "Timeout exceeded (>2.5s)"
+                statusDetail = "Timeout exceeded (>${effectiveTimeoutMs / 1000.0}s)"
             )
         } catch (e: Exception) {
             val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
@@ -200,6 +226,7 @@ object DohBenchmarkEngine {
      */
     suspend fun benchmarkAll(
         providers: List<DohProvider> = DohResolver.ALL_PROVIDERS,
+        timeoutMs: Long = PROBE_TIMEOUT_MS,
         onProgress: ((current: Int, total: Int, result: DohBenchmarkResult) -> Unit)? = null
     ): DohBenchmarkReport = coroutineScope {
         val total = providers.size
@@ -207,7 +234,7 @@ object DohBenchmarkEngine {
 
         val deferredResults = providers.map { provider ->
             async(Dispatchers.IO) {
-                val res = probeProvider(provider)
+                val res = probeProvider(provider, timeoutMs = timeoutMs)
                 val current = synchronized(this@DohBenchmarkEngine) {
                     completedCount++
                     completedCount
@@ -348,6 +375,12 @@ object DohBenchmarkEngine {
     fun isTelegramIp(ip: String): Boolean {
         val clean = ip.trim().lowercase()
         if (clean.contains(":")) {
+            if (TgConstants.isNat64Address(clean)) {
+                val unwrapped = TgConstants.extractIpv4FromNat64(clean)
+                if (unwrapped != null) {
+                    return TG_IPV4_SUBNETS.any { it.matches(unwrapped) }
+                }
+            }
             return TG_IPV6_PREFIXES.any { clean.startsWith(it) }
         }
         return TG_IPV4_SUBNETS.any { it.matches(clean) }

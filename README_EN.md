@@ -19,7 +19,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_&_WARP-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Release](https://img.shields.io/badge/Release-v2.0.0.3-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Release](https://img.shields.io/badge/Release-v2.1.0-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Language](https://img.shields.io/badge/Language-RU_%7C_EN_%7C_FA-1E293B?logo=translate&logoColor=26A5E4)](#7-application-ui)
 [![Genesis](https://img.shields.io/badge/Genesis-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
@@ -106,7 +106,7 @@ The app **does not use** the system `VpnService` for routing Telegram and **does
 
 #### 2. In Development
 * **System VPN and VPN uplinks**: VLESS, WARP, MASQUE, AWG, and cascade routes are under development and not ready for use.
-* **In-App Speed Test (`TunnelSpeedTestScreen` / `SpeedTestInDevDialog`)**: Built-in throughput measurement module.
+* **In-App Speed Test (`TunnelSpeedTestScreen`)**: Built-in throughput and Telegram DC benchmark module.
 
 ---
 
@@ -320,10 +320,11 @@ Core parameters defined in [ProxyConfig.kt](core/src/main/kotlin/com/mirrly/tgpr
 | `customCfDomain` | `""` | Personal Cloudflare Worker domain |
 | `speedPresetName` | `AUTO` | Speed profile: `AUTO`, `ECO`, `BALANCED`, `TURBO`, `ULTRA` |
 | `tcpNoDelayModeName` | `AUTO` | Nagle's algorithm mode: `AUTO`, `ON`, `OFF` |
-| `bufferSizeBytes` | `262144` (256 KB) | Default socket buffer size |
+| `bufferSizeBytes` | `0` (OS Autotune) | Default socket buffer size (0 = dynamic Linux kernel TCP window scaling) |
 | `useDefaultWorkerSocks5` | `true` | Fallback to developer worker pool when no custom domain is configured |
 | `isBatteryGuardEnabled` | `false` | Automatic shutdown on low battery |
 | `batteryGuardThreshold` | `15` | Battery threshold percentage for shutdown |
+| `isAdaptiveQoSEnabled` | `false` | Adaptive thermal & battery QoS throttling |
 | `allowPublicRelayFallbackForPrivateVps` | `false` | Prevent private VPS traffic from routing to public relays |
 | `autostartOnBoot` | `false` | Auto-launch proxy service on Android system boot |
 | `verboseLogs` | `true` | Detailed network logging |

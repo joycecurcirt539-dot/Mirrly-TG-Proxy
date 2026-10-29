@@ -1,9 +1,10 @@
+#[macro_use]
+pub mod config;
 pub mod awg;
 pub mod balancer;
 pub mod budget;
 pub mod bridge;
 pub mod cfproxy;
-pub mod config;
 pub mod crypto;
 pub mod dns;
 pub mod faketls;
@@ -11,20 +12,17 @@ pub mod generation_guard;
 pub mod masque;
 pub mod network_profile;
 pub mod node_independence;
+pub mod prober;
 pub mod proxy;
 pub mod recovery;
-pub mod reality;
 pub mod socks5;
 pub mod supervisor;
-pub mod timeline;
 pub mod tls_observability;
-pub mod vision;
-pub mod vless;
 pub mod vpn;
 pub mod ws;
 
 use config::*;
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::Mutex;
 use proxy::{parse_cidr_pool, run_proxy, WsPool};
 use socks5::run_socks5_server;
@@ -67,6 +65,10 @@ pub fn protect_socket_fd(fd: std::os::raw::c_int) -> bool {
     }
 }
 
+pub fn is_protect_callback_registered() -> bool {
+    PROTECT_SOCKET_CB.read().is_some()
+}
+
 pub(crate) fn bind_reuse_tcp(addr: &str) -> std::io::Result<tokio::net::TcpListener> {
     let sock_addr: std::net::SocketAddr = addr
         .parse()
@@ -89,14 +91,14 @@ pub(crate) fn bind_reuse_tcp(addr: &str) -> std::io::Result<tokio::net::TcpListe
     tokio::net::TcpListener::from_std(std_listener)
 }
 
-#[allow(dead_code)]
 struct VpnState {
-    tun_fd: c_int,
     handle: tokio::task::JoinHandle<()>,
     cancel_token: CancellationToken,
 }
 
 static VPN_STATE: OnceCell<Mutex<Option<VpnState>>> = OnceCell::new();
+static LAST_VPN_ERROR: Lazy<parking_lot::RwLock<Option<String>>> = Lazy::new(|| parking_lot::RwLock::new(None));
+static IS_VPN_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn vpn_state_cell() -> &'static Mutex<Option<VpnState>> {
     VPN_STATE.get_or_init(|| Mutex::new(None))
@@ -148,8 +150,10 @@ pub unsafe extern "C" fn StartProxy(
     let cell = state_cell();
     let mut guard = cell.lock();
 
-    if guard.is_some() {
-        return -1;
+    if let Some(old_state) = guard.take() {
+        crate::linfo!("StartProxy: taking down previous active state before restart");
+        old_state.cancel_tasks.cancel();
+        old_state.handle.abort();
     }
 
     generation_guard::change_config(|| {});
@@ -250,8 +254,10 @@ pub unsafe extern "C" fn StartSocks5Proxy(
     let cell = state_cell();
     let mut guard = cell.lock();
 
-    if guard.is_some() {
-        return -1;
+    if let Some(old_state) = guard.take() {
+        crate::linfo!("StartSocks5Proxy: taking down previous active state before restart");
+        old_state.cancel_tasks.cancel();
+        old_state.handle.abort();
     }
 
     generation_guard::change_config(|| {});
@@ -264,7 +270,6 @@ pub unsafe extern "C" fn StartSocks5Proxy(
     cfproxy::clear_doh_cache();
     recovery::reset();
     *LAST_SOCKS5_WORKER.write() = String::new();
-    vless::reset_vless_scorer();
     node_independence::NODE_INDEPENDENCE_TRACKER.write().reset();
     tls_observability::TLS_TRACKER.write().reset();
 
@@ -338,29 +343,14 @@ pub extern "C" fn StopProxy() -> c_int {
     // Detached cleanup allowed a new proxy to start over the old instance.
     let rt = runtime();
     let pool_opt = state.pool;
-    let mut handle = state.handle;
-    let (cleanup_tx, cleanup_rx) = std::sync::mpsc::sync_channel::<()>(1);
+    let handle = state.handle;
+    handle.abort();
     rt.spawn(async move {
-        if tokio::time::timeout(std::time::Duration::from_secs(3), &mut handle)
-            .await
-            .is_err()
-        {
-            crate::lwarn!("StopProxy: listener shutdown timed out; aborting task");
-            handle.abort();
-            let _ = handle.await;
-        }
+        let _ = handle.await;
         if let Some(pool) = pool_opt {
             pool.close_all().await;
         }
-        let _ = cleanup_tx.send(());
     });
-
-    if cleanup_rx
-        .recv_timeout(std::time::Duration::from_secs(5))
-        .is_err()
-    {
-        crate::lwarn!("StopProxy: cleanup completion timed out");
-    }
 
     STATS.reset();
     WS_BLACKLIST.write().clear();
@@ -371,7 +361,6 @@ pub extern "C" fn StopProxy() -> c_int {
     node_independence::NODE_INDEPENDENCE_TRACKER.write().reset();
     tls_observability::TLS_TRACKER.write().reset();
     *LAST_SOCKS5_WORKER.write() = String::new();
-    vless::reset_vless_scorer();
     masque::reset_active_cascade_stage();
 
     crate::linfo!("StopProxy: stopped successfully");
@@ -396,14 +385,22 @@ pub unsafe extern "C" fn StartVpn(tun_fd: c_int, verbose: c_int) -> c_int {
     let cancel_token = CancellationToken::new();
     let cancel_task = cancel_token.clone();
 
+    crate::awg::reset_awg_circuit_breaker();
+    *LAST_VPN_ERROR.write() = None;
+    IS_VPN_RUNNING.store(true, Ordering::SeqCst);
+
     let handle = rt.spawn(async move {
-        if let Err(e) = vpn::run_vpn(tun_fd, cancel_task).await {
+        let res = vpn::run_vpn(tun_fd, cancel_task).await;
+        IS_VPN_RUNNING.store(false, Ordering::SeqCst);
+        if let Err(ref e) = res {
             crate::lerror!("VPN fatal error: {}", e);
+            *LAST_VPN_ERROR.write() = Some(e.clone());
         }
+        let cell = vpn_state_cell();
+        let _ = cell.lock().take();
     });
 
     *guard = Some(VpnState {
-        tun_fd,
         handle,
         cancel_token,
     });
@@ -414,12 +411,23 @@ pub unsafe extern "C" fn StartVpn(tun_fd: c_int, verbose: c_int) -> c_int {
 
 #[no_mangle]
 pub unsafe extern "C" fn StopVpn() -> c_int {
+    IS_VPN_RUNNING.store(false, Ordering::SeqCst);
+    vpn::IS_VPN_ESTABLISHED.store(false, Ordering::SeqCst);
     let cell = vpn_state_cell();
     let mut guard = cell.lock();
 
     if let Some(state) = guard.take() {
         crate::linfo!("StopVpn: stopping native L3 VPN");
         state.cancel_token.cancel();
+        state.handle.abort();
+
+        let rt = runtime();
+        rt.spawn(async move {
+            let _ = state.handle.await;
+            crate::linfo!("StopVpn: native L3 VPN background handle terminated");
+        });
+
+        crate::linfo!("StopVpn: native L3 VPN completely stopped");
         0
     } else {
         0
@@ -433,59 +441,40 @@ pub unsafe extern "C" fn SetVpnUplinkMode(mode: c_int) -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn SetProtonConfig(
-    server_ip: *const c_char,
-    server_port: c_int,
-    peer_pub_key: *const c_char,
-    private_key: *const c_char,
-    client_ip: *const c_char,
-    dns_ip: *const c_char,
-    node_name: *const c_char,
-) -> c_int {
-    let sip = if !server_ip.is_null() { CStr::from_ptr(server_ip).to_str().unwrap_or("") } else { "" };
-    let ppub = if !peer_pub_key.is_null() { CStr::from_ptr(peer_pub_key).to_str().unwrap_or("") } else { "" };
-    let privk = if !private_key.is_null() { CStr::from_ptr(private_key).to_str().unwrap_or("") } else { "" };
-    let cip = if !client_ip.is_null() { CStr::from_ptr(client_ip).to_str().unwrap_or("") } else { "" };
-    let dip = if !dns_ip.is_null() { CStr::from_ptr(dns_ip).to_str().unwrap_or("") } else { "" };
-    let nname = if !node_name.is_null() { CStr::from_ptr(node_name).to_str().unwrap_or("") } else { "" };
-
-    config::set_proton_vpn_config(sip, server_port as u16, ppub, privk, cip, dip, nname);
-    0
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn SetOperaVpnEndpoint(endpoint: *const c_char) -> c_int {
-    let ep = if !endpoint.is_null() { CStr::from_ptr(endpoint).to_str().unwrap_or("") } else { "" };
-    config::set_opera_vpn_config(true, true, ep);
-    0
-}
-
-#[no_mangle]
 pub unsafe extern "C" fn GetVpnStatusJson() -> *mut c_char {
-    let cell = vpn_state_cell();
-    let is_running = cell.lock().is_some();
+    let is_running = IS_VPN_RUNNING.load(Ordering::Relaxed);
+    let is_established = vpn::is_vpn_established();
+    let last_err = LAST_VPN_ERROR.read().clone().unwrap_or_default();
     let up = crate::STATS.vpn_bytes_up.load(Ordering::Relaxed);
     let down = crate::STATS.vpn_bytes_down.load(Ordering::Relaxed);
     let pkts_up = crate::STATS.vpn_packets_up.load(Ordering::Relaxed);
     let pkts_down = crate::STATS.vpn_packets_down.load(Ordering::Relaxed);
     let awg_status = awg::get_awg_status();
     let uplink_mode = vpn::get_vpn_uplink_mode();
-    let proton_count = crate::STATS.connections_proton.load(Ordering::Relaxed);
 
     let json = serde_json::json!({
         "is_running": is_running,
+        "is_established": is_established,
+        "last_error": last_err,
         "bytes_up": up,
         "bytes_down": down,
         "packets_up": pkts_up,
         "packets_down": pkts_down,
         "uplink_mode": uplink_mode.as_str(),
         "uplink_mode_id": uplink_mode as i32,
-        "proton_connections": proton_count,
         "awg": awg_status
     });
 
     let s = CString::new(json.to_string()).unwrap_or_else(|_| CString::new("{}").unwrap());
     s.into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn ResetVpnSockets() {
+    awg::reset_awg_circuit_breaker();
+    awg::invalidate_active_peer();
+    masque::reset_quic_endpoint();
+    vpn::notify_vpn_reconnect();
 }
 
 #[no_mangle]
@@ -502,9 +491,14 @@ pub(crate) fn reset_network_sockets_for_reason(reason: &str) {
     let cell = state_cell();
     let guard = cell.lock();
     generation_guard::invalidate_profile();
+    awg::invalidate_active_peer();
+    masque::reset_quic_endpoint();
+    recovery::reset();
+    vpn::notify_vpn_reconnect();
     reset_network_sockets_for_reason_locked(guard.as_ref(), reason);
 }
 
+#[allow(dead_code)]
 pub(crate) fn reset_network_sockets_for_reason_if_current(
     expected: generation_guard::GenerationStamp,
     reason: &str,
@@ -513,6 +507,27 @@ pub(crate) fn reset_network_sockets_for_reason_if_current(
     let guard = cell.lock();
     generation_guard::invalidate_profile_if_current(expected, || {
         reset_network_sockets_for_reason_locked(guard.as_ref(), reason);
+    })
+    .is_some()
+}
+
+pub(crate) fn reset_network_routing_for_reason_if_current(
+    expected: generation_guard::GenerationStamp,
+    reason: &str,
+) -> bool {
+    let cell = state_cell();
+    let guard = cell.lock();
+    generation_guard::invalidate_profile_if_current(expected, || {
+        if let Some(_state) = guard.as_ref() {
+            crate::linfo!(
+                "ResetNetworkRouting: rotating candidate endpoints and DoH cache reason={} (keeping active data sessions intact)",
+                reason
+            );
+            DC_FAIL_UNTIL.write().clear();
+            WS_BLACKLIST.write().clear();
+            balancer::BALANCER.write().reset_ranking();
+            node_independence::NODE_INDEPENDENCE_TRACKER.write().reset();
+        }
     })
     .is_some()
 }
@@ -542,20 +557,12 @@ fn reset_network_sockets_for_reason_locked(state: Option<&ProxyState>, reason: &
         WS_BLACKLIST.write().clear();
         balancer::BALANCER.write().reset_ranking();
         node_independence::NODE_INDEPENDENCE_TRACKER.write().reset();
-        vless::reset_vless_scorer();
         supervisor::ROUTE_SUPERVISOR.transition_to_unchecked(
             supervisor::RouteKind::None,
             "masque_reset_stage",
         );
 
-        // 3. Wi-Fi can afford eager re-ranking. On cellular, the first real
-        // MTProto request ranks its winner and must not compete with probes.
-        if !MOBILE_NETWORK.load(Ordering::Relaxed) {
-            let rt = runtime();
-            rt.spawn(async move {
-                cfproxy::race_all_primary_dcs().await;
-            });
-        }
+        // 3. Eager background racing removed: the first real request ranks its winner on demand.
 
         // 4. If pool exists (MTProto mode), cleanly reset pool epoch, close all idle sockets and warmup on the new network interface
         if let Some(ref pool) = state.pool {
@@ -567,8 +574,14 @@ fn reset_network_sockets_for_reason_locked(state: Option<&ProxyState>, reason: &
             });
         }
 
-        // 5. Reset QUIC MASQUE endpoint to force clean handshake on the new network interface
+        // 5. Reset QUIC MASQUE endpoint, AWG active peer, and SOCKS5 warm pool to force clean handshakes on the new network interface
         masque::reset_quic_endpoint();
+        awg::invalidate_active_peer();
+        socks5::clear_socks5_warm_pool();
+        let user_domain = CFPROXY.read().user_domain.clone();
+        if !user_domain.is_empty() {
+            socks5::trigger_warm_socks5_pool_prime(user_domain, state.cancel_tasks.clone());
+        }
         recovery::reset();
     }
 }
@@ -600,7 +613,7 @@ pub extern "C" fn SuspendNetworkSockets() {
 }
 
 /// Add missing idle MTProto sockets without rotating the session token or
-/// closing established bridges. SOCKS5 intentionally has no persistent pool.
+/// closing established bridges. Also primes SOCKS5 warm pool if SOCKS5 is active.
 #[no_mangle]
 pub extern "C" fn WarmupWsPool() {
     let cell = state_cell();
@@ -610,6 +623,12 @@ pub extern "C" fn WarmupWsPool() {
             let map = DC_OPT.read().clone();
             pool.prewarm(&map).await;
         });
+    }
+    let user_domain = CFPROXY.read().user_domain.clone();
+    if !user_domain.is_empty() {
+        if let Some(state) = guard.as_ref() {
+            socks5::trigger_warm_socks5_pool_prime(user_domain, state.cancel_tasks.clone());
+        }
     }
 }
 
@@ -698,6 +717,13 @@ pub extern "C" fn GetTransportPoolStatusJson() -> *mut c_char {
 }
 
 #[no_mangle]
+pub extern "C" fn GetWarmPoolStatusJson() -> *mut c_char {
+    let status = socks5::get_socks5_warm_pool_status();
+    let json = serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string());
+    CString::new(json).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
 pub extern "C" fn SetSocketBufferSizes(recv_size: c_int, send_size: c_int) -> c_int {
     let requested_recv = recv_size.max(0);
     let requested_send = send_size.max(0);
@@ -754,6 +780,16 @@ pub extern "C" fn SetNetworkProfile(is_mobile: c_int) {
 }
 
 #[no_mangle]
+pub extern "C" fn SetDialThrottlingEnabled(enabled: c_int) {
+    config::set_dial_throttling_enabled(enabled != 0);
+}
+
+#[no_mangle]
+pub extern "C" fn IsDialThrottlingEnabled() -> c_int {
+    if config::is_dial_throttling_enabled() { 1 } else { 0 }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn SetNetworkProfileJson(c_json: *const c_char) -> c_int {
     let json = cstr_to_string(c_json);
     match network_profile::set_profile_json(&json) {
@@ -804,41 +840,26 @@ pub unsafe extern "C" fn SetCfProxyCacheDir(c_cache_dir: *const c_char) {
 #[no_mangle]
 pub unsafe extern "C" fn SetCfProxyConfig(enabled: c_int, c_user_domain: *const c_char) {
     let user_domain = cstr_to_string(c_user_domain);
+    let is_cdn = user_domain.trim().is_empty() && (enabled != 0);
     generation_guard::change_config(|| {
         CFPROXY_ENABLED.store(enabled != 0, Ordering::Relaxed);
         *LAST_SOCKS5_WORKER.write() = String::new();
-        vless::reset_vless_scorer();
         let mut cfg = CFPROXY.write();
         cfg.user_domain = user_domain.clone();
         cfg.active = user_domain;
     });
-}
 
-#[no_mangle]
-pub extern "C" fn SetEchEnabled(enabled: c_int) {
-    let flag = enabled != 0;
-    ws::set_ech_enabled(flag);
-    generation_guard::change_config(|| {});
-}
-
-#[no_mangle]
-pub extern "C" fn IsEchEnabled() -> c_int {
-    if ws::is_ech_enabled() {
-        1
-    } else {
-        0
+    let pool_opt = state_cell().lock().as_ref().and_then(|s| s.pool.clone());
+    if let Some(pool) = pool_opt {
+        let dc_opt = DC_OPT.read().clone();
+        let rt = runtime();
+        rt.spawn(async move {
+            pool.reset().await;
+            if is_cdn {
+                pool.prewarm(&dc_opt).await;
+            }
+        });
     }
-}
-
-
-#[no_mangle]
-pub extern "C" fn SetWsRandomizationEnabled(enabled: c_int) {
-    crate::ws::set_ws_randomization_enabled(enabled != 0);
-}
-
-#[no_mangle]
-pub extern "C" fn IsWsRandomizationEnabled() -> c_int {
-    if crate::ws::is_ws_randomization_enabled() { 1 } else { 0 }
 }
 
 #[no_mangle]
@@ -858,13 +879,15 @@ pub extern "C" fn IsTlsRecordPaddingEnabled() -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn SetCustomEchConfig(c_base64: *const c_char) -> c_int {
-    let b64 = cstr_to_string(c_base64);
-    if b64.trim().is_empty() {
-        return 0;
-    }
-    if ws::set_ech_config_base64(&b64) {
-        generation_guard::change_config(|| {});
+pub extern "C" fn SetTlsClientHelloSplitEnabled(enabled: c_int) {
+    let flag = enabled != 0;
+    ws::set_tls_client_hello_split_enabled(flag);
+    generation_guard::change_config(|| {});
+}
+
+#[no_mangle]
+pub extern "C" fn IsTlsClientHelloSplitEnabled() -> c_int {
+    if ws::is_tls_client_hello_split_enabled() {
         1
     } else {
         0
@@ -906,6 +929,7 @@ pub unsafe extern "C" fn SetWorkerProtocol(c_domain: *const c_char, proto_ver: c
     let proto = match proto_ver {
         1 => socks5::WorkerProtocol::V1Legacy,
         2 => socks5::WorkerProtocol::V2Ack,
+        3 => socks5::WorkerProtocol::ApiWs,
         _ => socks5::WorkerProtocol::Auto,
     };
     socks5::mark_worker_protocol(&domain, proto);
@@ -927,6 +951,22 @@ pub unsafe extern "C" fn SetSocks5Auth(c_username: *const c_char, c_password: *c
     let mut auth = SOCKS5_AUTH.write();
     auth.username = username;
     auth.password = password;
+}
+
+#[no_mangle]
+pub extern "C" fn SetSocks5Optimistic(enabled: c_int) {
+    let flag = enabled != 0;
+    SOCKS5_OPTIMISTIC_RESPONSE.store(flag, Ordering::Relaxed);
+    crate::linfo!("SetSocks5Optimistic: enabled={}", flag);
+}
+
+#[no_mangle]
+pub extern "C" fn IsSocks5Optimistic() -> c_int {
+    if SOCKS5_OPTIMISTIC_RESPONSE.load(Ordering::Relaxed) {
+        1
+    } else {
+        0
+    }
 }
 
 #[no_mangle]
@@ -1088,165 +1128,6 @@ pub extern "C" fn RecordWarpStickySuccess() {
 #[no_mangle]
 pub extern "C" fn RecordWarpStickyTimeout() -> bool {
     masque::record_sticky_timeout()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn SetVlessConfig(
-    c_uuid: *const c_char,
-    c_path: *const c_char,
-    c_domain: *const c_char,
-) {
-    let uuid_str = cstr_to_string(c_uuid);
-    let path = cstr_to_string(c_path);
-    let domain = cstr_to_string(c_domain);
-    generation_guard::change_config(|| {
-        vless::set_vless_config(&uuid_str, &path, &domain);
-    });
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn SetVlessExtendedConfig(
-    c_uuid: *const c_char,
-    c_path: *const c_char,
-    c_domain: *const c_char,
-    c_server_address: *const c_char,
-    server_port: c_int,
-    c_tls_sni: *const c_char,
-    c_host_header: *const c_char,
-    c_transport: *const c_char,
-    c_security: *const c_char,
-    c_public_key: *const c_char,
-    c_short_id: *const c_char,
-    c_fingerprint: *const c_char,
-    c_spider_x: *const c_char,
-    c_flow: *const c_char,
-    c_header_type: *const c_char,
-) {
-    let uuid_str = cstr_to_string(c_uuid);
-    let path = cstr_to_string(c_path);
-    let domain = cstr_to_string(c_domain);
-    let server_address = cstr_to_string(c_server_address);
-    let tls_sni = cstr_to_string(c_tls_sni);
-    let host_header = cstr_to_string(c_host_header);
-    let transport = cstr_to_string(c_transport);
-    let security = cstr_to_string(c_security);
-    let public_key = cstr_to_string(c_public_key);
-    let short_id = cstr_to_string(c_short_id);
-    let fingerprint = cstr_to_string(c_fingerprint);
-    let spider_x = cstr_to_string(c_spider_x);
-    let flow = cstr_to_string(c_flow);
-    let header_type = cstr_to_string(c_header_type);
-
-    generation_guard::change_config(|| vless::set_vless_extended_config(
-        &uuid_str,
-        &path,
-        &domain,
-        &server_address,
-        if server_port > 0 {
-            server_port as u16
-        } else {
-            443
-        },
-        &tls_sni,
-        &host_header,
-        &transport,
-        &security,
-        &public_key,
-        &short_id,
-        &fingerprint,
-        &spider_x,
-        &flow,
-        &header_type,
-    ));
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn SetVlessNetworkConfig(
-    c_uuid: *const c_char,
-    c_path: *const c_char,
-    c_domain: *const c_char,
-    c_server_address: *const c_char,
-    server_port: c_int,
-    c_tls_sni: *const c_char,
-    c_host_header: *const c_char,
-) {
-    let uuid_str = cstr_to_string(c_uuid);
-    let path = cstr_to_string(c_path);
-    let domain = cstr_to_string(c_domain);
-    let server_address = cstr_to_string(c_server_address);
-    let tls_sni = cstr_to_string(c_tls_sni);
-    let host_header = cstr_to_string(c_host_header);
-    generation_guard::change_config(|| vless::set_vless_network_config(
-        &uuid_str,
-        &path,
-        &domain,
-        &server_address,
-        if server_port > 0 {
-            server_port as u16
-        } else {
-            443
-        },
-        &tls_sni,
-        &host_header,
-    ));
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn SetVlessFallbackPool(c_domains: *const c_char) {
-    let domains = cstr_to_string(c_domains);
-    generation_guard::change_config(|| vless::set_vless_fallback_pool(&domains));
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn SetVlessFallbackProfilesJson(c_json: *const c_char) -> c_int {
-    let json_str = cstr_to_string(c_json);
-    if json_str.is_empty() {
-        return -1;
-    }
-    match generation_guard::change_config(|| vless::set_vless_fallback_profiles_json(&json_str)) {
-        Ok(count) => count as c_int,
-        Err(e) => {
-            crate::lerror!("SetVlessFallbackProfilesJson error: {}", e);
-            -1
-        }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn GetVlessStatus() -> *mut c_char {
-    let s = vless::get_vless_status();
-    CString::new(s).unwrap_or_default().into_raw()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn SetVlessConfigJson(c_json: *const c_char) -> c_int {
-    let json_str = cstr_to_string(c_json);
-    if json_str.is_empty() {
-        return -1;
-    }
-    match generation_guard::change_config(|| vless::set_vless_config_json(&json_str)) {
-        Ok(()) => 0,
-        Err(e) => {
-            crate::lerror!("SetVlessConfigJson error: {}", e);
-            -1
-        }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn GetVlessConfigJson() -> *mut c_char {
-    let s = vless::get_vless_config_json();
-    CString::new(s).unwrap_or_default().into_raw()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn SetOperaVpnConfig(
-    vless_enabled: c_int,
-    warp_enabled: c_int,
-    c_endpoint: *const c_char,
-) {
-    let endpoint = cstr_to_string(c_endpoint);
-    generation_guard::change_config(|| config::set_opera_vpn_config(vless_enabled != 0, warp_enabled != 0, &endpoint));
 }
 
 #[no_mangle]
@@ -1577,16 +1458,8 @@ async fn awg_socks5_handshake(stream: &mut tokio::net::TcpStream) -> Result<Stri
 }
 
 #[no_mangle]
-pub extern "C" fn GetStageTimelineJson() -> *mut c_char {
-    let s = timeline::TIMELINE_TRACKER.get_timeline_json();
-    CString::new(s).unwrap_or_default().into_raw()
-}
-
-#[no_mangle]
 pub extern "C" fn GetUsefulRxSliJson() -> *mut c_char {
-    let s = serde_json::to_string(&timeline::TIMELINE_TRACKER.get_sli_summary())
-        .unwrap_or_else(|_| "{}".to_string());
-    CString::new(s).unwrap_or_default().into_raw()
+    CString::new("{}").unwrap_or_default().into_raw()
 }
 
 #[no_mangle]
@@ -1620,6 +1493,118 @@ pub extern "C" fn GetNodeIndependenceStatusJson() -> *mut c_char {
 pub extern "C" fn GetTlsObservabilityStatusJson() -> *mut c_char {
     let s = tls_observability::TLS_TRACKER.read().get_status_json();
     CString::new(s).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ResolveDns(
+    c_domain: *const c_char,
+    scope: c_int,
+) -> *mut c_char {
+    init_crypto_and_panic_hook();
+    let domain = cstr_to_string(c_domain);
+    if domain.trim().is_empty() {
+        return CString::new("{\"status\":3,\"ips\":[],\"error\":\"Empty domain\"}").unwrap_or_default().into_raw();
+    }
+    let dns_scope = if scope == 1 {
+        dns::DnsScope::UserInTunnel
+    } else {
+        dns::DnsScope::Bootstrap
+    };
+
+    let rt = runtime();
+    let res = rt.block_on(async {
+        dns::resolve_dual_stack(&domain, dns_scope).await
+    });
+
+    let json_str = match res {
+        Ok(ips) => {
+            let ip_strs: Vec<String> = ips.into_iter().map(|ip| ip.to_string()).collect();
+            serde_json::json!({
+                "status": 0,
+                "ips": ip_strs
+            }).to_string()
+        }
+        Err(e) => {
+            serde_json::json!({
+                "status": 3,
+                "ips": [],
+                "error": e.to_string()
+            }).to_string()
+        }
+    };
+    CString::new(json_str).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn ClearDnsCache() {
+    dns::clear_dns_cache();
+}
+
+
+#[no_mangle]
+pub unsafe extern "C" fn ProbeWarpEndpoints(
+    c_endpoints_csv: *const c_char,
+    protocol: c_int,
+    timeout_ms: c_int,
+) -> *mut c_char {
+    init_crypto_and_panic_hook();
+    let endpoints_csv = cstr_to_string(c_endpoints_csv);
+    let to_ms = if timeout_ms <= 0 { 600 } else { timeout_ms as u64 };
+    let rt = runtime();
+    let results = rt.block_on(async {
+        prober::probe_warp_endpoints(&endpoints_csv, protocol, to_ms).await
+    });
+    let s = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
+    CString::new(s).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn PingHost(
+    c_host: *const c_char,
+    port: c_int,
+    timeout_ms: c_int,
+) -> *mut c_char {
+    init_crypto_and_panic_hook();
+    let host = cstr_to_string(c_host);
+    let p = if port <= 0 { 443 } else { port as u16 };
+    let to_ms = if timeout_ms <= 0 { 2500 } else { timeout_ms as u64 };
+    let rt = runtime();
+    let (success, rtt_ms, ip_or_err) = rt.block_on(async {
+        prober::ping_tcp_host(&host, p, to_ms).await
+    });
+    let json_val = if success {
+        serde_json::json!({
+            "success": true,
+            "rtt_ms": rtt_ms,
+            "ip": ip_or_err
+        })
+    } else {
+        serde_json::json!({
+            "success": false,
+            "rtt_ms": -1,
+            "error": ip_or_err
+        })
+    };
+    CString::new(json_val.to_string()).unwrap_or_default().into_raw()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn PingWorker(
+    c_domain: *const c_char,
+    timeout_ms: c_int,
+) -> *mut c_char {
+    init_crypto_and_panic_hook();
+    let domain = cstr_to_string(c_domain);
+    let to_ms = if timeout_ms <= 0 { 5000 } else { timeout_ms as u64 };
+    let rt = runtime();
+    let (status, rtt_opt) = rt.block_on(async {
+        prober::ping_worker_endpoint(&domain, to_ms).await
+    });
+    let json_val = serde_json::json!({
+        "status": status,
+        "rtt_ms": rtt_opt
+    });
+    CString::new(json_val.to_string()).unwrap_or_default().into_raw()
 }
 
 #[no_mangle]

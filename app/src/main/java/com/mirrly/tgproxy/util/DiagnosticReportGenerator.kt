@@ -17,8 +17,12 @@ import android.os.Build
 import com.mirrly.tgproxy.BuildConfig
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.core.FailureType
+import com.mirrly.tgproxy.core.NativeProxy
+import com.mirrly.tgproxy.core.VpnSocketProtector
 import com.mirrly.tgproxy.core.WarpPipelineProfiler
+import com.mirrly.tgproxy.service.MirrlyVpnService
 import com.mirrly.tgproxy.service.WorkerFailoverManager
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -112,7 +116,7 @@ object DiagnosticReportGenerator {
             sb.append("- **Тип соединения**: `").append(netType).append("`\n")
             sb.append("- **Стек протоколов**: `IPv4=").append(if (hasIpv4) yesStr else noStr)
                 .append(", IPv6=").append(if (hasIpv6) yesStr else noStr).append("`\n")
-            sb.append("- **DNS-резолвер**: `").append(if (config.enabledDohProviderIds.isNotEmpty()) "DoH (${config.enabledDohProviderIds.joinToString(", ")})" else "Системный DNS").append("`\n\n")
+            sb.append("- **DNS-резолвер**: `Direct Cloudflare Anycast / System`\n\n")
 
             sb.append("#### 3. Конфигурация прокси и туннеля\n")
             sb.append("- **Режим**: `").append(if (config.isSocks5Mode) "SOCKS5 (:10808)" else "MTProto (:1080)").append("`\n")
@@ -126,7 +130,7 @@ object DiagnosticReportGenerator {
                 sb.append("- **Выбранный Worker**: `не используется в MTProto`\n")
             }
             sb.append("- **Активный транспорт**: `").append(stats.activeCascadeStage).append("`\n")
-            sb.append("- **TCP_NODELAY**: `").append(config.tcpNoDelayModeName).append("`\n")
+            sb.append("- **Алгоритм Нагла**: `").append(if (!config.tcpNoDelay) "Включен (Nagle ON)" else "Выключен (TCP_NODELAY ON)").append("`\n")
             sb.append("- **Пресет скорости**: `").append(config.speedPresetName).append("`\n\n")
 
             sb.append("#### 4. Метрики качества канала связи (SQI)\n")
@@ -168,6 +172,33 @@ object DiagnosticReportGenerator {
             }
             sb.append("\n")
 
+            val vpnStatus = MirrlyVpnService.vpnStatus.value
+            val vpnJsonStr = NativeProxy.getVpnStatusJson()
+            val vpnJson = try { if (vpnJsonStr != null) JSONObject(vpnJsonStr) else null } catch (_: Exception) { null }
+            val isNativeRunning = vpnJson?.optBoolean("is_running", false) ?: false
+            val isVpnActive = MirrlyVpnService.isRunning
+
+            sb.append("#### 7. Диагностика VPN и TUN-слоя (L3 Engine)\n")
+            sb.append("- **VPN Service**: `").append(if (isVpnActive) "АКТИВЕН (Uptime: ${vpnStatus.uptimeMs / 1000} сек)" else "ОСТАНОВЛЕН").append("`\n")
+            sb.append("- **Аплинк VPN**: `").append(config.vpnUplinkMode.displayName).append("`\n")
+            sb.append("- **TUN-интерфейс**: `").append(if (isVpnActive) "ESTABLISHED (MTU 1280, блокирующий I/O)" else "НЕ СОЗДАН").append("`\n")
+            sb.append("- **IPv4 маршрутизация**: `0.0.0.0/0 (без loopback 127.0.0.0/8) -> TUN (${config.warpClientIpv4})`\n")
+            val ipv6Desc = when {
+                config.warpClientIpv6.isNotBlank() -> "::/0 -> TUN (${config.warpClientIpv6}/128, утечки блокируются)"
+                config.vpnBlockIpv6Leaks -> "::/0 -> TUN (Защита от утечек активна)"
+                else -> "ОТКЛЮЧЕНО"
+            }
+            sb.append("- **IPv6 маршрутизация**: `").append(ipv6Desc).append("`\n")
+            sb.append("- **DNS-режим VPN**: `").append(config.vpnDnsMode.displayName)
+                .append(" (Серверы: ").append(config.getEffectiveVpnDnsIpv4().joinToString(", ")).append(")`\n")
+            sb.append("- **Защита сокетов (protect)**: `")
+                .append(if (VpnSocketProtector.isRegistered()) "АКТИВНА (петли маршрутизации исключены)" else "НЕАКТИВНА").append("`\n")
+            sb.append("- **Нативное ядро (Rust L3)**: `")
+                .append(if (isNativeRunning) "RUNNING" else if (isVpnActive) "ОШИБКА / ЗАВЕРШЕНО" else "ОСТАНОВЛЕНО").append("`\n")
+            sb.append("- **Трафик туннеля**: `↓ ").append(formatBytes(vpnStatus.bytesIn))
+                .append(" • ↑ ").append(formatBytes(vpnStatus.bytesOut))
+                .append(" (пакетов: ").append(vpnStatus.activeTcpFlows + vpnStatus.activeUdpSessions).append(")`\n\n")
+
             sb.append("---\n")
             sb.append("*Отчёт сформирован модулем DiagnosticReportGenerator. Все личные идентификаторы и пароли очищены.*")
         } else {
@@ -187,7 +218,7 @@ object DiagnosticReportGenerator {
             sb.append("- **Connection Type**: `").append(netType).append("`\n")
             sb.append("- **Protocol Stack**: `IPv4=").append(if (hasIpv4) yesStr else noStr)
                 .append(", IPv6=").append(if (hasIpv6) yesStr else noStr).append("`\n")
-            sb.append("- **DNS Resolver**: `").append(if (config.enabledDohProviderIds.isNotEmpty()) "DoH (${config.enabledDohProviderIds.joinToString(", ")})" else "System DNS").append("`\n\n")
+            sb.append("- **DNS Resolver**: `Direct Cloudflare Anycast / System`\n\n")
 
             sb.append("#### 3. Proxy and Tunnel Configuration\n")
             sb.append("- **Mode**: `").append(if (config.isSocks5Mode) "SOCKS5 (:10808)" else "MTProto (:1080)").append("`\n")
@@ -201,7 +232,7 @@ object DiagnosticReportGenerator {
                 sb.append("- **Selected Worker**: `not used by MTProto`\n")
             }
             sb.append("- **Active Transport**: `").append(stats.activeCascadeStage).append("`\n")
-            sb.append("- **TCP_NODELAY**: `").append(config.tcpNoDelayModeName).append("`\n")
+            sb.append("- **Nagle\'s Algorithm**: `").append(if (!config.tcpNoDelay) "Enabled (Nagle ON)" else "Disabled (TCP_NODELAY ON)").append("`\n")
             sb.append("- **Speed Preset**: `").append(config.speedPresetName).append("`\n\n")
 
             sb.append("#### 4. Signal Quality Indicators (SQI)\n")
@@ -243,11 +274,48 @@ object DiagnosticReportGenerator {
             }
             sb.append("\n")
 
+            val vpnStatus = MirrlyVpnService.vpnStatus.value
+            val vpnJsonStr = NativeProxy.getVpnStatusJson()
+            val vpnJson = try { if (vpnJsonStr != null) JSONObject(vpnJsonStr) else null } catch (_: Exception) { null }
+            val isNativeRunning = vpnJson?.optBoolean("is_running", false) ?: false
+            val isVpnActive = MirrlyVpnService.isRunning
+
+            sb.append("#### 7. VPN and TUN Layer Diagnostics (L3 Engine)\n")
+            sb.append("- **VPN Service**: `").append(if (isVpnActive) "ACTIVE (Uptime: ${vpnStatus.uptimeMs / 1000} sec)" else "STOPPED").append("`\n")
+            sb.append("- **VPN Uplink**: `").append(config.vpnUplinkMode.displayName).append("`\n")
+            sb.append("- **TUN Interface**: `").append(if (isVpnActive) "ESTABLISHED (MTU 1280, blocking I/O)" else "NOT CREATED").append("`\n")
+            sb.append("- **IPv4 Routing**: `0.0.0.0/0 (excluding 127.0.0.0/8 loopback) -> TUN (${config.warpClientIpv4})`\n")
+            val ipv6DescEn = when {
+                config.warpClientIpv6.isNotBlank() -> "::/0 -> TUN (${config.warpClientIpv6}/128, leak protection active)"
+                config.vpnBlockIpv6Leaks -> "::/0 -> TUN (Leak protection active)"
+                else -> "DISABLED"
+            }
+            sb.append("- **IPv6 Routing**: `").append(ipv6DescEn).append("`\n")
+            sb.append("- **VPN DNS**: `").append(config.vpnDnsMode.displayName)
+                .append(" (Resolvers: ").append(config.getEffectiveVpnDnsIpv4().joinToString(", ")).append(")`\n")
+            sb.append("- **Socket Protection (protect)**: `")
+                .append(if (VpnSocketProtector.isRegistered()) "ACTIVE (routing loops prevented)" else "INACTIVE").append("`\n")
+            sb.append("- **Native Engine (Rust L3)**: `")
+                .append(if (isNativeRunning) "RUNNING" else if (isVpnActive) "FAILED / EXITED" else "STOPPED").append("`\n")
+            sb.append("- **Tunnel Traffic**: `↓ ").append(formatBytes(vpnStatus.bytesIn))
+                .append(" • ↑ ").append(formatBytes(vpnStatus.bytesOut))
+                .append(" (packets: ").append(vpnStatus.activeTcpFlows + vpnStatus.activeUdpSessions).append(")`\n\n")
+
             sb.append("---\n")
             sb.append("*Report generated by DiagnosticReportGenerator. All personal identifiers and credentials have been sanitized.*")
         }
 
         return sb.toString()
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        if (bytes < 1024) return "$bytes B"
+        val kb = bytes / 1024.0
+        if (kb < 1024) return String.format(Locale.US, "%.1f KB", kb)
+        val mb = kb / 1024.0
+        if (mb < 1024) return String.format(Locale.US, "%.1f MB", mb)
+        val gb = mb / 1024.0
+        return String.format(Locale.US, "%.2f GB", gb)
     }
 
     /**

@@ -34,6 +34,7 @@ object WarpProfileCodec {
             p.masqueUserOverride?.let { put("masqueUserOverride", it) }
             p.measuredWgEndpoint?.let { put("measuredWgEndpoint", it) }
             p.measuredMasqueEndpoint?.let { put("measuredMasqueEndpoint", it) }
+            if (p.dnsServers.isNotBlank()) { put("dnsServers", p.dnsServers) }
         }.toString()
     }
 
@@ -83,7 +84,8 @@ object WarpProfileCodec {
             masqueApiEndpoint = j.optString("masqueApiEndpoint", ""),
             masqueUserOverride = if (j.has("masqueUserOverride")) j.optString("masqueUserOverride").takeIf { it.isNotBlank() } else null,
             measuredWgEndpoint = if (j.has("measuredWgEndpoint")) j.optString("measuredWgEndpoint").takeIf { it.isNotBlank() } else null,
-            measuredMasqueEndpoint = if (j.has("measuredMasqueEndpoint")) j.optString("measuredMasqueEndpoint").takeIf { it.isNotBlank() } else null
+            measuredMasqueEndpoint = if (j.has("measuredMasqueEndpoint")) j.optString("measuredMasqueEndpoint").takeIf { it.isNotBlank() } else null,
+            dnsServers = j.optString("dnsServers", "")
         ).requireUsable()
     } catch (_: Exception) { null }
 }
@@ -111,5 +113,6 @@ fun ProxyConfig.toWarpProfile() = WarpProfile(
     masqueApiEndpoint = warpMasqueApiEndpoint,
     masqueUserOverride = warpMasqueUserOverride.ifBlank { null },
     measuredWgEndpoint = warpMeasuredWgEndpoint.ifBlank { null },
-    measuredMasqueEndpoint = warpMeasuredMasqueEndpoint.ifBlank { null }
+    measuredMasqueEndpoint = warpMeasuredMasqueEndpoint.ifBlank { null },
+    dnsServers = if (vpnDnsMode == VpnDnsMode.CUSTOM) vpnCustomDnsIps else ""
 )

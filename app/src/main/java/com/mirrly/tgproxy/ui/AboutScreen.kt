@@ -24,8 +24,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import kotlinx.coroutines.launch
-import com.mirrly.tgproxy.service.DeveloperModeManager
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -49,8 +47,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -64,15 +60,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.os.Build
-import android.view.WindowManager
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ui.theme.*
 import com.mirrly.tgproxy.util.shareApp
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,48 +76,26 @@ fun AboutScreen(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val pureBlack = Color(0xFF000000)
-    val ledGreen = ActiveGreenLed
     val coroutineScope = rememberCoroutineScope()
+    val ledGreen = ActiveGreenLed
 
     // Pulsing gradient glow for hero section
     val infiniteTransition = rememberInfiniteTransition(label = "pulseGlow")
     val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 0.9f,
+        initialValue = 0.35f,
+        targetValue = 0.85f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = LinearEasing),
+            animation = tween(2400, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "glowAlpha"
     )
 
-    fun openUrl(url: String) {
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        try {
-            val uri = Uri.parse(url.trim())
-            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, context.getString(R.string.about_err_open_link, e.localizedMessage ?: ""), Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    fun copyToClipboard(label: String, text: String) {
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText(label, text)
-        clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, context.getString(R.string.about_copied_to_clipboard, label), Toast.LENGTH_SHORT).show()
-    }
-
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
     val maxScrollRange = remember(density) { with(density) { 180.dp.toPx() } }
 
-    // ── SHARED ELEMENT ENTRANCE SPRING SCALE (AVATAR FLIES IN FROM BUTTON) ──
+    // Shared element entrance spring scale
     var isEntered by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         isEntered = true
@@ -147,12 +116,9 @@ fun AboutScreen(
         label = "avatarEntranceAlpha"
     )
 
-    // ── CONFIRMATION DIALOG STATE FOR EXTERNAL REDIRECTS ──
     var pendingRedirectUrl by remember { mutableStateOf<String?>(null) }
+    var showDonateDialog by remember { mutableStateOf(false) }
 
-    val isDevVpnUnlocked by DeveloperModeManager.isDevVpnUnlocked.collectAsState()
-    var devTapCount by remember { mutableIntStateOf(0) }
-    var lastDevTapTime by remember { mutableLongStateOf(0L) }
     val devAvatarBounce = remember { Animatable(1f) }
 
     if (pendingRedirectUrl != null) {
@@ -163,11 +129,17 @@ fun AboutScreen(
         )
     }
 
+    if (showDonateDialog) {
+        DonationDialog(
+            onDismiss = { showDonateDialog = false }
+        )
+    }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
     ) {
-        // 1. SCROLLABLE CONTENT LAYER (Scrolls ALL THE WAY to the top under the Frosted Header!)
+        // 1. SCROLLABLE CONTENT LAYER
         Column(
             modifier = Modifier
                 .adaptiveContainerWidth(600.dp)
@@ -176,13 +148,12 @@ fun AboutScreen(
                 .verticalScroll(scrollState)
                 .padding(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp,
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
                 )
                 .adaptiveContentPadding(),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
-
-            // 1. HERO DEVELOPER CARD WITH PARALLAX & SHARED ELEMENT HERO AVATAR
+            // 1. HERO DEVELOPER CARD WITH PARALLAX & SHARED ELEMENT AVATAR
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -199,22 +170,22 @@ fun AboutScreen(
                         translationY = headerParallaxY
                         alpha = headerAlpha * avatarEntranceAlpha
                     }
-                    .clip(RoundedCornerShape(24.dp))
+                    .clip(RoundedCornerShape(22.dp))
                     .background(Color.Transparent)
-                    .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(24.dp))
-                    .lightSweep(isEnabled = true, shape = RoundedCornerShape(24.dp))
+                    .border(1.dp, AmoledBorder, RoundedCornerShape(22.dp))
+                    .lightSweep(isEnabled = true, shape = RoundedCornerShape(22.dp))
                     .padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // Glowing Avatar Icon Box
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(96.dp)
+                            .size(92.dp)
                             .graphicsLayer {
                                 scaleX = avatarEntranceScale * devAvatarBounce.value
                                 scaleY = avatarEntranceScale * devAvatarBounce.value
@@ -225,52 +196,25 @@ fun AboutScreen(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) {
-                                val now = System.currentTimeMillis()
-                                if (now - lastDevTapTime > 2000L) {
-                                    devTapCount = 0
-                                }
-                                lastDevTapTime = now
-
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 coroutineScope.launch {
                                     devAvatarBounce.animateTo(0.85f, tween(70))
                                     devAvatarBounce.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
                                 }
-
-                                if (isDevVpnUnlocked) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    Toast.makeText(context, "Режим разработчика уже активен", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    devTapCount++
-                                    if (devTapCount in 2..4) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        val remaining = 5 - devTapCount
-                                        Toast.makeText(context, "Осталось нажатий для режима разработчика: $remaining", Toast.LENGTH_SHORT).show()
-                                    } else if (devTapCount >= 5) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        devTapCount = 0
-                                        DeveloperModeManager.unlockDevVpn()
-                                        Toast.makeText(context, "Режим разработчика активирован: VPN полностью разблокирован", Toast.LENGTH_LONG).show()
-                                    } else {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    }
-                                }
                             }
                     ) {
-                        // Quantum Charge Ring around Avatar
+                        // Quantum Ring around Avatar
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val w = size.width
                             val h = size.height
                             val c = Offset(w / 2f, h / 2f)
                             val r = (w.coerceAtMost(h) / 2f) - 3.dp.toPx()
 
-                            val ringColor = if (isDevVpnUnlocked) Color(0xFFFFB300) else ledGreen
-
-                            // Base Border
                             drawCircle(
-                                color = ringColor.copy(alpha = glowAlpha * 0.70f),
+                                color = ledGreen.copy(alpha = glowAlpha * 0.70f),
                                 radius = r,
                                 center = c,
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx())
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
                             )
                         }
 
@@ -279,7 +223,7 @@ fun AboutScreen(
                             contentDescription = "R1Xern Avatar",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .size(82.dp)
+                                .size(78.dp)
                                 .clip(CircleShape)
                         )
                     }
@@ -291,8 +235,9 @@ fun AboutScreen(
                     ) {
                         Text(
                             text = "R1Xern",
-                            fontSize = 24.sp,
+                            fontSize = 22.sp,
                             fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp,
                             color = TextWhite
                         )
 
@@ -303,13 +248,10 @@ fun AboutScreen(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(Color.Transparent)
-                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
+                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
                                     pendingRedirectUrl = "https://github.com/joycecurcirt539-dot"
-                                }
+                                })
                                 .padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
                             Icon(
@@ -326,62 +268,25 @@ fun AboutScreen(
                             )
                         }
 
-                        AnimatedVisibility(
-                            visible = isDevVpnUnlocked,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically()
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xFFFFB300).copy(alpha = 0.12f))
-                                    .border(1.dp, Color(0xFFFFB300).copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFFFB300))
-                                )
-                                Text(
-                                    text = "РЕЖИМ РАЗРАБОТЧИКА АКТИВЕН",
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 0.9.sp,
-                                    color = Color(0xFFFFB300)
-                                )
-                            }
-                        }
-
                         Text(
                             text = stringResource(R.string.about_creator_subtitle),
-                            fontSize = 13.sp,
+                            fontSize = 12.5.sp,
                             fontWeight = FontWeight.Medium,
                             color = TextMuted,
                             textAlign = TextAlign.Center
                         )
                     }
-
-
                 }
             }
 
-            // OFFICIAL SOURCE & VERIFICATION CARD
+            // 2. OFFICIAL SOURCE & VERIFICATION CARD
             OfficialSourceCard(
                 modifier = Modifier.staggeredEntrance(index = 1)
             )
 
-            // GITHUB TOTAL DOWNLOADS STATS CARD
-            DownloadStatsCard(
-                modifier = Modifier.staggeredEntrance(index = 2)
-            )
-
-            // 2. BIO & MISSION CARD
+            // 3. ARCHITECTURE & MISSION CARD
             Column(
-                modifier = Modifier.staggeredEntrance(index = 3),
+                modifier = Modifier.staggeredEntrance(index = 2),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -395,12 +300,12 @@ fun AboutScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
+                        .clip(RoundedCornerShape(18.dp))
                         .background(Color.Transparent)
-                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(20.dp))
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
                         .padding(18.dp)
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
                             text = stringResource(R.string.about_greeting),
                             fontSize = 15.sp,
@@ -414,11 +319,26 @@ fun AboutScreen(
                             lineHeight = 20.sp,
                             color = TextWhite.copy(alpha = 0.85f)
                         )
+
+                        // Architectural Highlights
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            SpecPill(text = "SOCKS5 :10808", modifier = Modifier.weight(1f))
+                            SpecPill(text = "Rust NDK Engine", modifier = Modifier.weight(1f))
+                            SpecPill(text = "Cloudflare WSS", modifier = Modifier.weight(1f))
+                        }
                     }
                 }
             }
 
-            // 3. OFFICIAL LINKS
+            // 4. UPDATED ARCHITECTURAL TECH STACK
+            TechStackSection(
+                modifier = Modifier.staggeredEntrance(index = 3)
+            )
+
+            // 5. OFFICIAL RESOURCES & CONTACTS
             Column(
                 modifier = Modifier.staggeredEntrance(index = 4),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -431,15 +351,14 @@ fun AboutScreen(
                     color = TextMuted
                 )
 
-                // Single Grouped Container for all Links
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(18.dp))
                         .background(Color.Transparent)
-                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(18.dp))
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
                 ) {
-                    // Link 1: Telegram Channel
+                    // Telegram Channel
                     LinkCardItem(
                         iconRes = R.drawable.ic_telegram,
                         iconTint = Color(0xFF29B6F6),
@@ -448,9 +367,9 @@ fun AboutScreen(
                         onClick = { pendingRedirectUrl = "https://t.me/WhyOKyHb" }
                     )
 
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+                    HorizontalDivider(thickness = 1.dp, color = Color(0xFF141824))
 
-                    // Link 2: GitHub Profile
+                    // GitHub Profile
                     LinkCardItem(
                         iconRes = R.drawable.ic_github,
                         iconTint = TextWhite,
@@ -459,9 +378,9 @@ fun AboutScreen(
                         onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot" }
                     )
 
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+                    HorizontalDivider(thickness = 1.dp, color = Color(0xFF141824))
 
-                    // Link 3: GitHub Repository
+                    // GitHub Repository
                     LinkCardItem(
                         iconRes = R.drawable.ic_github,
                         iconTint = ActiveGreenLed,
@@ -470,9 +389,9 @@ fun AboutScreen(
                         onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy" }
                     )
 
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+                    HorizontalDivider(thickness = 1.dp, color = Color(0xFF141824))
 
-                    // Link 4: Share App
+                    // Share Application
                     LinkCardItem(
                         iconRes = R.drawable.ic_send,
                         iconTint = ActiveGreenLed,
@@ -481,9 +400,9 @@ fun AboutScreen(
                         onClick = { context.shareApp() }
                     )
 
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+                    HorizontalDivider(thickness = 1.dp, color = Color(0xFF141824))
 
-                    // Link 5: Report Bug or Idea (GitHub Issues)
+                    // Report Issue / Bug Tracker
                     LinkCardItem(
                         iconRes = R.drawable.ic_bug,
                         iconTint = Color(0xFFFF9E00),
@@ -492,9 +411,9 @@ fun AboutScreen(
                         onClick = { pendingRedirectUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/issues/new" }
                     )
 
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF141824)))
+                    HorizontalDivider(thickness = 1.dp, color = Color(0xFF141824))
 
-                    // Link 6: GPLv3 License Screen
+                    // GNU GPLv3 License
                     LinkCardItem(
                         iconRes = R.drawable.ic_license,
                         iconTint = ActiveGreenLed,
@@ -505,9 +424,99 @@ fun AboutScreen(
                 }
             }
 
-            // 4. STAR ON GITHUB SUPPORT CARD
+            // 6. HALL OF FAME CARD
             Column(
                 modifier = Modifier.staggeredEntrance(index = 5),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.about_section_fame),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.3.sp,
+                    color = TextMuted
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenHallOfFame()
+                        })
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_hall_of_fame),
+                                contentDescription = null,
+                                tint = Color(0xFFFFBD22),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.about_fame_card_title),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color.Transparent,
+                                    border = BorderStroke(1.dp, AmoledBorder)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.badge_top),
+                                        fontSize = 8.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFFFBD22),
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = stringResource(R.string.about_fame_card_desc),
+                                fontSize = 11.5.sp,
+                                color = TextMuted,
+                                lineHeight = 16.sp
+                            )
+                        }
+
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            // 7. GITHUB REPOSITORY RATING CARD
+            Column(
+                modifier = Modifier.staggeredEntrance(index = 6),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -521,28 +530,49 @@ fun AboutScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
+                        .clip(RoundedCornerShape(18.dp))
                         .background(Color.Transparent)
-                        .border(1.dp, Color(0xFFFFB703).copy(alpha = 0.5f), RoundedCornerShape(22.dp))
+                        .border(1.dp, Color(0xFFFFB703).copy(alpha = 0.35f), RoundedCornerShape(18.dp))
                         .padding(18.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Column {
-                            Text(
-                                text = stringResource(R.string.about_star_title),
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = stringResource(R.string.about_star_desc),
-                                fontSize = 12.sp,
-                                color = TextMuted
-                            )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.Transparent)
+                                    .border(1.dp, Color(0xFFFFB703).copy(alpha = 0.40f), RoundedCornerShape(10.dp))
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_star),
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFB703),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.about_star_title),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = stringResource(R.string.about_star_desc),
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                    color = TextMuted
+                                )
+                            }
                         }
 
-                        // Star Button
                         Button(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -552,21 +582,24 @@ fun AboutScreen(
                                 containerColor = Color.Transparent,
                                 contentColor = Color(0xFFFFB703)
                             ),
-                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFFB703)),
-                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, Color(0xFFFFB703)),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(46.dp)
+                                .height(44.dp)
+                                .springPress()
                         ) {
-                            Text(
-                                text = "⭐",
-                                fontSize = 16.sp
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_star),
+                                contentDescription = null,
+                                tint = Color(0xFFFFB703),
+                                modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = stringResource(R.string.about_star_btn),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
+                                fontSize = 13.5.sp,
                                 color = Color(0xFFFFB703)
                             )
                         }
@@ -574,9 +607,9 @@ fun AboutScreen(
                 }
             }
 
-            // 5. SUPPORT AUTHOR & DONATION CARD
+            // 8. PROJECT SUPPORT CARD
             Column(
-                modifier = Modifier.staggeredEntrance(index = 6),
+                modifier = Modifier.staggeredEntrance(index = 7),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -590,188 +623,90 @@ fun AboutScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
+                        .clip(RoundedCornerShape(18.dp))
                         .background(Color.Transparent)
-                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), RoundedCornerShape(22.dp))
+                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
                         .padding(18.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Column {
-                            Text(
-                                text = stringResource(R.string.about_donation_title),
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                            Text(
-                                text = stringResource(R.string.about_donation_desc),
-                                fontSize = 12.sp,
-                                color = TextMuted
-                            )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.Transparent)
+                                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.40f), RoundedCornerShape(10.dp))
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_donate),
+                                    contentDescription = null,
+                                    tint = ActiveGreenLed,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.about_donation_title),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = stringResource(R.string.about_donation_desc),
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                    color = TextMuted
+                                )
+                            }
                         }
 
-                        // Outlined DaLink Support Button
                         Button(
-                            onClick = { pendingRedirectUrl = "https://dalink.to/cartneyzix" },
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showDonateDialog = true
+                            },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color.Transparent,
                                 contentColor = ActiveGreenLed
                             ),
-                            border = androidx.compose.foundation.BorderStroke(1.5.dp, ActiveGreenLed),
-                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, ActiveGreenLed),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(46.dp)
+                                .height(44.dp)
+                                .springPress()
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_donate),
                                 contentDescription = null,
                                 tint = ActiveGreenLed,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = stringResource(R.string.about_donation_btn),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
+                                fontSize = 13.5.sp,
+                                color = ActiveGreenLed
                             )
                         }
                     }
                 }
             }
 
-            // 6. HALL OF FAME STANDOUT SECTION
-            Column(
-                modifier = Modifier.staggeredEntrance(index = 7),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.about_section_fame),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
-
-                // Standout Hall of Fame Card
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Transparent)
-                        .border(1.dp, Color(0xFF7C4DFF).copy(alpha = 0.50f), RoundedCornerShape(20.dp))
-                        .lightSweep(
-                            isEnabled = true,
-                            shape = RoundedCornerShape(20.dp),
-                            sweepColor = Color(0xFF7C4DFF)
-                        )
-                        .springPress(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onOpenHallOfFame()
-                        })
-                        .padding(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color(0xFF7C4DFF).copy(alpha = 0.15f))
-                                .border(1.dp, Color(0xFF7C4DFF).copy(alpha = 0.45f), RoundedCornerShape(14.dp))
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_hall_of_fame),
-                                contentDescription = null,
-                                tint = Color(0xFFC084FC),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.about_fame_card_title),
-                                    fontSize = 14.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextWhite
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFF7C4DFF).copy(alpha = 0.20f),
-                                    border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFF7C4DFF).copy(alpha = 0.5f))
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.badge_top),
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = Color(0xFFC084FC),
-                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                text = stringResource(R.string.about_fame_card_desc),
-                                fontSize = 11.5.sp,
-                                color = TextMuted
-                            )
-                        }
-
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_chevron_right),
-                            contentDescription = null,
-                            tint = Color(0xFFC084FC),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-            }
-
-            // 7. TECH STACK BADGES
-            Column(
-                modifier = Modifier.staggeredEntrance(index = 8),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.about_section_tech),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.3.sp,
-                    color = TextMuted
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TechBadge(text = "Kotlin 1.9", modifier = Modifier.weight(1f))
-                    TechBadge(text = "Jetpack Compose", modifier = Modifier.weight(1f))
-                    TechBadge(text = "Rust / C Native", modifier = Modifier.weight(1f))
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TechBadge(text = "Cloudflare Workers", modifier = Modifier.weight(1f))
-                    TechBadge(text = "MTProto FakeTLS", modifier = Modifier.weight(1f))
-                    TechBadge(text = "JNA Direct Calls", modifier = Modifier.weight(1f))
-                }
-            }
-
-            // 8. FOOTER COPYRIGHT
+            // 9. FOOTER COPYRIGHT & TERMS
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
                     text = stringResource(R.string.about_footer_developed_by),
@@ -791,17 +726,19 @@ fun AboutScreen(
                     fontWeight = FontWeight.Medium,
                     color = TextMuted.copy(alpha = 0.85f),
                     textDecoration = TextDecoration.Underline,
-                    modifier = Modifier.clickable {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onOpenTerms()
-                    }
+                    modifier = Modifier
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenTerms()
+                        })
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // 2. FROSTED GLASS HEADER PANEL (Pinned at Top over scrolling cards!)
+        // 2. FROSTED GLASS HEADER PANEL (Pinned at Top)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -845,11 +782,203 @@ fun AboutScreen(
             )
         }
 
-        // Delicate Cyber Particles floating over entire about screen interface
+        // Cyber Particles floating over entire about screen interface
         CyberParticlesOverlay(
             modifier = Modifier.fillMaxSize(),
             particleCount = 42,
             alphaMultiplier = 0.70f
+        )
+    }
+}
+
+/**
+ * Architectural Tech Stack Section showcasing the actual technical layers of Mirrly TG Proxy:
+ * - Native Engine: Rust 2021 (Tokio, smoltcp, Quinn), C++20 NDK
+ * - Protocols: MTProto FakeTLS, SOCKS5 Relay, Cloudflare WSS, VpnService
+ * - Platform & UI: Kotlin 2.0, Jetpack Compose, MirrlyUI
+ * - Diagnostics & AI: TLS Fragmentation, Happy Eyeballs RFC 8305, Gemini BYOK
+ */
+@Composable
+private fun TechStackSection(
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.about_section_tech),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.3.sp,
+            color = TextMuted
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.Transparent)
+                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Tier 1: Native Engine (Rust & C++)
+            TechCategoryGroup(
+                title = "Ядро и Native",
+                accentColor = ActiveGreenLed,
+                items = listOf(
+                    TechSpecItem("Rust 2021", "Tokio • mirrlyengine"),
+                    TechSpecItem("smoltcp & Quinn", "TCP/IP • QUIC NDK"),
+                    TechSpecItem("C++20 NDK", "JNI • Native Sec")
+                )
+            )
+
+            HorizontalDivider(thickness = 1.dp, color = Color(0xFF141824))
+
+            // Tier 2: Protocols & Networking
+            TechCategoryGroup(
+                title = "Сетевой стек и протоколы",
+                accentColor = Color(0xFF00F5D4),
+                items = listOf(
+                    TechSpecItem("MTProto FakeTLS", "TLS 1.3 • ee-secret"),
+                    TechSpecItem("SOCKS5 Relay", "RFC 1928 • :10808"),
+                    TechSpecItem("Cloudflare WSS", "cloudflare:sockets"),
+                    TechSpecItem("VpnService TUN", "Socket Protection")
+                )
+            )
+
+            HorizontalDivider(thickness = 1.dp, color = Color(0xFF141824))
+
+            // Tier 3: Platform & Interface
+            TechCategoryGroup(
+                title = "Платформа и MirrlyUI",
+                accentColor = Color(0xFFB388FF),
+                items = listOf(
+                    TechSpecItem("Kotlin 2.0", "Coroutines Flow"),
+                    TechSpecItem("Compose M3", "120 FPS • Zero-Popup"),
+                    TechSpecItem("Android 8.0–16", "16 KB Page Aligned")
+                )
+            )
+
+            HorizontalDivider(thickness = 1.dp, color = Color(0xFF141824))
+
+            // Tier 4: DPI Bypass & AI
+            TechCategoryGroup(
+                title = "Обход блокировок и интеллект",
+                accentColor = Color(0xFFFFBD22),
+                items = listOf(
+                    TechSpecItem("TLS Fragmenter", "DPI / ТСПУ Evasion"),
+                    TechSpecItem("Happy Eyeballs", "RFC 8305 Dual-Stack"),
+                    TechSpecItem("Gemini BYOK", "Function Calling Tools")
+                )
+            )
+        }
+    }
+}
+
+private data class TechSpecItem(
+    val name: String,
+    val spec: String
+)
+
+@Composable
+private fun TechCategoryGroup(
+    title: String,
+    accentColor: Color,
+    items: List<TechSpecItem>
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(accentColor)
+            )
+            Text(
+                text = title,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextWhite.copy(alpha = 0.9f)
+            )
+        }
+
+        // Grid of badges
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            val half = (items.size + 1) / 2
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                for (i in 0 until half) {
+                    TechBadgeCard(items[i])
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                for (i in half until items.size) {
+                    TechBadgeCard(items[i])
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TechBadgeCard(item: TechSpecItem) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.Transparent)
+            .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(10.dp))
+            .springPress()
+            .padding(horizontal = 10.dp, vertical = 7.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = item.name,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextWhite
+            )
+            Text(
+                text = item.spec,
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.Normal,
+                color = TextMuted
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpecPill(text: String, modifier: Modifier = Modifier) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.Transparent)
+            .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+            .padding(horizontal = 4.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text = text,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextMuted,
+            maxLines = 1,
+            softWrap = false,
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -866,13 +995,10 @@ private fun LinkCardItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
+            .springPress(onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 onClick()
-            }
+            })
             .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -887,8 +1013,8 @@ private fun LinkCardItem(
                 modifier = Modifier
                     .size(34.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(iconTint.copy(alpha = 0.12f))
-                    .border(1.dp, iconTint.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, iconTint.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
             ) {
                 Icon(
                     painter = painterResource(id = iconRes),
@@ -898,16 +1024,16 @@ private fun LinkCardItem(
                 )
             }
 
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(
                     text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = TextWhite
                 )
                 Text(
                     text = subtitle,
-                    fontSize = 11.5.sp,
+                    fontSize = 11.sp,
                     color = TextMuted
                 )
             }
@@ -916,163 +1042,8 @@ private fun LinkCardItem(
         Icon(
             painter = painterResource(id = R.drawable.ic_chevron_right),
             contentDescription = null,
-            tint = TextMuted,
-            modifier = Modifier.size(16.dp)
+            tint = TextMuted.copy(alpha = 0.7f),
+            modifier = Modifier.size(15.dp)
         )
-    }
-}
-
-@Composable
-private fun TechBadge(text: String, modifier: Modifier = Modifier) {
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color.Transparent)
-            .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(10.dp))
-            .padding(vertical = 8.dp)
-    ) {
-        Text(
-            text = text,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = TextWhite.copy(alpha = 0.9f),
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
-@Composable
-fun DownloadStatsCard(
-    modifier: Modifier = Modifier
-) {
-    val coroutineScope = rememberCoroutineScope()
-    var totalDownloads by remember { mutableStateOf<Int?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
-    var isError by remember { mutableStateOf(false) }
-
-    fun loadStats() {
-        coroutineScope.launch {
-            isLoading = true
-            isError = false
-            val result = com.mirrly.tgproxy.core.UpdateChecker.fetchTotalDownloads(com.mirrly.tgproxy.BuildConfig.VERSION_NAME)
-            result.onSuccess { count ->
-                totalDownloads = count
-                isLoading = false
-            }.onFailure {
-                isError = true
-                isLoading = false
-            }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        loadStats()
-    }
-
-    val cyanGlow = Color(0xFF0088CC)
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.Transparent)
-            .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(16.dp))
-            .lightSweep(isEnabled = true, shape = RoundedCornerShape(16.dp), sweepColor = cyanGlow)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(cyanGlow.copy(alpha = 0.12f))
-                    .border(1.dp, cyanGlow.copy(alpha = 0.35f), CircleShape)
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_arrow_down),
-                    contentDescription = null,
-                    tint = cyanGlow,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(1.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.about_downloads_title),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.1.sp,
-                        color = TextMuted
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(if (isLoading) Color(0xFFFF9E00) else ActiveGreenLed)
-                    )
-                }
-
-                if (isLoading) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(vertical = 2.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
-                            color = cyanGlow,
-                            strokeWidth = 1.8.dp
-                        )
-                        Text(
-                            text = stringResource(R.string.about_downloads_loading),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = TextMuted
-                        )
-                    }
-                } else if (isError) {
-                    Text(
-                        text = stringResource(R.string.about_downloads_error),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFFFF9E00),
-                        modifier = Modifier.clickable { loadStats() }
-                    )
-                } else {
-                    val countText = totalDownloads?.let { String.format("%,d", it).replace(',', ' ') } ?: "0"
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = countText,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Black,
-                            color = TextWhite
-                        )
-                        Text(
-                            text = stringResource(R.string.about_downloads_unit),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = cyanGlow
-                        )
-                    }
-                }
-            }
-        }
     }
 }

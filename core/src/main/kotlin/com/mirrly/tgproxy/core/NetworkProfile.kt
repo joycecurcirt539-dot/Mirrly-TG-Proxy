@@ -103,26 +103,30 @@ data class NetworkProfile(
     val powerMode: NetworkPowerMode = NetworkPowerMode.ACTIVE,
     val transportSli: TransportSli = TransportSli(),
     val happyEyeballsDelayMs: Long = 200L,
-    val ipFamilyPreference: String = IpFamilyPreference.DUAL_STACK.name,
-    val webSocketKeepAliveSeconds: Int = 30
+    val ipFamilyPreference: String = IpFamilyPreference.IPV4_ONLY.name,
+    val webSocketKeepAliveSeconds: Int = 60
 ) {
     val isMobile: Boolean
         get() = cellular || transport == NetworkTransport.CELLULAR
 
     fun withGeneration(value: Long): NetworkProfile = copy(generation = value).normalized()
 
-    fun withEnvironment(environment: NetworkEnvironment): NetworkProfile = copy(
-        validated = environment.validated,
-        suspended = environment.suspended,
-        metered = environment.metered,
-        roaming = environment.roaming,
-        congested = environment.congested,
-        transport = environment.transport,
-        cellular = environment.transport == NetworkTransport.CELLULAR,
-        wifi = environment.transport == NetworkTransport.WIFI,
-        estimatedDownKbps = environment.estimatedDownKbps,
-        estimatedUpKbps = environment.estimatedUpKbps
-    ).normalized()
+    fun withEnvironment(environment: NetworkEnvironment): NetworkProfile {
+        val isMob = environment.transport == NetworkTransport.CELLULAR || environment.metered
+        return copy(
+            validated = environment.validated,
+            suspended = environment.suspended,
+            metered = environment.metered,
+            roaming = environment.roaming,
+            congested = environment.congested,
+            transport = environment.transport,
+            cellular = environment.transport == NetworkTransport.CELLULAR,
+            wifi = environment.transport == NetworkTransport.WIFI,
+            estimatedDownKbps = environment.estimatedDownKbps,
+            estimatedUpKbps = environment.estimatedUpKbps,
+            webSocketKeepAliveSeconds = if (isMob) 15 else 60
+        ).normalized()
+    }
 
     fun withRuntime(screenOn: Boolean, powerSaveMode: Boolean): NetworkProfile = copy(
         screenOn = screenOn,
@@ -208,8 +212,8 @@ data class NetworkProfile(
                 transportSli = json.optJSONObject("transport_sli")?.let(TransportSli::fromJson)
                     ?: TransportSli(),
                 happyEyeballsDelayMs = json.optLong("happy_eyeballs_delay_ms", 200L),
-                ipFamilyPreference = json.optString("ip_family_preference", IpFamilyPreference.DUAL_STACK.name),
-                webSocketKeepAliveSeconds = json.optInt("websocket_keep_alive_seconds", 30)
+                ipFamilyPreference = json.optString("ip_family_preference", IpFamilyPreference.IPV4_ONLY.name),
+                webSocketKeepAliveSeconds = json.optInt("websocket_keep_alive_seconds", 60)
             ).normalized()
         }
     }

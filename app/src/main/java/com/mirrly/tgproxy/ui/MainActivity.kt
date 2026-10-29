@@ -35,6 +35,8 @@ import android.view.WindowManager
 import android.widget.Toast
 import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.setContent
@@ -86,6 +88,7 @@ import androidx.core.view.WindowCompat
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import com.mirrly.tgproxy.MirrlyApplication
+import com.mirrly.tgproxy.ui.AiChatScreen
 import com.mirrly.tgproxy.ui.theme.MirrlyTheme
 import com.mirrly.tgproxy.ui.theme.TextMuted
 import com.mirrly.tgproxy.ui.theme.TextWhite
@@ -168,6 +171,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        checkClipboardForOAuthCallback()
+    }
+
+    private fun checkClipboardForOAuthCallback() {
+        val authState = com.mirrly.tgproxy.service.cloudflare.CloudflareOAuthManager.authState.value
+        if (authState is com.mirrly.tgproxy.service.cloudflare.ServerAuthState.WaitingCallback) {
+            try {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
+                if (!clipText.isNullOrBlank() && clipText.contains("code=") && (clipText.contains("localhost:8976") || clipText.contains("state=") || clipText.contains("oauth/callback"))) {
+                    com.mirrly.tgproxy.core.AppLogger.i("MainActivity", "Auto-detected OAuth callback in clipboard on resume")
+                    val processed = com.mirrly.tgproxy.service.cloudflare.CloudflareOAuthManager.processCallbackUrl(clipText)
+                    if (processed) {
+                        Toast.makeText(this, getString(R.string.cf_oauth_clipboard_detected), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                com.mirrly.tgproxy.core.AppLogger.d("MainActivity", "Clipboard check skipped: ${e.message}")
+            }
+        }
+    }
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _ -> }
@@ -176,6 +203,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         testBannerState.value = intent?.getStringExtra("test_banner")
         handleOAuthReturn(intent)
+
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
 
         // Lock screen orientation to Portrait only
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -294,8 +326,8 @@ class MainActivity : ComponentActivity() {
                 val currentScreen = screenStack.lastOrNull() ?: "home"
                 var lastBackTime by remember { mutableLongStateOf(0L) }
                 val scope = rememberCoroutineScope()
-
                 var workerManagerSection by remember { mutableStateOf(ManagerSection.WORKERS) }
+                var workerManagerProtocol by remember { mutableStateOf<com.mirrly.tgproxy.core.ProxyMode?>(null) }
                 val workerManagerOpenProgress = remember { Animatable(0f) }
                 val isWorkerManager = currentScreen == "worker_manager"
 
@@ -397,14 +429,46 @@ class MainActivity : ComponentActivity() {
                 var globalTouchPoint by remember { mutableStateOf<Offset?>(null) }
                 var isVpnTabActive by remember { mutableStateOf(false) }
                 var showOnboarding by rememberSaveable { mutableStateOf(!app.prefsManager.hasSeenOnboarding()) }
+                var showAiChat by rememberSaveable { mutableStateOf(false) }
+
+                val customWallpaperPath by app.prefsManager.customBackgroundUriFlow.collectAsState()
+                val customWallpaperRevision by app.prefsManager.customBackgroundRevisionFlow.collectAsState()
+                val customWallpaperType by app.prefsManager.customBackgroundTypeFlow.collectAsState()
+                val customWallpaperBlur by app.prefsManager.customBackgroundBlurFlow.collectAsState()
+                val customWallpaperDim by app.prefsManager.customBackgroundDimFlow.collectAsState()
+                val customWallpaperVideoPowerSave by app.prefsManager.customBackgroundVideoPowerSaveFlow.collectAsState()
+                val hasCustomWallpaper = customWallpaperPath != null
+                val previewFile = remember(customWallpaperPath, customWallpaperRevision, customWallpaperType) {
+                    app.prefsManager.getWallpaperPreviewFile()?.absolutePath
+                }
+                val customWallpaperImage = rememberWallpaperImage(previewFile, customWallpaperRevision)
 
                 // Stable callbacks for child screens (Enables Smart Recomposition Skipping)
                 val onOpenSettings = remember { { navigateTo("settings") } }
                 val onOpenLogs = remember { { navigateTo("logs") } }
                 val onOpenHistory = remember { { navigateTo("history") } }
                 val onOpenUpdate = remember { { navigateTo("update") } }
-                val onOpenWorkerGuide = remember { { navigateTo("worker_guide") } }
-                val onOpenWorkerManager = remember { { navigateTo("worker_manager") } }
+                val onOpenWorkerGuide = remember {
+                    {
+                        workerManagerProtocol = null
+                        workerManagerSection = ManagerSection.GUIDE
+                        navigateTo("worker_manager")
+                    }
+                }
+                val onOpenWorkerManager: (com.mirrly.tgproxy.core.ProxyMode?) -> Unit = remember {
+                    { mode ->
+                        workerManagerProtocol = mode
+                        workerManagerSection = ManagerSection.WORKERS
+                        navigateTo("worker_manager")
+                    }
+                }
+                val onOpenWorkerManagerSection: (ManagerSection) -> Unit = remember {
+                    { section ->
+                        workerManagerProtocol = null
+                        workerManagerSection = section
+                        navigateTo("worker_manager")
+                    }
+                }
                 val onOpenAbout = remember { { navigateTo("about") } }
                 val onOpenLicense = remember { { navigateTo("license") } }
                 val onOpenTerms = remember { { navigateTo("terms") } }
@@ -413,8 +477,10 @@ class MainActivity : ComponentActivity() {
                 val onOpenWorkerAnalytics = remember { { navigateTo("worker_analytics") } }
                 val onOpenHallOfFame = remember { { navigateTo("hall_of_fame") } }
                 val onOpenOnboarding = remember { { showOnboarding = true } }
+                val onOpenAiChat = remember { { showAiChat = true } }
                 val onOpenTelegramChannel = remember { { navigateTo("telegram_channel") } }
                 val onOpenDiagnosticReport = remember { { navigateTo("diagnostic_report") } }
+                val onOpenWarpGenerator = remember { { navigateTo("warp_generator") } }
                 val onOpenVpnMode = remember { {
                     isVpnTabActive = true
                     while (screenStack.size > 1) {
@@ -543,8 +609,24 @@ class MainActivity : ComponentActivity() {
                     val isTelegramChannel = currentScreen == "telegram_channel"
                     val isDiagnosticReport = currentScreen == "diagnostic_report"
                     val isWorkerGuide = currentScreen == "worker_guide"
+                    val isWarpGenerator = currentScreen == "warp_generator"
 
                     // Animated States for All Screens
+                    val warpGeneratorOffsetFraction = animateFloatAsState(
+                        targetValue = if (isWarpGenerator) 0f else 1.0f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "warpGeneratorOffset"
+                    )
+                    val warpGeneratorScale = animateFloatAsState(
+                        targetValue = if (isWarpGenerator) 1.0f else 0.94f,
+                        animationSpec = tween(pushMs, easing = navEasing),
+                        label = "warpGeneratorScale"
+                    )
+                    val warpGeneratorAlpha = animateFloatAsState(
+                        targetValue = if (isWarpGenerator) 1.0f else 0.0f,
+                        animationSpec = tween(220),
+                        label = "warpGeneratorAlpha"
+                    )
                     val workerGuideOffsetFraction = animateFloatAsState(
                         targetValue = if (isWorkerGuide) 0f else 1.0f,
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -678,7 +760,7 @@ class MainActivity : ComponentActivity() {
                     val homeOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isHome -> 0f
-                            isSettings || isAbout || isLicense || isTerms || isUpdate || isDiagnostic || isSpeedTest || isAnalytics || isHallOfFame || isTelegramChannel || isDiagnosticReport -> -0.15f
+                            isSettings || isAbout || isLicense || isTerms || isUpdate || isDiagnostic || isSpeedTest || isAnalytics || isHallOfFame || isTelegramChannel || isDiagnosticReport || isWarpGenerator -> -0.15f
                             isLogs || isHistory -> 0.15f
                             else -> 0f
                         },
@@ -699,7 +781,7 @@ class MainActivity : ComponentActivity() {
                     val settingsOffsetFraction = animateFloatAsState(
                         targetValue = when {
                             isSettings -> 0f
-                            isAbout || isLicense || isTerms || isWorkerManager || isAnalytics || isHallOfFame || isDiagnosticReport -> -0.15f
+                            isAbout || isLicense || isTerms || isWorkerManager || isAnalytics || isHallOfFame || isDiagnosticReport || isWarpGenerator -> -0.15f
                             else -> 1.0f
                         },
                         animationSpec = tween(pushMs, easing = navEasing),
@@ -804,15 +886,34 @@ class MainActivity : ComponentActivity() {
                         label = "termsAlpha"
                     )
 
+                    // ── CUSTOM WALLPAPER BACKGROUND LAYER (Persistent across all screens) ──
+                    if (hasCustomWallpaper) {
+                        CustomWallpaperBackground(
+                            wallpaperType = customWallpaperType,
+                            wallpaperPath = customWallpaperPath,
+                            image = customWallpaperImage,
+                            blurDp = customWallpaperBlur,
+                            dim = customWallpaperDim,
+                            powerSaveEnabled = customWallpaperVideoPowerSave,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
                     // ── BACKGROUND CANVAS (Overdraw-Optimized: rendered only when visible) ──
-                    val isCanvasVisible = activeScreens.contains("home") || isWmVisible || showOnboarding
+                    val isSheetOpen = BottomSheetStateTracker.isAnySheetOpen
+                    val sheetBackdropAlpha by animateFloatAsState(
+                        targetValue = if (isSheetOpen) 1f else 0f,
+                        animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing),
+                        label = "sheetBackdropAlpha"
+                    )
+                    val isCanvasVisible = activeScreens.contains("home") || isWmVisible || showOnboarding || showAiChat || isSheetOpen
                     if (isCanvasVisible) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
                                     val wmP = workerManagerOpenProgress.value
-                                    val isNonHome = (currentScreen != "home" && currentScreen != "worker_manager") || showOnboarding
+                                    val isNonHome = (currentScreen != "home" && currentScreen != "worker_manager") || showOnboarding || showAiChat
                                     val effProgress = if (isNonHome) 1f else wmP
                                     val blurEffect = blurCache.getBlurEffect(effProgress)
 
@@ -830,22 +931,23 @@ class MainActivity : ComponentActivity() {
                                 isVpnMode = isVpnTabActive,
                                 vpnColors = systemVpnColors,
                                 externalTouchPoint = globalTouchPoint,
-                                isConstellationPaused = (currentScreen != "home" && !showOnboarding),
+                                isConstellationPaused = (currentScreen != "home" && !showOnboarding && !showAiChat && !isSheetOpen),
+                                hasCustomBackground = hasCustomWallpaper,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
                     }
 
                     // ── GAUSSIAN FROSTED DARK BACKDROP OVERLAY FOR NON-HOME TABS ──
-                    val isBackdropVisible = (currentScreen != "home" && !showOnboarding) || isWmVisible || activeScreens.any { it != "home" }
-                    if (isBackdropVisible) {
+                    val isStandardBackdropVisible = (currentScreen != "home" && !showOnboarding && !showAiChat) || isWmVisible || activeScreens.any { it != "home" }
+                    if (isStandardBackdropVisible) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
                                     val wmP = workerManagerOpenProgress.value
-                                    val isHomeTab = currentScreen == "home" && !showOnboarding
-                                    val alphaVal = if (showOnboarding) {
+                                    val isHomeTab = currentScreen == "home" && !showOnboarding && !showAiChat
+                                    val alphaVal = if (showOnboarding || showAiChat) {
                                         0f
                                     } else if (isHomeTab) {
                                         wmP * 0.48f
@@ -860,6 +962,26 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    // ── SOFT VERTICAL GRADIENT BACKDROP FOR BOTTOM SHEETS (Option 2: 0..26% crystal clear, 50% dark under sheet) ──
+                    if (sheetBackdropAlpha > 0.005f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    alpha = sheetBackdropAlpha
+                                }
+                                .background(
+                                    Brush.verticalGradient(
+                                        0.00f to Color.Transparent,
+                                        0.26f to Color.Transparent,
+                                        0.38f to Color.Black.copy(alpha = 0.32f),
+                                        0.50f to Color.Black.copy(alpha = 0.50f),
+                                        1.00f to Color.Black.copy(alpha = 0.50f)
+                                    )
+                                )
+                        )
+                    }
+
                     // ── 1. HOME SCREEN (Layered & Hardware Blur Cached) ──
                     if (activeScreens.contains("home")) {
                         Box(
@@ -867,7 +989,7 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxSize()
                                 .graphicsLayer {
                                     val wmP = workerManagerOpenProgress.value
-                                    val isInteractiveWm = (currentScreen == "home" || currentScreen == "worker_manager") && !showOnboarding
+                                    val isInteractiveWm = (currentScreen == "home" || currentScreen == "worker_manager") && !showOnboarding && !showAiChat && !isSheetOpen
                                     val baseScale = homeScale.value
                                     val baseAlpha = homeAlpha.value
                                     val effectiveScale = if (isInteractiveWm) (1.0f - 0.04f * wmP) else baseScale
@@ -878,7 +1000,7 @@ class MainActivity : ComponentActivity() {
                                     scaleY = effectiveScale
                                     alpha = effectiveAlpha
 
-                                    val blurEffect = blurCache.getBlurEffect(if (isInteractiveWm) wmP else if (currentScreen != "home" || showOnboarding) 1f else 0f)
+                                    val blurEffect = blurCache.getBlurEffect(if (isInteractiveWm) wmP else if (currentScreen != "home" || showOnboarding || showAiChat) 1f else 0f)
                                     renderEffect = blurEffect
                                 }
                         ) {
@@ -889,15 +1011,18 @@ class MainActivity : ComponentActivity() {
                                 onOpenUpdate = onOpenUpdate,
                                 onOpenWorkerGuide = onOpenWorkerGuide,
                                 onOpenWorkerManager = onOpenWorkerManager,
+                                onOpenWorkerManagerSection = onOpenWorkerManagerSection,
                                 onOpenDiagnostics = onOpenDiagnostics,
                                 onOpenSpeedTest = onOpenSpeedTest,
                                 onOpenVpnMode = onOpenVpnMode,
+                                onOpenWarpGenerator = onOpenWarpGenerator,
+                                onOpenAiChat = onOpenAiChat,
                                 onDragWorkerManager = onDragWorkerManager,
                                 onSettleWorkerManager = onSettleWorkerManager,
                                 isVpnTabActive = isVpnTabActive,
                                 onVpnTabChange = { isVpnTabActive = it },
                                 onOpenTelegramChannel = onOpenTelegramChannel,
-                                isInteractive = (currentScreen == "home" && !showOnboarding)
+                                isInteractive = (currentScreen == "home" && !showOnboarding && !showAiChat && !isSheetOpen)
                             )
                         }
                     }
@@ -912,7 +1037,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = logsScale.value
                                     scaleY = logsScale.value
                                     alpha = logsAlpha.value
-                                    renderEffect = if (showOnboarding) blurCache.getBlurEffect(1f) else null
+                                    renderEffect = if (showOnboarding || showAiChat) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             LogsScreen(
@@ -933,7 +1058,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = historyScale.value
                                     scaleY = historyScale.value
                                     alpha = historyAlpha.value
-                                    renderEffect = if (showOnboarding) blurCache.getBlurEffect(1f) else null
+                                    renderEffect = if (showOnboarding || showAiChat) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             HistoryScreen(
@@ -952,18 +1077,20 @@ class MainActivity : ComponentActivity() {
                                     scaleX = settingsScale.value
                                     scaleY = settingsScale.value
                                     alpha = settingsAlpha.value
-                                    renderEffect = if (showOnboarding) blurCache.getBlurEffect(1f) else null
+                                    renderEffect = if (showOnboarding || showAiChat) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             SettingsScreen(
                                 onBack = onNavigateBack,
                                 onOpenAbout = onOpenAbout,
+                                onOpenTelegramChannel = onOpenTelegramChannel,
                                 onOpenUpdate = onOpenUpdate,
                                 onOpenWorkerGuide = onOpenWorkerGuide,
                                 onOpenWorkerManager = onOpenWorkerManager,
                                 onOpenHallOfFame = onOpenHallOfFame,
                                 onOpenOnboarding = onOpenOnboarding,
                                 onOpenDiagnosticReport = onOpenDiagnosticReport,
+                                onOpenWarpGenerator = onOpenWarpGenerator,
                                 initialIsVpn = isVpnTabActive
                             )
                         }
@@ -981,13 +1108,14 @@ class MainActivity : ComponentActivity() {
                                     scaleX = wmScale
                                     scaleY = wmScale
                                     alpha = wmP.coerceIn(0f, 1f)
-                                    renderEffect = if (showOnboarding) blurCache.getBlurEffect(1f) else null
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             WorkerManagerScreen(
                                 prefs = app.prefsManager,
                                 onBack = onNavigateBack,
                                 initialSection = workerManagerSection,
+                                initialProtocol = workerManagerProtocol,
                                 onOpenAnalytics = onOpenWorkerAnalytics,
                                 onOpenSpeedTest = onOpenSpeedTest
                             )
@@ -1004,7 +1132,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = aboutScale.value
                                     scaleY = aboutScale.value
                                     alpha = aboutAlpha.value
-                                    renderEffect = if (showOnboarding) blurCache.getBlurEffect(1f) else null
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             AboutScreen(
@@ -1215,13 +1343,31 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // ── 16. WARP GENERATOR SCREEN ──
+                    if (activeScreens.contains("warp_generator")) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * warpGeneratorOffsetFraction.value
+                                    scaleX = warpGeneratorScale.value
+                                    scaleY = warpGeneratorScale.value
+                                    alpha = warpGeneratorAlpha.value
+                                }
+                        ) {
+                            WarpGeneratorScreen(
+                                onBack = onNavigateBack
+                            )
+                        }
+                    }
+
                     if (showUnofficialDialog) {
                         UnofficialBuildDialog(
                             onDismiss = {
                                 showUnofficialDialog = false
                             }
                         )
-                    } else if (showGithubStarDialog && !showOnboarding) {
+                    } else if (showGithubStarDialog && !showOnboarding && !showAiChat) {
                         GithubStarDialog(
                             onDismiss = {
                                 testBannerState.value = null
@@ -1250,6 +1396,24 @@ class MainActivity : ComponentActivity() {
                             onComplete = {
                                 app.prefsManager.setHasSeenOnboarding(true)
                                 showOnboarding = false
+                            }
+                        )
+                    }
+
+                    AnimatedVisibility(
+                        visible = showAiChat,
+                        enter = slideInVertically(
+                            initialOffsetY = { it },
+                            animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                        ) + fadeIn(animationSpec = tween(250)),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it },
+                            animationSpec = tween(220, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(180))
+                    ) {
+                        AiChatScreen(
+                            onClose = {
+                                showAiChat = false
                             }
                         )
                     }
@@ -1342,6 +1506,10 @@ class MainActivity : ComponentActivity() {
 
         if (isOAuth) {
             com.mirrly.tgproxy.core.AppLogger.i("MainActivity", "Returned from Cloudflare OAuth flow ($data)")
+            val rawData = data.toString()
+            if (rawData.contains("code=")) {
+                com.mirrly.tgproxy.service.cloudflare.CloudflareOAuthManager.processCallbackUrl(rawData)
+            }
         }
     }
 

@@ -159,20 +159,17 @@ static DNS_CACHE: Lazy<parking_lot::RwLock<HashMap<String, DnsCacheEntry>>> =
 
 static DOH_ENDPOINTS: Lazy<parking_lot::RwLock<Vec<String>>> = Lazy::new(|| {
     parking_lot::RwLock::new(vec![
-        "https://9.9.9.9/dns-query".to_string(),
-        "https://94.140.14.14/dns-query".to_string(),
-        "https://dns.comms.one/dns-query".to_string(),
-        "https://geohide.org/dns-query".to_string(),
-        "https://195.201.201.32/dns-query".to_string(),
-        "https://194.242.2.2/dns-query".to_string(),
-        "https://76.76.2.0/dns-query".to_string(),
+        "https://1.1.1.1/dns-query".to_string(),
+        "https://dns.google/dns-query".to_string(),
+        "https://common.dot.dns.yandex.net/dns-query".to_string(),
+        "https://dns.adguard-dns.com/dns-query".to_string(),
     ])
 });
 
 /// Default DNS policy configured from Kotlin (0 = Auto/Dual-Scope, 1 = Strict Secure).
 static DNS_POLICY: AtomicI32 = AtomicI32::new(0);
 
-static DOH_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+pub(crate) static DOH_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder()
         .timeout(Duration::from_millis(2500))
@@ -181,28 +178,105 @@ static DOH_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
 });
 
 /// Resolves raw DNS query wireformat bytes over RFC 8484 DoH.
+/// Employs primary query with 150ms hedge timer to avoid speculative multi-POST flood.
 pub async fn resolve_doh_wireformat(query_bytes: &[u8]) -> Result<Vec<u8>, String> {
-    let endpoints = [
-        "https://1.1.1.1/dns-query",
-        "https://dns.google/dns-query",
-        "https://cloudflare-dns.com/dns-query",
-    ];
-    for ep in endpoints {
-        let resp = DOH_HTTP_CLIENT
-            .post(ep)
-            .header("content-type", "application/dns-message")
-            .body(query_bytes.to_vec())
-            .send()
+    let endpoints: Vec<String> = {
+        let guard = DOH_ENDPOINTS.read();
+        if guard.is_empty() {
+            vec![
+                "https://1.1.1.1/dns-query".to_string(),
+                "https://dns.google/dns-query".to_string(),
+                "https://common.dot.dns.yandex.net/dns-query".to_string(),
+                "https://dns.adguard-dns.com/dns-query".to_string(),
+            ]
+        } else {
+            guard.clone()
+        }
+    };
+
+    let primary_ep = endpoints.get(0).cloned();
+    let secondary_ep = endpoints.get(1).cloned();
+
+    let query_vec = query_bytes.to_vec();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+    let mut handles = Vec::new();
+
+    if let Some(ep) = primary_ep {
+        let tx = tx.clone();
+        let q = query_vec.clone();
+        handles.push(tokio::spawn(async move {
+            let res = tokio::time::timeout(
+                Duration::from_millis(1500),
+                DOH_HTTP_CLIENT
+                    .post(&ep)
+                    .header("content-type", "application/dns-message")
+                    .body(q)
+                    .send(),
+            )
             .await;
-        if let Ok(r) = resp {
-            if r.status().is_success() {
-                if let Ok(bytes) = r.bytes().await {
-                    return Ok(bytes.to_vec());
+            if let Ok(Ok(resp)) = res {
+                if resp.status().is_success() {
+                    if let Ok(bytes) = resp.bytes().await {
+                        let _ = tx.send(bytes.to_vec()).await;
+                    }
+                }
+            }
+        }));
+    }
+
+    let hedge_timer = tokio::time::sleep(Duration::from_millis(150));
+    tokio::pin!(hedge_timer);
+    let mut hedged = false;
+
+    let deadline = tokio::time::sleep(Duration::from_millis(1500));
+    tokio::pin!(deadline);
+
+    let result = loop {
+        tokio::select! {
+            _ = &mut deadline => break None,
+            _ = &mut hedge_timer, if !hedged => {
+                hedged = true;
+                if let Some(sec_ep) = secondary_ep.clone() {
+                    let tx = tx.clone();
+                    let q = query_vec.clone();
+                    handles.push(tokio::spawn(async move {
+                        let res = tokio::time::timeout(
+                            Duration::from_millis(1350),
+                            DOH_HTTP_CLIENT
+                                .post(&sec_ep)
+                                .header("content-type", "application/dns-message")
+                                .body(q)
+                                .send(),
+                        )
+                        .await;
+                        if let Ok(Ok(resp)) = res {
+                            if resp.status().is_success() {
+                                if let Ok(bytes) = resp.bytes().await {
+                                    let _ = tx.send(bytes.to_vec()).await;
+                                }
+                            }
+                        }
+                    }));
+                }
+            }
+            msg = rx.recv() => {
+                if let Some(bytes) = msg {
+                    break Some(bytes);
+                } else {
+                    break None;
                 }
             }
         }
+    };
+
+    for h in handles {
+        h.abort();
     }
-    Err("DoH wireformat resolution failed on all endpoints".to_string())
+
+    match result {
+        Some(bytes) => Ok(bytes),
+        None => Err("DoH wireformat resolution failed on all endpoints".to_string()),
+    }
 }
 
 
@@ -265,22 +339,16 @@ pub fn extract_ipv4_from_nat64(v6: &Ipv6Addr) -> Option<Ipv4Addr> {
 
 pub fn interleave_ips(v6: Vec<IpAddr>, v4: Vec<IpAddr>) -> Vec<IpAddr> {
     let mut interleaved = Vec::with_capacity(v6.len() + v4.len());
-    let max_len = v6.len().max(v4.len());
     let ipv6_only = crate::recovery::is_ipv6_only_network();
     if ipv6_only {
         // In IPv6-only network: IPv6 addresses take total precedence
         interleaved.extend(v6);
         interleaved.extend(v4);
     } else {
-        // RFC 8305 Dual-Stack: Interleave with IPv6 first
-        for i in 0..max_len {
-            if i < v6.len() {
-                interleaved.push(v6[i]);
-            }
-            if i < v4.len() {
-                interleaved.push(v4[i]);
-            }
-        }
+        // Russian ISPs and cellular networks running TSPU heavily blackhole Cloudflare Anycast IPv6 (2606:4700::/32).
+        // Placing all clean IPv4 addresses first completely avoids the 3-5s IPv6 SYN timeout across mobile and Wi-Fi tethering.
+        interleaved.extend(v4);
+        interleaved.extend(v6);
     }
     crate::network_profile::filter_ip_family(interleaved)
 }
@@ -416,95 +484,7 @@ async fn query_doh_single_scoped(
     }
 }
 
-/// Query DoH for HTTPS resource records (type 65) to extract Encrypted Client Hello (ECH) configs.
-pub async fn query_doh_ech_config(domain: &str) -> Option<Vec<u8>> {
-    let endpoints = crate::recovery::order_resolver_endpoints({
-        let eps = DOH_ENDPOINTS.read().clone();
-        if eps.is_empty() {
-            vec![
-                "https://cloudflare-dns.com/dns-query".to_string(),
-                "https://1.1.1.1/dns-query".to_string(),
-                "https://9.9.9.9/dns-query".to_string(),
-            ]
-        } else {
-            eps
-        }
-    });
 
-    let client = DOH_HTTP_CLIENT.clone();
-    let query_domain = domain.trim().trim_end_matches('.');
-    if query_domain.is_empty() {
-        return None;
-    }
-
-    for ep in endpoints.iter().take(2) {
-        let url = format!("{}?name={}&type=HTTPS", ep, query_domain);
-        let resp = match tokio::time::timeout(
-            Duration::from_millis(1500),
-            client
-                .get(&url)
-                .header("Accept", "application/dns-json")
-                .send(),
-        )
-        .await
-        {
-            Ok(Ok(r)) => r,
-            _ => continue,
-        };
-
-        if !resp.status().is_success() {
-            continue;
-        }
-
-        let body = match resp.json::<DohResponse>().await {
-            Ok(b) => b,
-            Err(_) => continue,
-        };
-
-        if body.status != 0 {
-            continue;
-        }
-
-        for ans in body.answer {
-            if ans.type_ == 65 {
-                for part in ans.data.split_whitespace() {
-                    if let Some(b64) = part.strip_prefix("ech=") {
-                        use base64::Engine;
-                        if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
-                            if !bytes.is_empty() {
-                                crate::linfo!(
-                                    "Discovered dynamic ECH config from DoH for {} ({} bytes)",
-                                    query_domain,
-                                    bytes.len()
-                                );
-                                return Some(bytes);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}
-
-/// Dynamically refresh ECH keys from DoH for a domain, with fallback to cloudflare-ech.com.
-pub async fn refresh_ech_config_from_doh(domain: &str) -> bool {
-    let target = domain.trim();
-    if !target.is_empty() {
-        if let Some(bytes) = query_doh_ech_config(target).await {
-            crate::ws::set_ech_config_bytes(bytes);
-            return true;
-        }
-    }
-    // Universal Cloudflare ECH fallback lookup
-    if let Some(bytes) = query_doh_ech_config("cloudflare-ech.com").await {
-        crate::ws::set_ech_config_bytes(bytes);
-        return true;
-    }
-    false
-}
 
 async fn resolve_dual_stack_uncached(domain: &str, scope: DnsScope) -> Result<Vec<IpAddr>, DnsError> {
     let current_gen = crate::network_profile::current_generation();
@@ -529,9 +509,10 @@ async fn resolve_dual_stack_uncached(domain: &str, scope: DnsScope) -> Result<Ve
         let eps = DOH_ENDPOINTS.read().clone();
         if eps.is_empty() {
             vec![
-                "https://9.9.9.9/dns-query".to_string(),
                 "https://94.140.14.14/resolve".to_string(),
-                "https://185.222.222.222/dns-query".to_string(),
+                "https://77.88.8.8/dns-query".to_string(),
+                "https://1.1.1.1/dns-query".to_string(),
+                "https://8.8.8.8/dns-query".to_string(),
             ]
         } else {
             eps
@@ -828,7 +809,7 @@ async fn resolve_dual_stack_uncached(domain: &str, scope: DnsScope) -> Result<Ve
 }
 
 pub fn is_cloudflare_target_domain(domain: &str) -> bool {
-    crate::vless::is_cloudflare_domain(domain)
+    crate::config::is_cloudflare_domain(domain)
 }
 
 // ---------------------------------------------------------------------------
@@ -1060,7 +1041,9 @@ mod tests {
         let domain = "wifi-then-lte.example.org";
         let wifi_ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 100));
 
-        // 1. Put entry into cache under generation 1 (Wi-Fi)
+        let cur_gen = crate::network_profile::current_generation();
+
+        // 1. Put entry into cache under current generation
         DNS_CACHE.write().insert(
             domain.to_string(),
             DnsCacheEntry {
@@ -1070,22 +1053,20 @@ mod tests {
                 is_negative: false,
                 family: AddressFamily::Ipv4,
                 resolver_source: "DoH".to_string(),
-                network_generation: 1,
+                network_generation: cur_gen,
             },
         );
 
-        // Under generation 1, cache is valid
-        assert!(DNS_CACHE.read().get(domain).unwrap().is_valid(1));
+        // Under current generation, cache is valid
+        assert!(DNS_CACHE.read().get(domain).unwrap().is_valid(cur_gen));
 
-        // Handover to LTE -> generation becomes 2
-        crate::network_profile::update_generation(2);
-        assert_eq!(crate::network_profile::current_generation(), 2);
+        // Handover to LTE -> generation becomes new_gen
+        let new_gen = crate::network_profile::current_generation() + 1;
+        crate::network_profile::update_generation(new_gen);
+        assert_eq!(crate::network_profile::current_generation(), new_gen);
 
-        // Under generation 2, the Wi-Fi entry MUST be considered invalid!
-        assert!(!DNS_CACHE.read().get(domain).unwrap().is_valid(2));
-
-        // Revert back to generation 1 for remaining test suite
-        crate::network_profile::update_generation(1);
+        // Under new_gen, the old entry MUST be considered invalid!
+        assert!(!DNS_CACHE.read().get(domain).unwrap().is_valid(new_gen));
     }
 
     #[tokio::test]
@@ -1154,9 +1135,15 @@ mod tests {
         let v4_2 = IpAddr::V4(Ipv4Addr::new(104, 21, 1, 2));
 
         // Normal dual stack -> RFC 8305 interleaves with IPv6 first
+        let mut prof = crate::network_profile::get_profile();
+        let prev_pref = prof.ip_family_preference.clone();
+        prof.generation = crate::generation_guard::snapshot().network.max(1) + 1;
+        prof.ip_family_preference = "DUAL_STACK".to_string();
+        crate::network_profile::apply_profile(prof);
+
         crate::recovery::set_ipv6_only_network(false);
         let res_dual = interleave_ips(vec![v6_1, v6_2], vec![v4_1, v4_2]);
-        assert_eq!(res_dual, vec![v6_1, v4_1, v6_2, v4_2]);
+        assert_eq!(res_dual, vec![v4_1, v4_2, v6_1, v6_2]);
 
         // AAAA-only hostname (empty v4)
         let res_aaaa_only = interleave_ips(vec![v6_1, v6_2], Vec::new());
@@ -1168,5 +1155,9 @@ mod tests {
         assert_eq!(res_ipv6_only[0], v6_1);
         assert_eq!(res_ipv6_only[1], v6_2);
         crate::recovery::set_ipv6_only_network(false);
+        let mut prof_restore = crate::network_profile::get_profile();
+        prof_restore.generation = crate::generation_guard::snapshot().network.max(1) + 1;
+        prof_restore.ip_family_preference = prev_pref;
+        crate::network_profile::apply_profile(prof_restore);
     }
 }

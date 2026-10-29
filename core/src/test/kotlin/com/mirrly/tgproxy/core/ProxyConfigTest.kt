@@ -1,6 +1,7 @@
 package com.mirrly.tgproxy.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -57,9 +58,9 @@ class ProxyConfigTest {
 
     @Test
     fun testSanitizeDomainWithShareUrl() {
-        val input = "https://mirrly.app/worker?domain=mirrly-tg-proxy-alpha.brawny-singer.workers.dev/&name=Worker"
+        val input = "https://mirrly.app/worker?domain=sample-worker.custom-team.workers.dev/&name=Worker"
         val sanitized = ProxyConfig.sanitizeDomain(input)
-        assertEquals("mirrly-tg-proxy-alpha.brawny-singer.workers.dev", sanitized)
+        assertEquals("sample-worker.custom-team.workers.dev", sanitized)
     }
 
     @Test
@@ -85,16 +86,16 @@ class ProxyConfigTest {
     }
 
     @Test
-    fun testGetEffectiveCfDomainDefaultUsesDevWorker() {
+    fun testGetEffectiveCfDomainDefaultIsEmptyWhenNoCustomDomain() {
         val config = ProxyConfig(
             customCfDomain = ""
         )
-        assertEquals(TgConstants.DEFAULT_SOCKS5_DEV_WORKER, config.getEffectiveCfDomain())
+        assertEquals("", config.getEffectiveCfDomain())
     }
 
     @Test
     fun testGetEffectiveCfDomainWithActiveWorker() {
-        val workerDomain = "mtg-relay-5o77p2.mtg-alfaj.workers.dev"
+        val workerDomain = "my-custom-proxy.user.workers.dev"
         val config = ProxyConfig(
             customCfDomain = workerDomain
         )
@@ -107,7 +108,9 @@ class ProxyConfigTest {
         assertEquals(2, config.mtprotoStandbyPerActiveSlot)
         assertEquals(SpeedPreset.AUTO, config.speedPreset)
         assertEquals(2, SpeedPreset.AUTO.defaultMtprotoStandbyPerActiveSlot)
-        assertEquals(262144, SpeedPreset.AUTO.defaultBufferSizeBytes)
+        assertEquals(0, SpeedPreset.AUTO.defaultBufferSizeBytes)
+        assertEquals(1443, config.bindPort)
+        assertFalse(config.useWorkerMtproto)
     }
 
     @Test
@@ -120,19 +123,17 @@ class ProxyConfigTest {
         assertEquals(2, SpeedPreset.BALANCED.defaultMtprotoStandbyPerActiveSlot)
         assertEquals(262144, SpeedPreset.BALANCED.defaultBufferSizeBytes)
 
-        assertEquals(262144, SpeedPreset.BALANCED.defaultBufferSizeBytes)
-
         assertEquals("Турбо (3 резерва/слот)", SpeedPreset.TURBO.displayName)
         assertEquals(3, SpeedPreset.TURBO.defaultMtprotoStandbyPerActiveSlot)
-        assertEquals(1048576, SpeedPreset.TURBO.defaultBufferSizeBytes)
+        assertEquals(524288, SpeedPreset.TURBO.defaultBufferSizeBytes)
 
         assertEquals("Ультра (4 резерва/слот)", SpeedPreset.ULTRA.displayName)
         assertEquals(4, SpeedPreset.ULTRA.defaultMtprotoStandbyPerActiveSlot)
-        assertEquals(2097152, SpeedPreset.ULTRA.defaultBufferSizeBytes)
+        assertEquals(1048576, SpeedPreset.ULTRA.defaultBufferSizeBytes)
 
         assertEquals("Авто (динамический)", SpeedPreset.AUTO.displayName)
         assertEquals(2, SpeedPreset.AUTO.defaultMtprotoStandbyPerActiveSlot)
-        assertEquals(262144, SpeedPreset.AUTO.defaultBufferSizeBytes)
+        assertEquals(0, SpeedPreset.AUTO.defaultBufferSizeBytes)
     }
 
     @Test
@@ -147,12 +148,12 @@ class ProxyConfigTest {
         config.applyPreset(SpeedPreset.TURBO)
         assertEquals(SpeedPreset.TURBO.name, config.speedPresetName)
         assertEquals(3, config.mtprotoStandbyPerActiveSlot)
-        assertEquals(1048576, config.bufferSizeBytes)
+        assertEquals(524288, config.bufferSizeBytes)
 
         config.applyPreset(SpeedPreset.ULTRA)
         assertEquals(SpeedPreset.ULTRA.name, config.speedPresetName)
         assertEquals(4, config.mtprotoStandbyPerActiveSlot)
-        assertEquals(2097152, config.bufferSizeBytes)
+        assertEquals(1048576, config.bufferSizeBytes)
 
         config.applyPreset(SpeedPreset.AUTO)
         assertEquals(SpeedPreset.AUTO.name, config.speedPresetName)
@@ -165,13 +166,13 @@ class ProxyConfigTest {
     }
 
     @Test
-    fun testDefaultTcpNoDelayModeIsAuto() {
+    fun testDefaultNagleModeIsEnabled() {
         val config = ProxyConfig()
-        assertEquals(TcpNoDelayMode.AUTO, config.tcpNoDelayMode)
-        assertEquals("AUTO", config.tcpNoDelayModeName)
-        assertEquals("Авто", TcpNoDelayMode.AUTO.displayName)
-        assertEquals("ВКЛ", TcpNoDelayMode.ON.displayName)
-        assertEquals("ВЫКЛ", TcpNoDelayMode.OFF.displayName)
+        assertEquals(NagleMode.ENABLED, config.nagleMode)
+        assertEquals(NagleMode.ENABLED.name, config.tcpNoDelayModeName)
+        assertFalse(config.tcpNoDelay)
+        assertEquals("Включен", NagleMode.ENABLED.displayName)
+        assertEquals("Выключен", NagleMode.DISABLED.displayName)
     }
 
     @Test
@@ -261,12 +262,56 @@ class ProxyConfigTest {
     }
 
     @Test
-    fun testCloudflareWorkerIncludesWarpApiReverseProxy() {
+    fun testCloudflareWorkerOnlyRelaysTelegramTcp() {
         val workerCode = TgConstants.CLOUDFLARE_WORKER_JS_CODE
-        assertTrue(workerCode.contains("/warp-api"), "Worker code must contain /warp-api route handler")
-        assertTrue(workerCode.contains("/warp-reg"), "Worker code must contain /warp-reg route handler")
-        assertTrue(workerCode.contains("api.cloudflareclient.com/v0a4471"), "Worker code must forward to Cloudflare client API v0a4471")
-        assertTrue(workerCode.contains("Authorization"), "Worker code must forward Authorization header")
-        assertTrue(workerCode.contains("OPTIONS"), "Worker code must handle OPTIONS CORS preflight")
+        assertTrue(workerCode.contains("url.pathname !== '/tcp' && url.pathname !== '/tcp-v2'"))
+        assertTrue(workerCode.contains("Telegram destination not allowed"))
+        assertTrue(!workerCode.contains("/warp-api"))
+        assertTrue(!workerCode.contains("/warp-reg"))
+    }
+
+    @Test
+    fun testVpnDnsModesAndIpv6LeakPrevention() {
+        // 1. Default Cloudflare DNS mode
+        val cfgDefault = ProxyConfig()
+        assertEquals(VpnDnsMode.CLOUDFLARE, cfgDefault.vpnDnsMode)
+        assertEquals(listOf("1.1.1.1", "1.0.0.1"), cfgDefault.getEffectiveVpnDnsIpv4())
+        assertEquals("2606:4700:4700::1111", cfgDefault.getEffectiveVpnDnsIpv6())
+        val awgDefault = cfgDefault.getAmneziaWgConfig()
+        assertTrue(awgDefault.contains("DNS = 1.1.1.1, 1.0.0.1"))
+
+        // 2. Explicit Comss.one SmartDNS mode
+        val cfgComss = ProxyConfig(vpnDnsModeName = VpnDnsMode.COMSS_DNS.name)
+        assertEquals(VpnDnsMode.COMSS_DNS, cfgComss.vpnDnsMode)
+        assertEquals(ProxyConfig.COMSS_DNS_IPV4, cfgComss.getEffectiveVpnDnsIpv4())
+        assertEquals(null, cfgComss.getEffectiveVpnDnsIpv6(), "SmartDNS must disable IPv6 DNS to prevent AAAA query bypass")
+        val awgComss = cfgComss.getAmneziaWgConfig()
+        assertTrue(awgComss.contains("DNS = ${ProxyConfig.COMSS_DNS_IPV4.joinToString(", ")}"))
+
+        // Legacy migration: XBOX_DNS name string should map to COMSS_DNS
+        val cfgLegacyXbox = ProxyConfig(vpnDnsModeName = "XBOX_DNS")
+        assertEquals(VpnDnsMode.COMSS_DNS, cfgLegacyXbox.vpnDnsMode)
+
+        // 3. Custom DNS with valid IPv4
+        val cfgCustom = ProxyConfig(
+            vpnDnsModeName = VpnDnsMode.CUSTOM.name,
+            vpnCustomDnsIps = "94.140.14.14, 94.140.15.15"
+        )
+        assertEquals(VpnDnsMode.CUSTOM, cfgCustom.vpnDnsMode)
+        assertEquals(listOf("94.140.14.14", "94.140.15.15"), cfgCustom.getEffectiveVpnDnsIpv4())
+        assertEquals(null, cfgCustom.getEffectiveVpnDnsIpv6())
+        val awgCustom = cfgCustom.getAmneziaWgConfig()
+        assertTrue(awgCustom.contains("DNS = 94.140.14.14, 94.140.15.15"))
+
+        // 4. Custom DNS with blank input falls back to Cloudflare IPv4
+        val cfgCustomBlank = ProxyConfig(
+            vpnDnsModeName = VpnDnsMode.CUSTOM.name,
+            vpnCustomDnsIps = "   "
+        )
+        assertEquals(listOf("1.1.1.1", "1.0.0.1"), cfgCustomBlank.getEffectiveVpnDnsIpv4())
+
+        // 5. Custom parser validates IPv4 syntax and skips invalid entries
+        val parsed = ProxyConfig.parseCustomDnsIps(" 8.8.8.8 , invalid.host ; 8.8.4.4 \n 999.1.1.1 \t 1.1.1.1 ")
+        assertEquals(listOf("8.8.8.8", "8.8.4.4", "1.1.1.1"), parsed)
     }
 }

@@ -44,6 +44,11 @@ class ProxyTileService : TileService() {
         val serviceIntent = Intent(this, ProxyForegroundService::class.java)
 
         val willBeRunning = !server.isRunning
+        if (willBeRunning && MirrlyApplication.instance.config.isSocks5Mode && MirrlyApplication.instance.config.getEffectiveCfDomain().isBlank()) {
+            android.widget.Toast.makeText(this, getString(R.string.socks5_no_worker_error), android.widget.Toast.LENGTH_LONG).show()
+            updateTileState(false)
+            return
+        }
         try {
             if (server.isRunning) {
                 serviceIntent.action = ProxyForegroundService.ACTION_STOP

@@ -11,16 +11,17 @@ class WarpCascadeFailoverTest {
         val masqueConfig = ProxyConfig(vpnUplinkModeName = UplinkMode.MASQUE.name)
         assertTrue(masqueConfig.isVpnMasqueUplink)
         assertTrue(masqueConfig.isVpnAnyWarpUplink)
-        assertEquals("WARP MASQUE (HTTP/3)", masqueConfig.vpnUplinkMode.displayName)
+        assertEquals("WARP MASQUE", masqueConfig.vpnUplinkMode.displayName)
 
         val awgConfig = ProxyConfig(vpnUplinkModeName = UplinkMode.AWG.name)
         assertTrue(awgConfig.isVpnAwgUplink)
         assertTrue(awgConfig.isVpnAnyWarpUplink)
-        assertEquals("WARP AmneziaWG (AWG)", awgConfig.vpnUplinkMode.displayName)
+        assertEquals("WARP AmneziaWG", awgConfig.vpnUplinkMode.displayName)
 
-        // Backward-compatible alias for WARP_CASCADE
-        val cascadeConfig = ProxyConfig(vpnUplinkModeName = UplinkMode.WARP_CASCADE.name)
-        assertTrue(cascadeConfig.isVpnWarpCascadeUplink)
+        // Backward-compatible fallback for legacy WARP_CASCADE -> MASQUE
+        val cascadeConfig = ProxyConfig(vpnUplinkModeName = "WARP_CASCADE")
+        assertEquals(UplinkMode.MASQUE, cascadeConfig.vpnUplinkMode)
+        assertTrue(cascadeConfig.isVpnMasqueUplink)
         assertTrue(cascadeConfig.isVpnAnyWarpUplink)
     }
 

@@ -24,11 +24,14 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.annotation.StringRes
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -51,6 +54,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -58,8 +62,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ui.theme.*
 import java.security.MessageDigest
@@ -76,8 +78,8 @@ enum class ContributorTier(
     LEGENDARY_PIONEER(
         titleRes = R.string.fame_tier_pioneer_title,
         badgeLabelRes = R.string.fame_tier_pioneer_badge,
-        primaryColor = Color(0xFFFFB703),
-        secondaryColor = Color(0xFFFF5400),
+        primaryColor = Color(0xFFFFBD22),
+        secondaryColor = Color(0xFFFF9D00),
         iconRes = R.drawable.ic_crown
     ),
     BUG_HUNTER(
@@ -85,7 +87,7 @@ enum class ContributorTier(
         badgeLabelRes = R.string.fame_tier_bughunter_badge,
         primaryColor = Color(0xFF00F5D4),
         secondaryColor = Color(0xFF00B4D8),
-        iconRes = R.drawable.ic_fingerprint_badge
+        iconRes = R.drawable.ic_bug
     ),
     BETA_TESTER(
         titleRes = R.string.fame_tier_tester_title,
@@ -100,6 +102,63 @@ enum class ContributorTier(
         primaryColor = Color(0xFF26A5E4),
         secondaryColor = Color(0xFF0088CC),
         iconRes = R.drawable.ic_telegram
+    )
+}
+
+enum class FameCategoryFilter(
+    @StringRes val labelRes: Int,
+    val iconRes: Int
+) {
+    ALL(R.string.fame_filter_all, R.drawable.ic_fame_grid),
+    PIONEERS(R.string.fame_filter_pioneers, R.drawable.ic_crown),
+    BUG_HUNTERS(R.string.fame_filter_bughunters, R.drawable.ic_bug),
+    COMMUNITY(R.string.fame_filter_community, R.drawable.ic_user)
+}
+
+enum class BugHunterClass(
+    @StringRes val titleRes: Int,
+    @StringRes val subtitleRes: Int,
+    val accentColor: Color,
+    @DrawableRes val iconRes: Int
+) {
+    NETWORK_CORE(
+        titleRes = R.string.fame_class_network_title,
+        subtitleRes = R.string.fame_class_network_desc,
+        accentColor = Color(0xFF00F5D4),
+        iconRes = R.drawable.ic_diag_protocol
+    ),
+    SYSTEM_UI(
+        titleRes = R.string.fame_class_system_ui_title,
+        subtitleRes = R.string.fame_class_system_ui_desc,
+        accentColor = Color(0xFFA78BFA),
+        iconRes = R.drawable.ic_split_tunnel
+    )
+}
+
+enum class BugHunterSubclass(
+    val parentClass: BugHunterClass,
+    @StringRes val labelRes: Int,
+    val badgeColor: Color
+) {
+    MTPROTO_TUNNEL(
+        parentClass = BugHunterClass.NETWORK_CORE,
+        labelRes = R.string.fame_subclass_mtproto,
+        badgeColor = Color(0xFF00F5D4)
+    ),
+    CLOUDFLARE_WORKERS(
+        parentClass = BugHunterClass.NETWORK_CORE,
+        labelRes = R.string.fame_subclass_workers,
+        badgeColor = Color(0xFF38BDF8)
+    ),
+    WINDOW_INSETS(
+        parentClass = BugHunterClass.SYSTEM_UI,
+        labelRes = R.string.fame_subclass_insets,
+        badgeColor = Color(0xFFA78BFA)
+    ),
+    POWER_EFFICIENCY(
+        parentClass = BugHunterClass.SYSTEM_UI,
+        labelRes = R.string.fame_subclass_power,
+        badgeColor = Color(0xFF34D399)
     )
 }
 
@@ -119,7 +178,8 @@ data class Contributor(
     @StringRes val roleRes: Int,
     @StringRes val contributionRes: Int,
     val tier: ContributorTier,
-    val githubUrl: String? = null
+    val githubUrl: String? = null,
+    val bugHunterSubclass: BugHunterSubclass? = null
 ) {
     val fingerprint: DigitalFingerprint by lazy {
         computeFingerprint(name, id, id)
@@ -189,7 +249,7 @@ private val ContributorsList = listOf(
         handle = "@Grovymon",
         roleRes = R.string.fame_c_grovymon_role,
         contributionRes = R.string.fame_c_grovymon_contrib,
-        tier = ContributorTier.BUG_HUNTER,
+        tier = ContributorTier.LEGENDARY_PIONEER,
         githubUrl = "https://github.com/Grovymon"
     ),
     Contributor(
@@ -199,7 +259,8 @@ private val ContributorsList = listOf(
         roleRes = R.string.fame_c_zzzxxx_role,
         contributionRes = R.string.fame_c_zzzxxx_contrib,
         tier = ContributorTier.BUG_HUNTER,
-        githubUrl = "https://github.com/zzzxxx888207-design"
+        githubUrl = "https://github.com/zzzxxx888207-design",
+        bugHunterSubclass = BugHunterSubclass.CLOUDFLARE_WORKERS
     ),
     Contributor(
         id = "bbibux",
@@ -208,7 +269,8 @@ private val ContributorsList = listOf(
         roleRes = R.string.fame_c_bbibux_role,
         contributionRes = R.string.fame_c_bbibux_contrib,
         tier = ContributorTier.BUG_HUNTER,
-        githubUrl = "https://github.com/BbIBux"
+        githubUrl = "https://github.com/BbIBux",
+        bugHunterSubclass = BugHunterSubclass.MTPROTO_TUNNEL
     ),
     Contributor(
         id = "ustiprog",
@@ -217,7 +279,8 @@ private val ContributorsList = listOf(
         roleRes = R.string.fame_c_ustiprog_role,
         contributionRes = R.string.fame_c_ustiprog_contrib,
         tier = ContributorTier.BUG_HUNTER,
-        githubUrl = "https://github.com/ustiprog"
+        githubUrl = "https://github.com/ustiprog",
+        bugHunterSubclass = BugHunterSubclass.POWER_EFFICIENCY
     ),
     Contributor(
         id = "vikkalm",
@@ -226,7 +289,8 @@ private val ContributorsList = listOf(
         roleRes = R.string.fame_c_vikkalm_role,
         contributionRes = R.string.fame_c_vikkalm_contrib,
         tier = ContributorTier.BUG_HUNTER,
-        githubUrl = "https://github.com/VikKalm"
+        githubUrl = "https://github.com/VikKalm",
+        bugHunterSubclass = BugHunterSubclass.CLOUDFLARE_WORKERS
     ),
     Contributor(
         id = "liveonloan",
@@ -235,7 +299,8 @@ private val ContributorsList = listOf(
         roleRes = R.string.fame_c_liveonloan_role,
         contributionRes = R.string.fame_c_liveonloan_contrib,
         tier = ContributorTier.BUG_HUNTER,
-        githubUrl = "https://github.com/liveonloan"
+        githubUrl = "https://github.com/liveonloan",
+        bugHunterSubclass = BugHunterSubclass.WINDOW_INSETS
     ),
     Contributor(
         id = "40oil",
@@ -244,7 +309,8 @@ private val ContributorsList = listOf(
         roleRes = R.string.fame_c_40oil_role,
         contributionRes = R.string.fame_c_40oil_contrib,
         tier = ContributorTier.BUG_HUNTER,
-        githubUrl = "https://github.com/40OIL"
+        githubUrl = "https://github.com/40OIL",
+        bugHunterSubclass = BugHunterSubclass.WINDOW_INSETS
     ),
     Contributor(
         id = "crazyghostrider",
@@ -253,7 +319,8 @@ private val ContributorsList = listOf(
         roleRes = R.string.fame_c_crazyghostrider_role,
         contributionRes = R.string.fame_c_crazyghostrider_contrib,
         tier = ContributorTier.BUG_HUNTER,
-        githubUrl = "https://github.com/CrazyGhostRider"
+        githubUrl = "https://github.com/CrazyGhostRider",
+        bugHunterSubclass = BugHunterSubclass.MTPROTO_TUNNEL
     ),
     Contributor(
         id = "mslight",
@@ -290,6 +357,54 @@ private val ContributorsList = listOf(
         tier = ContributorTier.BETA_TESTER
     ),
     Contributor(
+        id = "roartrex",
+        name = "RoarTRex",
+        handle = "RoarTRex",
+        roleRes = R.string.fame_c_linar_role,
+        contributionRes = R.string.fame_c_linar_contrib,
+        tier = ContributorTier.BETA_TESTER
+    ),
+    Contributor(
+        id = "vanya",
+        name = "Ваня",
+        handle = "Ваня",
+        roleRes = R.string.fame_c_linar_role,
+        contributionRes = R.string.fame_c_linar_contrib,
+        tier = ContributorTier.BETA_TESTER
+    ),
+    Contributor(
+        id = "lucifer",
+        name = "Lucifer",
+        handle = "Lucifer",
+        roleRes = R.string.fame_c_linar_role,
+        contributionRes = R.string.fame_c_linar_contrib,
+        tier = ContributorTier.BETA_TESTER
+    ),
+    Contributor(
+        id = "dalison",
+        name = "Dalison",
+        handle = "Dalison",
+        roleRes = R.string.fame_c_linar_role,
+        contributionRes = R.string.fame_c_linar_contrib,
+        tier = ContributorTier.BETA_TESTER
+    ),
+    Contributor(
+        id = "s_pipe_c",
+        name = "S|c",
+        handle = "S|c",
+        roleRes = R.string.fame_c_linar_role,
+        contributionRes = R.string.fame_c_linar_contrib,
+        tier = ContributorTier.BETA_TESTER
+    ),
+    Contributor(
+        id = "anton_1",
+        name = "Антон",
+        handle = "Антон",
+        roleRes = R.string.fame_c_linar_role,
+        contributionRes = R.string.fame_c_linar_contrib,
+        tier = ContributorTier.BETA_TESTER
+    ),
+    Contributor(
         id = "astimir_meikulov",
         name = "Astimir Meikulov",
         handle = "Astimir Meikulov",
@@ -304,6 +419,7 @@ private val ContributorsList = listOf(
         roleRes = R.string.fame_c_dimaakaj_role,
         contributionRes = R.string.fame_c_dimaakaj_contrib,
         tier = ContributorTier.BUG_HUNTER,
+        bugHunterSubclass = BugHunterSubclass.CLOUDFLARE_WORKERS
     ),
     Contributor(
         id = "creeepeeer",
@@ -312,7 +428,8 @@ private val ContributorsList = listOf(
         roleRes = R.string.fame_c_creeepeeer_role,
         contributionRes = R.string.fame_c_creeepeeer_contrib,
         tier = ContributorTier.BUG_HUNTER,
-        githubUrl = "https://github.com/creeepeeer"
+        githubUrl = "https://github.com/creeepeeer",
+        bugHunterSubclass = BugHunterSubclass.MTPROTO_TUNNEL
     ),
     Contributor(
         id = "rockhard_tolift",
@@ -334,22 +451,6 @@ private val ContributorsList = listOf(
         id = "sickalex",
         name = "sickalex",
         handle = "sickalex",
-        roleRes = R.string.fame_role_tg_participant,
-        contributionRes = R.string.fame_contrib_tg_channel,
-        tier = ContributorTier.TG_SUBSCRIBER
-    ),
-    Contributor(
-        id = "anton_1",
-        name = "Антон",
-        handle = "Антон",
-        roleRes = R.string.fame_role_tg_participant,
-        contributionRes = R.string.fame_contrib_tg_channel,
-        tier = ContributorTier.TG_SUBSCRIBER
-    ),
-    Contributor(
-        id = "roartrex",
-        name = "RoarTRex",
-        handle = "RoarTRex",
         roleRes = R.string.fame_role_tg_participant,
         contributionRes = R.string.fame_contrib_tg_channel,
         tier = ContributorTier.TG_SUBSCRIBER
@@ -609,6 +710,166 @@ private val ContributorsList = listOf(
         roleRes = R.string.fame_role_tg_participant,
         contributionRes = R.string.fame_contrib_tg_channel,
         tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "zews_black_devil",
+        name = "ZeWs (Black Devil",
+        handle = "ZeWs (Black Devil",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "kilovaib",
+        name = "kilovaib",
+        handle = "kilovaib",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "dmitriy",
+        name = "Дмитрий",
+        handle = "Дмитрий",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "aleksey_z",
+        name = "Алексей",
+        handle = "Алексей",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "wehrmacht",
+        name = "Wehrmacht",
+        handle = "Wehrmacht",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "tada_no_random",
+        name = "ただのランダムな男",
+        handle = "ただのランダムな男",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "mike",
+        name = "Mike",
+        handle = "Mike",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "leanlike",
+        name = "𝐋 𝐄 𝐀 𝐍 𝐋 𝐈 𝐊 𝐄",
+        handle = "𝐋 𝐄 𝐀 𝐍 𝐋 𝐈 𝐊 𝐄",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "nikita",
+        name = "Никита",
+        handle = "Никита",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "alex_only",
+        name = "𝓐𝓵𝓮𝔁 𝓞𝓷𝓵𝔂",
+        handle = "𝓐𝓵𝓮𝔁 𝓞𝓷𝓵𝔂",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "yuriy",
+        name = "Юрий",
+        handle = "Юрий",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "frekzed",
+        name = "Fřęķżēđ™",
+        handle = "Fřęķżēđ™",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "cristianu_ranaldu",
+        name = "CRISTIANU RANALDU",
+        handle = "CRISTIANU RANALDU",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "nastaldgy",
+        name = "NASTALDGY",
+        handle = "NASTALDGY",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "three_dots_user",
+        name = "...",
+        handle = "...",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "aleksey_2",
+        name = "Алексей",
+        handle = "Алексей",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "danya",
+        name = "Даня",
+        handle = "Даня",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "shiksha",
+        name = "shiksha",
+        handle = "shiksha",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "shiawase",
+        name = "Shiawase",
+        handle = "Shiawase",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
+    ),
+    Contributor(
+        id = "absolutely_normal",
+        name = "AbsolutelyNormal",
+        handle = "AbsolutelyNormal",
+        roleRes = R.string.fame_role_tg_participant,
+        contributionRes = R.string.fame_contrib_tg_channel,
+        tier = ContributorTier.TG_SUBSCRIBER
     )
 )
 
@@ -661,21 +922,6 @@ fun DigitalFingerprintCanvas(
         val h = this.size.height
         val center = Offset(w / 2f, h / 2f)
         val maxRadius = (w.coerceAtMost(h) / 2f) * 0.90f
-
-        // Draw soft outer ambient glow
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    tier.primaryColor.copy(alpha = 0.28f),
-                    tier.secondaryColor.copy(alpha = 0.10f),
-                    Color.Transparent
-                ),
-                center = center,
-                radius = maxRadius * 1.15f
-            ),
-            radius = maxRadius * 1.15f,
-            center = center
-        )
 
         // Draw Concentric Dashed Radar Arcs
         val r1 = maxRadius * fingerprint.ringRatios[0] * pulseScale
@@ -778,7 +1024,7 @@ fun HallOfFameScreen(
 
     if (selectedContributor != null) {
         val contributor = selectedContributor!!
-        ContributorPassportDialog(
+        ContributorPassportSheet(
             contributor = contributor,
             onDismiss = { selectedContributor = null },
             onOpenGithub = { url ->
@@ -787,6 +1033,16 @@ fun HallOfFameScreen(
             }
         )
     }
+
+    val pioneers = remember { ContributorsList.filter { it.tier == ContributorTier.LEGENDARY_PIONEER } }
+    val bugHunters = remember { ContributorsList.filter { it.tier == ContributorTier.BUG_HUNTER } }
+    val communityList = remember {
+        ContributorsList.filter {
+            it.tier == ContributorTier.TG_SUBSCRIBER || it.tier == ContributorTier.BETA_TESTER
+        }
+    }
+    val totalHeroesCount = remember { ContributorsList.size }
+    var selectedFilter by rememberSaveable { mutableStateOf(FameCategoryFilter.ALL) }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -803,123 +1059,48 @@ fun HallOfFameScreen(
                     bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
                 )
                 .adaptiveContentPadding(),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // ── 1. HERO HALL OF FAME EMBLEM CARD ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .staggeredEntrance(index = 0)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.Transparent)
-                    .border(1.dp, Color(0xFF7C4DFF).copy(alpha = 0.45f), RoundedCornerShape(24.dp))
-                    .lightSweep(
-                        isEnabled = true,
-                        shape = RoundedCornerShape(24.dp),
-                        sweepColor = Color(0xFF7C4DFF)
-                    )
-                    .padding(22.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(72.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF7C4DFF).copy(alpha = 0.15f))
-                            .border(2.dp, Color(0xFF7C4DFF).copy(alpha = 0.6f), CircleShape)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_hall_of_fame),
-                            contentDescription = null,
-                            tint = Color(0xFFC084FC),
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
-
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.fame_title),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Black,
-                            color = TextWhite,
-                            textAlign = TextAlign.Center
-                        )
-                        Text(
-                            text = stringResource(R.string.fame_desc),
-                            fontSize = 12.5.sp,
-                            lineHeight = 18.sp,
-                            color = TextMuted,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xFF7C4DFF).copy(alpha = 0.14f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            Color(0xFF7C4DFF).copy(alpha = 0.40f)
-                        )
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_fingerprint_badge),
-                                contentDescription = null,
-                                tint = Color(0xFFC084FC),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = stringResource(R.string.fame_fingerprint_badge_header),
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFC084FC)
-                            )
-                        }
-                    }
+            // ── 1. HERO EMBLEM & METRICS CARD ──
+            HeroHallOfFameCard(
+                pioneersCount = pioneers.size,
+                bugHuntersCount = bugHunters.size,
+                communityCount = communityList.size,
+                totalCount = totalHeroesCount,
+                onBannerClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    Toast.makeText(context, context.getString(R.string.fame_fingerprint_info_toast), Toast.LENGTH_SHORT).show()
                 }
-            }
+            )
 
-            // ── 2. LEGENDARY PIONEERS SECTION ──
-            val pioneers = ContributorsList.filter { it.tier == ContributorTier.LEGENDARY_PIONEER }
-            if (pioneers.isNotEmpty()) {
+            // ── 2. CATEGORY FILTER BAR ──
+            CategoryFilterBar(
+                selectedFilter = selectedFilter,
+                onSelectFilter = { filter ->
+                    selectedFilter = filter
+                }
+            )
+
+            // ── 3. SECTION: LEGENDS (PIONEERS) ──
+            if (selectedFilter == FameCategoryFilter.ALL || selectedFilter == FameCategoryFilter.PIONEERS) {
                 Column(
-                    modifier = Modifier.staggeredEntrance(index = 1),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .staggeredEntrance(index = 1),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_crown),
-                            contentDescription = null,
-                            tint = Color(0xFFFFB703),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = stringResource(R.string.fame_section_pioneers),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.2.sp,
-                            color = Color(0xFFFFB703)
-                        )
-                    }
+                    FameSectionHeader(
+                        iconRes = R.drawable.ic_crown,
+                        title = stringResource(R.string.fame_section_legends_title),
+                        subtitle = stringResource(R.string.fame_section_legends_subtitle),
+                        count = pioneers.size,
+                        accentColor = Color(0xFFFFBD22)
+                    )
 
                     pioneers.forEachIndexed { idx, contributor ->
-                        ContributorCard(
+                        PioneerLegendCard(
                             contributor = contributor,
+                            rank = idx + 1,
                             modifier = Modifier.staggeredEntrance(index = 2 + idx),
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -930,119 +1111,79 @@ fun HallOfFameScreen(
                 }
             }
 
-            // ── 3. BUG HUNTERS SECTION ──
-            val bugHunters = ContributorsList.filter { it.tier == ContributorTier.BUG_HUNTER }
-            if (bugHunters.isNotEmpty()) {
+            // ── 4. SECTION: BUG HUNTERS ──
+            if (selectedFilter == FameCategoryFilter.ALL || selectedFilter == FameCategoryFilter.BUG_HUNTERS) {
                 Column(
-                    modifier = Modifier.staggeredEntrance(index = 4),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .staggeredEntrance(index = 4),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_fingerprint_badge),
-                            contentDescription = null,
-                            tint = Color(0xFF00F5D4),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = stringResource(R.string.fame_section_bughunters),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.2.sp,
-                            color = Color(0xFF00F5D4)
-                        )
-                    }
+                    FameSectionHeader(
+                        iconRes = R.drawable.ic_bug,
+                        title = stringResource(R.string.fame_section_bughunters),
+                        subtitle = stringResource(R.string.fame_section_bughunters_subtitle),
+                        count = bugHunters.size,
+                        accentColor = Color(0xFF00F5D4)
+                    )
 
-                    bugHunters.forEachIndexed { idx, contributor ->
-                        ContributorCard(
-                            contributor = contributor,
-                            modifier = Modifier.staggeredEntrance(index = 5 + idx),
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                selectedContributor = contributor
-                            }
-                        )
+                    BugHunterClass.values().forEachIndexed { classIdx, bugClass ->
+                        val classHunters = remember(bugHunters) {
+                            bugHunters.filter { it.bugHunterSubclass?.parentClass == bugClass }
+                        }
+                        if (classHunters.isNotEmpty()) {
+                            BugHunterClassGroup(
+                                bugClass = bugClass,
+                                hunters = classHunters,
+                                modifier = Modifier.staggeredEntrance(index = 5 + classIdx),
+                                onSelectContributor = { contributor ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    selectedContributor = contributor
+                                }
+                            )
+                        }
                     }
                 }
             }
 
-            // ── 4. BETA TESTERS SECTION ──
-            val betaTesters = ContributorsList.filter { it.tier == ContributorTier.BETA_TESTER }
-            if (betaTesters.isNotEmpty()) {
+            // ── 5. SECTION: COMMUNITY ──
+            if (selectedFilter == FameCategoryFilter.ALL || selectedFilter == FameCategoryFilter.COMMUNITY) {
                 Column(
-                    modifier = Modifier.staggeredEntrance(index = 7),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .staggeredEntrance(index = 7),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_volunteer_badge),
-                            contentDescription = null,
-                            tint = Color(0xFFC084FC),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = stringResource(R.string.fame_section_testers),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.2.sp,
-                            color = Color(0xFFC084FC)
-                        )
-                    }
+                    FameSectionHeader(
+                        iconRes = R.drawable.ic_user,
+                        title = stringResource(R.string.fame_section_community),
+                        subtitle = stringResource(R.string.fame_section_community_subtitle),
+                        count = communityList.size,
+                        accentColor = Color(0xFF26A5E4)
+                    )
 
-                    betaTesters.forEachIndexed { idx, contributor ->
-                        ContributorCard(
-                            contributor = contributor,
-                            modifier = Modifier.staggeredEntrance(index = 8 + idx),
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                selectedContributor = contributor
+                    val chunkedCommunity = remember(communityList) { communityList.chunked(2) }
+                    chunkedCommunity.forEachIndexed { rowIdx, pair ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .staggeredEntrance(index = 8 + (rowIdx % 6)),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            pair.forEach { member ->
+                                CommunityMemberCard(
+                                    contributor = member,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        selectedContributor = member
+                                    }
+                                )
                             }
-                        )
-                    }
-                }
-            }
-
-            // ── 5. TELEGRAM COMMUNITY SECTION ──
-            val tgSubscribers = ContributorsList.filter { it.tier == ContributorTier.TG_SUBSCRIBER }
-            if (tgSubscribers.isNotEmpty()) {
-                Column(
-                    modifier = Modifier.staggeredEntrance(index = 9),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_telegram),
-                            contentDescription = null,
-                            tint = Color(0xFF26A5E4),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = stringResource(R.string.fame_section_community),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.2.sp,
-                            color = Color(0xFF26A5E4)
-                        )
-                    }
-
-                    tgSubscribers.forEachIndexed { idx, contributor ->
-                        ContributorCard(
-                            contributor = contributor,
-                            modifier = Modifier.staggeredEntrance(index = 10 + idx),
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                selectedContributor = contributor
+                            if (pair.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
-                        )
+                        }
                     }
                 }
             }
@@ -1050,7 +1191,7 @@ fun HallOfFameScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // Frosted Top App Bar Header
+        // Frosted Glass Header Panel (Pinned at Top over scrolling cards with smooth fade!)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1065,32 +1206,42 @@ fun HallOfFameScreen(
                     )
                 )
         ) {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.fame_topbar_title),
-                        color = TextWhite,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onBack()
-                    }) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_arrow_left),
-                            contentDescription = stringResource(R.string.action_back),
-                            tint = TextWhite,
-                            modifier = Modifier.size(22.dp)
+            Box(
+                modifier = Modifier
+                    .adaptiveContainerWidth(600.dp)
+                    .align(Alignment.Center)
+            ) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = stringResource(R.string.fame_title),
+                            color = TextWhite,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
                         )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onBack()
+                        }) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_arrow_left),
+                                contentDescription = stringResource(R.string.action_back),
+                                tint = TextWhite,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                )
+            }
         }
 
+        // Cyber Particles floating over entire hall of fame screen interface
         CyberParticlesOverlay(
             modifier = Modifier.fillMaxSize(),
             particleCount = 38,
@@ -1100,8 +1251,314 @@ fun HallOfFameScreen(
 }
 
 @Composable
-private fun ContributorCard(
+private fun HeroHallOfFameCard(
+    pioneersCount: Int,
+    bugHuntersCount: Int,
+    communityCount: Int,
+    totalCount: Int,
+    onBannerClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .staggeredEntrance(index = 0)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Transparent)
+            .border(1.dp, AmoledBorder, RoundedCornerShape(16.dp))
+            .lightSweep(
+                isEnabled = true,
+                shape = RoundedCornerShape(16.dp),
+                sweepColor = Color(0xFFFFBD22).copy(alpha = 0.65f)
+            )
+            .padding(14.dp)
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Header: Icon + Title & SHA-256 Chip
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color.Transparent)
+                            .border(1.dp, Color(0xFFFFBD22).copy(alpha = 0.40f), CircleShape)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_hall_of_fame),
+                            contentDescription = null,
+                            tint = Color(0xFFFFBD22),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = stringResource(R.string.fame_hero_title),
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                        Text(
+                            text = stringResource(R.string.fame_fingerprint_badge_header),
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.6.sp,
+                            color = Color(0xFFFFBD22).copy(alpha = 0.85f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Minimalist SHA-256 info button with springPress
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
+                        .springPress(onClick = onBannerClick)
+                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_fingerprint_badge),
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = "SHA-256",
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = TextMuted
+                    )
+                }
+            }
+
+            // Dignified description
+            Text(
+                text = stringResource(R.string.fame_desc),
+                fontSize = 11.5.sp,
+                lineHeight = 16.sp,
+                color = TextMuted
+            )
+
+            // Compact Stats Bar with thin AmoledBorder dividers
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FameStatCell(
+                    count = pioneersCount,
+                    label = stringResource(R.string.fame_metric_pioneers),
+                    color = Color(0xFFFFBD22),
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(20.dp)
+                        .background(AmoledBorder)
+                )
+                FameStatCell(
+                    count = bugHuntersCount,
+                    label = stringResource(R.string.fame_metric_bughunters),
+                    color = Color(0xFF00F5D4),
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(20.dp)
+                        .background(AmoledBorder)
+                )
+                FameStatCell(
+                    count = communityCount,
+                    label = stringResource(R.string.fame_metric_community),
+                    color = Color(0xFF26A5E4),
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(20.dp)
+                        .background(AmoledBorder)
+                )
+                FameStatCell(
+                    count = totalCount,
+                    label = stringResource(R.string.fame_metric_total),
+                    color = TextWhite,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FameStatCell(
+    count: Int,
+    label: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = count.toString(),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            color = TextMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun CategoryFilterBar(
+    selectedFilter: FameCategoryFilter,
+    onSelectFilter: (FameCategoryFilter) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalFadingEdges(startFadeWidth = 6.dp, endFadeWidth = 14.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        FameCategoryFilter.values().forEach { filter ->
+            val isSelected = filter == selectedFilter
+            val filterAccent = when (filter) {
+                FameCategoryFilter.ALL -> ActiveGreenLed
+                FameCategoryFilter.PIONEERS -> Color(0xFFFFBD22)
+                FameCategoryFilter.BUG_HUNTERS -> Color(0xFF00F5D4)
+                FameCategoryFilter.COMMUNITY -> Color(0xFF26A5E4)
+            }
+            val borderColor = if (isSelected) filterAccent else AmoledBorder
+            val contentColor = if (isSelected) TextWhite else TextMuted
+            val iconTint = if (isSelected) filterAccent else TextMuted
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+                    .springPress(onClick = { onSelectFilter(filter) })
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = filter.iconRes),
+                        contentDescription = null,
+                        tint = iconTint,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = stringResource(filter.labelRes),
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = contentColor,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FameSectionHeader(
+    @DrawableRes iconRes: Int,
+    title: String,
+    subtitle: String,
+    count: Int,
+    accentColor: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                painter = painterResource(id = iconRes),
+                contentDescription = null,
+                tint = accentColor,
+                modifier = Modifier.size(16.dp)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    text = title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 11.sp,
+                    color = TextMuted
+                )
+            }
+        }
+
+        Surface(
+            shape = CircleShape,
+            color = Color.Transparent,
+            border = androidx.compose.foundation.BorderStroke(1.dp, AmoledBorder)
+        ) {
+            Text(
+                text = count.toString(),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = TextMuted,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PioneerLegendCard(
     contributor: Contributor,
+    rank: Int,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -1111,30 +1568,29 @@ private fun ContributorCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(Color.Transparent)
-            .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(18.dp))
+            .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
             .springPress(onClick = onClick)
-            .padding(14.dp)
+            .padding(12.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Generative Holographic Identicon Badge
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(54.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
-                    .background(tier.primaryColor.copy(alpha = 0.10f))
-                    .border(1.dp, tier.primaryColor.copy(alpha = 0.35f), CircleShape)
+                    .background(Color.Transparent)
+                    .border(1.dp, Color(0xFFFFBD22).copy(alpha = 0.35f), CircleShape)
             ) {
                 DigitalFingerprintCanvas(
                     fingerprint = fp,
                     tier = tier,
-                    size = 50.dp,
+                    size = 34.dp,
                     animated = true
                 )
             }
@@ -1144,71 +1600,63 @@ private fun ContributorCard(
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = contributor.name,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = tier.primaryColor.copy(alpha = 0.15f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            0.8.dp,
-                            tier.primaryColor.copy(alpha = 0.4f)
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
+                        Surface(
+                            shape = RoundedCornerShape(5.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, Color(0xFFFFBD22).copy(alpha = 0.45f))
+                        ) {
+                            Text(
+                                text = "#$rank",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFFBD22),
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
                         Text(
-                            text = stringResource(tier.badgeLabelRes),
-                            fontSize = 8.5.sp,
+                            text = contributor.name,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color = tier.primaryColor,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            color = TextWhite,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+
+                    Text(
+                        text = "#${fp.formattedHash}",
+                        fontSize = 9.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = TextMuted
+                    )
                 }
 
                 Text(
                     text = stringResource(contributor.roleRes),
-                    fontSize = 12.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.Medium,
-                    color = tier.primaryColor.copy(alpha = 0.9f)
+                    color = Color(0xFFFFBD22),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 Text(
                     text = stringResource(contributor.contributionRes),
-                    fontSize = 11.5.sp,
-                    lineHeight = 16.sp,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
                     color = TextMuted,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                // Cryptographic Hash Stamp Pill
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_fingerprint_badge),
-                        contentDescription = null,
-                        tint = TextMuted.copy(alpha = 0.7f),
-                        modifier = Modifier.size(11.dp)
-                    )
-                    Text(
-                        text = "HASH: #${fp.formattedHash}",
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextMuted.copy(alpha = 0.8f)
-                    )
-                }
             }
 
             Icon(
@@ -1221,11 +1669,301 @@ private fun ContributorCard(
     }
 }
 
-/**
- * Interactive Cyber Passport dialog showing the contributor's full digital footprint.
- */
 @Composable
-private fun ContributorPassportDialog(
+private fun BugHunterClassGroup(
+    bugClass: BugHunterClass,
+    hunters: List<Contributor>,
+    modifier: Modifier = Modifier,
+    onSelectContributor: (Contributor) -> Unit
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.Transparent)
+            .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
+            .padding(14.dp)
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Class Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Left color accent bar
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(26.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
+                            .background(bugClass.accentColor)
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(
+                            text = stringResource(bugClass.titleRes),
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                        Text(
+                            text = stringResource(bugClass.subtitleRes),
+                            fontSize = 10.5.sp,
+                            color = TextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Hunter count in this class
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, bugClass.accentColor.copy(alpha = 0.40f))
+                ) {
+                    Text(
+                        text = hunters.size.toString(),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = bugClass.accentColor,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            // Subclasses groups
+            val groupedBySubclass = remember(hunters) {
+                hunters.groupBy { it.bugHunterSubclass }
+            }
+
+            groupedBySubclass.forEach { (subclass, subHunters) ->
+                if (subclass != null) {
+                    // Subclass divider / label
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(top = 6.dp, start = 2.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(subclass.badgeColor)
+                        )
+                        Text(
+                            text = stringResource(subclass.labelRes),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = subclass.badgeColor,
+                            letterSpacing = 0.3.sp
+                        )
+                        Text(
+                            text = "· ${subHunters.size}",
+                            fontSize = 10.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                // Minimalist rows for each hunter in subclass
+                subHunters.forEachIndexed { itemIdx, hunter ->
+                    BugHunterMinimalRow(
+                        contributor = hunter,
+                        subclassColor = subclass?.badgeColor ?: bugClass.accentColor,
+                        onClick = { onSelectContributor(hunter) }
+                    )
+                    if (itemIdx < subHunters.lastIndex) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(AmoledBorder.copy(alpha = 0.35f))
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BugHunterMinimalRow(
+    contributor: Contributor,
+    subclassColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val fp = contributor.fingerprint
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .springPress(onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        // Mini Avatar Identicon
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(Color.Transparent)
+                .border(1.dp, subclassColor.copy(alpha = 0.35f), CircleShape)
+        ) {
+            DigitalFingerprintCanvas(
+                fingerprint = fp,
+                tier = contributor.tier,
+                size = 22.dp,
+                animated = true
+            )
+        }
+
+        // Details Column
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = contributor.name,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "#${fp.formattedHash}",
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextMuted
+                )
+            }
+
+            Text(
+                text = stringResource(contributor.roleRes),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = subclassColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = stringResource(contributor.contributionRes),
+                fontSize = 10.5.sp,
+                color = TextMuted,
+                lineHeight = 14.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Icon(
+            painter = painterResource(id = R.drawable.ic_chevron_right),
+            contentDescription = null,
+            tint = TextMuted,
+            modifier = Modifier.size(14.dp)
+        )
+    }
+}
+
+@Composable
+private fun CommunityMemberCard(
+    contributor: Contributor,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val tier = contributor.tier
+    val fp = contributor.fingerprint
+    val accentColor = tier.primaryColor
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Transparent)
+            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+            .springPress(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color.Transparent)
+                        .border(1.dp, accentColor.copy(alpha = 0.35f), CircleShape)
+                ) {
+                    DigitalFingerprintCanvas(
+                        fingerprint = fp,
+                        tier = tier,
+                        size = 22.dp,
+                        animated = true
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = contributor.name,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = stringResource(tier.badgeLabelRes),
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accentColor,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            Text(
+                text = "#${fp.formattedHash}",
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                color = TextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * Interactive Contributor Passport bottom sheet showing the contributor's digital footprint.
+ * Adheres to MirrlyUI Dogma 2 (Zero-Popup Rule) and tactile spring kinetics.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ContributorPassportSheet(
     contributor: Contributor,
     onDismiss: () -> Unit,
     onOpenGithub: (String) -> Unit
@@ -1235,245 +1973,244 @@ private fun ContributorPassportDialog(
     val tier = contributor.tier
     val fp = contributor.fingerprint
 
-    Dialog(
+    MirrlyModalBottomSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true
-        )
+        maxTabletWidth = 520.dp
     ) {
-        DialogBackdropBox(onDismiss = onDismiss) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .fadingEdges(topFadeHeight = 12.dp, bottomFadeHeight = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 6.dp)
+        ) {
+            // Tier Badge Pill
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, tier.primaryColor.copy(alpha = 0.50f))
+            ) {
+                Text(
+                    text = stringResource(tier.titleRes).uppercase(),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                    color = tier.primaryColor,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                )
+            }
+
+            // Generative Identicon Showcase with ring & glow
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(Color.Transparent)
+                    .border(1.dp, tier.primaryColor.copy(alpha = 0.40f), CircleShape)
+            ) {
+                DigitalFingerprintCanvas(
+                    fingerprint = fp,
+                    tier = tier,
+                    size = 72.dp,
+                    animated = true
+                )
+            }
+
+            // Name & Role
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 44.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(
-                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
-                    )
-                    .padding(horizontal = 24.dp)
-                    .clickable(enabled = false) {}
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                // Tier Badge Pill
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = tier.primaryColor.copy(alpha = 0.12f),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        tier.primaryColor.copy(alpha = 0.35f)
-                    )
-                ) {
-                    Text(
-                        text = stringResource(tier.titleRes).uppercase(),
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.1.sp,
-                        color = tier.primaryColor,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                    )
-                }
+                Text(
+                    text = contributor.name,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = stringResource(contributor.roleRes),
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = tier.primaryColor,
+                    textAlign = TextAlign.Center
+                )
+            }
 
-                // Generative Holographic Identicon Showcase
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(100.dp)
-                        .clip(CircleShape)
-                        .background(tier.primaryColor.copy(alpha = 0.12f))
-                        .border(2.dp, tier.primaryColor.copy(alpha = 0.55f), CircleShape)
-                ) {
-                    DigitalFingerprintCanvas(
-                        fingerprint = fp,
-                        tier = tier,
-                        size = 94.dp,
-                        animated = true
-                    )
-                }
-
-                // Name & Handle
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+            // Full Contribution Description Box (Outline-only)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
+                    .padding(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = contributor.name,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Black,
-                        color = TextWhite,
-                        textAlign = TextAlign.Center
+                        text = stringResource(R.string.fame_dialog_contrib_header),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        color = TextMuted
                     )
                     Text(
-                        text = stringResource(contributor.roleRes),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = tier.primaryColor,
-                        textAlign = TextAlign.Center
+                        text = stringResource(contributor.contributionRes),
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
+                        color = TextWhite
                     )
                 }
+            }
 
-                // Full Contribution Description Box
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.Transparent)
-                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(16.dp))
-                        .padding(16.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = stringResource(R.string.fame_dialog_contrib_header),
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.1.sp,
-                            color = TextMuted
-                        )
-                        Text(
-                            text = stringResource(contributor.contributionRes),
-                            fontSize = 13.sp,
-                            lineHeight = 19.sp,
-                            color = TextWhite.copy(alpha = 0.90f)
-                        )
-                    }
-                }
-
-                // Cryptographic Verified Fingerprint Card
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.Transparent)
-                        .border(1.dp, tier.primaryColor.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
-                        .padding(16.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Cryptographic Verified Fingerprint Card
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
+                    .padding(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_fingerprint_badge),
-                                    contentDescription = null,
-                                    tint = tier.primaryColor,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = stringResource(R.string.fame_dialog_fingerprint_header),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 1.1.sp,
-                                    color = tier.primaryColor
-                                )
-                            }
-
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_fingerprint_badge),
+                                contentDescription = null,
+                                tint = tier.primaryColor,
+                                modifier = Modifier.size(13.dp)
+                            )
                             Text(
-                                text = "SHA-256",
+                                text = stringResource(R.string.fame_dialog_fingerprint_header),
                                 fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = TextMuted
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp,
+                                color = tier.primaryColor
                             )
                         }
 
                         Text(
-                            text = fp.fullHash,
-                            fontSize = 11.sp,
+                            text = "SHA-256",
+                            fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = TextWhite,
-                            lineHeight = 16.sp
+                            color = TextMuted
                         )
+                    }
 
-                        Button(
-                            onClick = {
+                    Text(
+                        text = fp.fullHash,
+                        fontSize = 10.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = TextWhite,
+                        lineHeight = 15.sp
+                    )
+
+                    // Copy button with springPress & haptic
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                            .springPress(onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 cb.setPrimaryClip(ClipData.newPlainText("Digital Fingerprint", fp.fullHash))
                                 Toast.makeText(context, context.getString(R.string.fame_dialog_copied_toast), Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.Transparent,
-                                contentColor = tier.primaryColor
-                            ),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, tier.primaryColor.copy(alpha = 0.5f)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(38.dp)
+                            }),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_copy),
                                 contentDescription = null,
-                                tint = tier.primaryColor,
+                                tint = TextWhite,
                                 modifier = Modifier.size(14.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = stringResource(R.string.fame_dialog_btn_copy),
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Medium,
+                                color = TextWhite
                             )
                         }
                     }
                 }
+            }
 
-                // GitHub Profile Link if available
-                if (contributor.githubUrl != null) {
-                    Button(
-                        onClick = { onOpenGithub(contributor.githubUrl) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.Transparent,
-                            contentColor = TextWhite
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2A344A)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
+            // GitHub Profile Link with springPress
+            if (contributor.githubUrl != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenGithub(contributor.githubUrl)
+                        }),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_github),
                             contentDescription = null,
                             tint = TextWhite,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(15.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = stringResource(R.string.fame_dialog_btn_github),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 12.5.sp,
+                            color = TextWhite
                         )
                     }
                 }
+            }
 
-                // Close Button
-                OutlinedButton(
-                    onClick = {
+            // Close Button with springPress
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                    .springPress(onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onDismiss()
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E2638)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.fame_dialog_btn_close),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = TextMuted
-                    )
-                }
+                    }),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.fame_dialog_btn_close),
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.sp,
+                    color = TextMuted
+                )
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }

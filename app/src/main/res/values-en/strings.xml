@@ -6,11 +6,11 @@
 <resources>
     <!-- App Metadata -->
     <string name="app_name">Mirrly TG Proxy</string>
-    <string name="app_slogan">Secure local proxy for Telegram</string>
+    <string name="app_slogan">Local proxy for Telegram</string>
 
     <!-- Onboarding Screen -->
     <string name="onboarding_brand_title">MIRRLY TG PROXY</string>
-    <string name="onboarding_brand_subtitle">SECURE PROXY GATEWAY FOR TELEGRAM</string>
+    <string name="onboarding_brand_subtitle">LOCAL PROXY GATEWAY FOR TELEGRAM</string>
     <string name="onboarding_step_language_title">SELECT INTERFACE LANGUAGE</string>
     <string name="onboarding_step_language_desc">You can change interface language anytime in application settings.</string>
     <string name="onboarding_lang_system">System default</string>
@@ -23,20 +23,20 @@
     <string name="onboarding_lang_fa_desc">Persian language</string>
 
     <string name="onboarding_step_about_title">ABOUT MIRRLY TG PROXY</string>
-    <string name="onboarding_step_about_desc">Next-generation high-speed proxy client for bypassing restrictions and accelerating Telegram.</string>
-    <string name="onboarding_feature_mtproto">MTProto proxy with robust traffic protection and cloaking</string>
-    <string name="onboarding_feature_socks5">SOCKS5 proxy optimized for voice/video calls and media</string>
-    <string name="onboarding_feature_cf_workers">Secure tunnel via Cloudflare servers and custom domains</string>
-    <string name="onboarding_feature_amoled">Minimalist deep AMOLED interface with zero ads and trackers</string>
+    <string name="onboarding_step_about_desc">Local proxy client for bypassing restrictions and tunneling Telegram traffic.</string>
+    <string name="onboarding_feature_mtproto">MTProto proxy with Fake-TLS cloaking</string>
+    <string name="onboarding_feature_socks5">SOCKS5 TCP relay for voice/video calls and media</string>
+    <string name="onboarding_feature_cf_workers">WSS tunnel via Cloudflare network and custom domains</string>
+    <string name="onboarding_feature_amoled">AMOLED interface with zero ads and trackers</string>
 
     <string name="onboarding_step_guide_title">QUICK START GUIDE</string>
-    <string name="onboarding_step_guide_desc">Three simple steps to set up a secure connection:</string>
-    <string name="onboarding_guide_1_title">Select working protocol</string>
-    <string name="onboarding_guide_1_desc">MTProto for lightweight messaging or SOCKS5 for uninterrupted voice calls and media.</string>
-    <string name="onboarding_guide_2_title">Activate proxy service</string>
-    <string name="onboarding_guide_2_desc">Tap the central power button on the home screen to launch the local proxy.</string>
+    <string name="onboarding_step_guide_desc">Setup workflow:</string>
+    <string name="onboarding_guide_1_title">Select protocol</string>
+    <string name="onboarding_guide_1_desc">MTProto for messaging and channels, or SOCKS5 for calls and media.</string>
+    <string name="onboarding_guide_2_title">Start service</string>
+    <string name="onboarding_guide_2_desc">Power button on the home screen starts the local proxy.</string>
     <string name="onboarding_guide_3_title">Connect Telegram</string>
-    <string name="onboarding_guide_3_desc">Tap \'Connect Telegram\' to automatically import proxy connection settings into the app.</string>
+    <string name="onboarding_guide_3_desc">\'Connect Telegram\' exports proxy settings to the client.</string>
 
     <string name="onboarding_btn_skip">Skip</string>
     <string name="onboarding_btn_next">Next</string>
@@ -49,8 +49,8 @@
     <string name="settings_language_ru">Русский (Russian)</string>
     <string name="settings_language_en">English</string>
     <string name="settings_language_fa">فارسی (Persian)</string>
-    <string name="settings_onboarding_replay">First-launch tutorial</string>
-    <string name="settings_onboarding_replay_desc">Replay introductory walkthrough and quick start guide</string>
+    <string name="settings_onboarding_replay">Introductory walkthrough</string>
+    <string name="settings_onboarding_replay_desc">Replay introductory walkthrough</string>
 
     <!-- Common Actions & States -->
     <string name="action_cancel">Cancel</string>
@@ -81,7 +81,7 @@
     <string name="worker_import_error">Import error</string>
     <string name="status_waiting_network">Waiting for network</string>
     <string name="status_offline">Waiting for network • Offline</string>
-    <string name="status_protection_disabled">Protection disabled • Tap button to start</string>
+    <string name="status_protection_disabled">Proxy stopped • Tap button to start</string>
     <string name="status_stopping">Stopping connection...</string>
     <string name="status_optimizing_route">Optimizing route...</string>
     <string name="status_selecting_optimal_node">Selecting optimal node...</string>
@@ -90,9 +90,7 @@
     <string name="status_connecting_cf_wss">Connecting to Cloudflare Worker WSS...</string>
     <string name="status_connecting_cf_warp">Connecting to Cloudflare WARP Anycast...</string>
     <string name="status_connecting_vless">Establishing VLESS over WSS connection...</string>
-    <string name="status_connecting_hybrid">Initializing hybrid Worker + WARP tunnel...</string>
     <string name="status_connecting_amnezia">Establishing AmneziaWG tunnel to WARP Anycast...</string>
-    <string name="status_connecting_warp_cascade">Initializing WARP Cascade (Worker + AWG)...</string>
     <string name="status_warp_masque_needs_reg">WARP MASQUE • Registration required in Settings</string>
     <string name="status_vpn_disabled">VPN DISABLED</string>
     <string name="status_vpn_enabled">VPN CONNECTED</string>
@@ -100,20 +98,15 @@
     <string name="status_vpn_disconnecting">DISCONNECTING VPN...</string>
     <string name="status_vpn_system_mode_desc">Whole-device mode • Tap to connect</string>
     <string name="status_vpn_system_connected_desc">System tunnel active • Cloudflare Anycast</string>
-    <string name="status_vpn_in_dev">VPN IN DEVELOPMENT</string>
-    <string name="status_vpn_in_dev_desc">Module in development • Tap for details</string>
-    <string name="vpn_in_dev_card_title">VPN in Development</string>
-    <string name="vpn_in_dev_card_desc">System VPN module is under active development and is not operational. Use MTProto or SOCKS5 to protect traffic.</string>
+
     <string name="vpn_permission_denied">VPN system permission denied</string>
-    <string name="uplink_mtproto_flowseal_secured">MTProto Anycast Flowseal • Secured</string>
-    <string name="uplink_mtproto_direct_secured">MTProto Direct (Fake-TLS) • Secured</string>
-    <string name="uplink_cf_wss_secured">Cloudflare WSS · Secured</string>
-    <string name="uplink_warp_masque_secured">WARP MASQUE (%1$s) • Secured</string>
-    <string name="uplink_vless_secured">VLESS over WSS (TLS 1.3 Chrome) • Secured</string>
-    <string name="uplink_hybrid_secured">Hybrid Worker (%1$s) + WARP • Secured</string>
-    <string name="uplink_amnezia_secured">AmneziaWG (WARP Anycast) • Secured</string>
-    <string name="uplink_warp_cascade_secured">WARP Cascade (Worker + AWG) • Secured</string>
-    <string name="status_secured">Secured</string>
+    <string name="uplink_mtproto_flowseal_secured">MTProto Anycast Flowseal • Active</string>
+    <string name="uplink_mtproto_direct_secured">MTProto Direct (Fake-TLS) • Active</string>
+    <string name="uplink_cf_wss_secured">Cloudflare WSS · Active</string>
+    <string name="uplink_warp_masque_secured">WARP MASQUE (%1$s) • Active</string>
+    <string name="uplink_vless_secured">VLESS over WSS (TLS 1.3 Chrome) • Active</string>
+    <string name="uplink_amnezia_secured">AmneziaWG (WARP Anycast) • Active</string>
+    <string name="status_secured">Connected</string>
     <string name="status_public_fallback">Public Fallback</string>
     <string name="status_flow_socks5_title">SOCKS5 FLOWS</string>
     <string name="status_flow_wspool_title">WSPOOL SOCKETS</string>
@@ -132,8 +125,8 @@
     <string name="telemetry_speed_zero">0 B/s</string>
     <string name="telemetry_bytes_zero">0 B</string>
     <string name="telemetry_speed_format">%1$s/s</string>
-    <string name="verdict_ideal_channel">Optimal Connection</string>
-    <string name="verdict_ideal_channel_desc">Minimal latency and stable direct WSS tunnel</string>
+    <string name="verdict_ideal_channel">Stable Connection</string>
+    <string name="verdict_ideal_channel_desc">Low latency and direct WSS tunnel</string>
     <string name="verdict_dpi_blocked">Operator DPI Block</string>
     <string name="verdict_dpi_blocked_desc">TCP/ClientHello packet reset detected by middlebox</string>
     <string name="verdict_tls_failed">Secure TLS Failure</string>
@@ -151,13 +144,13 @@
     <string name="verdict_waiting_network">Waiting for network</string>
     <string name="verdict_waiting_network_desc">No internet connection. Waiting for network...</string>
     <string name="verdict_waiting_check_desc">Waiting for network check...</string>
-    <string name="chat_verdict_ideal">Ideal for media</string>
+    <string name="chat_verdict_ideal">Stable media throughput</string>
     <string name="chat_verdict_stable">Stable</string>
     <string name="chat_verdict_moderate">Moderate speed</string>
     <string name="chat_verdict_delays">Download delays</string>
     <string name="chat_verdict_failures">Delivery failures</string>
     <string name="chat_verdict_none">No connection</string>
-    <string name="mos_grade_hd">HD Voice (Excellent)</string>
+    <string name="mos_grade_hd">HD Voice (High quality)</string>
     <string name="mos_grade_good">Good quality</string>
     <string name="mos_grade_acceptable">Acceptable</string>
     <string name="mos_grade_noise">With noise</string>
@@ -176,9 +169,8 @@
     <string name="ws_grade_failures">Failures</string>
     <string name="ws_grade_awaiting">Awaiting</string>
     <string name="settings_uplink_worker_sub">Cloudflare Edge</string>
-    <string name="settings_uplink_masque_sub">Anycast HTTP/3</string>
-    <string name="settings_uplink_cascade_sub">MASQUE (HTTP/3) -> AWG</string>
-    <string name="toast_doh_selected_best">Selected %1$d best servers: %2$s</string>
+    <string name="settings_uplink_awg_sub">Recommended • Resistant to DPI</string>
+    <string name="settings_uplink_masque_sub">HTTP/3 • Anycast QUIC</string>
     <string name="content_desc_logs">Logs</string>
     <string name="content_desc_session_history">Session History</string>
     <string name="content_desc_sleep_timer">Sleep Timer</string>
@@ -188,7 +180,6 @@
     <string name="banner_update_dismissed">Update v%1$s dismissed</string>
     <string name="err_service_switch">Proxy service switch error: %1$s</string>
     <string name="warp_masque_registration_needed">WARP MASQUE: Registration required</string>
-    <string name="warp_hybrid_registration_needed">Hybrid Mode: WARP required</string>
     <string name="warp_tap_settings_create_profile">Tap to open Settings and create profile</string>
     <string name="worker_shared_pool_badge">%1$s (Shared Pool)</string>
     <string name="worker_shared_pool_warning">Request limits may exhaust. Choose another worker in manager or deploy a private one.</string>
@@ -229,17 +220,11 @@
     <string name="uplink_field_host_sni">Host / SNI</string>
     <string name="uplink_field_tls_camou">TLS Camouflage</string>
     <string name="uplink_field_architecture">Architecture</string>
-    <string name="uplink_hop_worker">First Hop (Worker)</string>
-    <string name="uplink_hop_warp">Second Hop (WARP)</string>
     <string name="uplink_amnezia_desc">AmneziaWG (Obfuscated WireGuard)</string>
     <string name="uplink_reg_warp_anycast">Active • WARP Anycast</string>
     <string name="uplink_obfuscation_jc">Obfuscation (Jc)</string>
     <string name="uplink_obfuscation_jc_val">4 junk packets before handshake</string>
     <string name="uplink_masking_i1">I1 Masking</string>
-    <string name="uplink_cascade_l1">Layer 1 (MASQUE)</string>
-    <string name="uplink_cascade_l2">Layer 2 (AWG)</string>
-    <string name="uplink_cascade_l3">Layer 3 (WSS)</string>
-    <string name="uplink_cascade_l3_val">%1$s — guaranteed TCP 443</string>
     <string name="uplink_actual_route">Actual Route</string>
     <string name="uplink_node_operator">Node Operator</string>
     <string name="uplink_trust_boundary">Trust Boundary</string>
@@ -277,14 +262,20 @@
     <string name="settings_speed_turbo">Turbo</string>
     <string name="settings_speed_ultra">Ultra</string>
     <string name="settings_speed_auto">Auto</string>
-    <string name="settings_tcp_nodelay_title">Zero Delay Delivery (TCP_NODELAY)</string>
-    <string name="settings_tcp_nodelay_on">Enabled: Immediate dispatch (all networks)</string>
-    <string name="settings_tcp_nodelay_off">Disabled: Nagle buffering (all networks)</string>
+    <string name="settings_nagle_title">Nagle\'s Algorithm</string>
+    <string name="settings_nagle_on">Enabled (Recommended)</string>
+    <string name="settings_nagle_off">Disabled (Dangerous)</string>
+    <string name="settings_nagle_status_on">Enabled: packet coalescing (RFC 896), maximum stability on cellular networks</string>
+    <string name="settings_nagle_status_off">Disabled (TCP_NODELAY): immediate dispatch without buffering</string>
+    <string name="settings_nagle_warning">Warning: Disabling Nagle\'s algorithm forces immediate transmission of small packets (TCP_NODELAY). This degrades performance on cellular or unstable networks due to jitter and packet loss.</string>
+    <string name="settings_tcp_nodelay_title">Nagle\'s Algorithm</string>
+    <string name="settings_tcp_nodelay_on">Enabled (Recommended)</string>
+    <string name="settings_tcp_nodelay_off">Disabled (Dangerous)</string>
     <string name="settings_cf_title">CLOUDFLARE TUNNELING</string>
     <string name="settings_worker_manager">Worker Manager</string>
     <string name="settings_worker_active">Active: %1$s</string>
     <string name="settings_worker_guide">Deployment Guide</string>
-    <string name="settings_worker_guide_desc">Deploy personal worker in 2 minutes</string>
+    <string name="settings_worker_guide_desc">Instructions for creating and deploying a worker</string>
     <string name="settings_cf_worker_desc_socks5">Cloudflare Worker accepts WSS/VLESS connections and proxies SOCKS5 TCP traffic via cloudflare:sockets.</string>
     <string name="settings_cf_worker_desc_mtproto">Cloudflare Worker is utilized for SOCKS5 uplink. In current MTProto mode connection goes directly to Telegram gateways.</string>
     <string name="settings_uplink_title">UPLINK MODE (WARP &amp; WORKER)</string>
@@ -310,8 +301,15 @@
     <string name="settings_vless_transport_port">Transport Port</string>
     <string name="settings_vless_browser_mimic">Browser Impersonation</string>
     <string name="settings_system_title">SYSTEM &amp; POWER MANAGEMENT</string>
-    <string name="settings_autostart_title">Autostart on Boot</string>
-    <string name="settings_autostart_desc">Automatically launch proxy service after device boots up</string>
+    <string name="settings_autostart_title">Autostart Service</string>
+    <string name="settings_autostart_desc">Automatically start proxy service on device boot and app launch</string>
+    <string name="autostart_guide_badge">AUTOSTART GUIDE</string>
+    <string name="autostart_guide_title">Autostart in Android</string>
+    <string name="autostart_how_it_works_title">How autostart works:</string>
+    <string name="autostart_how_it_works_desc">• When the phone boots or restarts, Android sends a readiness signal (BOOT_COMPLETED) — the Mirrly TG Proxy service starts automatically in the background.\n• Every time you open the application, the proxy also automatically connects without requiring you to tap the Start button.\n\nWHY CONFIGURATION IS REQUIRED:\nCustom vendor skins (Xiaomi, Samsung, Huawei, BBK, etc.) aggressively kill background processes and restrict autostart to save battery. To ensure uninterrupted proxy operation, select your system from the list below and complete the setup steps.</string>
+    <string name="autostart_version_warning">Note: Depending on the Android version (11, 12, 13, 14, 15) and specific ROM build, section names and menu items may vary slightly.</string>
+    <string name="autostart_select_os_label">Select your system:</string>
+    <string name="autostart_btn_open_settings">Open App Settings</string>
     <string name="settings_sleep_timer_title">Sleep Timer (Auto-shutdown)</string>
     <string name="settings_sleep_timer_active">Active • Stops in %1$s</string>
     <string name="settings_sleep_timer_off">Disabled • Tap to configure timer</string>
@@ -323,8 +321,8 @@
     <string name="settings_battery_android_saver">Stop on Android Battery Saver</string>
     <string name="settings_battery_android_saver_desc">Triggered when Android enters low power mode</string>
     <string name="settings_qos_title">Adaptive Thermal QoS</string>
-    <string name="settings_qos_active">Enabled • Dynamically scales down socket pools and buffers under thermal load</string>
-    <string name="settings_qos_off">Disabled • Proxy operates at peak capacity without throttling</string>
+    <string name="settings_qos_active">Enabled • Dynamically scales socket pools and buffers under thermal or power load</string>
+    <string name="settings_qos_off">Disabled • Proxy operates with standard parameters without throttling</string>
     <string name="settings_err_open_battery_settings">Failed to open battery optimization settings</string>
     <string name="settings_doze_mode_title">Doze Mode Exemption</string>
     <string name="settings_doze_mode_allowed">Exempted • Background socket keepalive protected in deep sleep</string>
@@ -343,39 +341,53 @@
     <string name="status_connecting_caps">CONNECTING...</string>
     <string name="status_disconnecting_caps">DISCONNECTING...</string>
     <string name="badge_warp_needs_reg">WARP • Registration needed</string>
-    <string name="badge_hybrid_active">Hybrid • %1$s + WARP</string>
-    <string name="badge_hybrid_needs_warp">Hybrid • WARP needed</string>
-    <string name="badge_vpn_in_dev">Mirrly VPN • System Protection</string>
+    <string name="badge_vpn_in_dev">Mirrly VPN • System Tunnel</string>
     <string name="badge_socks5_worker">SOCKS5 • %1$s</string>
-    <string name="mode_hybrid_worker_warp">Hybrid Worker + WARP</string>
 
     <string name="mode_socks5_beta">SOCKS5</string>
     <string name="mode_vpn_in_dev">Mirrly VPN</string>
-    <string name="vpn_system_title_dev">SYSTEM VPN (VpnService)</string>
+    <string name="vpn_system_title_dev">SYSTEM VPN</string>
     <string name="vpn_badge_locked">ACTIVE</string>
-    <string name="vpn_tunnel_title">System VPN Tunnel (Android VpnService)</string>
-    <string name="vpn_tunnel_desc">Routes all device traffic through encrypted tunnels without configuring proxy in individual apps.</string>
+    <string name="vpn_tunnel_title">System VPN Tunnel</string>
+    <string name="vpn_tunnel_desc">Routes device network traffic through a tunnel without configuring proxy in individual apps.</string>
+    <string name="vpn_network_gen_format">Generation %1$d</string>
     <string name="vpn_killswitch_title">Kill Switch</string>
     <string name="vpn_killswitch_desc">Blocks outgoing traffic outside tunnel if VPN connection drops</string>
+    <string name="vpn_action_split_tunnel">Split Tunnel</string>
     <string name="vpn_status_unavailable">Unavailable</string>
     <string name="vpn_splittunnel_title">Split Tunneling</string>
     <string name="vpn_splittunnel_desc">Select installed apps to route through VPN or direct connection</string>
     <string name="vpn_architecture_title">Routing Core Architecture</string>
     <string name="vpn_details_btn">More about VPN development status</string>
-    <string name="vpn_mtu_title">MTU Packet Size</string>
-    <string name="vpn_mtu_desc">TUN virtual interface MTU. 1420 is recommended for WARP and VLESS.</string>
-    <string name="vpn_block_quic_title">Block QUIC (UDP 443)</string>
-    <string name="vpn_block_quic_desc">Forces TCP TLS 1.3 fallback for instant YouTube &amp; video acceleration.</string>
-    <string name="vpn_block_ipv6_title">IPv6 Leak Protection</string>
-    <string name="vpn_block_ipv6_desc">Blocks unsecured IPv6 traffic outside tunnel to prevent leaks.</string>
     <string name="vpn_split_tunnel_mode_disallow">Exclude selected</string>
     <string name="vpn_split_tunnel_mode_allow">Route only selected</string>
-    <string name="vpn_split_tunnel_apps_btn">Select applications (%1$d)</string>
+    <string name="vpn_split_tunnel_apps_btn">Select applications · %1$d</string>
     <string name="vpn_split_tunnel_dialog_title">Split Tunnel Applications</string>
     <string name="vpn_split_tunnel_search_hint">Search by name or package...</string>
     <string name="vpn_split_tunnel_select_all">Select all</string>
     <string name="vpn_split_tunnel_deselect_all">Deselect all</string>
     <string name="vpn_split_tunnel_apply">Apply</string>
+    <string name="info_vpn_system_title">System VPN Tunnel</string>
+    <string name="info_vpn_system_body">HOW IT WORKS:
+• Mirrly VPN utilizes the Android VpnService interface to route network traffic through an encrypted tunnel.
+• Unlike local proxy mode, system VPN operates at the operating system level and requires no per-app server setup.
+
+CONNECTION PROTOCOLS:
+• WARP AWG: AmneziaWG protocol with deep packet inspection bypass and mobile network latency optimization.
+• WARP MASQUE: IETF standard based on HTTP/3 and QUIC, disguising network traffic as legitimate web traffic to CDN edge servers.
+
+DNS ROUTING:
+• All DNS queries pass through a secure resolver, preventing domain spoofing and traffic routing leaks.</string>
+    <string name="info_vpn_splittunnel_title">Split Tunneling</string>
+    <string name="info_vpn_splittunnel_body">PURPOSE:
+• Split tunneling lets you configure which applications route traffic through VPN and which bypass the tunnel directly.
+
+ROUTING MODES:
+• Exclude selected: all device traffic routes through VPN except checked applications. Recommended for banking and domestic apps.
+• Route only selected: only chosen applications use the encrypted tunnel; all others connect directly.
+
+PERFORMANCE:
+• Excluding heavy background downloads lowers tunnel overhead and saves battery life.</string>
     <string name="settings_opera_upstream_title">Opera VPN Upstream for WARP</string>
     <string name="settings_opera_upstream_desc">Cascade: DPI -&gt; Opera VPN Anycast -&gt; Cloudflare MASQUE</string>
     <string name="settings_opera_node_select">OPERA VPN NODE SELECTION</string>
@@ -412,57 +424,27 @@
     <string name="settings_update_checking">Checking GitHub Releases...</string>
     <string name="settings_update_available_tap">New version available • Tap to install</string>
     <string name="settings_update_search_github">Checking GitHub for new releases</string>
-    <string name="doh_btn_enable_all">All %1$s</string>
-    <string name="doh_btn_enable_all_ok">All %1$s OK</string>
-    <string name="doh_btn_reset">Reset</string>
-    <string name="doh_notice_proxy_running">Proxy active • Stop service to modify resolvers</string>
     <string name="action_stop">Stop</string>
-    <string name="doh_testing_progress">Testing: %1$s of %2$s...</string>
-    <string name="doh_smart_selection_title">Smart DNS Benchmark</string>
-    <string name="doh_measuring_rtt">Measuring RTT and DPI bypass</string>
-    <string name="doh_stop_to_measure">Stop proxy to benchmark</string>
-    <string name="doh_auto_pick_fastest">Auto-select fastest unblocked resolvers</string>
-    <string name="doh_btn_test">Benchmark</string>
-    <string name="doh_list_title">DoH Resolvers List</string>
-    <string name="doh_list_ratio">%1$s OF %2$s</string>
-    <string name="doh_hide_list_hint">Tap to collapse resolvers list</string>
-    <string name="doh_active_race_hint">%1$s active • Concurrent Race Resolver</string>
     <string name="unit_ms_val">%1$s ms</string>
-    <string name="doh_status_tspu_block">DPI Block</string>
-    <string name="doh_status_timeout">Timeout</string>
-    <string name="doh_status_ip_poison">Poisoned IP</string>
-    <string name="doh_badge_top">Top</string>
-    <string name="doh_status_pending">Pending...</string>
-    <string name="doh_status_tspu_ok">DPI Pass</string>
-    <string name="doh_status_rkn_block">Censored?</string>
-    <string name="doh_status_iran_ok">Iran OK</string>
     <string name="toast_vless_uuid_generated">Generated new VLESS UUID</string>
-    <string name="toast_stop_proxy_change_dns">Stop proxy to change DNS settings</string>
-    <string name="toast_doh_keep_at_least_one">At least one DoH provider must remain active</string>
-    <string name="toast_stop_proxy_reset_dns">Stop proxy to reset DNS</string>
-    <string name="toast_doh_reset_defaults">DoH settings reset to default</string>
-    <string name="toast_doh_all_enabled">All DoH servers enabled (%1$s)</string>
-    <string name="toast_stop_proxy_start_benchmark">Stop proxy to launch auto-benchmark</string>
-    <string name="toast_doh_all_unreachable">All resolvers unreachable. Check internet connection.</string>
-    <string name="toast_doh_benchmark_err">Benchmark error: %1$s</string>
     <string name="info_uplink_modes_title">Uplink Modes (Transport &amp; DPI Bypass)</string>
     <string name="info_uplink_modes_body">MIRRLY UPLINK ARCHITECTURE:
 • Upstream Tunnel defines the physical and cryptographic network route from local SOCKS5 proxy (127.0.0.1:10808) to Telegram data centers via censorship gateways.
-• Messenger traffic is encapsulated into modern protocols disguised as regular web surfing or tunneled through Cloudflare Anycast infrastructure.
+• Messenger traffic is encapsulated into modern protocols mimicking standard web traffic or tunneled through Cloudflare Anycast infrastructure.
 • Unlike system VPN, Mirrly operates as a local transparent TCP relay without creating a TUN interface, preventing DNS leaks, battery drain, and OS restrictions.
 
 1. CLOUDFLARE WORKER (WEBSOCKET OVER TLS 1.3):
 • How it works: traffic traverses an encrypted WebSocket tunnel (port 443) to a serverless V8 function on Cloudflare Edge. Worker connects to Telegram data centers using internal socket API (cloudflare:sockets).
 • Bypass mechanism: telecom carriers and DPI see a standard HTTPS request with a trusted TLS 1.3 certificate of a global CDN, bypassing protocol inspection.
-• Quota: Cloudflare free plan offers 100,000 requests per day. Thanks to multiplexing, this quota is virtually impossible to exhaust during everyday use.
+• Quota: Cloudflare free plan offers 100,000 requests per day. Thanks to multiplexing, this quota is sufficient for everyday use.
 
 2. CLOUDFLARE WARP (MASQUE / RFC 9484):
-• How it works: state-of-the-art IETF CONNECT-IP / CONNECT-UDP standard over HTTP/3 and QUIC. Connects to Cloudflare Anycast gateways (188.114.96.1) using WireGuard credentials and mTLS certificates (ECDSA P-256).
-• Advantages: zero Head-of-Line Blocking, minimal round-trip latency, and superior voice and video call quality.
+• How it works: IETF CONNECT-IP / CONNECT-UDP standard over HTTP/3 and QUIC. Connects to Cloudflare Anycast gateways (188.114.96.1) using WireGuard credentials and mTLS certificates (ECDSA P-256).
+• Advantages: zero Head-of-Line Blocking, minimal round-trip latency, and stable voice and video call performance.
 • DPI resilience: auto-scans open Anycast ports (500, 8095, 8443, 1074, 443) and applies Noise Handshake Fragmentation.
 
 3. VLESS OVER WEBSOCKET (ANYCAST PAGES CDN):
-• How it works: lightweight binary VLESS v0 protocol over WebSocket (port 443) with TLS 1.3, masquerading as regular Google Chrome traffic.
+• How it works: lightweight binary VLESS v0 protocol over WebSocket (port 443) with TLS 1.3, using Chrome TLS parameters.
 • Zero-registration: requires no Cloudflare account, API tokens, or custom workers.
 • Auto pool: includes stable Anycast nodes across Europe and Asia with Happy Eyeballs racing.
 
@@ -543,12 +525,11 @@ AVAILABLE PROFILES:
 • Turbo (8 sockets, 1 MB buffer): Accelerated media and sticker downloads.
 • Ultra (16 sockets, 2 MB buffer): Peak throughput for 4K video streams.
 • Auto (2–16 sockets): Dynamic pool scaling based on bandwidth demands.</string>
-    <string name="info_tcp_nodelay_title">Nagle Algorithm Control (TCP_NODELAY)</string>
-    <string name="info_tcp_nodelay_body">NAGLE ALGORITHM (RFC 896):
-• Controls packet coalescing on local TCP sockets.
-• Auto: Enables TCP_NODELAY on low latency links (&lt;140ms RTT).
-• Enabled: Immediate packet dispatch for instant messaging response.
-• Disabled: Buffers packets, recommended for high packet-loss 2G connections.</string>
+    <string name="info_tcp_nodelay_title">Nagle\'s Algorithm</string>
+    <string name="info_tcp_nodelay_body">NAGLE\'S ALGORITHM (RFC 896):
+• Coalesces small packets before transmitting to prevent flooding the cellular link with tiny TCP headers.
+• Enabled (Recommended): Minimizes packet loss, conserves radio battery, and ensures maximum stability on LTE/3G cellular networks and jittery Wi-Fi.
+• Disabled (Dangerous): Enables TCP_NODELAY mode. Packets are flushed immediately without buffering. On cellular networks, this leads to bufferbloat, jitter, and packet loss.</string>
     <string name="info_powersaver_title">Power Saver Aesthetic Mode</string>
     <string name="info_powersaver_body">POWER SAVING OPTIMIZATIONS:
 • Disables particle canvas overlays and animations.
@@ -578,11 +559,6 @@ AVAILABLE PROFILES:
 • Android freezes network sockets during deep sleep (Doze Mode).
 • Battery optimization exemption allows proxy to maintain keepalive sockets for incoming Telegram calls and messages.
 • Minimal idle standby power consumption (~0.1% per day).</string>
-    <string name="info_doh_title">DNS-over-HTTPS Resolver (DoH Race)</string>
-    <string name="info_doh_body">DOH CONCURRENT RACING:
-• Dispatches DNS queries in parallel over HTTP/2 with TLS 1.3.
-• Fastest valid response wins; lingering queries are canceled.
-• Validates IP ranges against Telegram AS44907, filtering out poisoned ISP responses.</string>
     <string name="info_default_title">Help</string>
     <string name="info_default_body">No details available</string>
     <string name="settings_protocol_title">PROTOCOL</string>
@@ -593,30 +569,47 @@ AVAILABLE PROFILES:
     <string name="action_understood">UNDERSTOOD</string>
     <string name="unofficial_dialog_category">SECURITY WARNING</string>
     <string name="unofficial_dialog_title">Unofficial or Modified Build</string>
-    <string name="unofficial_dialog_desc">This application build has been recompiled or modified by third parties. Mirrly TG Proxy developers are not responsible for the security or data integrity of third-party modifications. We strongly recommend downloading the authentic version from the official GitHub repository.</string>
+    <string name="unofficial_dialog_desc">This application build was recompiled or modified by third parties. Recommended to install the official release from GitHub.</string>
     <string name="unofficial_dialog_btn_download">Download from Official GitHub</string>
     <string name="unofficial_dialog_btn_dismiss">I Understand the Risks</string>
     <string name="donation_banner_dialog_title">Support Mirrly Development</string>
-    <string name="donation_banner_dialog_desc">Link opens DaLink platform (DonationAlerts) of author R1Xern. Voluntary donations help cover server hosting costs and fund continuous updates.</string>
-    <string name="donation_banner_title">Developer Support</string>
-    <string name="donation_banner_desc">If Mirrly reliably keeps your Telegram connected, you can support author R1Xern with a voluntary donation.</string>
+    <string name="donation_banner_dialog_desc">Donations go toward a new PC, Telegram channel giveaways, and Dobry mandarin-orange juice for the developer.</string>
+    <string name="donation_banner_title">Support Project</string>
+    <string name="donation_banner_desc">Support ongoing Mirrly development via DaLink.</string>
     <string name="action_support">Support</string>
     <string name="action_later">Later</string>
     <string name="action_do_not_show_again">Don\'t show again</string>
-    <string name="github_star_dialog_title">Star Project on GitHub</string>
-    <string name="github_star_dialog_desc">Link opens official Mirrly TG Proxy open-source repository on GitHub. Giving a Star is a completely free way to support author R1Xern and boost project visibility!</string>
-    <string name="value_star_banner_title">Mirrly has protected your Telegram for 1 hour!</string>
-    <string name="value_star_banner_desc">If you enjoy fast and reliable tunneling, please star our GitHub repository.</string>
+
+    <!-- Donation Screen & Multi-method Support Dialog -->
+    <string name="donate_dialog_category">SUPPORT DEVELOPER</string>
+    <string name="donate_dialog_title">Support Development</string>
+    <string name="donate_dialog_desc">Mirrly TG Proxy remains completely free and open-source. Donations go toward a new PC, Telegram channel giveaways, and Dobry mandarin-orange juice for the developer. Support is entirely voluntary.</string>
+    <string name="donate_method_cloudtips_title">CloudTips</string>
+    <string name="donate_method_cloudtips_desc">Russian bank cards, SBP, Mir Pay.\nPlease uncheck the service fee box when completing payment.</string>
+    <string name="donate_method_yandex_tips_title">Yandex Tips</string>
+    <string name="donate_method_yandex_tips_desc">Payment via any Russian bank card, SBP, or Yandex Pay.</string>
+    <string name="donate_method_dalink_title">DaLink</string>
+    <string name="donate_method_dalink_desc">Donation service supporting bank cards and digital wallets.</string>
+    <string name="donate_action_proceed">Proceed to Payment</string>
+    <string name="donate_action_select_prompt">Select a payment method</string>
+    <string name="donate_warning_category">SECURE REDIRECT</string>
+    <string name="donate_warning_title">Redirect to Payment Service</string>
+    <string name="donate_warning_desc">You are redirecting to an external secure payment page. The default browser will open to complete the transaction.</string>
+    <string name="donate_warning_do_not_ask_again">Don\'t ask again</string>
+    <string name="github_star_dialog_title">GitHub Repository</string>
+    <string name="github_star_dialog_desc">Opens the Mirrly TG Proxy repository on GitHub. Star ratings help project visibility.</string>
+    <string name="value_star_banner_title">Mirrly has been active for 1 hour</string>
+    <string name="value_star_banner_desc">If the app is useful, consider starring the repository on GitHub.</string>
     <string name="action_star_github">Star on GitHub</string>
     <string name="markdown_no_changelog">No changelog description available.</string>
-    <string name="github_star_dialog_category">GITHUB STAR</string>
-    <string name="github_star_dialog_sub">Support project with a Star on GitHub</string>
-    <string name="github_star_dialog_body">Mirrly TG Proxy is 100% free and open source. Giving a Star in our GitHub repository helps the project grow and inspires the author to build new features.</string>
-    <string name="github_star_dialog_btn_star">Star on GitHub</string>
+    <string name="github_star_dialog_category">GITHUB REPOSITORY</string>
+    <string name="github_star_dialog_sub">Open Source Project</string>
+    <string name="github_star_dialog_body">Mirrly TG Proxy is open source software under GPLv3. Starring the repository on GitHub supports development.</string>
+    <string name="github_star_dialog_btn_star">Open GitHub</string>
     <string name="github_star_dialog_btn_dismiss">Don\'t show</string>
     <string name="qr_scanner_title">Worker QR Scanner</string>
     <string name="qr_scanner_header">Scan Cloudflare Gateway Node</string>
-    <string name="qr_scanner_desc">Point camera at QR code on monitor or another device for instant worker import.</string>
+    <string name="qr_scanner_desc">Point camera at QR code to import worker settings.</string>
     <string name="qr_scanner_no_cam_title">Camera Permission Denied</string>
     <string name="qr_scanner_no_cam_desc">Grant camera permission in OS settings to automatically scan QR codes.</string>
     <string name="qr_scanner_btn_open_settings">Open Settings</string>
@@ -637,9 +630,8 @@ AVAILABLE PROFILES:
     <string name="official_source_dialog_fingerprint_title">OFFICIAL SHA-256 FINGERPRINT</string>
     <string name="official_source_hash_copied">Signature hash copied!</string>
     <string name="action_copy_alt">Copy</string>
-    <string name="socks5_auth_dialog_category">SOCKS5 • AUTHENTICATION REQUIRED</string>
     <string name="socks5_auth_dialog_title">SOCKS5 Access Configuration</string>
-    <string name="socks5_auth_dialog_desc">To launch SOCKS5 proxy, enter username and password. They protect your local proxy socket (RFC 1929) and will be imported automatically into Telegram.</string>
+    <string name="socks5_auth_dialog_desc">Enter username and password for SOCKS5 proxy access. Credentials will be passed to Telegram.</string>
     <string name="socks5_auth_field_username">Username</string>
     <string name="socks5_auth_hint_username">Enter username</string>
     <string name="socks5_auth_err_username_required">Username required for SOCKS5</string>
@@ -648,17 +640,12 @@ AVAILABLE PROFILES:
     <string name="socks5_auth_err_password_required">Password required for SOCKS5</string>
     <string name="socks5_auth_btn_generate_random">Generate Random Credentials</string>
     <string name="socks5_auth_btn_save_and_start">Save and Launch</string>
-    <string name="tg_connect_dialog_category">SELECT TELEGRAM PROTOCOL</string>
     <string name="tg_connect_dialog_title">Connect to Telegram</string>
-    <string name="tg_connect_dialog_subtitle">Choose optimal protocol for your connection requirements:</string>
-    <string name="tg_connect_mtproto_badge_active">ACTIVE • RECOMMENDED</string>
-    <string name="tg_connect_mtproto_badge">RECOMMENDED</string>
-    <string name="tg_connect_mtproto_desc">Ideal for messaging, channels, and 4K media. Fastest speeds, pre-warmed WsPool, and low power usage.</string>
+    <string name="tg_connect_dialog_subtitle">Select protocol for Telegram traffic:</string>
+    <string name="tg_connect_mtproto_desc">Optimized for messaging, channels, and media. Uses WsPool socket pooling with low power usage.</string>
     <string name="tg_connect_btn_open_tg">Open Telegram</string>
     <string name="tg_connect_toast_mtproto_copied">MTProto link copied!</string>
-    <string name="tg_connect_socks5_badge_active">ACTIVE • BETA</string>
-    <string name="tg_connect_socks5_badge">BETA • FOR CALLS</string>
-    <string name="tg_connect_socks5_desc">Bypasses censorship on voice and video calls via TCP relay. Currently in BETA; stability may vary depending on network provider.</string>
+    <string name="tg_connect_socks5_desc">Tunnels voice and video calls through a local TCP relay on port 10808.</string>
     <string name="tg_connect_socks5_login_prefix">Username: %1$s</string>
     <string name="tg_connect_socks5_pass_prefix">Password: %1$s</string>
     <string name="tg_connect_toast_socks5_copied">SOCKS5 link copied!</string>
@@ -676,6 +663,7 @@ AVAILABLE PROFILES:
     <string name="import_worker_checking">Testing node reachability...</string>
     <string name="import_worker_btn_import_activate">Import &amp; Activate</string>
     <string name="vpn_stat_servers">Servers</string>
+    <string name="vpn_stat_profile">Profile</string>
     <string name="vpn_stat_protocol">Protocol</string>
     <string name="vpn_screen_in_dev_hint">System VPN routes all device traffic through an encrypted tunnel.</string>
     <string name="vpn_dialog_title_dev">VPN Protocol</string>
@@ -715,6 +703,12 @@ AVAILABLE PROFILES:
     <string name="ext_link_dalink_desc">Mirrly TG Proxy is completely free software! Link opens DaLink donation platform to send voluntary appreciation tips to author R1Xern.</string>
     <string name="ext_link_website_title">External Website (%1$s)</string>
     <string name="ext_link_website_desc">Link navigates to external website (%1$s) in your default web browser.</string>
+    <string name="ext_link_cf_cat">CLOUDFLARE DASHBOARD</string>
+    <string name="ext_link_cf_title">Cloudflare Dashboard</string>
+    <string name="ext_link_cf_desc">Link opens the Cloudflare web management dashboard to create and manage workers and network routing.</string>
+    <string name="ext_link_commit_cat">GITHUB COMMIT</string>
+    <string name="ext_link_commit_title">Commit Details</string>
+    <string name="ext_link_commit_desc">Link opens commit details with code diff history in the GitHub repository.</string>
     <string name="err_open_link">Failed to open link: %1$s</string>
     <string name="action_open_link">Open Link</string>
     <string name="sleep_timer_tab_active">TIMER (ACTIVE)</string>
@@ -836,7 +830,7 @@ AVAILABLE PROFILES:
     <string name="warp_header_license">WARP+ / ZERO TRUST LICENSE</string>
     <string name="warp_status_plus_active">WARP+ ACTIVE</string>
     <string name="warp_status_free_tier">FREE TIER</string>
-    <string name="warp_license_desc">WARP+ license key (26 characters) for priority Anycast routing and unlimited high-speed traffic.</string>
+    <string name="warp_license_desc">WARP+ license key (26 characters) for Argo Smart Routing.</string>
     <string name="warp_btn_attach_license">Associate</string>
     <string name="warp_err_attach_format">Error: %1$s</string>
     <string name="logs_entry_copied">Log entry copied</string>
@@ -851,6 +845,7 @@ AVAILABLE PROFILES:
     <string name="logs_filter_info">Info</string>
     <string name="logs_filter_warn">Warn</string>
     <string name="logs_filter_error">Errors</string>
+    <string name="logs_filter_debug">Debug</string>
     <string name="logs_scroll_to_new">Scroll to top</string>
     <string name="logs_action_copy_all">Copy all</string>
     <string name="logs_action_clear">Clear</string>
@@ -881,35 +876,35 @@ AVAILABLE PROFILES:
     <string name="duration_hr_min_full">%1$dh %2$dmin</string>
     <string name="about_err_open_link">Failed to open link: %1$s</string>
     <string name="about_copied_to_clipboard">%1$s copied to clipboard</string>
-    <string name="about_creator_subtitle">Creator &amp; Lead Developer of Mirrly TG Proxy</string>
-    <string name="about_section_bio">ABOUT THE DEVELOPER &amp; PROJECT</string>
-    <string name="about_greeting">Hello! I am R1Xern — developer of the Mirrly ecosystem.</string>
-    <string name="about_bio_desc">Mirrly TG Proxy was created to completely solve issues with blocking, throttling, and disruptions in Telegram on Android. The application uses a native C/Rust core, pre-warmed WsPool socket pool, and traffic masking disguised as secure Cloudflare CDN WebSocket connections.
+    <string name="about_creator_subtitle">Author &amp; Lead Developer</string>
+    <string name="about_section_bio">ARCHITECTURE &amp; MISSION</string>
+    <string name="about_greeting">R1Xern — Mirrly TG Proxy Developer</string>
+    <string name="about_bio_desc">Mirrly TG Proxy is a high-performance local proxy client engineered for reliable Telegram connectivity on Android. It leverages an asynchronous Rust NDK core, local SOCKS5 relay, and WSS tunneling via Cloudflare CDN.
 
-The project runs exclusively locally on your device, ensuring maximum connection stability, optimized speed, and 100% privacy without third-party VPNs.</string>
-    <string name="about_section_contacts">CONTACTS &amp; INFO</string>
+Traffic routes directly between the device and Telegram data centers with no intermediary loggers or third-party analytical trackers.</string>
+    <string name="about_section_contacts">RESOURCES &amp; CONTACTS</string>
     <string name="about_link_tg_title">Telegram Channel</string>
-    <string name="about_link_tg_sub">Announcements, updates and news: t.me/WhyOKyHb</string>
+    <string name="about_link_tg_sub">Release announcements and technical updates: t.me/WhyOKyHb</string>
     <string name="about_link_github_title">GitHub Profile</string>
     <string name="about_link_repo_title">Project Repository</string>
-    <string name="about_link_repo_sub">Mirrly TG Proxy source code on GitHub</string>
-    <string name="about_link_share_title">Share with Friends</string>
-    <string name="about_link_share_sub">Share Mirrly TG Proxy in Telegram or social media</string>
-    <string name="about_link_issue_title">Found a bug or have an idea?</string>
-    <string name="about_link_issue_sub">Create an Issue on GitHub — developer responds personally</string>
-    <string name="about_link_license_title">License (GPLv3)</string>
-    <string name="about_link_license_sub">Open Source</string>
-    <string name="about_section_star">SUPPORT WITH A STAR ON GITHUB</string>
-    <string name="about_star_title">Enjoying Mirrly TG Proxy?</string>
-    <string name="about_star_desc">Your GitHub star helps the project grow, attracts new users, and motivates new updates.</string>
-    <string name="about_star_btn">Star on GitHub</string>
-    <string name="about_section_donation">SUPPORT AUTHOR (DONATION)</string>
-    <string name="about_donation_title">Support Mirrly Development</string>
-    <string name="about_donation_desc">The app is completely free! Donations are voluntary to support R1Xern.</string>
-    <string name="about_donation_btn">Support author (DaLink)</string>
+    <string name="about_link_repo_sub">Open source code on GitHub</string>
+    <string name="about_link_share_title">Share Application</string>
+    <string name="about_link_share_sub">Share the official download link</string>
+    <string name="about_link_issue_title">Report an Issue</string>
+    <string name="about_link_issue_sub">Issue tracker and feature requests on GitHub</string>
+    <string name="about_link_license_title">GNU GPLv3 License</string>
+    <string name="about_link_license_sub">Free and open-source software</string>
+    <string name="about_section_star">GITHUB RATING</string>
+    <string name="about_star_title">Repository Star</string>
+    <string name="about_star_desc">A star on GitHub increases project visibility in the open-source community and helps other users find a reliable solution.</string>
+    <string name="about_star_btn">Star Repository</string>
+    <string name="about_section_donation">PROJECT SUPPORT</string>
+    <string name="about_donation_title">Support Development</string>
+    <string name="about_donation_desc">Mirrly TG Proxy is built without advertisements or paywalls. Voluntary contributions support test infrastructure and development tooling.</string>
+    <string name="about_donation_btn">Support Project</string>
     <string name="about_section_fame">HALL OF FAME</string>
-    <string name="about_fame_card_title">Mirrly Hall of Fame</string>
-    <string name="about_fame_card_desc">Pioneers, contributors, and unique digital fingerprints</string>
+    <string name="about_fame_card_title">Hall of Fame</string>
+    <string name="about_fame_card_desc">Beta testers, bug reporters, and contributors</string>
     <string name="about_section_tech">TECH STACK</string>
     <string name="about_footer_developed_by">Developed by Mirrly Dev Team</string>
     <string name="about_footer_terms">Terms of Use</string>
@@ -920,7 +915,7 @@ The project runs exclusively locally on your device, ensuring maximum connection
     <string name="about_downloads_unit">downloads</string>
     <string name="terms_title">Terms of Use</string>
     <string name="terms_subtitle_header">Additional Protection • R1Xern (Mirrly Dev)</string>
-    <string name="terms_intro_desc">Additional terms and fair use policies complementing the base GNU GPLv3 license for maximum copyright protection and project promotion.</string>
+    <string name="terms_intro_desc">Additional fair-use conditions supplementing GNU GPLv3 for copyright protection and open project distribution.</string>
     <string name="terms_btn_copy">Copy</string>
     <string name="terms_section_rules">KEY RULES &amp; PROTECTION</string>
     <string name="terms_rule_malware_title">Malware Prohibited</string>
@@ -945,14 +940,36 @@ The project runs exclusively locally on your device, ensuring maximum connection
     <string name="fame_tier_tester_badge">BETA TESTER</string>
     <string name="fame_tier_tg_title">Telegram Community Member</string>
     <string name="fame_tier_tg_badge">TG SUBSCRIBER</string>
-    <string name="fame_title">Hall of Fame &amp; Acknowledgements</string>
-    <string name="fame_desc">Expressing deep gratitude to pioneers, contributors, and testers whose work and testing made Mirrly TG Proxy a robust tool.</string>
-    <string name="fame_fingerprint_badge_header">UNIQUE DIGITAL FINGERPRINT FOR EACH CONTRIBUTOR</string>
+    <string name="fame_title">Hall of Fame &amp; Gratitude</string>
+    <string name="fame_hero_title">Mirrly Hall of Fame</string>
+    <string name="fame_desc">Expressing deep gratitude to pioneers, contributors, and testers whose research and testing made Mirrly TG Proxy a robust tool.</string>
+    <string name="fame_fingerprint_badge_header">DIGITAL FINGERPRINT FOR EACH CONTRIBUTOR</string>
+    <string name="fame_fingerprint_info_toast">Each contributor possesses an immutable SHA-256 cryptographic fingerprint</string>
+    <string name="fame_metric_pioneers">Pioneers</string>
+    <string name="fame_metric_bughunters">Bug Hunters</string>
+    <string name="fame_metric_community">Community</string>
+    <string name="fame_metric_total">Contributors</string>
+    <string name="fame_filter_all">All</string>
+    <string name="fame_filter_pioneers">Pioneers</string>
+    <string name="fame_filter_bughunters">Bug Hunters</string>
+    <string name="fame_filter_community">Community</string>
     <string name="fame_section_pioneers">ARCHITECTURAL PIONEERS</string>
+    <string name="fame_section_legends_title">KEY CONTRIBUTORS</string>
+    <string name="fame_section_legends_subtitle">Pioneers and developers of Mirrly core</string>
     <string name="fame_section_bughunters">BUG HUNTERS</string>
+    <string name="fame_section_bughunters_subtitle">Security auditing and vulnerability reports</string>
+    <string name="fame_class_network_title">Network Stack &amp; Protocols</string>
+    <string name="fame_class_network_desc">MTProto core, tunneling and Cloudflare Workers</string>
+    <string name="fame_class_system_ui_title">Interface &amp; System Integration</string>
+    <string name="fame_class_system_ui_desc">Safe Insets, power saving and background services</string>
+    <string name="fame_subclass_mtproto">MTProto &amp; Traffic</string>
+    <string name="fame_subclass_workers">Cloudflare Workers</string>
+    <string name="fame_subclass_insets">Window Insets &amp; Layout</string>
+    <string name="fame_subclass_power">Power Saving &amp; Sleep</string>
     <string name="fame_section_testers">BETA TESTING VOLUNTEERS</string>
     <string name="fame_section_community">TELEGRAM COMMUNITY</string>
-    <string name="fame_topbar_title">Acknowledgements</string>
+    <string name="fame_section_community_subtitle">Active Telegram channel members and volunteers</string>
+    <string name="fame_topbar_title">Hall of Fame</string>
     <string name="fame_dialog_contrib_header">PROJECT CONTRIBUTION</string>
     <string name="fame_dialog_fingerprint_header">VERIFIED FINGERPRINT</string>
     <string name="fame_dialog_copied_toast">Digital fingerprint copied</string>
@@ -964,8 +981,8 @@ The project runs exclusively locally on your device, ensuring maximum connection
     <string name="fame_c_flowseal_role">Author of Telegram Tunneling Concept</string>
     <string name="fame_c_flowseal_contrib">Creator of tg-ws-proxy project. Developed the architectural concept of proxying Telegram traffic via Cloudflare WebSocket without VPN.</string>
     <string name="fame_c_masterkey_role">Community Architect &amp; Leading Contributor</string>
-    <string name="fame_c_masterkey_contrib">The most active and standout contributor who made an immense contribution to the project: from invaluable advice and testing to major architectural improvements and deep implementation analysis.</string>
-    <string name="fame_c_grovymon_role">Bug Hunter &amp; Security Audit</string>
+    <string name="fame_c_masterkey_contrib">Active contributor to the project: testing, network architecture optimization, and detailed implementation analysis.</string>
+    <string name="fame_c_grovymon_role">Pioneer &amp; Security Audit</string>
     <string name="fame_c_grovymon_contrib">Author of Issues #3, #4, #5, #7, #8, #15, #16, #18, #19, #20. Discovered navigation insets bugs on Android 16, update sticky badge, NoServerCertVerifier TLS flaw, researched LTE bypass, Rust core omission in release, and initiated mandatory SOCKS5 RFC 1929 auth.</string>
     <string name="fame_c_zzzxxx_role">Bug Hunter &amp; Worker Researcher</string>
     <string name="fame_c_zzzxxx_contrib">Author of Issues #1, #9, #10, #13. Localized secret key memory reset on Xiaomi 12T (Android 15) and POCO X8 Pro Max (Android 16), priority loss of custom workers on reboot, and investigated Cloudflare Workers setups.</string>
@@ -1059,6 +1076,7 @@ The project runs exclusively locally on your device, ensuring maximum connection
     <string name="speed_test_tab_test">SPEED TEST (IN DEV)</string>
     <string name="speed_test_tab_history">HISTORY</string>
     <string name="speed_test_error_conn">Connection error</string>
+    <string name="speed_test_phase_dc">DC Benchmark</string>
     <string name="speed_test_phase_ping">Ping</string>
     <string name="speed_test_phase_download">Download</string>
     <string name="speed_test_phase_upload">Upload</string>
@@ -1092,6 +1110,20 @@ The project runs exclusively locally on your device, ensuring maximum connection
     <string name="speed_test_btn_start">START SPEED TEST</string>
     <string name="speed_test_btn_retry">RETRY TEST</string>
     <string name="speed_test_btn_stop">STOP TEST</string>
+    <string name="speed_test_dc_matrix_title">TELEGRAM NODE MATRIX · DC 1..5</string>
+    <string name="speed_test_dc_matrix_subtitle">End-to-end latency and reachability test across tunnel</string>
+    <string name="speed_test_dc_key_badge">KEY</string>
+    <string name="speed_test_dc_status_measuring">Measuring...</string>
+    <string name="speed_test_dc_status_unreachable">Unreachable</string>
+    <string name="speed_test_gauge_tap_start">TAP TO START</string>
+    <string name="speed_test_gauge_tap_stop">TAP TO STOP</string>
+    <string name="speed_test_summary_title">LINK QUALITY SUMMARY REPORT</string>
+    <string name="speed_test_summary_score_label">SCORE</string>
+    <string name="speed_test_key_nodes_title">KEY NODE LATENCY</string>
+    <string name="speed_test_node_dc2">Telegram DC2 · Messages &amp; Calls</string>
+    <string name="speed_test_node_dc4">Telegram DC4 · Media &amp; Files</string>
+    <string name="speed_test_node_edge">Cloudflare Edge · %1$s</string>
+    <string name="speed_test_readiness_title">TELEGRAM SCENARIOS READINESS</string>
     <string name="speed_test_total_records">TOTAL TESTS: %1$d</string>
     <string name="speed_test_empty_history_title">Test history is empty</string>
     <string name="speed_test_empty_history_desc">Run a tunnel speed test to save results and telemetry here.</string>
@@ -1125,7 +1157,7 @@ The project runs exclusively locally on your device, ensuring maximum connection
     <string name="update_verifying_signature">Verifying SHA-256 fingerprint and signature...</string>
     <string name="update_download_error">Download error</string>
     <string name="update_btn_download_browser">Download in browser</string>
-    <string name="update_verified_success">✓ File verified (SHA-256 OK)</string>
+    <string name="update_verified_success">File verified (SHA-256 OK)</string>
     <string name="update_install_cta_hint">Tap the button below to start Android package installation.</string>
     <string name="update_btn_download_install">Download &amp; install %1$s (v%2$s)</string>
     <string name="update_btn_reinstall">Reinstall %1$s (v%2$s)</string>
@@ -1149,10 +1181,7 @@ The project runs exclusively locally on your device, ensuring maximum connection
     <string name="update_actual_version_notice">You have the latest official version v%1$s installed.
 
 Official changelog and release builds are available on GitHub repository.</string>
-    <string name="update_sim_active_desc">Test mode active: Update v1.1.9 available</string>
-    <string name="update_sim_inactive_desc">Test mode disabled</string>
-    <string name="update_sim_btn_reset">Test mode v1.1.9 (tap to reset)</string>
-    <string name="update_sim_btn_test_ui">Test update UI</string>
+
     <string name="update_screen_title">Update</string>
     <string name="update_architecture_selection">APK ARCHITECTURE SELECTION</string>
     <string name="update_package_type_title">Installation package type</string>
@@ -1203,8 +1232,8 @@ Official changelog and release builds are available on GitHub repository.</strin
     <string name="cf_guide_faq_1_title">100,000 Free Requests Daily</string>
     <string name="cf_guide_faq_1_desc">Cloudflare free tier gives 100,000 requests daily to your account, plenty for continuous messaging, video calls, and media downloads.</string>
     <string name="cf_guide_faq_2_title">Multiple Custom Workers (Up to 100 nodes)</string>
-    <string name="cf_guide_faq_2_desc">You can create up to 100 separate workers on one account for free (e.g. for phone, laptop, family), add them all to Mirrly Worker Manager, and switch in 1 click.</string>
-    <string name="cf_guide_faq_3_title">100% Privacy &amp; Dedicated Gateway</string>
+    <string name="cf_guide_faq_2_desc">You can create up to 100 separate workers on one account for free (e.g. for phone, laptop, family), add them all to Mirrly Worker Manager, and switch between them in the app.</string>
+    <string name="cf_guide_faq_3_title">Private Node &amp; Dedicated Gateway</string>
     <string name="cf_guide_faq_3_desc">Traffic never passes through third-party proxies. Your worker opens sockets directly to Telegram DCs via Cloudflare Anycast global network (300+ datacenters).</string>
     <string name="cf_guide_faq_4_title">Calls &amp; Audio/Video Working (SOCKS5)</string>
     <string name="cf_guide_faq_4_desc">With cloudflare:sockets API, custom worker supports universal TCP tunnel to Telegram VoIP nodes, providing reliable calls without system VPN.</string>
@@ -1212,9 +1241,9 @@ Official changelog and release builds are available on GitHub repository.</strin
     <string name="cf_guide_faq_5_desc">In Cloudflare Dashboard open worker -> Settings -> Runtime. Ensure Compatibility Date is at least 2023-05-18 and Node.js compatibility (nodejs_compat flag) is enabled.</string>
     <string name="cf_guide_faq_6_title">Automatic Priority in App</string>
     <string name="cf_guide_faq_6_desc">When adding and selecting your custom worker, the app automatically routes all SOCKS5 traffic through your node with top priority. MTProto mode utilizes direct connection to Telegram gateways.</string>
-    <string name="cf_guide_badge_one_click">1 Click</string>
+    <string name="cf_guide_badge_one_click">Quick Setup</string>
     <string name="cf_guide_autodeploy_title">Auto-deploy (BAT / PowerShell / Bash)</string>
-    <string name="cf_guide_autodeploy_desc">Run deploy.bat with double-click on Windows or run 1 command in PowerShell/Bash: the script logs in, deploys worker, and copies domain to clipboard.</string>
+    <string name="cf_guide_autodeploy_desc">Run deploy.bat on Windows or run the deployment command in PowerShell/Bash: the script logs in, deploys the worker, and outputs the domain.</string>
     <string name="cf_guide_btn_copy_cmd">Copy command</string>
     <string name="cf_guide_btn_deploy_bat">deploy.bat on GitHub</string>
     <string name="cf_guide_tip_badge">Tip</string>
@@ -1222,7 +1251,7 @@ Official changelog and release builds are available on GitHub repository.</strin
     <string name="cf_guide_tip_desc">In mobile browser (Chrome / Firefox) toggle \"Desktop site\" in menu if Cloudflare editor appears too compact.</string>
     <string name="cf_guide_btn_copy">Copy</string>
     <string name="cf_guide_screen_title">Cloudflare Guide</string>
-    <string name="cf_guide_screen_subtitle">Step-by-step setup in 2 minutes</string>
+    <string name="cf_guide_screen_subtitle">Step-by-step setup guide</string>
     <string name="cf_guide_step_label">Step %1$s</string>
     <string name="home_swipe_down_workers_hint">Swipe down for worker list</string>
     <string name="license_copy_label_ru">GNU GPLv3 License (Russian)</string>
@@ -1250,7 +1279,7 @@ Official changelog and release builds are available on GitHub repository.</strin
     <string name="cf_deploy_header_title">Personal Cloudflare Workers</string>
     <string name="cf_deploy_header_subtitle">Deploy &amp; update dedicated relay workers without a PC</string>
     <string name="cf_deploy_auth_title">Sign in to Cloudflare</string>
-    <string name="cf_deploy_auth_desc">Authenticate with your Cloudflare account to deploy and update dedicated nodes in 1-click directly on Android.</string>
+    <string name="cf_deploy_auth_desc">Authenticate with your Cloudflare account to deploy and update dedicated nodes directly from the app.</string>
     <string name="cf_deploy_auth_benefit_1">Dedicated 100,000 req/day quota</string>
     <string name="cf_deploy_auth_benefit_2">Personal domain &amp; isolation from public worker pools</string>
     <string name="cf_deploy_auth_benefit_3">Unlocks SOCKS5 relay &amp; VoIP voice calls</string>
@@ -1298,8 +1327,8 @@ Official changelog and release builds are available on GitHub repository.</strin
     <string name="cf_deploy_subdomain_dialog_title">Configure workers.dev Subdomain</string>
     <string name="cf_deploy_subdomain_dialog_desc">Choose a subdomain name for your account (e.g. my-proxy). It will be used for all your workers.</string>
     <string name="cf_deploy_subdomain_dialog_hint">Subdomain</string>
-    <string name="cf_deploy_quick_banner_title">Deploy personal worker in 1 click</string>
-    <string name="cf_deploy_quick_banner_desc">No PC or terminal required: dedicated Cloudflare relay with private bandwidth</string>
+    <string name="cf_deploy_quick_banner_title">Deploy personal worker from the app</string>
+    <string name="cf_deploy_quick_banner_desc">No PC or terminal required: dedicated Cloudflare relay with private routing</string>
     <string name="cf_deploy_quick_banner_btn">Deploy Worker</string>
     <string name="cf_deploy_delete_confirm_title">Delete Worker</string>
     <string name="cf_deploy_delete_confirm_desc">Are you sure you want to permanently delete worker \"%1$s\" from your Cloudflare account?</string>
@@ -1617,11 +1646,11 @@ Download latest Mirrly TG Proxy build:
     <string name="wa_math_engine_text">• Shannon Entropy: H(X) = -∑ pᵢ ln(pᵢ) [measure of load dispersion]\n• Freshness coefficient: e^(-Δt/60) [half-life law for inactive sockets]</string>
     <!-- Network Diagnostic Screen -->
     <string name="nd_info_sqi_title">Network Quality Index (SQI)</string>
-    <string name="nd_info_sqi_desc" formatted="false">HOW IT WORKS:\n• Comprehensive integral stability scoring of the network tunnel (0 to 100%), computed in real time.\n• Combines quality assessment for chats/media files (55%) and audio/video calls (45%).\n\nWHY IT MATTERS:\n• Instantly determines connection readiness for all Telegram services.\n\nBENCHMARKS:\n• 90–100%: ideal direct channel with no latency.\n• 75–89%: stable working connection.\n• 50–74%: latency on the carrier side.\n• Below 50%: channel degradation or packet loss.</string>
+    <string name="nd_info_sqi_desc" formatted="false">HOW IT WORKS:\n• Comprehensive integral stability scoring of the network tunnel (0 to 100%), computed in real time.\n• Combines quality assessment for chats/media files (55%) and audio/video calls (45%).\n\nWHY IT MATTERS:\n• Instantly determines connection readiness for all Telegram services.\n\nBENCHMARKS:\n• 90–100%: optimal channel with minimal latency.\n• 75–89%: stable working connection.\n• 50–74%: latency on the carrier side.\n• Below 50%: channel degradation or packet loss.</string>
     <string name="nd_info_chats_sqi_title">Chat &amp; Media Quality (TCP)</string>
-    <string name="nd_info_chats_sqi_desc" formatted="false">HOW IT WORKS:\n• Evaluates delivery reliability and speed of text messages, stickers, photos, and video files over secure TCP/TLS.\n• Algorithm gives 50% weight to packet delivery reliability, 30% to round-trip time (RTT), and 20% to queue stability.\n\nWHY IT MATTERS:\n• For chats and media, latency up to 200 ms is unnoticeable, but zero packet loss and bufferbloat prevention are critical.\n\nBENCHMARKS:\n• 90–100%: ideal instant sending and fast media download.\n• 75–89%: stable comfortable messaging.\n• 50–74%: moderate transmission speed for large files.\n• Below 50%: delays and download failures.</string>
+    <string name="nd_info_chats_sqi_desc" formatted="false">HOW IT WORKS:\n• Evaluates delivery reliability and speed of text messages, stickers, photos, and video files over secure TCP/TLS.\n• Algorithm gives 50% weight to packet delivery reliability, 30% to round-trip time (RTT), and 20% to queue stability.\n\nWHY IT MATTERS:\n• For chats and media, latency up to 200 ms is unnoticeable, but zero packet loss and bufferbloat prevention are critical.\n\nBENCHMARKS:\n• 90–100%: optimal fast sending and media download.\n• 75–89%: stable comfortable messaging.\n• 50–74%: moderate transmission speed for large files.\n• Below 50%: delays and download failures.</string>
     <string name="nd_info_latency_sparkline_title">Latency Dynamics (60-sec Sparkline)</string>
-    <string name="nd_info_latency_sparkline_desc" formatted="false">HOW THE CHART WORKS:\n• Displays real-time history of each tunnel round-trip time (RTT) sample over the last minute.\n• Green dots indicate ideal response (&lt; 80 ms), blue — standard (80–180 ms), yellow — elevated, red — network failure or timeout.\n\nWHY IT MATTERS:\n• Visually reveals micro-spikes (Jitter Spikes), cellular tower switches (Cell Handover), and Wi-Fi instability.\n• You can tap any point on the chart to inspect the exact timestamp and latency.</string>
+    <string name="nd_info_latency_sparkline_desc" formatted="false">HOW THE CHART WORKS:\n• Displays real-time history of each tunnel round-trip time (RTT) sample over the last minute.\n• Green dots indicate low response latency (&lt; 80 ms), blue — standard (80–180 ms), yellow — elevated, red — network failure or timeout.\n\nWHY IT MATTERS:\n• Visually reveals micro-spikes (Jitter Spikes), cellular tower switches (Cell Handover), and Wi-Fi instability.\n• You can tap any point on the chart to inspect the exact timestamp and latency.</string>
     <string name="nd_info_readiness_grid_title">Telegram Services Readiness</string>
     <string name="nd_info_readiness_grid_desc" formatted="false">HOW THE MATRIX WORKS:\n• Analyzes physical network metrics (RTT, jitter, loss, buffer size, and socket pool) to evaluate real-time readiness across 4 key Telegram service types.\n\nSERVICE TYPES:\n• Chats &amp; stickers: readiness for instant message sending without queue delay (&lt; 80 ms).\n• Photos &amp; voice: high media stream transmission speed with reliable delivery (&gt;= 95%).\n• Files &amp; 4K video: socket pool throughput and buffer capacity (up to 2 MB).\n• Calls &amp; HD video: Opus audio codec quality and zero video lag.</string>
     <string name="nd_info_readiness_text_title">Text Chats &amp; Stickers</string>
@@ -1639,12 +1668,12 @@ Download latest Mirrly TG Proxy build:
     <string name="nd_info_jitter_title">Latency Jitter (LTE Jitter)</string>
     <string name="nd_info_jitter_desc">HOW IT WORKS:\n• Variance and oscillation of delay between consecutive control probe packets.\n\nWHY IT MATTERS:\n• High jitter stems from cellular radio fluctuations (cell tower handovers on the move, RF interference, congestion).\n• Results in stutter and audio breakups during voice/video calls.\n\nBENCHMARKS:\n• Up to 15 ms: rock-solid radio link.\n• 15–40 ms: acceptable mobile network variance.\n• Over 50 ms: severe radio link instability.</string>
     <string name="nd_info_delivery_title">Probe Packet Delivery</string>
-    <string name="nd_info_delivery_desc" formatted="false">HOW IT WORKS:\n• Percentage of test network probes successfully acknowledged by the worker over the last 10 measurement cycles.\n\nWHY IT MATTERS:\n• Even a 5% packet loss triggers TCP retransmissions, drastically reducing media download throughput.\n\nBENCHMARKS:\n• 100%: perfect zero-loss delivery.\n• 90–99%: normal on cellular connections.\n• Below 80%: severe packet loss along ISP path.</string>
+    <string name="nd_info_delivery_desc" formatted="false">HOW IT WORKS:\n• Percentage of test network probes successfully acknowledged by the worker over the last 10 measurement cycles.\n\nWHY IT MATTERS:\n• Even a 5% packet loss triggers TCP retransmissions, drastically reducing media download throughput.\n\nBENCHMARKS:\n• 100%: zero packet loss.\n• 90–99%: normal on cellular connections.\n• Below 80%: severe packet loss along ISP path.</string>
     <string name="nd_info_localization_title">Bottleneck Localization</string>
     <string name="nd_info_localization_desc">HOW IT WORKS:\n• Isolates the network path into two independent segments: phone to cellular tower (Last-Mile) and cellular tower to Cloudflare Edge (Core).\n\nWHY IT MATTERS:\n• Precisely identifies issue root causes: whether caused by weak RF reception or cloud node reachability issues.</string>
     <string name="nd_info_bottleneck_radar_title">Hop-by-Hop Bottleneck Radar</string>
     <string name="nd_info_bottleneck_radar_desc">HOW THE CHAIN WORKS:\n• Monitors Telegram traffic flow across 5 key hops:\n  1. Device (:10808) — local Android native proxy.\n  2. Tower / Wi-Fi — last-mile radio link.\n  3. Carrier / DPI — ISP transit and DPI / Censorship middleboxes.\n  4. Cloudflare Edge — cloud worker and WSS tunnel.\n  5. Telegram DC — destination messenger data centers (DC 1–5).\n\nWHY IT MATTERS:\n• When latency occurs, the system pinpoints the exact offending hop in yellow or red, removing guesswork.</string>
-    <string name="nd_info_smart_insights_title">Engine Smart Insights</string>
+    <string name="nd_info_smart_insights_title">Network Advice &amp; Diagnostics</string>
     <string name="nd_info_smart_insights_desc">HOW ADVICE ENGINE WORKS:\n• Analytics module inspects latency, jitter, bufferbloat, and packet loss to generate contextual real-time connection enhancement tips.\n\nPRIMARY SCENARIOS:\n• High cellular jitter: advice to switch to stable Wi-Fi to eliminate call glitches.\n• Bufferbloat: suggestion to relieve local router from bandwidth-heavy downloads.\n• Backbone latency: prompt to verify Cloudflare Worker reachability.</string>
     <string name="nd_info_hop_device_title">Device (Local Proxy)</string>
     <string name="nd_info_hop_device_desc">HOP #1:\n• Mirrly TG Proxy runs a local native proxy on port 10808 (127.0.0.1).\n• Telegram client forwards its traffic directly into this local socket.</string>
@@ -1663,9 +1692,9 @@ Download latest Mirrly TG Proxy build:
     <string name="nd_info_protocol_mode_title">Tunneling Protocol</string>
     <string name="nd_info_protocol_mode_desc">HOW IT WORKS:\n• Operating mode of the local proxy server on your device.\n\nWHY IT MATTERS:\n• SOCKS5 (port 10808) handles all Telegram traffic (chats, media, voice and video calls) with versatile uplinks (Cloudflare Worker, WARP MASQUE, VLESS over WSS, Hybrid).\n• MTProto (port 1080) uses Telegram FakeTLS protocol and routes via native Anycast CDN Flowseal.\n\nBENCHMARKS:\n• All protocols are encapsulated in secure WebSocket/QUIC channels with TLS 1.3 encryption on port 443.</string>
     <string name="nd_info_mos_title">Voice Call Quality (ITU-T MOS)</string>
-    <string name="nd_info_mos_desc" formatted="false">HOW IT WORKS:\n• Standardized speech quality score (Mean Opinion Score) based on ITU-T G.107 E-Model ranging from 1.00 to 4.50.\n• Factored from one-way delay d = RTT/2 + 2*Jitter, Opus wideband impairment factor (Ie), and packet loss percentage.\n\nWHY IT MATTERS:\n• Determines clarity and intelligibility of Telegram voice and video calls without echo, lag, or dropped speech.\n\nBENCHMARKS:\n• 4.20–4.50: HD Voice — studio grade with zero latency.\n• 3.80–4.19: Good quality — natural comfortable conversation.\n• 3.10–3.79: Acceptable — minor latency, intelligible voice.\n• 2.40–3.09: Impaired — occasional stutter and syllable clipping.\n• Below 2.40: Unusable for calls.</string>
+    <string name="nd_info_mos_desc" formatted="false">HOW IT WORKS:\n• Standardized speech quality score (Mean Opinion Score) based on ITU-T G.107 E-Model ranging from 1.00 to 4.50.\n• Factored from one-way delay d = RTT/2 + 2*Jitter, Opus wideband impairment factor (Ie), and packet loss percentage.\n\nWHY IT MATTERS:\n• Determines clarity and intelligibility of Telegram voice and video calls without echo, lag, or dropped speech.\n\nBENCHMARKS:\n• 4.20–4.50: HD Voice — high quality without audible delays.\n• 3.80–4.19: Good quality — natural comfortable conversation.\n• 3.10–3.79: Acceptable — minor latency, intelligible voice.\n• 2.40–3.09: Impaired — occasional stutter and syllable clipping.\n• Below 2.40: Unusable for calls.</string>
     <string name="nd_info_bufferbloat_title">Buffering &amp; Min-RTT (Bufferbloat)</string>
-    <string name="nd_info_bufferbloat_desc">HOW IT WORKS:\n• Min-RTT rolling window algorithm (60s, Google BBR style) measures pure physical line latency free of queue delay.\n• Bufferbloat index (ΔRTT = SRTT - Min-RTT) calculates latent packet queuing inside carrier equipment during active data bursts.\n• Dynamic filter (adaptive α from 0.125 to 0.50) calibrates smoothing rate to link stability.\n\nWHY IT MATTERS:\n• Reveals whether cell tower hardware buffers bloat during downloads, causing messaging lag and UI stalls.\n\nBENCHMARKS:\n• A+ (under 10 ms): pristine line with zero queuing.\n• A (10–30 ms): negligible buffer buildup.\n• B (30–75 ms): moderate bufferbloat.\n• C (75–150 ms): elevated queuing delay.\n• D (over 150 ms): severe bufferbloat.</string>
+    <string name="nd_info_bufferbloat_desc">HOW IT WORKS:\n• Min-RTT rolling window algorithm (60s, Google BBR style) measures pure physical line latency free of queue delay.\n• Bufferbloat index (ΔRTT = SRTT - Min-RTT) calculates latent packet queuing inside carrier equipment during active data bursts.\n• Dynamic filter (adaptive α from 0.125 to 0.50) calibrates smoothing rate to link stability.\n\nWHY IT MATTERS:\n• Reveals whether cell tower hardware buffers bloat during downloads, causing messaging lag and UI stalls.\n\nBENCHMARKS:\n• A+ (under 10 ms): stable link with minimal queue delay.\n• A (10–30 ms): negligible buffer buildup.\n• B (30–75 ms): moderate bufferbloat.\n• C (75–150 ms): elevated queuing delay.\n• D (over 150 ms): severe bufferbloat.</string>
     <string name="nd_info_math_model_title">SQI &amp; ITU-T MOS Mathematical Model</string>
     <string name="nd_info_math_model_desc" formatted="false">SQI STABILITY INDEX (0–100%):\n• Nonlinear sigmoidal utility function:\n  - 45% weight on RTT (gradual decay beyond 60 ms).\n  - 25% weight on LTE/Wi-Fi Jitter (penalty for jitter exceeding 10 ms).\n  - 30% weight on probe delivery reliability with power loss factor.\n• Explicit penalties applied for DPI drops, TLS handshakes, and Cloudflare 429 limits.\n\nITU-T G.107 VOICE SCORE (MOS 1.00–4.50):\n• Transmission factor calculation R = 93.2 - Id(delay) - Ie(Opus impairments).\n• Polynomial projection of R into speech perception MOS scale.</string>
     <string name="nd_info_cf_quota_title">Cloudflare Workers Quota Consumption</string>
@@ -1678,7 +1707,7 @@ Download latest Mirrly TG Proxy build:
     <string name="nd_calls_video_title">CALLS &amp; VIDEO</string>
     <string name="nd_speedtest_title">Tunnel Speed Test</string>
     <string name="nd_speedtest_desc">Measure Download, Upload, Ping and Jitter via Cloudflare</string>
-    <string name="nd_speedtest_in_dev">IN DEVELOPMENT</string>
+
     <string name="nd_speedtest_action_run">RUN</string>
     <string name="nd_hero_mtproto_pool_title">STREAM POOL</string>
     <string name="nd_hero_mtproto_slots_val">%1$d slots (FakeTLS)</string>
@@ -1791,9 +1820,9 @@ Download latest Mirrly TG Proxy build:
     <string name="nd_insight_loss_title">Packet Loss</string>
     <string name="nd_insight_loss_desc">Recorded %1$d%% probe packet loss. Reconnecting to a stable Wi-Fi network with reliable reception is recommended.</string>
     <string name="nd_insight_calls_title">HD Calls</string>
-    <string name="nd_insight_calls_desc">Audio call quality is degraded (%1$s MOS). Wi-Fi is recommended for crystal-clear high-definition calls.</string>
-    <string name="nd_insight_ideal_title">Ideal</string>
-    <string name="nd_insight_ideal_desc">Connection parameters are normal (SQI %1$d%%). Network route is 100%% ready for instant chats, 4K video, and crystal-clear calls.</string>
+    <string name="nd_insight_calls_desc">Audio call quality is degraded (%1$s MOS). A stable Wi-Fi connection is recommended for voice calls.</string>
+    <string name="nd_insight_ideal_title">Optimal</string>
+    <string name="nd_insight_ideal_desc">Connection parameters are normal (SQI %1$d%%). Network route is ready for chats, media, and voice calls.</string>
     <string name="unit_plus_minus_ms_val">±%1$s ms</string>
 
     <!-- Task 05: Notifications, Service, Toasts & Background Tasks -->
@@ -1905,49 +1934,29 @@ Download latest Mirrly TG Proxy build:
     <string name="onboarding_lang_badge_active">ACTIVE</string>
     <string name="onboarding_step2_title">ARCHITECTURE &amp; PURPOSE</string>
     <string name="onboarding_step2_relay_title">Local Network Gateway</string>
-    <string name="onboarding_step2_relay_desc">Mirrly TG Proxy routes Telegram traffic via encrypted MTProto and SOCKS5 protocols through Cloudflare servers for direct restriction bypass without a full device VPN.</string>
+    <string name="onboarding_step2_relay_desc">Mirrly TG Proxy routes Telegram traffic via MTProto and SOCKS5 through the Cloudflare network without a system-wide VPN.</string>
     <string name="onboarding_feature_faketls_title">Fake-TLS &amp; SOCKS5</string>
-    <string name="onboarding_feature_faketls_desc">Protection from censorship and DPI blocks</string>
+    <string name="onboarding_feature_faketls_desc">TLS cloaking for DPI filtering bypass</string>
     <string name="onboarding_feature_warp_title">Cloudflare WARP &amp; MASQUE</string>
-    <string name="onboarding_feature_warp_desc">Minimal latency for calls and media</string>
-    <string name="onboarding_feature_rust_title">Zero Battery Overhead</string>
-    <string name="onboarding_feature_rust_desc">Fast, power-efficient native Rust engine</string>
+    <string name="onboarding_feature_warp_desc">Reduced latency for calls and media</string>
+    <string name="onboarding_feature_rust_title">Low Resource Usage</string>
+    <string name="onboarding_feature_rust_desc">Native C++/Rust core without unnecessary CPU load</string>
 
     <!-- Share App Strings -->
-    <string name="share_app_text">Try Mirrly TG Proxy for Android — high-speed Telegram circumvention without system-wide VPN!\nDownload free on GitHub: https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy</string>
-    <string name="share_app_chooser_title">Share Mirrly TG Proxy with friends</string>
+    <string name="share_app_text">Mirrly TG Proxy for Android — local MTProto and SOCKS5 proxy for Telegram without system VPN.\nGitHub: https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy</string>
+    <string name="share_app_chooser_title">Share Mirrly TG Proxy</string>
 
     <!-- Telegram Channel Screen & Button Strings -->
     <string name="tg_channel_btn_title">Telegram Channel — MirrlyDev</string>
     <string name="tg_channel_btn_sub">News, insights and giveaways</string>
     <string name="tg_channel_topbar_title">Telegram Channel</string>
-    <string name="tg_channel_card_title">Telegram Channel — MirrlyDev</string>
-    <string name="tg_channel_badge_official">OFFICIAL DEVELOPER CHANNEL</string>
-    <string name="tg_channel_hero_desc">The official blog of the Mirrly ecosystem developer (R1Xern). Follow live development, technical insights, tests of new network cores, upcoming features, and interesting project updates.</string>
+    <string name="tg_channel_card_title">MirrlyDev</string>
+    <string name="tg_channel_hero_desc">Official channel of the Mirrly ecosystem developer. Early core test builds, architecture discussions, and direct contact with the author.</string>
     <string name="tg_channel_tag_handle">@WhyOKyHb</string>
-
-    <string name="tg_giveaway_section_title">MONTHLY GIVEAWAYS</string>
-    <string name="tg_giveaway_card_title">Prizes for Channel Subscribers</string>
-    <string name="tg_giveaway_frequency">1–2 giveaways every month</string>
-    <string name="tg_giveaway_prize_stars_val">500 Stars</string>
-    <string name="tg_giveaway_prize_stars_sub">In Telegram</string>
-    <string name="tg_giveaway_prize_premium_val">Telegram Premium</string>
-    <string name="tg_giveaway_prize_premium_sub">3-Month Subscription</string>
-    <string name="tg_giveaway_rule_desc">Giveaways are hosted directly in the Telegram channel using automated randomizers. Simply stay subscribed to the MirrlyDev channel to participate.</string>
-
-    <string name="tg_features_section_title">INSIDE THE CHANNEL</string>
-    <string name="tg_feature_early_access_title">Early Access</string>
-    <string name="tg_feature_early_access_desc">Fresh test APK builds are posted in the channel prior to official GitHub releases.</string>
-    <string name="tg_feature_insider_title">Behind the Scenes</string>
-    <string name="tg_feature_insider_desc">C++/Rust core architecture, socket pool tuning, censorship bypass techniques, and technical notes.</string>
-    <string name="tg_feature_voting_title">Feature Polls &amp; Voting</string>
-    <string name="tg_feature_voting_desc">Participate in community polls and directly influence what gets built next.</string>
-    <string name="tg_feature_direct_contact_title">Direct Contact</string>
-    <string name="tg_feature_direct_contact_desc">Fast feedback, troubleshooting assistance, suggestions, and deep dive into network cases.</string>
-
-    <string name="tg_action_open_channel">Open MirrlyDev Channel</string>
+    <string name="tg_channel_giveaway_note">Regular Telegram Premium and Stars giveaways are held among channel subscribers.</string>
+    <string name="tg_action_open_channel">Open in Telegram</string>
     <string name="tg_action_copy_link">Copy Link</string>
-    <string name="tg_toast_link_copied">Channel link copied to clipboard</string>
+    <string name="tg_toast_link_copied">Link copied to clipboard</string>
 
     <!-- Task 03: Simple vs Advanced Settings UX & Expert Mode -->
     <string name="settings_advanced_mode_title">Expert Mode</string>
@@ -1975,7 +1984,7 @@ Download latest Mirrly TG Proxy build:
 
     <!-- Info Dialogs for Advanced Settings -->
     <string name="info_advanced_mode_title">Expert Mode</string>
-    <string name="info_advanced_mode_body">Unlocks deep engineering options for the network engine: Happy Eyeballs (RFC 8305), IPv4/IPv6 stack, manual Anycast endpoints, TCP buffer sizes, and WebSocket keep-alive intervals.\n\nDisclaimer: the application developer is not liable for connection drops, delays, or network failure resulting from misconfiguration. Without proper network engineering knowledge, avoid modifying these settings.\n\nAutomatic Rollback: disabling this mode automatically restores all parameters to standard factory defaults.</string>
+    <string name="info_advanced_mode_body">Provides access to low-level engineering parameters of the network engine: Happy Eyeballs (RFC 8305), IPv4/IPv6 stack, manual Anycast endpoints, TCP buffer sizes, and WebSocket keep-alive intervals.\n\nDisclaimer: the application developer is not liable for connection drops, delays, or network failure resulting from misconfiguration. Without proper network engineering knowledge, keeping standard settings is recommended.\n\nSettings reset: disabling this mode restores all parameters to standard factory defaults.</string>
     <string name="info_happy_eyeballs_title">Happy Eyeballs Algorithm (RFC 8305)</string>
     <string name="info_happy_eyeballs_body">Happy Eyeballs ensures fast and reliable dual-stack (IPv6/IPv4) connection establishment.\n\n• How it works: the client attempts an IPv6 connection first. If the handshake does not complete within the specified delay (default 200 ms), a parallel IPv4 connection is initiated. Whichever completes first handles the traffic, while the second is cleanly terminated.\n• Choosing a delay: 100 ms favors faster fallback on low-latency networks; 200 ms is the RFC 8305 standard; 300 ms is suited for cellular connections with high jitter.</string>
     <string name="info_ip_family_title">IP Protocol Stack</string>
@@ -2048,8 +2057,6 @@ Download latest Mirrly TG Proxy build:
     <string name="badge_expert">EXPERT</string>
     <string name="badge_new">NEW</string>
     <string name="settings_vpn_mode_desc">Tun2Socks + Cloudflare WARP MASQUE / AmneziaWG direct uplink</string>
-    <string name="vless_preset_default_region">Global Anycast CDN</string>
-    <string name="settings_doh_section_header">DNS-OVER-HTTPS (DOH)</string>
     <string name="license_gnu_gpl_title">GNU GPLv3 License</string>
     <string name="tg_connect_proto_mtproto">MTProto Proxy</string>
     <string name="tg_connect_proto_socks5">SOCKS5 Proxy</string>
@@ -2073,24 +2080,30 @@ Download latest Mirrly TG Proxy build:
     <string name="wm_limit_rate_limit_title">Cloudflare Rate Limit</string>
     <string name="wm_btn_qr">QR</string>
 
+
     <!-- Settings UX Refactoring & Safety Demarcation -->
     <string name="settings_safety_safe">SAFE</string>
-    <string name="settings_safety_expert">EXPERT</string>
-    <string name="settings_safety_danger">DANGER</string>
-    <string name="settings_vpn_in_dev_badge">IN DEV</string>
-    <string name="settings_vpn_in_dev_title">MIRRLY VPN IN DEVELOPMENT</string>
-    <string name="settings_vpn_in_dev_desc">Mirrly VPN network stack is under active development. All tunnel settings and uplinks are available for testing, but connection stability is not guaranteed. For reliable Telegram connectivity, use MTProto or SOCKS5.</string>
-    <string name="settings_vpn_in_dev_dialog_title">Mirrly VPN In Development</string>
-    <string name="settings_vpn_in_dev_dialog_body">Mirrly VPN tunneling mode and uplink protocols (WARP, VLESS, AWG) are currently in engineering testing. You are welcome to explore and tweak settings, but general traffic routing may be unstable.</string>
+    <string name="settings_safety_expert">FOR EXPERTS</string>
+    <string name="settings_safety_danger">DANGEROUS</string>
+    <string name="settings_vpn_in_dev_badge">UNDER DEVELOPMENT</string>
+    <string name="settings_vpn_in_dev_title">MIRRLY VPN MODE IN DEVELOPMENT</string>
+    <string name="settings_vpn_in_dev_desc">The Mirrly VPN network stack is actively being developed. All tunnel parameters and uplinks are available for testing, but connection stability is not guaranteed yet. For reliable Telegram operation, use MTProto or SOCKS5.</string>
+    <string name="settings_vpn_in_dev_dialog_title">Mirrly VPN in Development</string>
+    <string name="settings_vpn_in_dev_dialog_body">Mirrly VPN tunneling mode and incoming protocols (WARP, VLESS, AWG) are in engineering testing. You can freely inspect and customize settings, but system traffic may route unstably.</string>
     <string name="settings_vpn_in_dev_dialog_ok">Understood</string>
+    <string name="vpn_in_dev_card_title">VPN in Development</string>
+    <string name="vpn_in_dev_card_desc">The system VPN module is under development and temporarily inactive. Use MTProto or SOCKS5 to protect traffic.</string>
+    <string name="settings_ech_title">Encrypted Client Hello (ECH)</string>
+    <string name="settings_ech_desc">Encrypts SNI using Cloudflare public key (outer SNI: cloudflare-ech.com). Hides the actual domain from DPI systems.</string>
+    <string name="settings_ech_experimental_hint">Experimental feature, may not work with all ISPs</string>
+    <string name="settings_ws_randomization_title">WebSocket Randomization (paths and headers)</string>
+    <string name="settings_ws_randomization_desc">Dynamic paths (/apiws/*) and realistic browser headers (User-Agent, Sec-CH-UA, Accept-Language) to mimic web traffic.</string>
+
     <string name="settings_port_default_badge">DEFAULT PORT</string>
     <string name="settings_port_safe_desc">Local port: %1$d. Optimally configured by default. Editing is available in expert mode.</string>
     <string name="settings_secret_safe_desc">MTProto secret key is secure and active. Custom generation is available in expert mode.</string>
     <string name="settings_socks5_safe_desc">Local port: %1$d. TCP relay is ready for data. Authentication setup is available in expert mode.</string>
     <string name="settings_btn_configure_expert">Configure parameters</string>
-    <string name="settings_doh_safe_summary">Secure DNS (DoH) active. Trusted upstream servers (%1$d enabled).</string>
-    <string name="settings_doh_expand_expert">Show all providers and speed test</string>
-    <string name="settings_doh_collapse_expert">Collapse provider list</string>
 
     <!-- Settings mode toggle -->
     <string name="settings_mode_expert">EXPERT</string>
@@ -2107,7 +2120,7 @@ Download latest Mirrly TG Proxy build:
 
     <!-- VPN DNS in tunnel -->
     <string name="vpn_dns_tunnel_title">DNS Routing in Tunnel</string>
-    <string name="vpn_dns_tunnel_desc">1.1.1.1, 8.8.8.8 via secured DoH gateway</string>
+    <string name="vpn_dns_tunnel_desc">1.1.1.1, 8.8.8.8 via secured DNS gateway</string>
 
     <!-- Generic badges -->
     <string name="badge_secured_short">Secured</string>
@@ -2126,15 +2139,19 @@ Download latest Mirrly TG Proxy build:
 
     <!-- VPN Protocol selector dialog -->
     <string name="vpn_device_tunnel_inactive">Device tunneling via %1$s</string>
-    <string name="vpn_protocol_warp_cascade_desc">MASQUE (QUIC) + AWG failover • Dual Anycast</string>
-    <string name="vpn_protocol_vless_desc">Anycast CDN • TLS 1.3 traffic masquerade</string>
-    <string name="vpn_protocol_masque_desc">IETF RFC 9484 CONNECT-UDP over HTTP/3 • QUIC</string>
+    <string name="vpn_protocol_masque_desc">IETF RFC 9484 CONNECT-UDP over HTTP/3 • QUIC (lowest latency)</string>
     <string name="vpn_protocol_awg_desc">AmneziaWG with junk packet obfuscation • Anycast</string>
-    <string name="vpn_protocol_opera_desc">HTTP CONNECT tunneling with DoH via Opera VPN nodes</string>
-    <string name="vpn_protocol_proton_desc">WireGuard tunnel to free Proton VPN servers</string>
     <string name="vpn_protocol_dialog_title">Mirrly VPN Protocol</string>
     <string name="vpn_protocol_dialog_desc">Select protocol for system tunnel:</string>
     <string name="vpn_select_protocol_short">Select Protocol</string>
+    <string name="vpn_protocol_awg_badge">AmneziaWG Anycast</string>
+    <string name="vpn_protocol_masque_badge">HTTP/3 Anycast</string>
+    <string name="vpn_protocol_masque_warning_title">Warning: MASQUE DPI Filtering</string>
+    <string name="vpn_protocol_masque_warning_desc">MASQUE protocol uses raw QUIC/UDP without obfuscation and is subject to DPI filtering. For stable connectivity, AmneziaWG (AWG) is recommended.</string>
+    <string name="vpn_protocol_masque_action_use_awg">Use AWG (Recommended)</string>
+    <string name="vpn_protocol_masque_action_continue">Continue with MASQUE</string>
+    <string name="settings_warp_reg_via_worker_title">Register via Worker Relay</string>
+    <string name="settings_warp_reg_via_worker_desc">Use Cloudflare Worker to register and refresh WARP profile. When disabled, requests are sent directly using SNI spoofing (libsni).</string>
 
     <!-- Cloudflare Deploy -->
     <string name="cf_deploy_token_saved">Token saved</string>
@@ -2144,24 +2161,437 @@ Download latest Mirrly TG Proxy build:
     <string name="cf_session_reset">Cloudflare session reset</string>
     <string name="cf_account_session_status">Session Status</string>
     <string name="error_open_browser">Failed to open browser</string>
-    <string name="settings_ech_title">Encrypted Client Hello (ECH)</string>
-    <string name="settings_ech_desc">Encrypts SNI with Cloudflare public key (outer SNI: cloudflare-ech.com). Hides the destination domain from DPI systems.</string>
-    <string name="settings_ech_experimental_hint">Experimental feature, may not be supported by all carriers</string>
     <string name="settings_tls_padding_title">TLS Record Padding Randomization</string>
     <string name="settings_tls_padding_desc">Randomized padding and splitting of TLS records to break distinctive MTProto handshake packet size signatures against DPI statistical correlation.</string>
-    <string name="settings_ws_randomization_title">WebSocket Path &amp; Header Randomization</string>
-    <string name="settings_ws_randomization_desc">Dynamic path alternation (/apiws/*) and realistic browser headers (User-Agent, Sec-CH-UA, Accept-Language) to disguise tunnel traffic.</string>
+    <string name="socks5_no_worker_error">No worker selected. Please authorize.</string>
 
     <!-- Info & Connect Footnotes -->
-    <string name="tg_connect_footnote_badge">NOTE</string>
     <string name="tg_connect_footnote_title">Which protocol to choose?</string>
     <string name="tg_connect_footnote_desc">• MTProto — optimized for fast chat messaging, groups, and reading channels with minimal latency.\n• SOCKS5 — universal network protocol required for voice/video calls and fast downloading of heavy media.</string>
     <string name="nd_footnote_badge">NOTE</string>
     <string name="nd_footnote_title">Key network metrics explained</string>
-    <string name="nd_footnote_desc">• SQI — overall network health index from 0 to 100%.\n• Ping (RTT) — server response latency in milliseconds (under 100ms is excellent).\n• Jitter — mobile network latency variation (under 25ms is ideal for stutter-free calls).\n• Bufferbloat — lag spikes caused by overloaded router queues during downloads.</string>
-    <string name="onboarding_footnote_badge">NOTE</string>
-    <string name="onboarding_footnote_title">How it works</string>
-    <string name="onboarding_footnote_desc">Mirrly operates as a local proxy exclusively for Telegram. It does not intercept traffic from other apps and preserves battery life unlike system-wide VPNs.</string>
-    <string name="info_footnote_badge">NOTE: GLOSSARY</string>
-    <string name="info_footnote_simple_label">Plain language</string>
+    <string name="nd_footnote_desc">• SQI — overall network health index from 0 to 100%.\n• Ping (RTT) — server response latency in milliseconds (under 100ms is a good indicator).\n• Jitter — mobile network latency variation (under 25ms ensures stable call quality).\n• Bufferbloat — queuing delays inside network equipment during high traffic loads.</string>
+    <!-- Onboarding Step 2: Proxy for Telegram -->
+    <string name="onboarding_step_proxy_title">TELEGRAM PROXY</string>
+    <string name="onboarding_step_proxy_desc">Local MTProto and SOCKS5 gateways operate exclusively for Telegram, leaving other apps untouched and preserving battery life.</string>
+
+    <!-- Onboarding Step 3: System VPN & Uplinks -->
+    <string name="onboarding_step_vpn_title">SYSTEM VPN MODE</string>
+    <string name="onboarding_step_vpn_desc">System-wide VPN tunnel for all device connections or selected applications.</string>
+    <string name="onboarding_vpn_feature_independent_title">Independent from Proxy</string>
+    <string name="onboarding_vpn_feature_independent_desc">MTProto and SOCKS5 operate independently from the VPN. You can run Telegram through proxy while keeping VPN active.</string>
+    <string name="onboarding_vpn_feature_awg_title">WARP AWG (AmneziaWG)</string>
+    <string name="onboarding_vpn_feature_awg_desc">DPI bypass for networks blocking Cloudflare. Obfuscates WireGuard headers.</string>
+    <string name="onboarding_vpn_feature_masque_title">WARP MASQUE (HTTP/3)</string>
+    <string name="onboarding_vpn_feature_masque_desc">QUIC/HTTP/3 tunnel to Cloudflare Anycast with low network latency.</string>
+    <string name="onboarding_vpn_feature_split_title">Split Tunneling</string>
+    <string name="onboarding_vpn_feature_split_desc">Route selected applications through the tunnel; remaining traffic connects directly.</string>
+    <string name="info_footnote_badge">TERM EXPLANATIONS</string>
+
+    <!-- SOCKS5 Cloudflare Auth Required Dialog -->
+    <string name="socks5_cf_auth_title">SOCKS5 requires Cloudflare</string>
+    <string name="socks5_cf_auth_desc">SOCKS5 tunnels traffic through Cloudflare Worker. Sign in with a Cloudflare account or specify a custom worker address.</string>
+    <string name="socks5_cf_auth_card_why_title">SOCKS5 Requirements</string>
+    <string name="socks5_cf_auth_card_why_desc">SOCKS5 transmits media and calls via a WebSocket bridge to Telegram servers. This requires a functioning Cloudflare Worker.</string>
+    <string name="socks5_cf_auth_btn_login">Sign in with Cloudflare</string>
+    <string name="socks5_cf_auth_btn_custom">Paste custom worker</string>
+    <string name="socks5_cf_auth_btn_manual_guide">Manual creation guide</string>
+    <string name="socks5_cf_auth_custom_title">Enter worker domain</string>
+    <string name="socks5_cf_auth_custom_hint">e.g. worker.subdomain.workers.dev</string>
+    <string name="socks5_cf_auth_custom_save">Save and Launch</string>
+    <string name="socks5_cf_auth_custom_invalid">Invalid worker domain</string>
+    <string name="cf_oauth_clipboard_detected">Authorization link detected from clipboard</string>
+    <string name="socks5_cf_auth_waiting_title">Waiting for browser confirmation</string>
+    <string name="socks5_cf_auth_waiting_desc">If localhost shows an error in your browser, copy the full URL from the address bar and tap the button below.</string>
+    <string name="socks5_cf_auth_btn_paste_url">Paste URL from browser</string>
+    <string name="socks5_cf_auth_paste_hint">http://localhost:8976/oauth/callback?code=...</string>
+    <string name="socks5_cf_auth_paste_confirm">Confirm URL</string>
+    <string name="socks5_cf_auth_btn_api_token">Sign in with API Token</string>
+    <string name="socks5_cf_auth_api_token_desc">Use a Cloudflare API Token with Workers permissions.</string>
+    <string name="socks5_cf_auth_api_token_link">Create API Token in Cloudflare</string>
+    <string name="socks5_cf_auth_api_token_how_to_title">How to get an API Token:</string>
+    <string name="socks5_cf_auth_api_token_step1">1. Open the API Tokens page via the link below.</string>
+    <string name="socks5_cf_auth_api_token_step2">2. Click Create Token and choose Edit Cloudflare Workers template.</string>
+    <string name="socks5_cf_auth_api_token_step3">3. Click Continue to summary → Create Token and paste key.</string>
+    <string name="socks5_cf_auth_api_token_hint">Paste Cloudflare API Token</string>
+    <string name="socks5_cf_auth_api_token_save">Sign in with Token</string>
+    <string name="socks5_cf_auth_api_token_verifying">Verifying token...</string>
+    <string name="socks5_cf_auth_exchanging">Exchanging code for tokens...</string>
+    <string name="socks5_cf_auth_url_invalid">URL does not contain authorization code (code=...)</string>
+    <string name="action_retry">Retry</string>
+    <string name="uplink_dialog_section_protocol">01 • PROTOCOL PARAMETERS</string>
+    <string name="uplink_dialog_section_routing">02 • ROUTING &amp; STATUS</string>
+
+    <!-- SOCKS5 Onboarding Tutorial Dialog -->
+    <string name="socks5_onboard_category">SOCKS5 • ARCHITECTURE</string>
+    <string name="socks5_onboard_title">SOCKS5 and Cloudflare Setup</string>
+    <string name="socks5_onboard_why_title">1. SOCKS5 and Workers Purpose</string>
+    <string name="socks5_onboard_why_desc">SOCKS5 proxy transmits TCP streams over WebSocket through Cloudflare Edge. This avoids reliance on public proxies and provides a 100,000 requests/day quota.</string>
+    <string name="socks5_onboard_update_title">2. Worker Script Updates</string>
+    <string name="socks5_onboard_update_desc">In Worker Manager, verified nodes include an Update Script option. Updates apply directly via Cloudflare API for authorized accounts.</string>
+    <string name="socks5_onboard_manage_title">3. Node Management</string>
+    <string name="socks5_onboard_manage_desc">If a node is blocked or degraded, remove it from the list and deploy a new one in the Deploy tab.</string>
+    <string name="socks5_onboard_btn_continue">Continue to Launch</string>
+    <string name="socks5_onboard_btn_manager">Open Worker Manager</string>
+    <string name="cf_oauth_notif_title">Cloudflare Authorization</string>
+    <string name="cf_oauth_notif_desc">Waiting for browser confirmation...</string>
+    <string name="socks5_onboard_step1_title">Connect Cloudflare Worker</string>
+    <string name="socks5_onboard_step1_desc">SOCKS5 requires a Cloudflare Worker node to provide a WSS bridge to Telegram servers.</string>
+    <string name="socks5_onboard_step1_loading">Discovering workers in Cloudflare account...</string>
+    <string name="socks5_onboard_step1_found_title">Workers in account · %1$d</string>
+    <string name="socks5_onboard_step1_empty_title">No workers found in account</string>
+    <string name="socks5_onboard_step1_empty_desc">Deploy a node with the Mirrly script to tunnel traffic to Telegram servers.</string>
+    <string name="socks5_onboard_step1_btn_use_selected">Use Selected Worker</string>
+    <string name="socks5_onboard_step1_btn_deploy">Deploy Worker</string>
+    <string name="socks5_onboard_step1_deploying_step1">1/3 Uploading worker.js script...</string>
+    <string name="socks5_onboard_step1_deploying_step2">2/3 Binding *.workers.dev route...</string>
+    <string name="socks5_onboard_step1_deploying_step3">3/3 Verifying node health...</string>
+    <string name="socks5_onboard_step1_deploy_success">Worker successfully deployed and activated</string>
+    <string name="socks5_onboard_step1_active_badge">Active worker:</string>
+    <string name="socks5_onboard_step1_btn_next">Continue</string>
+    <string name="socks5_onboard_step2_title">Where to find Worker Manager</string>
+    <string name="socks5_onboard_step2_swipe_title">Quick swipe access</string>
+    <string name="socks5_onboard_step2_swipe_desc">Swipe left on the home screen to open Worker Manager. Navigation is also available via the top menu.</string>
+    <string name="socks5_onboard_step2_features_title">Manager capabilities</string>
+    <string name="socks5_onboard_step2_features_desc">Worker Manager displays node list, connection status, RTT latency, and active node selection.</string>
+    <string name="socks5_onboard_step2_btn_next">Next</string>
+    <string name="socks5_onboard_step2_btn_back">Back</string>
+    <string name="socks5_onboard_step3_title">Updating worker scripts</string>
+    <string name="socks5_onboard_step3_where_title">The Update Script button</string>
+    <string name="socks5_onboard_step3_where_desc">The Update Script button is available in the worker card for nodes on your authorized account.</string>
+    <string name="socks5_onboard_step3_why_title">Why update the script</string>
+    <string name="socks5_onboard_step3_why_desc">Script updates optimize media buffering, voice call handling, and traffic cloaking. Updates apply via Cloudflare API without visiting the dashboard.</string>
+    <string name="socks5_onboard_step3_btn_finish">Start SOCKS5</string>
+
+    <!-- Worker Ownership & Manual Guide -->
+    <string name="wm_update_not_owned_title">Update Blocked</string>
+    <string name="wm_update_not_owned_desc">This worker does not belong to your currently authenticated Cloudflare account. Automated API script deployment is restricted exclusively to personal workers under your account. If this worker is hosted on another account, update the script manually via Cloudflare Dashboard.</string>
+    <string name="wm_guide_header_title">Manual Worker Setup</string>
+    <string name="wm_guide_header_subtitle">Step-by-step guide to deploy a tunneling worker in Cloudflare Dashboard without OAuth login.</string>
+    <string name="wm_guide_step1_title">Step 1. Sign up on Cloudflare</string>
+    <string name="wm_guide_step1_desc">Go to the official Cloudflare site and create a free account. No payment card or subscription required.</string>
+    <string name="wm_guide_step1_btn">Open dash.cloudflare.com</string>
+    <string name="wm_guide_step2_title">Step 2. Create Worker Application</string>
+    <string name="wm_guide_step2_desc">In the dashboard, open the left menu: Workers &amp; Pages → Create Application → Create Worker. Choose any name and tap Deploy.</string>
+    <string name="wm_guide_step3_title">Step 3. Paste Tunneling Script</string>
+    <string name="wm_guide_step3_desc">Tap Edit Code, clear the default template, and paste the latest worker.js script. The script provides clean transparent streaming via cloudflare:sockets without DPI disguise delays.</string>
+    <string name="wm_guide_step3_btn_copy">Script</string>
+    <string name="wm_guide_step3_btn_github">Guide</string>
+    <string name="wm_guide_step4_title">Step 4. Deploy and Save</string>
+    <string name="wm_guide_step4_desc">Tap Save and deploy. Copy the assigned public domain: your-worker.subdomain.workers.dev.</string>
+    <string name="wm_guide_step5_title">Step 5. Add Worker to Mirrly</string>
+    <string name="wm_guide_step5_desc">Paste your copied worker domain below and tap Add:</string>
+    <string name="wm_guide_step5_hint">e.g. worker.subdomain.workers.dev</string>
+    <string name="wm_guide_step5_btn_add">Add and Activate Worker</string>
+    <string name="wm_guide_copied_toast">worker.js copied to clipboard</string>
+
+    <!-- VPN DNS Configuration -->
+    <string name="settings_vpn_dns_section">VPN TUNNEL DNS</string>
+    <string name="vpn_dns_selector_title">Tunnel DNS Servers</string>
+    <string name="vpn_dns_mode_cloudflare">Cloudflare DNS</string>
+    <string name="vpn_dns_mode_cloudflare_desc">1.1.1.1, 1.0.0.1. Official default Anycast DNS.</string>
+    <string name="vpn_dns_mode_comss">Comss.one DNS (AI SmartDNS)</string>
+    <string name="vpn_dns_mode_comss_desc">83.220.169.155, 195.133.25.16. Direct access to ChatGPT, Claude, Gemini, Copilot without third-party VPN.</string>
+    <string name="vpn_dns_mode_custom">Custom DNS</string>
+    <string name="vpn_dns_mode_custom_desc">Custom IPv4 DNS servers (e.g. AdGuard, Comss).</string>
+    <string name="vpn_dns_custom_ips_label">IPv4 DNS addresses (comma-separated)</string>
+    <string name="vpn_dns_custom_placeholder">e.g. 94.140.14.14, 94.140.15.15</string>
+    <string name="vpn_dns_ipv6_protection_note">In SmartDNS and Custom modes, IPv6 DNS is disabled to prevent AAAA query bypass.</string>
+    <string name="vpn_dns_save_button">Save DNS</string>
+    <string name="vpn_dns_saved_toast">Tunnel DNS updated</string>
+    <string name="vpn_dns_invalid_ip_toast">Please enter valid IPv4 addresses</string>
+    <string name="vpn_dns_info_title">VPN DNS Routing</string>
+    <string name="vpn_dns_info_desc">WARP tunnel routes L3 packets. DNS config specifies the resolver IPs. In Comss.one DNS mode, AI domains are routed through SmartDNS proxy.</string>
+
+    <string name="socks5_cf_auth_api_token_open_dash_btn">Open API Tokens Profile</string>
+    <string name="socks5_onboard_open_wm_btn">Open Worker Manager</string>
+
+    <!-- Uplink & Split Tunnel Dialog Strings -->
+    <string name="uplink_dialog_category">UPLINK STATE • NETWORK ROUTE</string>
+    <string name="split_tunnel_category">SPLIT TUNNELING</string>
+
+    <!-- Subdomain Setup Dialog & Explanations -->
+    <string name="cf_subdomain_dialog_badge">REQUIRED SETUP • CLOUDFLARE</string>
+    <string name="cf_subdomain_dialog_title">workers.dev Subdomain</string>
+    <string name="cf_subdomain_dialog_subtitle">Base account domain for deploying workers</string>
+    <string name="cf_subdomain_what_title">What is a workers.dev subdomain</string>
+    <string name="cf_subdomain_what_desc">This is the unique public identifier of your Cloudflare account. All your personal proxy nodes will be hosted at [worker-name].[subdomain].workers.dev.</string>
+    <string name="cf_subdomain_why_title">Why it must be set first</string>
+    <string name="cf_subdomain_why_desc">Cloudflare requires registering a subdomain once when initializing a new account. Creating and running workers is impossible without a configured subdomain.</string>
+    <string name="cf_subdomain_rules_title">Naming rules and format</string>
+    <string name="cf_subdomain_rules_desc">• 3 to 32 characters long\n• Lowercase latin letters (a-z), numbers (0-9), and hyphens (-)\n• No spaces, uppercase letters, or dots\n• Do not add .workers.dev suffix — it is appended automatically\n• The name must be globally unique across Cloudflare</string>
+    <string name="cf_subdomain_input_label">Subdomain name</string>
+    <string name="cf_subdomain_input_placeholder">e.g. alex-relay</string>
+    <string name="cf_subdomain_preview_label">Resulting proxy node address:</string>
+    <string name="cf_subdomain_btn_save">Register subdomain</string>
+    <string name="cf_subdomain_btn_random">Random</string>
+    <string name="cf_subdomain_err_empty">Enter a subdomain name</string>
+    <string name="cf_subdomain_err_too_short">Minimum 3 characters</string>
+    <string name="cf_subdomain_err_too_long">Maximum 32 characters</string>
+    <string name="cf_subdomain_err_invalid_chars">Only lowercase letters a-z, digits, and hyphens are allowed</string>
+    <string name="cf_subdomain_err_hyphen_edge">Cannot start or end with a hyphen</string>
+    <string name="cf_subdomain_err_already_taken">This subdomain is already taken by another Cloudflare user. Choose a different name.</string>
+    <string name="socks5_onboard_subdomain_needed_title">Subdomain setup required</string>
+    <string name="socks5_onboard_subdomain_needed_desc">Your new Cloudflare account does not have a workers.dev subdomain configured yet. Set it up before creating your first worker.</string>
+    <string name="socks5_onboard_subdomain_btn_setup">Set up subdomain</string>
+    <string name="socks5_onboard_subdomain_active_label">Account subdomain:</string>
+    <string name="cf_subdomain_btn_check">Check on Cloudflare</string>
+    <string name="cf_subdomain_btn_open_dash">Open Cloudflare Dashboard</string>
+    <string name="cf_subdomain_checking">Checking...</string>
+    <string name="cf_subdomain_registering">Registering subdomain...</string>
+    <string name="cf_subdomain_not_found">Subdomain not set on Cloudflare yet</string>
+    <string name="socks5_onboard_step1_subdomain_badge">WORKERS.DEV SUBDOMAIN</string>
+    <string name="socks5_onboard_step1_subdomain_hint">Creating a worker requires a configured subdomain</string>
+    <string name="socks5_onboard_step1_btn_setup_subdomain_first">Configure subdomain first</string>
+    <string name="cf_guide_faq_subdomain_title">What is a workers.dev subdomain and what to enter?</string>
+    <string name="cf_guide_faq_subdomain_desc">The subdomain is your personal domain zone (e.g. username.workers.dev). Configured once in Cloudflare. All workers are hosted at worker.username.workers.dev. Only letters, numbers and hyphens (3-32 characters).</string>
+    <!-- VPN Custom Profile Import & Onboarding -->
+    <string name="vpn_import_dialog_badge">IMPORT PROFILE • VPN</string>
+    <string name="vpn_import_dialog_title">Add Profile</string>
+    <string name="vpn_import_dialog_subtitle">Paste WireGuard, AmneziaWG, JSON configuration or WARP+ license key</string>
+    <string name="vpn_import_input_label">Configuration or key</string>
+    <string name="vpn_import_input_placeholder">Paste .conf, JSON, or key xxxxxxxx-xxxxxxxx-xxxxxxxx</string>
+    <string name="vpn_import_btn_paste">Paste from clipboard</string>
+    <string name="vpn_import_btn_file">Select file</string>
+    <string name="vpn_import_btn_clear">Clear</string>
+    <string name="vpn_import_detected_format">Detected format:</string>
+    <string name="vpn_import_btn_apply">Apply profile</string>
+    <string name="vpn_import_btn_activate_key">Activate WARP+ key</string>
+    <string name="vpn_import_success_toast">Profile imported successfully</string>
+    <string name="vpn_import_key_success_toast">WARP+ license key activated</string>
+    <string name="vpn_import_guide_title">Where to get profiles or keys?</string>
+    <string name="vpn_import_guide_p1">1. Mirrly generator: use the built-in generator to issue a Cloudflare profile.</string>
+    <string name="vpn_import_guide_p2">2. WARP+ keys: 26-character license keys can be obtained via community bots or public repositories.</string>
+    <string name="vpn_import_guide_p3">3. WGCF CLI tool: Cloudflare profile generator on GitHub (ViRb3/wgcf). Generates wgcf-account.json and wgcf-profile.conf.</string>
+    <string name="vpn_import_guide_p4">4. Custom servers: import personal WireGuard or AmneziaWG .conf files.</string>
+
+    <string name="vpn_onboard_badge">GUIDE • VPN MODE</string>
+    <string name="vpn_onboard_title">VPN Mode in Mirrly</string>
+    <string name="vpn_onboard_subtitle">System traffic routing</string>
+    <string name="vpn_onboard_step1_title">1. System Tunnel</string>
+    <string name="vpn_onboard_step1_desc">Unlike a proxy, VPN mode routes traffic for all device applications through Android VpnService.</string>
+    <string name="vpn_onboard_step2_title">2. Protocol Selection</string>
+    <string name="vpn_onboard_step2_desc">• WARP AWG: AmneziaWG with packet obfuscation and DPI resistance.\n• WARP MASQUE: HTTP/3 QUIC tunneling with low network latency.</string>
+    <string name="vpn_onboard_step3_title">3. Connection Profile</string>
+    <string name="vpn_onboard_step3_desc">An active profile is required. You can generate a profile automatically, import a WireGuard / AmneziaWG config, or activate a WARP+ key.</string>
+    <string name="vpn_onboard_btn_auto_create">Create Profile (Auto)</string>
+    <string name="vpn_onboard_btn_import">Import Custom Profile</string>
+    <string name="vpn_onboard_btn_continue">Got it</string>
+    <string name="vpn_onboard_internal_gen_title">Create directly in app</string>
+    <string name="vpn_onboard_internal_gen_subtitle">Built-in WARP AWG / WireGuard generator</string>
+    <string name="vpn_onboard_external_gen_title">Alternative external generators:</string>
+    <string name="vpn_onboard_gen_warp_reg_name">Warp-Reg (Web generator)</string>
+    <string name="vpn_onboard_gen_warp_reg_note">Web generation utility</string>
+    <string name="vpn_onboard_gen_wgcf_name">wgcf (GitHub CLI)</string>
+    <string name="vpn_onboard_gen_wgcf_note">Official source code CLI</string>
+    <string name="vpn_onboard_gen_bot1_name">@generatewarpbot (Telegram)</string>
+    <string name="vpn_onboard_gen_bot2_name">@warp_generator_bot (Telegram)</string>
+    <string name="vpn_onboard_gen_bot_note">Telegram bot</string>
+    <string name="vpn_action_dns">DNS</string>
+    <string name="vpn_action_import_profile">Import custom profile</string>
+    <string name="vpn_action_guide">VPN Guide</string>
+    <string name="settings_vpn_import_custom">Import</string>
+    <string name="warp_gen_btn_short">Generator</string>
+    <string name="settings_vpn_import_custom_desc">Add custom .conf, JSON or key</string>
+    <string name="settings_warp_license_field_title">WARP+ License Key</string>
+    <string name="settings_warp_license_field_desc">26-character WARP+ license key</string>
+    <string name="settings_vpn_onboarding_replay">VPN Guide</string>
+    <string name="settings_vpn_onboarding_replay_desc">Replay introductory guide on encryption and protocols</string>
+
+    <!-- WARP Generator & Multi-Profile Manager -->
+    <string name="warp_gen_title">WARP Profile Generator</string>
+    <string name="warp_gen_subtitle">Generate and export WireGuard &amp; AmneziaWG profiles</string>
+    <string name="warp_gen_mode_simple">Simple</string>
+    <string name="warp_gen_mode_advanced">Advanced</string>
+    <string name="warp_gen_mode_simple_desc">Generate configuration with preset AmneziaWG parameters for DPI-filtered networks</string>
+    <string name="warp_gen_mode_adv_desc">Configure formats, endpoints, DNS servers, and manual obfuscation parameters</string>
+    <string name="warp_gen_section_formats">Profile formats</string>
+    <string name="warp_gen_section_endpoints">Cloudflare endpoints</string>
+    <string name="warp_gen_section_dns">DNS servers</string>
+    <string name="warp_gen_section_awg_params">AmneziaWG parameters</string>
+    <string name="warp_gen_section_account">WARP account</string>
+    <string name="warp_gen_section_actions">Actions</string>
+    <string name="warp_gen_acc_new">Issue new account</string>
+    <string name="warp_gen_acc_reuse">Reuse current account</string>
+    <string name="warp_gen_acc_plus">Bind WARP+ license</string>
+    <string name="warp_gen_param_jc">Junk packet count (Jc)</string>
+    <string name="warp_gen_param_jmin">Minimum junk size (Jmin)</string>
+    <string name="warp_gen_param_jmax">Maximum junk size (Jmax)</string>
+    <string name="warp_gen_param_i1">Handshake signature (I1)</string>
+    <string name="warp_gen_param_padding">Content padding (ContentPaddingAddition)</string>
+    <string name="warp_gen_param_rekey">Rekey interval (RekeyAfterTime)</string>
+    <string name="warp_gen_param_keepalive">Keepalive timeout</string>
+    <string name="warp_gen_param_cookies">Disable cookies (DisableCookies)</string>
+    <string name="warp_gen_param_randomize">Randomize values within ranges</string>
+    <string name="warp_gen_include_ipv6">Include IPv6 address</string>
+    <string name="warp_gen_mtu">MTU size</string>
+    <string name="warp_gen_btn_generate">Generate profiles</string>
+    <string name="warp_gen_btn_ping_endpoints">Test endpoint latency</string>
+    <string name="warp_gen_btn_import_all">Import all</string>
+    <string name="warp_gen_btn_import_selected">Import selected</string>
+    <string name="warp_gen_btn_set_active">Set as active</string>
+    <string name="warp_gen_btn_export_zip">Export all to ZIP</string>
+    <string name="warp_gen_btn_export_file">Save file</string>
+    <string name="warp_gen_btn_qr">QR code</string>
+    <string name="warp_gen_btn_copy">Copy config</string>
+    <string name="warp_gen_btn_view">View</string>
+    <string name="warp_gen_status_idle">Ready to generate</string>
+    <string name="warp_gen_status_registering">Registering account with Cloudflare...</string>
+    <string name="warp_gen_status_activating">Activating WireGuard session...</string>
+    <string name="warp_gen_status_binding_license">Binding WARP+ license key...</string>
+    <string name="warp_gen_status_scanning_endpoints">Testing endpoint latency...</string>
+    <string name="warp_gen_status_building">Building configurations...</string>
+    <string name="warp_gen_status_success">Successfully generated: %1$d profiles</string>
+    <string name="warp_gen_status_error">Generation error: %1$s</string>
+    <string name="warp_gen_err_export_only_format">This format is for external clients. For Mirrly system VPN, use AmneziaWG or WireGuard.</string>
+    <string name="warp_profiles_title">WARP Profiles</string>
+    <string name="warp_profiles_empty">No saved profiles</string>
+    <string name="warp_profiles_active_badge">ACTIVE</string>
+    <string name="warp_profiles_delete">Delete profile</string>
+    <string name="warp_profiles_confirm_delete">Delete profile %1$s?</string>
+    <string name="warp_profiles_deleted_toast">Profile deleted</string>
+    <string name="warp_profiles_imported_toast">Profile imported successfully</string>
+    <string name="warp_profiles_all_imported_toast">Imported profiles: %1$d</string>
+    <string name="warp_profiles_zip_exported_toast">ZIP archive saved successfully</string>
+    <string name="warp_profiles_file_exported_toast">File saved successfully</string>
+    <string name="warp_gen_qr_title">Configuration QR Code</string>
+    <string name="warp_gen_qr_desc">Scan code in AmneziaWG or WireGuard app</string>
+    <string name="warp_gen_masked_key_hint">Private key is masked for security</string>
+    <string name="warp_gen_show_secret">Show key</string>
+    <string name="warp_gen_hide_secret">Hide key</string>
+    <string name="warp_gen_custom_endpoint_label">Custom endpoint (host:port)</string>
+    <string name="warp_gen_custom_dns_label">Custom DNS (comma-separated)</string>
+    <string name="warp_gen_license_label">WARP+ license key (optional)</string>
+    <string name="warp_gen_terminal_title">Generation Log</string>
+    <string name="warp_gen_results_title">Generated profiles</string>
+    <string name="vpn_auto_profile_title">VPN Profile Auto-Select</string>
+    <string name="vpn_auto_profile_desc">Automatically selects a profile among saved nodes. When disabled, the manually selected profile is used.</string>
+    <string name="vpn_auto_profile_badge">AUTO</string>
+    <string name="vpn_priority_badge">MAIN</string>
+    <string name="vpn_auto_profile_active_hint">Auto-select active: profiles switch automatically</string>
+    <string name="vpn_auto_profile_manual_hint">Auto-select disabled: using fixed profile</string>
+    <string name="vpn_maintenance_notice_title">VPN mode under rework</string>
+    <string name="vpn_maintenance_notice_desc">May temporarily stop working or might not work for everyone.</string>
+
+    <!-- Mirrly AI Chat & Neural Engine -->
+    <string name="content_desc_ai_chat">AI Chat</string>
+    <string name="ai_chat_title">AI Chat</string>
+    <string name="ai_chat_status_ready">Model Ready</string>
+    <string name="ai_chat_status_thinking">Thinking...</string>
+    <string name="ai_chat_status_generating">Generating...</string>
+    <string name="ai_chat_status_no_key">API Key Required</string>
+    <string name="ai_chat_settings_title">AI Settings</string>
+    <string name="ai_chat_history_dialog_desc">Conversation history allows the model to retain context and consider previous turns when generating responses.</string>
+    <string name="ai_chat_section_provider">Provider</string>
+    <string name="ai_chat_provider_desc">Select a suitable service to interact with language models.</string>
+    <string name="ai_chat_section_service_data">Service Details</string>
+    <string name="ai_chat_endpoint_label">API Endpoint</string>
+    <string name="ai_chat_model_label">Model</string>
+    <string name="ai_chat_api_key_label">API Key</string>
+    <string name="ai_chat_api_key_hint">Enter your Gemini API key...</string>
+    <string name="ai_chat_reasoning_title">Reasoning</string>
+    <string name="ai_chat_reasoning_desc">Allows supported models for this service to spend more tokens on deep deliberation.</string>
+    <string name="ai_chat_test_and_save">Verify and Save</string>
+    <string name="ai_chat_section_generation">Generation</string>
+    <string name="ai_chat_streaming_title">Stream Response</string>
+    <string name="ai_chat_streaming_desc">Enables smooth and immediate token streaming.</string>
+    <string name="ai_chat_only_response_title">Show Only Final Answer</string>
+    <string name="ai_chat_only_response_desc">Hides reasoning process and metadata during reading.</string>
+    <string name="ai_chat_quote_title">Format as Quote / Markdown</string>
+    <string name="ai_chat_quote_desc">Renders markdown text and structured code blocks.</string>
+    <string name="ai_chat_temperature_title">Temperature</string>
+    <string name="ai_chat_temperature_desc">Controls randomness: higher values produce more creative output; lower values are more deterministic.</string>
+    <string name="ai_chat_clear_history_title">Clear message history?</string>
+    <string name="ai_chat_clear_history_desc">All messages in the current conversation will be permanently removed.</string>
+    <string name="ai_chat_clear_history_confirm">Clear</string>
+    <string name="ai_chat_input_placeholder">Message to AI...</string>
+    <string name="ai_chat_send">Send</string>
+    <string name="ai_chat_stop">Stop</string>
+    <string name="ai_chat_copy_message">Message copied</string>
+    <string name="ai_chat_copy_code">Code copied</string>
+    <string name="ai_chat_thought_process">Model Reasoning</string>
+    <string name="ai_chat_welcome_title">Mirrly Neural Assistant</string>
+    <string name="ai_chat_welcome_desc">Integrated Gemini language model directly in your local proxy gateway. Ask questions regarding routing, worker setup, or general assistance.</string>
+    <string name="ai_chat_suggest_1">How do I deploy a custom Cloudflare Worker?</string>
+    <string name="ai_chat_suggest_2">What is the difference between MTProto and SOCKS5?</string>
+    <string name="ai_chat_suggest_3">How can I reduce latency in Telegram?</string>
+    <string name="ai_chat_testing_connection">Testing connection...</string>
+    <string name="ai_chat_test_success">Connection established successfully</string>
+    <string name="ai_chat_test_failed">Failed: %1$s</string>
+    <string name="ai_chat_msg_count">%1$d messages</string>
+
+    <!-- Custom Wallpaper & Customization -->
+    <string name="settings_customization_category_title">CUSTOMIZATION</string>
+    <string name="settings_customization_wallpaper_title">Custom wallpaper</string>
+    <string name="settings_customization_wallpaper_desc">Set a background image or video for the interface with hardware blur and dimming.</string>
+    <string name="settings_customization_wallpaper_active">Custom wallpaper active</string>
+    <string name="settings_customization_wallpaper_active_image">Custom image active</string>
+    <string name="settings_customization_wallpaper_active_video">Live video wallpaper active</string>
+    <string name="settings_customization_wallpaper_default">AMOLED black (default)</string>
+    <string name="settings_customization_wallpaper_choose">Select wallpaper</string>
+    <string name="settings_customization_wallpaper_choose_image">Select photo</string>
+    <string name="settings_customization_wallpaper_choose_video">Select video</string>
+    <string name="settings_customization_wallpaper_replace">Change wallpaper</string>
+    <string name="settings_customization_wallpaper_replace_image">Change photo</string>
+    <string name="settings_customization_wallpaper_replace_video">Change video</string>
+    <string name="settings_customization_wallpaper_reset">Reset</string>
+    <string name="settings_customization_wallpaper_reset_confirm_title">Return to default AMOLED background?</string>
+    <string name="settings_customization_wallpaper_reset_confirm_desc">Spheres and gradients will return to their default state.</string>
+    <string name="settings_customization_wallpaper_reset_confirm_btn">Confirm reset</string>
+    <string name="settings_customization_wallpaper_cancel">Cancel</string>
+    <string name="settings_customization_wallpaper_blur">Blur</string>
+    <string name="settings_customization_wallpaper_dim">Dimming</string>
+    <string name="settings_customization_wallpaper_particles">Background particles</string>
+    <string name="settings_customization_wallpaper_particles_desc">Display floating particles and constellation lines over background</string>
+    <string name="settings_customization_wallpaper_video_power_save">Video battery saver</string>
+    <string name="settings_customization_wallpaper_video_power_save_desc">Optimize frame rate and auto-pause in system battery saver mode</string>
+    <string name="settings_customization_wallpaper_processing">Processing media file...</string>
+    <string name="settings_customization_wallpaper_error">Image import error: %1$s</string>
+    <string name="settings_customization_wallpaper_video_error">Video import error: %1$s</string>
+    <string name="settings_customization_wallpaper_metrics">%1$d × %2$d • %3$s KB</string>
+    <string name="settings_customization_wallpaper_video_metrics">%1$d × %2$d • %3$ds • %4$s MB</string>
+    <string name="settings_customization_info_title">Background customization</string>
+    <string name="settings_customization_info_desc">MirrlyUI supports personal image and live video wallpapers. Media is optimized, normalized and stored in the application sandbox. When custom wallpaper is active, glowing spheres are disabled to preserve readability while particles keep reacting to touch physics.</string>
+    <string name="settings_customization_presets_title">Wallpaper Presets</string>
+    <string name="settings_customization_preset_space_toilet">Space Toilet</string>
+    <string name="settings_customization_preset_grass">Morning Dew</string>
+    <string name="settings_customization_preset_breeze">Ocean Breeze</string>
+    <string name="settings_customization_preset_save_current">Save as Preset</string>
+    <string name="settings_customization_preset_save_title">New Preset</string>
+    <string name="settings_customization_preset_name_hint">Preset name</string>
+    <string name="settings_customization_preset_save_btn">Save</string>
+    <string name="settings_customization_preset_delete">Delete preset</string>
+    <string name="settings_customization_preset_custom_badge">Custom</string>
+    <string name="settings_customization_preset_builtin_badge">Built-in</string>
+
+    <!-- Phased Connection Pipeline (3-Phase) -->
+    <string name="preflight_phase_1_server">[1/3] Starting local SOCKS5 listener (127.0.0.1:10808)</string>
+    <string name="preflight_phase_2_warmup">[2/3] Warming up WSS stream pool via Cloudflare</string>
+    <string name="preflight_phase_3_ready">[3/3] Proxy server is active and ready</string>
+
+    <!-- SOCKS5 Optimistic Early Response (0x00) -->
+    <string name="settings_socks5_optimistic_title">Optimistic SOCKS5 Response (0x00)</string>
+    <string name="settings_socks5_optimistic_desc">Immediate success reply to client before Worker handshake completes</string>
+    <string name="settings_socks5_optimistic_card_title">Preventing timeouts on slow mobile networks</string>
+    <string name="settings_socks5_optimistic_card_desc">Telegram client has a strict internal connection timeout (3-5s). On slow or unstable mobile networks (LTE/3G), the full WSS handshake with Cloudflare Worker can exceed this limit, causing connection drops.\n\nWhen enabled, the native Rust engine immediately responds with success (0x05 0x00), buffering initial payload in an internal Tokio channel until the WSS uplink is ready. Disabling this option enforces strict sequential handshake.</string>
+
+    <!-- MTProto Cloudflare Worker Toggle -->
+    <string name="settings_mtproto_worker_title">Tunnel via Cloudflare Worker</string>
+    <string name="settings_mtproto_worker_desc">Use WSS Worker as priority uplink before Anycast CDN</string>
+    <string name="settings_mtproto_worker_active">Active Worker: %1$s</string>
+    <string name="settings_mtproto_worker_cdn">Direct Anycast CDN Flowseal</string>
+
+    <!-- Warm Pool Telemetry & Force Mobile / Hotspot Mode -->
+    <string name="warm_pool_summary">Pool: %1$d/%2$d</string>
+    <string name="settings_force_mobile_title">Cellular Profile (Hotspot)</string>
+    <string name="settings_force_mobile_desc">Force cellular network profile when tethered to Wi-Fi hotspot or on weak connections</string>
+    <string name="settings_force_mobile_card_title">Optimizing stream warmup on tethered hotspots</string>
+    <string name="settings_force_mobile_card_desc">When tethered to another smartphone hotspot via Wi-Fi, Android detects the connection as broadband Wi-Fi. This causes the engine to initiate up to 12 parallel TLS handshakes, saturating the cellular uplink queue.\n\nEnabling this mode forces the cellular (LTE) profile: gentle staggered warmup, optimized pool size, and extended adaptation timeouts.</string>
+
+    <!-- Concurrent Dial Throttling -->
+    <string name="settings_dial_throttling_title">Concurrent Dial Throttling</string>
+    <string name="settings_dial_throttling_desc">Limit parallel dialer attempts to protect constrained routers and mobile hotspots</string>
+    <string name="settings_dial_throttling_card_title">Hotspot modem and buffer protection</string>
+    <string name="settings_dial_throttling_card_desc">When enabled, restricts concurrent dial attempts to Cloudflare on cellular uplinks to two, preventing NAT table saturation and bufferbloat on budget mobile hotspots.\n\nDisabled by default. Enable only if experiencing connection drops while tethered to a weak hotspot.</string>
 </resources>
+

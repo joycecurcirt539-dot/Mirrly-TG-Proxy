@@ -25,7 +25,7 @@ import java.util.Locale
 
 object CloudflareWorkerPayload {
 
-    const val SCRIPT_VERSION = 2
+    const val SCRIPT_VERSION = 6
     const val DEFAULT_WORKER_PREFIX = "mtg-relay-"
 
     private val CYRILLIC_MAP = mapOf(
@@ -103,4 +103,43 @@ object CloudflareWorkerPayload {
 
         return if (clean.isBlank()) generateRandomWorkerName() else clean
     }
+
+    /**
+     * Generates a random compliant workers.dev subdomain: tg-relay-xxxxx
+     */
+    fun generateRandomSubdomain(): String {
+        val chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+        val rng = SecureRandom()
+        val randomSuffix = (1..5)
+            .map { chars[rng.nextInt(chars.length)] }
+            .joinToString("")
+        return "tg-relay-$randomSuffix"
+    }
+
+    /**
+     * Normalizes workers.dev subdomain according to Cloudflare rules:
+     * - Lowercase a-z, 0-9 and hyphens
+     * - Transliterates Cyrillic characters
+     * - Strips leading/trailing hyphens
+     * - Length between 3 and 32 characters
+     */
+    fun normalizeSubdomain(rawInput: String?): String {
+        if (rawInput.isNullOrBlank()) return ""
+
+        var s = rawInput.trim().lowercase(Locale.ROOT)
+        CYRILLIC_MAP.forEach { (cyr, lat) ->
+            s = s.replace(cyr.toString(), lat)
+        }
+
+        var clean = s.replace(Regex("[^a-z0-9-]"), "-")
+            .replace(Regex("-+"), "-")
+            .trim('-')
+
+        if (clean.length > 32) {
+            clean = clean.substring(0, 32).trimEnd('-')
+        }
+
+        return clean
+    }
+
 }

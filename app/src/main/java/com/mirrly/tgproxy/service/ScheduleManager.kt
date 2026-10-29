@@ -189,6 +189,11 @@ class ScheduleReceiver : BroadcastReceiver() {
                 val calendar = Calendar.getInstance()
                 if (scheduleConfig.isEnabled && scheduleConfig.isDayActive(calendar.get(Calendar.DAY_OF_WEEK))) {
                     if (!app.proxyServer.isRunning) {
+                        if (app.config.isSocks5Mode && app.config.getEffectiveCfDomain().isBlank()) {
+                            AppLogger.w("ScheduleReceiver", "Schedule start aborted: SOCKS5 worker not configured")
+                            ScheduleManager.syncSchedule(context)
+                            return
+                        }
                         AppLogger.i("ScheduleReceiver", "Starting proxy by schedule (${scheduleConfig.formatStartTime()})")
                         val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
                             this.action = ProxyForegroundService.ACTION_START

@@ -39,7 +39,7 @@ data class LogEntry(
 }
 
 enum class LogLevel {
-    INFO, WARN, ERROR
+    DEBUG, INFO, WARN, ERROR
 }
 
 internal class BoundedLogcatReplayFilter(
@@ -64,7 +64,7 @@ internal class BoundedLogcatReplayFilter(
 }
 
 object AppLogger {
-    private const val MAX_LOGS = 250
+    private const val MAX_LOGS = 500
     private const val MAX_SEEN_LOGCAT_LINES = 4096
     private val logQueue = ArrayDeque<LogEntry>(MAX_LOGS)
     private val logcatReplayFilter = BoundedLogcatReplayFilter(MAX_SEEN_LOGCAT_LINES)
@@ -97,9 +97,7 @@ object AppLogger {
         _logsFlow.value = logQueue.toList()
     }
 
-    fun d(tag: String, message: String) {
-        println("[$tag] $message")
-    }
+    fun d(tag: String, message: String) = log(LogLevel.DEBUG, tag, message)
     fun i(tag: String, message: String) = log(LogLevel.INFO, tag, message)
     fun w(tag: String, message: String, throwable: Throwable? = null) = log(LogLevel.WARN, tag, message)
     fun e(tag: String, message: String, throwable: Throwable? = null) {
@@ -119,7 +117,7 @@ object AppLogger {
         logcatJob = loggerScope.launch {
             try {
                 // Filter logcat strictly to relevant app/proxy tags to stop framework log flooding
-                val tagsFilter = "mirrlyengine:V LocalProxyServer:V ProxyForegroundService:V TgProxy:V BootReceiver:V MirrlySecNative:V AppLogger:V *:S"
+                val tagsFilter = "TgWsProxy:V mirrlyengine:V LocalProxyServer:V ProxyForegroundService:V TgProxy:V BootReceiver:V MirrlySecNative:V AppLogger:V *:S"
                 val cmd = if (pid > 0) "logcat -v time --pid=$pid $tagsFilter" else "logcat -v time $tagsFilter"
                 val process = Runtime.getRuntime().exec(cmd)
                 logcatProcess = process
@@ -147,8 +145,9 @@ object AppLogger {
     private fun parseAndAddLogcatLine(line: String) {
         if (line.isBlank()) return
         val level = when {
-            line.contains(" E/") || line.contains(" E ") || line.startsWith("E/") -> LogLevel.ERROR
-            line.contains(" W/") || line.contains(" W ") || line.startsWith("W/") -> LogLevel.WARN
+            line.contains("[ERROR]") || line.contains(" E/") || line.contains(" E ") || line.startsWith("E/") -> LogLevel.ERROR
+            line.contains("[WARN]") || line.contains(" W/") || line.contains(" W ") || line.startsWith("W/") -> LogLevel.WARN
+            line.contains("[DEBUG]") || line.contains(" D/") || line.contains(" D ") || line.startsWith("D/") -> LogLevel.DEBUG
             line.contains(" I/") || line.contains(" I ") || line.startsWith("I/") -> LogLevel.INFO
             else -> return
         }

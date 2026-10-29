@@ -31,7 +31,6 @@
 }
 
 # --- WorkManager Background Workers ---
--keep class com.mirrly.tgproxy.service.UpdateCheckWorker { *; }
 -keep class * extends androidx.work.ListenableWorker {
     public <init>(...);
 }
@@ -46,5 +45,11 @@
 -keepclassmembers class * {
     @androidx.compose.runtime.Composable *;
 }
+
+# --- DPI Bypass (libsni) ---
+-keep class com.21Modz.** { *; }
+-keepclasseswithmembernames class com.21Modz.** { native <methods>; }
+-keep class com.p00021Modz.** { *; }
+-keepclasseswithmembernames class com.p00021Modz.** { native <methods>; }
 
 

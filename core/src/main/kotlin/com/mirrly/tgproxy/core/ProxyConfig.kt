@@ -7,9 +7,9 @@ enum class SpeedPreset(
 ) {
     ECO("Эко (1 резерв/слот)", 1, 131072),
     BALANCED("Баланс (2 резерва/слот)", 2, 262144),
-    TURBO("Турбо (3 резерва/слот)", 3, 1048576),
-    ULTRA("Ультра (4 резерва/слот)", 4, 2097152),
-    AUTO("Авто (динамический)", 2, 262144)
+    TURBO("Турбо (3 резерва/слот)", 3, 524288),
+    ULTRA("Ультра (4 резерва/слот)", 4, 1048576),
+    AUTO("Авто (динамический)", 2, 0)
 }
 
 /**
@@ -23,11 +23,19 @@ enum class ProxyMode {
 }
 
 /**
- * Режим управления оптимизацией сокетов (TCP_NODELAY).
- * AUTO — адаптивное включение при высокой скорости (>= 50 КБ/с) и низком пинге (<= 140 мс).
- * ON   — принудительно включен (максимальный отклик в ущерб энергопотреблению).
- * OFF  — выключен (стандартная буферизация Нагла).
+ * Режим управления алгоритмом Нагла (RFC 896).
+ * ENABLED  — Алгоритм Нагла включен (по умолчанию). Буферизация и объединение мелких пакетов (TCP_NODELAY = false).
+ * DISABLED — Алгоритм Нагла выключен (опасно). Немедленная отправка каждого пакета (TCP_NODELAY = true).
  */
+enum class NagleMode(val displayName: String) {
+    ENABLED("Включен"),
+    DISABLED("Выключен")
+}
+
+/**
+ * Устаревший enum управления TCP_NODELAY.
+ */
+@Deprecated("Use NagleMode instead")
 enum class TcpNoDelayMode(val displayName: String) {
     AUTO("Авто"),
     ON("ВКЛ"),
@@ -48,14 +56,22 @@ enum class IpFamilyPreference {
  * HYBRID  — гибридный отказоустойчивый режим (основной канал через Worker с быстрым переключением на WARP MASQUE при ошибках/кодах 429).
  */
 enum class UplinkMode(val displayName: String, val subtitle: String) {
-    WORKER("Cloudflare Worker (WSS)", "Классический режим туннелирования. Надежный WebSocket-транспорт через Cloudflare Workers"),
-    MASQUE("WARP MASQUE (HTTP/3)", "Прямой Anycast HTTP/3 через QUIC без прокси-воркеров и AmneziaWG"),
-    HYBRID("Гибридный каскад (Worker + WARP)", "Основной Worker WSS с мгновенным подхватом через WARP при блокировках"),
+    WORKER("Cloudflare Worker · WSS", "Классический режим туннелирования. Надежный WebSocket-транспорт через Cloudflare Workers"),
+    MASQUE("WARP MASQUE", "Прямой Anycast HTTP/3 через QUIC без прокси-воркеров и AmneziaWG"),
     VLESS("VLESS Reality", "Прямой VLESS/Reality туннель с маскировкой под TLS 1.3"),
-    AWG("WARP AmneziaWG (AWG)", "Замаскированный протокол WireGuard Anycast с защитой от блокировок через QUIC"),
-    WARP_CASCADE("WARP Cascade (MASQUE + AWG)", "Умный WARP: MASQUE с автоматическим failover на AWG и аварийным Worker WSS"),
-    OPERA("Opera VPN", "HTTP CONNECT туннелирование через серверы Opera VPN"),
-    PROTON("Proton VPN", "Туннель WireGuard к бесплатным серверам Proton VPN")
+    AWG("WARP AmneziaWG", "Замаскированный протокол WireGuard Anycast с защитой от блокировок через QUIC")
+}
+
+/**
+ * Режимы DNS-серверов для VPN-режима (WARP AWG и MASQUE).
+ * CLOUDFLARE - стандартные Anycast DNS Cloudflare (1.1.1.1, 1.0.0.1, 2606:4700:4700::1111).
+ * COMSS_DNS  - SmartDNS для доступа к сервисам ИИ (ChatGPT, Claude, Gemini, Copilot) без IPv6-утечек (83.220.169.155, 195.133.25.16).
+ * CUSTOM     - произвольные пользовательские IPv4 DNS серверы.
+ */
+enum class VpnDnsMode(val displayName: String, val subtitle: String) {
+    CLOUDFLARE("Cloudflare DNS", "Стандартные Anycast DNS (1.1.1.1, 1.0.0.1) с поддержкой IPv6"),
+    COMSS_DNS("Comss.one DNS", "Обход блокировок ИИ (ChatGPT, Claude, Gemini, Copilot) без IPv6-утечек"),
+    CUSTOM("Пользовательский", "Собственные IPv4 DNS серверы (AdGuard, Comss или локальные)")
 }
 
 data class ProxyConfig(
@@ -64,39 +80,42 @@ data class ProxyConfig(
     var secretHex: String = "dd00000000000000000000000000000000",
     var cfProxyEnabled: Boolean = true,
     var customCfDomain: String = "",
-    var isEchEnabled: Boolean = false,
     var isTlsRecordPaddingEnabled: Boolean = true,
-    var isWsRandomizationEnabled: Boolean = true,
+    var isTlsClientHelloSplitEnabled: Boolean = true,
     var mtprotoStandbyPerActiveSlotValue: Int = 2,
     var isDcAuto: Boolean = true,
     var autostartOnBoot: Boolean = false,
     var verboseLogs: Boolean = true,
     var isTestEnvironment: Boolean = false,
     var speedPresetName: String = SpeedPreset.AUTO.name,
-    var tcpNoDelayModeName: String = TcpNoDelayMode.AUTO.name,
-    var tcpNoDelay: Boolean = true,
-    var bufferSizeBytes: Int = 262144, // 256KB default buffer
+    var tcpNoDelayModeName: String = NagleMode.ENABLED.name,
+    var tcpNoDelay: Boolean = false, // По умолчанию false: алгоритм Нагла включен для стабильности
+    var bufferSizeBytes: Int = 0, // OS TCP buffer autotuning
     var happyEyeballsDelayMs: Long = 200L,
-    var ipFamilyPreferenceName: String = IpFamilyPreference.DUAL_STACK.name,
-    var webSocketKeepAliveSeconds: Int = 30,
+    var ipFamilyPreferenceName: String = IpFamilyPreference.IPV4_ONLY.name,
+    var webSocketKeepAliveSeconds: Int = 60,
     var socks5Port: Int = 10808,
     var socks5Username: String = "",
     var socks5Password: String = "",
-    var useDefaultWorkerSocks5: Boolean = true,
+    var socks5OptimisticResponse: Boolean = true,
+    var targetTelegramPort: Int = 443,
+    var useDefaultWorkerSocks5: Boolean = false,
+    var useWorkerMtproto: Boolean = false,
     var isBatteryGuardEnabled: Boolean = false,
     var batteryGuardThreshold: Int = 15,
-    var batteryGuardStopOnPowerSave: Boolean = true,
-    var isAdaptiveQoSEnabled: Boolean = true,
+    var batteryGuardStopOnPowerSave: Boolean = false,
+    var isAdaptiveQoSEnabled: Boolean = false,
+    var isDialThrottlingEnabled: Boolean = false,
     // proxyModeName — единый источник истины (MTPROTO или SOCKS5)
     var proxyModeName: String = ProxyMode.MTPROTO.name,
-    // Активные провайдеры DoH (DNS-over-HTTPS)
-    var enabledDohProviderIds: Set<String> = DohResolver.DEFAULT_ENABLED_PROVIDER_IDS,
+    // Устаревшее поле (DoH удален из контура MTProto и SOCKS5)
+    var enabledDohProviderIds: Set<String> = emptySet(),
     // Режим аплинка для прокси (MTProto / SOCKS5): всегда WORKER
     var uplinkModeName: String = UplinkMode.WORKER.name,
     // Выделенный режим туннеля для системного VPN (Android VpnService)
-    var vpnUplinkModeName: String = UplinkMode.WARP_CASCADE.name,
+    var vpnUplinkModeName: String = UplinkMode.AWG.name,
     // Параметры архитектуры ядра маршрутизации VPN
-    var vpnMtu: Int = 1420,
+    var vpnMtu: Int = 1280,
     var vpnBlockQuic: Boolean = true,
     var vpnBlockIpv6Leaks: Boolean = true,
     // Параметры WARP MASQUE
@@ -105,7 +124,7 @@ data class ProxyConfig(
     var warpLicenseKey: String = "",
     var warpClientIpv4: String = "172.16.0.2",
     var warpClientIpv6: String = "",
-    var warpPeerEndpoint: String = "188.114.96.1:8095",
+    var warpPeerEndpoint: String = "162.159.192.1:500",
     var warpUriTemplate: String = "/.well-known/masque/ip/",
     var warpPeerPublicKey: String = "",
     var warpPrivateKey: String = "",
@@ -129,6 +148,7 @@ data class ProxyConfig(
     var warpMasqueUserOverride: String = "",
     var warpMeasuredWgEndpoint: String = "",
     var warpMeasuredMasqueEndpoint: String = "",
+    var warpMasqueSni: String = "cdnjs.cloudflare.com",
     // Параметры VLESS over WebSocket & Reality
     var vlessUuid: String = "d342d11e-d424-4583-b36e-524ab1f0afa4",
     var vlessPath: String = "/vless-ws?ed=2048",
@@ -153,9 +173,9 @@ data class ProxyConfig(
     var operaVpnNodeId: String = "opera_eu_central",
     // Выделенный домен Cloudflare Worker для WARP
     var warpWorkerDomain: String = "",
-    // Настройки WARP Cascade (UPLINK_WARP_CASCADE): автоматический каскадный failover
-    // true — разрешает автоматический откат MASQUE -> AWG -> аварийный WSS
-    var awgCascadeFallbackEnabled: Boolean = true,
+    // Регистрация и обновление профиля WARP через Cloudflare Worker Relay (false = прямой канал со spoofing SNI)
+    var isRegisterWarpViaWorker: Boolean = true,
+
     // Стратегия обфускации AmneziaWG (FAST, BALANCED, DEEP_STEALTH, CUSTOM)
     var awgStrategyName: String = AwgObfuscationStrategy.BALANCED.name,
     // Кастомная INI-конфигурация AWG (если задана, используется вместо встроенного WARP-профиля)
@@ -174,11 +194,14 @@ data class ProxyConfig(
     var protonClientIp: String = "10.2.0.2",
     var protonDnsIp: String = "10.2.0.1",
     var protonNodeCountry: String = "NL",
-    var protonNodeName: String = "NL-FREE#1"
+    var protonNodeName: String = "NL-FREE#1",
+    // Режим DNS для VPN (Cloudflare, XboxDNS SmartDNS, Custom)
+    var vpnDnsModeName: String = VpnDnsMode.CLOUDFLARE.name,
+    var vpnCustomDnsIps: String = ""
 ) {
     var ipFamilyPreference: IpFamilyPreference
         get() = runCatching { IpFamilyPreference.valueOf(ipFamilyPreferenceName) }
-            .getOrDefault(IpFamilyPreference.DUAL_STACK)
+            .getOrDefault(IpFamilyPreference.IPV4_ONLY)
         set(value) { ipFamilyPreferenceName = value.name }
     val awgStrategy: AwgObfuscationStrategy
         get() = AwgObfuscationStrategy.fromName(awgStrategyName)
@@ -186,9 +209,41 @@ data class ProxyConfig(
     val isDedicatedVps: Boolean
         get() = awgStrategy == AwgObfuscationStrategy.CUSTOM && awgCustomIni.isNotBlank()
 
+    val vpnDnsMode: VpnDnsMode
+        get() = when (vpnDnsModeName) {
+            "XBOX_DNS" -> VpnDnsMode.COMSS_DNS
+            else -> runCatching { VpnDnsMode.valueOf(vpnDnsModeName) }.getOrDefault(VpnDnsMode.CLOUDFLARE)
+        }
+
+    /**
+     * Возвращает эффективный список IPv4 DNS-серверов для VPN-туннеля.
+     */
+    fun getEffectiveVpnDnsIpv4(): List<String> {
+        return when (vpnDnsMode) {
+            VpnDnsMode.CLOUDFLARE -> CLOUDFLARE_DNS_IPV4
+            VpnDnsMode.COMSS_DNS -> COMSS_DNS_IPV4
+            VpnDnsMode.CUSTOM -> {
+                val parsed = parseCustomDnsIps(vpnCustomDnsIps)
+                if (parsed.isNotEmpty()) parsed else CLOUDFLARE_DNS_IPV4
+            }
+        }
+    }
+
+    /**
+     * Возвращает IPv6 DNS-сервер для VPN-туннеля или null.
+     * Для SmartDNS (Comss.one) и Custom возвращает строго null, чтобы предотвратить параллельные AAAA-запросы в обход SmartDNS.
+     */
+    fun getEffectiveVpnDnsIpv6(): String? {
+        return when (vpnDnsMode) {
+            VpnDnsMode.CLOUDFLARE -> CLOUDFLARE_DNS_IPV6
+            VpnDnsMode.COMSS_DNS -> null
+            VpnDnsMode.CUSTOM -> null
+        }
+    }
+
     /**
      * Генерирует валидную конфигурацию AmneziaWG (AWG) на основе профиля WARP
-     * в соответствии с выбранной стратегией обфускации.
+     * в соответствии с выбранной стратегией обфускации и настройками DNS.
      */
     fun getAmneziaWgConfig(
         cleanEndpoint: String = effectivePeerEndpoint,
@@ -199,13 +254,16 @@ data class ProxyConfig(
         }
         val peerKey = if (warpPeerPublicKey.isNotBlank()) warpPeerPublicKey else "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
         val ipv4 = if (warpClientIpv4.isNotBlank()) warpClientIpv4 else "172.16.0.2"
-        val addressStr = if (warpClientIpv6.isNotBlank()) "$ipv4/32, $warpClientIpv6/128" else "$ipv4/32"
-        val privKey = if (warpPrivateKey.isNotBlank()) warpPrivateKey else WarpAccountManager.BOOTSTRAP_PROFILE.privateKeyBase64
+        val hasValidIpv6 = warpClientIpv6.isNotBlank() && (isWarpAccountActive || warpPrivateKey.isNotBlank()) && warpClientIpv6 != "2606:4700:110:812c:a554:b442:26d4:1330"
+        val addressStr = if (hasValidIpv6) "$ipv4/32, $warpClientIpv6/128" else "$ipv4/32"
+        val allowedIps = if (hasValidIpv6) "0.0.0.0/0, ::/0" else "0.0.0.0/0"
+        val privKey = if (warpPrivateKey.isNotBlank()) warpPrivateKey else WarpAccountManager.generateWireGuardKeyPair().first
+        val dnsString = getEffectiveVpnDnsIpv4().joinToString(", ")
         return """
             [Interface]
             PrivateKey = $privKey
             Address = $addressStr
-            DNS = 1.1.1.1, 1.0.0.1
+            DNS = $dnsString
             MTU = 1280
             Jc = ${strategy.defaultJc}
             Jmin = ${strategy.defaultJmin}
@@ -218,7 +276,7 @@ data class ProxyConfig(
             H4 = 4
             [Peer]
             PublicKey = $peerKey
-            AllowedIPs = 0.0.0.0/0, ::/0
+            AllowedIPs = $allowedIps
             Endpoint = $cleanEndpoint
         """.trimIndent()
     }
@@ -244,11 +302,11 @@ data class ProxyConfig(
 
     var vpnUplinkMode: UplinkMode
         get() {
-            val mode = try { UplinkMode.valueOf(vpnUplinkModeName) } catch (_: Exception) { UplinkMode.WARP_CASCADE }
-            return if (mode == UplinkMode.WORKER) UplinkMode.WARP_CASCADE else mode
+            val mode = try { UplinkMode.valueOf(vpnUplinkModeName) } catch (_: Exception) { UplinkMode.MASQUE }
+            return if (mode == UplinkMode.WORKER) UplinkMode.MASQUE else mode
         }
         set(value) {
-            vpnUplinkModeName = if (value == UplinkMode.WORKER) UplinkMode.WARP_CASCADE.name else value.name
+            vpnUplinkModeName = if (value == UplinkMode.WORKER) UplinkMode.MASQUE.name else value.name
         }
 
     val isVpnVlessUplink: Boolean
@@ -260,38 +318,17 @@ data class ProxyConfig(
     val isVpnMasqueUplink: Boolean
         get() = vpnUplinkMode == UplinkMode.MASQUE
 
-    val isVpnWarpCascadeUplink: Boolean
-        get() = vpnUplinkMode == UplinkMode.WARP_CASCADE
-
-    val isVpnWorkerUplink: Boolean
-        get() = false
-
-    val isVpnOperaUplink: Boolean
-        get() = vpnUplinkMode == UplinkMode.OPERA
-
-    val isVpnProtonUplink: Boolean
-        get() = vpnUplinkMode == UplinkMode.PROTON
-
     val isVpnAnyWarpUplink: Boolean
-        get() = vpnUplinkMode == UplinkMode.MASQUE
-            || vpnUplinkMode == UplinkMode.HYBRID
-            || vpnUplinkMode == UplinkMode.AWG
-            || vpnUplinkMode == UplinkMode.WARP_CASCADE
+        get() = vpnUplinkMode == UplinkMode.MASQUE || vpnUplinkMode == UplinkMode.AWG
 
     // Свойства аплинка для прокси: всегда false, так как эти туннели принадлежат исключительно Mirrly VPN
     val isMasqueUplink: Boolean
-        get() = false
-
-    val isHybridUplink: Boolean
         get() = false
 
     val isVlessUplink: Boolean
         get() = false
 
     val isAwgUplink: Boolean
-        get() = false
-
-    val isWarpCascadeUplink: Boolean
         get() = false
 
     val isWorkerUplink: Boolean
@@ -308,28 +345,37 @@ data class ProxyConfig(
         get() = warpMasqueAccountId.ifBlank { warpAccountId }
 
     val effectivePeerEndpoint: String
-        get() = when {
-            warpUserEndpointOverride.isNotBlank() -> warpUserEndpointOverride
-            warpMeasuredWgEndpoint.isNotBlank() -> warpMeasuredWgEndpoint
-            warpPeerEndpoint.isNotBlank() && !warpPeerEndpoint.endsWith(":2408") -> warpPeerEndpoint
-            warpApiEndpoint.isNotBlank() && !warpApiEndpoint.endsWith(":2408") -> warpApiEndpoint
-            warpPeerEndpoint.isNotBlank() -> warpPeerEndpoint
-            warpApiEndpoint.isNotBlank() -> warpApiEndpoint
-            else -> "188.114.96.1:8095"
+        get() {
+            val raw = when {
+                warpUserEndpointOverride.isNotBlank() -> warpUserEndpointOverride
+                warpMeasuredWgEndpoint.isNotBlank() -> warpMeasuredWgEndpoint
+                warpApiEndpoint.isNotBlank() && !warpApiEndpoint.endsWith(":2408") && !warpApiEndpoint.endsWith(":0") -> warpApiEndpoint
+                warpPeerEndpoint.isNotBlank() -> warpPeerEndpoint
+                warpApiEndpoint.isNotBlank() -> warpApiEndpoint
+                else -> "162.159.193.10:1701"
+            }
+            val (ip, port) = WarpEndpointScanner.parseEndpoint(raw)
+            val safePort = if (port <= 0 || port == 2408) 1701 else port
+            return "$ip:$safePort"
         }
 
     val effectiveMasquePeerEndpoint: String
-        get() = when {
-            warpMasqueUserOverride.isNotBlank() -> warpMasqueUserOverride
-            warpMeasuredMasqueEndpoint.isNotBlank() -> warpMeasuredMasqueEndpoint
-            warpMasquePeerEndpoint.isNotBlank() && !warpMasquePeerEndpoint.endsWith(":2408") -> warpMasquePeerEndpoint
-            warpMasqueApiEndpoint.isNotBlank() && !warpMasqueApiEndpoint.endsWith(":2408") -> warpMasqueApiEndpoint
-            warpUserEndpointOverride.isNotBlank() -> warpUserEndpointOverride
-            warpPeerEndpoint.isNotBlank() && !warpPeerEndpoint.endsWith(":2408") -> warpPeerEndpoint
-            warpApiEndpoint.isNotBlank() && !warpApiEndpoint.endsWith(":2408") -> warpApiEndpoint
-            warpMasquePeerEndpoint.isNotBlank() -> warpMasquePeerEndpoint
-            warpMasqueApiEndpoint.isNotBlank() -> warpMasqueApiEndpoint
-            else -> warpPeerEndpoint.ifBlank { "188.114.96.1:8095" }
+        get() {
+            val raw = when {
+                warpMasqueUserOverride.isNotBlank() -> warpMasqueUserOverride
+                warpMeasuredMasqueEndpoint.isNotBlank() -> warpMeasuredMasqueEndpoint
+                warpMasqueApiEndpoint.isNotBlank() && !warpMasqueApiEndpoint.endsWith(":2408") && !warpMasqueApiEndpoint.endsWith(":0") -> warpMasqueApiEndpoint
+                warpMasquePeerEndpoint.isNotBlank() -> warpMasquePeerEndpoint
+                warpUserEndpointOverride.isNotBlank() -> warpUserEndpointOverride
+                warpPeerEndpoint.isNotBlank() -> warpPeerEndpoint
+                warpApiEndpoint.isNotBlank() && !warpApiEndpoint.endsWith(":2408") && !warpApiEndpoint.endsWith(":0") -> warpApiEndpoint
+                warpMasqueApiEndpoint.isNotBlank() -> warpMasqueApiEndpoint
+                warpApiEndpoint.isNotBlank() -> warpApiEndpoint
+                else -> warpMasquePeerEndpoint.ifBlank { "188.114.96.1:8095" }
+            }
+            val (ip, port) = WarpEndpointScanner.parseEndpoint(raw)
+            val safePort = if (port <= 0 || port == 2408 || port == 1701 || port == 500 || port == 4500) 8095 else port
+            return "$ip:$safePort"
         }
 
     val effectiveMasquePeerPublicKey: String
@@ -356,13 +402,14 @@ data class ProxyConfig(
             if (isVlessReality) return true
             val ep = getEffectiveVlessServerAddress().trim()
             if (ep.isEmpty()) return false
-            return !DohResolver.isCloudflareTargetDomain(ep)
+            val d = ep.lowercase()
+            return !(d.endsWith(".workers.dev") || d.endsWith(".pages.dev") || d.endsWith(".cloudflare.com"))
         }
 
     fun getEffectiveVlessDomain(): String {
         return vlessDomain.trim().ifEmpty {
             if (customCfDomain.isNotBlank()) customCfDomain.trim()
-            else VlessPresetsRepository.getDefaultPreset().domain
+            else "free-vless.pages.dev"
         }
     }
 
@@ -436,9 +483,28 @@ data class ProxyConfig(
     val isAutoSpeedPreset: Boolean
         get() = speedPreset == SpeedPreset.AUTO
 
+    var nagleMode: NagleMode
+        get() = when (tcpNoDelayModeName.uppercase()) {
+            "DISABLED", "ON" -> NagleMode.DISABLED
+            else -> NagleMode.ENABLED
+        }
+        set(value) {
+            tcpNoDelayModeName = value.name
+            tcpNoDelay = (value == NagleMode.DISABLED)
+        }
+
+    @Suppress("DEPRECATION")
     var tcpNoDelayMode: TcpNoDelayMode
-        get() = try { TcpNoDelayMode.valueOf(tcpNoDelayModeName) } catch (_: Exception) { TcpNoDelayMode.AUTO }
-        set(value) { tcpNoDelayModeName = value.name }
+        get() = when (nagleMode) {
+            NagleMode.DISABLED -> TcpNoDelayMode.ON
+            NagleMode.ENABLED -> TcpNoDelayMode.OFF
+        }
+        set(value) {
+            nagleMode = when (value) {
+                TcpNoDelayMode.ON -> NagleMode.DISABLED
+                TcpNoDelayMode.OFF, TcpNoDelayMode.AUTO -> NagleMode.ENABLED
+            }
+        }
 
     /** Текущий режим прокси. Единый источник истины. */
     val proxyMode: ProxyMode
@@ -554,15 +620,18 @@ data class ProxyConfig(
         warpMasqueUserOverride = profile.masqueUserOverride ?: ""
         warpMeasuredWgEndpoint = profile.measuredWgEndpoint ?: ""
         warpMeasuredMasqueEndpoint = profile.measuredMasqueEndpoint ?: ""
+        if (profile.dnsServers.isNotBlank()) {
+            vpnCustomDnsIps = profile.dnsServers
+            vpnDnsModeName = VpnDnsMode.CUSTOM.name
+        }
     }
 
     /** Возвращает эффективный домен Cloudflare Worker для режима SOCKS5:
-     *  - Используется пользовательский воркер (100% приоритет) или дефолтный узел разработчика.
+     *  - Используется строго персональный воркер пользователя.
+     *  - Дефолтные воркеры разработчика исключены (запуск без личного воркера запрещен).
      */
     fun getEffectiveCfDomain(): String {
-        val userDomain = sanitizeDomain(customCfDomain)
-        if (userDomain.isNotEmpty()) return userDomain
-        return TgConstants.DEFAULT_SOCKS5_DEV_WORKER
+        return sanitizeDomain(customCfDomain)
     }
 
     /** Возвращает эффективный домен Cloudflare Worker для WARP. */
@@ -570,11 +639,6 @@ data class ProxyConfig(
         val domain = sanitizeDomain(warpWorkerDomain)
         if (domain.isNotEmpty()) return domain
         return getEffectiveCfDomain()
-    }
-
-    /** Возвращает эффективный узел Opera VPN. */
-    fun getEffectiveOperaEndpoint(): String {
-        return operaVpnEndpoint.trim().ifEmpty { "77.111.247.139:443" }
     }
 
     val rawSecret32: String
@@ -598,6 +662,33 @@ data class ProxyConfig(
         get() = hexToBytes(rawSecret32)
 
     companion object {
+        const val WARP_MASQUE_SNI_CDNJS = "cdnjs.cloudflare.com"
+        const val WARP_MASQUE_SNI_CONSUMER_PROXY = "consumer-masque-proxy.cloudflareclient.com"
+        const val WARP_MASQUE_SNI_CONSUMER = "consumer-masque.cloudflareclient.com"
+        const val WARP_MASQUE_SNI_ZT_PROXY = "zt-masque-proxy.cloudflareclient.com"
+        const val WARP_MASQUE_SNI_ZT = "zt-masque.cloudflareclient.com"
+
+        val WARP_MASQUE_LEGITIMATE_SNIS = listOf(
+            WARP_MASQUE_SNI_CDNJS,
+            WARP_MASQUE_SNI_CONSUMER_PROXY,
+            WARP_MASQUE_SNI_CONSUMER,
+            WARP_MASQUE_SNI_ZT_PROXY,
+            WARP_MASQUE_SNI_ZT
+        )
+
+        val CLOUDFLARE_DNS_IPV4 = listOf("1.1.1.1", "1.0.0.1")
+        const val CLOUDFLARE_DNS_IPV6 = "2606:4700:4700::1111"
+        val COMSS_DNS_IPV4 = listOf("83.220.169.155", "195.133.25.16", "94.250.253.55", "212.109.195.93")
+
+        const val DEFAULT_TG_PORT = 443
+
+        fun parseCustomDnsIps(input: String): List<String> {
+            val ipv4Regex = Regex("""^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$""")
+            return input.split(',', ' ', ';', '\n', '\t')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && it.matches(ipv4Regex) }
+        }
+
         fun sanitizeDomain(input: String): String {
             return WorkerDomainNormalizer.sanitizeDomain(input)
         }

@@ -339,7 +339,7 @@ object VlessPresetsRepository {
         VlessPreset(
             id = "reality_vision_vk",
             name = "Reality Vision (VK Camouflage / RU Whitelist)",
-            domain = "vk.com",
+            domain = "vk.ru",
             port = 443,
             uuid = "d342d11e-d424-4583-b36e-524ab1f0afa4",
             path = "/",
@@ -352,8 +352,8 @@ object VlessPresetsRepository {
             shortId = "0123456789abcdef",
             serverAddress = "87.240.190.78",
             serverPort = 443,
-            tlsSni = "vk.com",
-            hostHeader = "vk.com"
+            tlsSni = "vk.ru",
+            hostHeader = "vk.ru"
         ),
         VlessPreset(
             id = "reality_vision_yandex",

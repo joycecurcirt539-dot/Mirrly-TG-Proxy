@@ -300,18 +300,6 @@ class NodeIndependenceTest {
             proxyCode.contains("bytes_before_stall"),
             "proxy.rs bridge_ws must track bytes_before_stall"
         )
-
-        val socks5Rs = File(rootDir, "mirrlyengine/src/socks5.rs")
-        val socks5Code = socks5Rs.readText()
-        assertTrue(
-            socks5Code.contains("select_diverse_race_candidates"),
-            "socks5.rs must filter active_workers with select_diverse_race_candidates"
-        )
-        assertTrue(
-            socks5Code.contains("bytes_before_stall"),
-            "socks5.rs bridge_socks5_ws must track bytes_before_stall"
-        )
-
         val libRs = File(rootDir, "mirrlyengine/src/lib.rs")
         val libCode = libRs.readText()
         assertTrue(

@@ -22,7 +22,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.exp
-import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
@@ -62,26 +61,6 @@ data class DcAffinityDistribution(
     val summary: String
 )
 
-/**
- * Срез комплексной аналитики MTProto трафика и CDN.
- */
-data class MtprotoAnalyticsSnapshot(
-    val dcMetrics: List<DcMetrics>,
-    val primaryDcName: String,
-    val totalRxBytes: Long,
-    val totalTxBytes: Long,
-    val totalBytes: Long,
-    val cdnBytes: Long,
-    val cdnPercentage: Float,
-    val activeCdnNodes: Int,
-    val savedDc4Bytes: Long,
-    val intermediatePackets: Long,
-    val paddedPackets: Long,
-    val abridgedPackets: Long,
-    val totalPackets: Long,
-    val multiplexingRatio: Double,
-    val dcAffinityEntropy: Double
-)
 
 /**
  * Движок поведенческого анализа и адаптивного распределения пула сокетов по дата-центрам Telegram (DC-Affinity).
@@ -125,10 +104,6 @@ class TelegramDCAffinityEngine {
     }
 
     private val records = ConcurrentHashMap<Int, DcRecord>()
-    private val intermediatePackets = AtomicLong(0L)
-    private val paddedPackets = AtomicLong(0L)
-    private val abridgedPackets = AtomicLong(0L)
-    private val totalPackets = AtomicLong(0L)
 
     init {
         // Инициализируем записи для основных DC и CDN
@@ -277,99 +252,11 @@ class TelegramDCAffinityEngine {
         }.sortedByDescending { it.allocatedSockets }
     }
 
-    fun recordTransportDialect(dialect: String, count: Long = 1) {
-        if (count <= 0) return
-        totalPackets.addAndGet(count)
-        when (dialect.lowercase()) {
-            "padded", "0xdd", "dd" -> paddedPackets.addAndGet(count)
-            "abridged", "0xef", "ef" -> abridgedPackets.addAndGet(count)
-            else -> intermediatePackets.addAndGet(count)
-        }
-    }
-
-    fun recordPacket(dcId: Int, rxBytes: Long, txBytes: Long, dialect: String? = null) {
-        recordTraffic(dcId, rxBytes, txBytes)
-        if (dialect != null) {
-            recordTransportDialect(dialect, 1)
-        } else {
-            totalPackets.incrementAndGet()
-            intermediatePackets.incrementAndGet()
-        }
-    }
-
-    /**
-     * Получение сводного снимка аналитики MTProto трафика и CDN.
-     */
-    fun getMtprotoSnapshot(totalPoolSize: Int = 4, totalWsConnections: Long = 1): MtprotoAnalyticsSnapshot {
-        val dcMetrics = getDcMetrics(totalPoolSize)
-        val distribution = calculateSocketDistribution(totalPoolSize)
-        val primaryName = if (distribution.primaryDcId != null) getDcInfo(distribution.primaryDcId).name else "DC 2"
-
-        var totalRx = 0L
-        var totalTx = 0L
-        var cdnTotal = 0L
-
-        for (m in dcMetrics) {
-            totalRx += m.bytesReceived
-            totalTx += m.bytesSent
-            if (m.dcId == 100) {
-                cdnTotal += m.totalBytes
-            }
-        }
-
-        val grandTotal = totalRx + totalTx
-        val cdnPct = if (grandTotal > 0) (cdnTotal.toFloat() / grandTotal.toFloat()) * 100f else 0f
-        val savedDc4 = cdnTotal
-
-        val interm = intermediatePackets.get().coerceAtLeast(0)
-        val padded = paddedPackets.get().coerceAtLeast(0)
-        val abridged = abridgedPackets.get().coerceAtLeast(0)
-        var totalPkts = totalPackets.get().coerceAtLeast(0)
-
-        if (totalPkts == 0L && grandTotal > 0L) {
-            totalPkts = (grandTotal / 1200L).coerceAtLeast(1L)
-        }
-
-        val wsCount = totalWsConnections.coerceAtLeast(1L)
-        val multiplexing = if (totalPkts > 0) (totalPkts.toDouble() / wsCount.toDouble()) else 0.0
-
-        val allocated = distribution.socketDistribution.values.filter { it > 0 }
-        val entropy = if (allocated.isNotEmpty()) {
-            val totalAlloc = allocated.sum().toDouble()
-            allocated.sumOf { s ->
-                val p = s / totalAlloc
-                if (p > 0) -p * kotlin.math.ln(p) else 0.0
-            }
-        } else 0.0
-
-        return MtprotoAnalyticsSnapshot(
-            dcMetrics = dcMetrics,
-            primaryDcName = primaryName,
-            totalRxBytes = totalRx,
-            totalTxBytes = totalTx,
-            totalBytes = grandTotal,
-            cdnBytes = cdnTotal,
-            cdnPercentage = (cdnPct * 10.0f).roundToInt() / 10.0f,
-            activeCdnNodes = if (cdnTotal > 0) 20 else 0,
-            savedDc4Bytes = savedDc4,
-            intermediatePackets = interm,
-            paddedPackets = padded,
-            abridgedPackets = abridged,
-            totalPackets = totalPkts,
-            multiplexingRatio = (multiplexing * 10.0).roundToInt() / 10.0,
-            dcAffinityEntropy = (entropy * 100.0).roundToInt() / 100.0
-        )
-    }
-
     fun reset() {
         records.clear()
         for (id in listOf(2, 4, 100, 1, 3, 5)) {
             records[id] = DcRecord(id)
         }
-        intermediatePackets.set(0L)
-        paddedPackets.set(0L)
-        abridgedPackets.set(0L)
-        totalPackets.set(0L)
-        AppLogger.i(TAG, "Статистика DC-Affinity и MTProto сброшена")
+        AppLogger.i(TAG, "Статистика DC-Affinity сброшена")
     }
 }

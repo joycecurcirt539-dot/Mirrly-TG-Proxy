@@ -1,5 +1,5 @@
 use aes::cipher::{KeyIvInit, StreamCipher};
-use byteorder::{BigEndian, ByteOrder, LittleEndian};
+use byteorder::{ByteOrder, LittleEndian};
 
 type Aes256Ctr = ctr::Ctr64BE<aes::Aes256>;
 
@@ -118,8 +118,8 @@ impl MsgSplitter {
                 // Need more bytes to complete current packet frame
                 break;
             }
-            if pkt_len == 0 {
-                // Unknown/invalid format: disable splitter and pass through remaining data
+            if pkt_len <= 0 || pkt_len > 1024 * 1024 {
+                // Unknown/invalid format or packet exceeding 1 MiB limit: disable splitter and pass through
                 self.disabled = true;
                 let mut remaining = std::mem::take(&mut self.plain_buf);
                 tg_enc.xor(&mut remaining);
@@ -227,15 +227,6 @@ pub fn xor_mask_in_place(data: &mut [u8], mask: &[u8]) {
         data[i] ^= mask[i & 3];
         i += 1;
     }
-}
-
-#[allow(dead_code)]
-pub fn write_be_u16(buf: &mut [u8], v: u16) {
-    BigEndian::write_u16(buf, v);
-}
-#[allow(dead_code)]
-pub fn write_be_u64(buf: &mut [u8], v: u64) {
-    BigEndian::write_u64(buf, v);
 }
 
 #[cfg(test)]

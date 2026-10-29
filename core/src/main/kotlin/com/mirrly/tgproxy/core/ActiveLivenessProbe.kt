@@ -43,15 +43,13 @@ import java.nio.charset.StandardCharsets
 enum class CascadeStage(val title: String) {
     STAGE_0_IPV6_WARP("IPv6 WARP"),
     STAGE_1_SCANNED_WARP("Scanned WARP (Frag)"),
-    STAGE_2_MASQUE_HTTP3("MASQUE (HTTP/3)"),
-    STAGE_3_VLESS_PRESET("VLESS Preset");
+    STAGE_2_MASQUE_HTTP3("MASQUE (HTTP/3)");
 
     fun next(): CascadeStage {
         return when (this) {
             STAGE_0_IPV6_WARP -> STAGE_1_SCANNED_WARP
             STAGE_1_SCANNED_WARP -> STAGE_2_MASQUE_HTTP3
-            STAGE_2_MASQUE_HTTP3 -> STAGE_3_VLESS_PRESET
-            STAGE_3_VLESS_PRESET -> STAGE_0_IPV6_WARP
+            STAGE_2_MASQUE_HTTP3 -> STAGE_0_IPV6_WARP
         }
     }
 }
@@ -150,11 +148,8 @@ class ActiveLivenessProbe(
     var onProbeCompleted: ((ActiveProbeResult) -> Unit)? = null
 
     fun start() {
-        if (probeJob?.isActive == true) return
-        probeJob = scope.launch {
-            runProbeLoop()
-        }
-        AppLogger.i(TAG, "Active Liveness Probe запущен (таймаут: ${timeoutMs}мс, каскад: ${currentStage.title})")
+        // Фоновое активное зондирование туннеля полностью отключено: 0 холостых запросов к Cloudflare Worker
+        AppLogger.d(TAG, "Active Liveness Probe background loop is disabled (zero proxy overhead)")
     }
 
     fun stop() {
@@ -247,6 +242,7 @@ class ActiveLivenessProbe(
 
         try {
             socket = Socket()
+            VpnSocketProtector.protect(socket)
             socket.tcpNoDelay = true
             socket.soTimeout = timeoutMs
             socket.connect(InetSocketAddress("127.0.0.1", port), timeoutMs)

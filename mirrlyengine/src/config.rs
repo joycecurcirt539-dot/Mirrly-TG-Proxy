@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -8,15 +9,12 @@ use std::time::{Duration, Instant};
 // Constants & Configuration
 // ---------------------------------------------------------------------------
 
-pub const DEFAULT_PORT: u16 = 1443;
-pub const SOCKS5_DEFAULT_PORT: u16 = 10808;
-pub static TCP_NODELAY: AtomicBool = AtomicBool::new(true);
-pub const DEFAULT_RECV_BUF: usize = 256 * 1024;
-pub const DEFAULT_SEND_BUF: usize = 256 * 1024;
+// Nagle's algorithm is enabled by default (TCP_NODELAY = false) for packet coalescing and cellular network stability
+pub static TCP_NODELAY: AtomicBool = AtomicBool::new(false);
+pub static SOCKS5_OPTIMISTIC_RESPONSE: AtomicBool = AtomicBool::new(true);
+pub const DEFAULT_RECV_BUF: usize = 0;
+pub const DEFAULT_SEND_BUF: usize = 0;
 pub const DEFAULT_MTPROTO_STANDBY_PER_ACTIVE_SLOT: i32 = 2;
-
-pub const DC_FAIL_COOLDOWN: f64 = 30.0;
-pub const WS_FAIL_TIMEOUT: f64 = 2.0;
 
 /// Profile-aware absolute idle timeout for active bridges.
 /// Data idle != dead: a flow with active transport health (PONG frames / TCP keepalive)
@@ -24,39 +22,183 @@ pub const WS_FAIL_TIMEOUT: f64 = 2.0;
 /// completely abandoned flows after 15–30 minutes to prevent resource leaks.
 pub fn profile_aware_absolute_idle_timeout() -> Duration {
     let profile = crate::network_profile::get_profile();
-    match (profile.power_save_mode, profile.screen_on, profile.cellular) {
+    match (profile.power_save_mode, profile.screen_on, profile.is_constrained()) {
         (true, _, _) => Duration::from_secs(30 * 60),        // 30 min in power save
         (false, false, _) => Duration::from_secs(30 * 60),    // 30 min screen off
-        (false, true, true) => Duration::from_secs(15 * 60),   // 15 min active cellular
-        (false, true, false) => Duration::from_secs(30 * 60),  // 30 min active Wi-Fi
+        (false, true, true) => Duration::from_secs(15 * 60),   // 15 min active cellular / metered
+        (false, true, false) => Duration::from_secs(30 * 60),  // 30 min active broadband Wi-Fi
     }
 }
 
+/// Helper struct representing a bounded range [min .. max] for adaptive network calibration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdaptiveRange<T> {
+    pub min: T,
+    pub max: T,
+}
+
+impl<T: Ord + Copy> AdaptiveRange<T> {
+    pub const fn new(min: T, max: T) -> Self {
+        Self { min, max }
+    }
+
+    pub fn clamp(&self, val: T) -> T {
+        val.clamp(self.min, self.max)
+    }
+}
+
+pub const ESTABLISHMENT_BUDGET_MOBILE_RANGE: AdaptiveRange<usize> = AdaptiveRange::new(4, 16);
+pub const ESTABLISHMENT_BUDGET_WIFI_RANGE: AdaptiveRange<usize> = AdaptiveRange::new(6, 24);
+pub const BACKGROUND_BUDGET_MOBILE_RANGE: AdaptiveRange<usize> = AdaptiveRange::new(4, 10);
+pub const BACKGROUND_BUDGET_WIFI_RANGE: AdaptiveRange<usize> = AdaptiveRange::new(6, 16);
+
+pub const DIAL_TIMEOUT_WIFI_RANGE_MS: AdaptiveRange<u64> = AdaptiveRange::new(1500, 5000);
+pub const DIAL_TIMEOUT_MOBILE_RANGE_MS: AdaptiveRange<u64> = AdaptiveRange::new(2500, 9000);
+pub const RACE_TIMEOUT_RANGE_MS: AdaptiveRange<u64> = AdaptiveRange::new(1200, 5000);
+pub const HAPPY_EYEBALLS_RANGE_MS: AdaptiveRange<u64> = AdaptiveRange::new(80, 800);
+
+/// Adaptive establishment and background concurrency budgets.
+/// Calibrated against current network profile: RTT, jitter, downlink throughput, and power state.
+pub fn adaptive_establishment_budget(is_mobile: bool) -> (usize, usize) {
+    let profile = crate::network_profile::get_profile();
+    let rtt = profile.transport_sli.smoothed_rtt_ms;
+    let jitter = profile.transport_sli.jitter_ms;
+    let down_kbps = if profile.transport_sli.downstream_bps > 0 {
+        profile.transport_sli.downstream_bps / 1000
+    } else {
+        profile.estimated_down_kbps as u64
+    };
+    let is_congested = profile.congested || (rtt > 600) || (jitter > 300);
+    let power_save = profile.power_save_mode;
+
+    if is_mobile {
+        let est = if power_save || is_congested {
+            4
+        } else if rtt > 0 && rtt < 100 && down_kbps > 20_000 {
+            if down_kbps > 50_000 && rtt < 60 { 16 } else { 12 }
+        } else if rtt > 0 && rtt < 250 && down_kbps > 5_000 {
+            10
+        } else {
+            // Cold start default on mobile LTE: allow rapid parallel multi-DC stream pre-warming
+            8
+        };
+        let bg = if power_save || is_congested { 3 } else if est >= 8 { 6 } else { 4 };
+        (ESTABLISHMENT_BUDGET_MOBILE_RANGE.clamp(est), BACKGROUND_BUDGET_MOBILE_RANGE.clamp(bg))
+    } else {
+        let est = if power_save || is_congested {
+            6
+        } else if (rtt > 0 && rtt < 40 && down_kbps > 50_000) || down_kbps > 100_000 {
+            20
+        } else if (rtt > 0 && rtt < 80 && down_kbps > 25_000) || down_kbps > 40_000 {
+            16
+        } else if rtt > 0 && rtt < 150 {
+            12
+        } else {
+            10
+        };
+        let bg = if power_save || is_congested { 4 } else if est >= 12 { 8 } else if est >= 8 { 6 } else { 4 };
+        (ESTABLISHMENT_BUDGET_WIFI_RANGE.clamp(est), BACKGROUND_BUDGET_WIFI_RANGE.clamp(bg))
+    }
+}
+
+/// Adaptive dial phase timeout calibrated to radio channel characteristics.
+pub fn adaptive_dial_timeout(is_mobile: bool) -> Duration {
+    let profile = crate::network_profile::get_profile();
+    let rtt = profile.transport_sli.smoothed_rtt_ms;
+    let jitter = profile.transport_sli.jitter_ms;
+
+    if is_mobile {
+        let base_ms = if rtt > 0 {
+            (rtt as u64) * 4 + jitter * 3 + 1500
+        } else {
+            4000
+        };
+        Duration::from_millis(DIAL_TIMEOUT_MOBILE_RANGE_MS.clamp(base_ms))
+    } else {
+        let base_ms = if rtt > 0 {
+            (rtt as u64) * 3 + jitter * 2 + 1000
+        } else {
+            2500
+        };
+        Duration::from_millis(DIAL_TIMEOUT_WIFI_RANGE_MS.clamp(base_ms))
+    }
+}
+
+/// Adaptive worker race probe timeout.
+pub fn adaptive_race_timeout() -> Duration {
+    let profile = crate::network_profile::get_profile();
+    let rtt = profile.transport_sli.smoothed_rtt_ms;
+    let jitter = profile.transport_sli.jitter_ms;
+    let base_ms = if rtt > 0 {
+        (rtt as u64) * 2 + jitter * 2 + 800
+    } else if profile.is_constrained() {
+        2500
+    } else {
+        2000
+    };
+    Duration::from_millis(RACE_TIMEOUT_RANGE_MS.clamp(base_ms))
+}
+
+/// Adaptive parallel TCP/TLS candidate socket throttle limit.
+pub fn adaptive_parallel_socket_limit() -> usize {
+    let profile = crate::network_profile::get_profile();
+    let rtt = profile.transport_sli.smoothed_rtt_ms;
+    let jitter = profile.transport_sli.jitter_ms;
+    if profile.is_constrained() {
+        if profile.power_save_mode || profile.congested || rtt > 500 || jitter > 250 {
+            4
+        } else if rtt > 0 && rtt < 100 {
+            8
+        } else {
+            6
+        }
+    } else {
+        if profile.congested {
+            6
+        } else if rtt > 0 && rtt < 50 {
+            12
+        } else {
+            8
+        }
+    }
+}
+
+/// Adaptive WebSocket pool connect timeout in seconds.
+pub fn adaptive_ws_connect_timeout() -> f64 {
+    let profile = crate::network_profile::get_profile();
+    let rtt = profile.transport_sli.smoothed_rtt_ms;
+    let jitter = profile.transport_sli.jitter_ms;
+    let secs = if rtt > 0 {
+        ((rtt as f64) * 4.0 + (jitter as f64) * 2.0 + 3000.0) / 1000.0
+    } else if profile.is_constrained() {
+        10.0
+    } else {
+        8.0
+    };
+    secs.clamp(4.0, 14.0)
+}
+
+
 pub const BRIDGE_READ_TIMEOUT: Duration = Duration::from_secs(1800);
-pub const BRIDGE_WRITE_TIMEOUT: Duration = Duration::from_secs(15);
+pub const BRIDGE_WRITE_TIMEOUT: Duration = Duration::from_secs(45);
 pub const WS_HEARTBEAT_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 pub const WS_POOL_HOUSEKEEP_INTERVAL: Duration = Duration::from_secs(10);
-pub const WS_WRITE_TIMEOUT: Duration = Duration::from_secs(15);
-pub const WS_CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
+pub const WS_WRITE_TIMEOUT: Duration = Duration::from_secs(60);
+// Control writes tolerate the same network stalls as payload writes.
+pub const WS_CONTROL_TIMEOUT: Duration = Duration::from_secs(45);
 pub const WS_BRIDGE_CHUNK_SIZE: usize = 64 * 1024;
 pub const POOLED_FRAME_CAP: usize = WS_BRIDGE_CHUNK_SIZE + 32;
 
 pub const WS_POOL_REUSE_MAX_AGE: f64 = 120.0;
-pub const WS_POOL_CONNECT_TIMEOUT: f64 = 8.0;
 
 pub const CFPROXY_CACHE_FILE_NAME: &str = "cfproxy-domains-cache.txt";
 pub const CFPROXY_REFRESH_INTERVAL: Duration = Duration::from_secs(12 * 3600);
-pub const CFPROXY_DIAL_PHASE_TIMEOUT: Duration = Duration::from_millis(2500);
-pub const CFPROXY_MOBILE_DIAL_TIMEOUT: Duration = Duration::from_millis(4000);
-pub const CFPROXY_RACE_TIMEOUT: Duration = Duration::from_millis(2000);
-pub const CFPROXY_RACE_INTERVAL: Duration = Duration::from_secs(3600);
 pub const CFPROXY_FALLBACK_PARALLEL: usize = 4;
 pub const CFPROXY_429_COOLDOWN: Duration = Duration::from_secs(45);
 pub const CFPROXY_429_MAX_COOLDOWN: Duration = Duration::from_secs(300);
-pub const CFPROXY_GLOBAL_PARALLEL: usize = 4;
 
 pub const MIN_SOCKET_BUFFER: i32 = 32 * 1024;
-pub const MAX_SOCKET_BUFFER: i32 = 2 * 1024 * 1024;
+pub const MAX_SOCKET_BUFFER: i32 = 1024 * 1024;
 
 pub static REQUESTED_RECV_BUF: AtomicI32 = AtomicI32::new(DEFAULT_RECV_BUF as i32);
 pub static REQUESTED_SEND_BUF: AtomicI32 = AtomicI32::new(DEFAULT_SEND_BUF as i32);
@@ -104,6 +246,17 @@ pub static LOG_VERBOSE: AtomicBool = AtomicBool::new(false);
 /// cellular uses a smaller shared dial budget and a conservative idle pool.
 pub static MOBILE_NETWORK: AtomicBool = AtomicBool::new(false);
 
+/// Throttling of concurrent dial attempts (disabled by default, managed via Advanced Settings).
+pub static DIAL_THROTTLING_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn is_dial_throttling_enabled() -> bool {
+    DIAL_THROTTLING_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_dial_throttling_enabled(enabled: bool) {
+    DIAL_THROTTLING_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 // ---------------------------------------------------------------------------
 // Transport Pool & Concurrency Metrics (MOB-016)
 // ---------------------------------------------------------------------------
@@ -123,14 +276,9 @@ pub fn effective_mtproto_standby(requested: i32, is_mobile: bool) -> usize {
 }
 
 /// Global establishment (dial) budget.
-/// On mobile: 2 active establishments.
-/// On Wi-Fi: 4 active establishments.
+/// Dynamically scales within [1 .. 5] on mobile and [3 .. 8] on Wi-Fi.
 pub fn global_establishment_budget(is_mobile: bool) -> usize {
-    if is_mobile {
-        2
-    } else {
-        4
-    }
+    adaptive_establishment_budget(is_mobile).0
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -208,16 +356,6 @@ pub const CFPROXY_DOMAINS_URL: &str =
 pub static PROXY_SECRET: Lazy<RwLock<String>> =
     Lazy::new(|| RwLock::new("00000000000000000000000000000000".to_string()));
 
-pub static DEFAULT_SOCKS5_WORKER: &str = "mirrly-tg-proxy-worker.brawny-singer.workers.dev";
-
-pub static DEV_SOCKS5_WORKERS: &[&str] = &[
-    DEFAULT_SOCKS5_WORKER,
-    "mtg-relay-5o77p2.mtg-alfaj.workers.dev",
-    "mtg-relay-ki2q2v.mtg-beta.workers.dev",
-    "mtg-relay-vndj4a.tammistichtqvc264.workers.dev",
-    "mtg-relay-xbl1ts.mtg-beta.workers.dev",
-];
-
 pub static LAST_SOCKS5_WORKER: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(String::new()));
 
 // SOCKS5 User/Password Authentication (RFC 1928 / RFC 1929)
@@ -233,6 +371,32 @@ pub static SOCKS5_AUTH: Lazy<RwLock<Socks5AuthConfig>> = Lazy::new(|| {
         password: String::new(),
     })
 });
+
+pub fn is_cloudflare_domain(domain: &str) -> bool {
+    let d = domain.trim().to_lowercase();
+    if d.is_empty() {
+        return false;
+    }
+    if d.ends_with(".pages.dev")
+        || d.ends_with(".workers.dev")
+        || d.ends_with(".cloudflare.com")
+        || d.ends_with(".cloudflareclient.com")
+        || d.ends_with(".trycloudflare.com")
+        || d.ends_with(".cloudflareaccess.com")
+        || d == "pages.dev"
+        || d == "workers.dev"
+        || d == "cloudflare.com"
+    {
+        return true;
+    }
+    let base = crate::balancer::normalize_domain(&d);
+    let cfg = CFPROXY.read();
+    if !cfg.user_domain.is_empty() && crate::balancer::normalize_domain(&cfg.user_domain) == base {
+        return true;
+    }
+    cfg.domains.iter().any(|dom| crate::balancer::normalize_domain(dom) == base)
+}
+
 
 pub static CFPROXY_ENC: &[&str] = &[
     "virkgj.com",
@@ -264,10 +428,169 @@ pub static DC_DEFAULT_IPS: Lazy<HashMap<i32, &'static str>> = Lazy::new(|| {
     m.insert(2, "149.154.167.51");
     m.insert(3, "149.154.175.100");
     m.insert(4, "149.154.167.91");
-    m.insert(5, "91.108.56.130");
+    m.insert(5, "149.154.171.5");
     m.insert(203, "91.105.192.100");
     m
 });
+
+pub fn canonical_dc_ipv4(dc: i32) -> &'static str {
+    match dc {
+        1 => "149.154.175.50",
+        2 => "149.154.167.51",
+        3 => "149.154.175.100",
+        4 => "149.154.167.91",
+        5 => "149.154.171.5",
+        203 => "91.105.192.100",
+        _ => "149.154.167.51",
+    }
+}
+
+pub fn canonical_ipv4_for_dc(dc: i32) -> &'static str {
+    canonical_dc_ipv4(dc)
+}
+
+pub fn lookup_telegram_dc_by_ip(ip_str: &str) -> Option<(i32, bool)> {
+    let clean = ip_str.trim().trim_matches(['[', ']']);
+    if let Ok(ip) = clean.parse::<IpAddr>() {
+        return lookup_telegram_dc_ip(ip);
+    }
+    None
+}
+
+pub fn lookup_telegram_dc_ip(ip: IpAddr) -> Option<(i32, bool)> {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            // Specific known media endpoints
+            match o {
+                [149, 154, 175, 52] => return Some((1, true)),
+                [149, 154, 175, 102] => return Some((3, true)),
+                [149, 154, 167, 151]
+                | [149, 154, 167, 222]
+                | [149, 154, 167, 223]
+                | [149, 154, 162, 123] => return Some((2, true)),
+                [149, 154, 164, 250]
+                | [149, 154, 166, 120]
+                | [149, 154, 166, 121]
+                | [149, 154, 167, 118]
+                | [149, 154, 165, 111] => return Some((4, true)),
+                [91, 108, 56, 102] | [91, 108, 56, 128] | [91, 108, 56, 151] => {
+                    return Some((5, true))
+                }
+                _ => {}
+            }
+
+            // Subnet matching
+            if o[0] == 149 && o[1] == 154 {
+                if o[2] == 175 {
+                    if (100..=102).contains(&o[3]) {
+                        return Some((3, false));
+                    }
+                    return Some((1, false));
+                }
+                if o[2] == 167 {
+                    if (91..=95).contains(&o[3]) {
+                        return Some((4, false));
+                    }
+                    if o[3] == 118 {
+                        return Some((4, true));
+                    }
+                    return Some((2, false));
+                }
+                if (160..=166).contains(&o[2]) {
+                    return Some((4, false));
+                }
+                if (168..=174).contains(&o[2]) {
+                    return Some((5, false));
+                }
+            }
+
+            if o[0] == 91 && o[1] == 108 {
+                if (56..=59).contains(&o[2]) || (4..=7).contains(&o[2]) {
+                    return Some((5, false));
+                }
+                if (8..=11).contains(&o[2]) || (16..=31).contains(&o[2]) {
+                    return Some((2, false));
+                }
+                if (12..=15).contains(&o[2]) {
+                    return Some((4, false));
+                }
+            }
+
+            if o[0] == 91 && o[1] == 105 && (o[2] == 192 || o[2] == 193) {
+                return Some((203, false));
+            }
+
+            if o[0] == 95 && o[1] == 161 && (64..=79).contains(&o[2]) {
+                return Some((2, false));
+            }
+
+            if o[0] == 185 && o[1] == 76 && o[2] == 151 {
+                return Some((2, false));
+            }
+
+            None
+        }
+        IpAddr::V6(v6) => {
+            let seg = v6.segments();
+
+            // 1. 2001:67c:4e8::/48
+            if seg[0] == 0x2001 && seg[1] == 0x067c && seg[2] == 0x04e8 {
+                match seg[3] {
+                    0xf001 => return Some((1, false)),
+                    0xf002 => return Some((2, false)),
+                    0xf003 => return Some((3, false)),
+                    0xf004 => return Some((4, false)),
+                    0xf005 => return Some((5, false)),
+                    _ => return Some((2, false)),
+                }
+            }
+
+            // 2. 2001:b28:f23c..f23f::/48
+            if seg[0] == 0x2001 && seg[1] == 0x0b28 && (0xf23c..=0xf23f).contains(&seg[2]) {
+                match seg[3] {
+                    0xf001 => return Some((1, false)),
+                    0xf002 => return Some((2, false)),
+                    0xf003 => return Some((3, false)),
+                    0xf004 => return Some((4, false)),
+                    0xf005 => return Some((5, false)),
+                    _ => {
+                        if seg[2] == 0xf23f {
+                            return Some((5, false));
+                        }
+                        return Some((2, false));
+                    }
+                }
+            }
+
+            // 3. 2a0a:f280..f287::/32
+            if seg[0] == 0x2a0a && (0xf280..=0xf287).contains(&seg[1]) {
+                match seg[2] {
+                    1 => return Some((1, false)),
+                    2 => return Some((2, false)),
+                    3 => return Some((3, false)),
+                    4 => return Some((4, false)),
+                    5 => return Some((5, false)),
+                    0x0203 | 203 => return Some((203, false)),
+                    _ => match seg[3] {
+                        0xf001 => return Some((1, false)),
+                        0xf002 => return Some((2, false)),
+                        0xf003 => return Some((3, false)),
+                        0xf004 => return Some((4, false)),
+                        0xf005 => return Some((5, false)),
+                        _ => return Some((2, false)),
+                    },
+                }
+            }
+
+            None
+        }
+    }
+}
+
+pub fn lookup_telegram_dc(host: &str) -> Option<(i32, bool)> {
+    lookup_telegram_dc_by_ip(host)
+}
 
 // Telegram protocols & DC mapping
 pub fn valid_proto(p: u32) -> bool {
@@ -287,8 +610,6 @@ pub static WS_BLACKLIST: Lazy<RwLock<HashMap<(i32, i32), bool>>> =
 pub static DC_FAIL_UNTIL: Lazy<RwLock<HashMap<(i32, i32), f64>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
-pub static ZERO64: [u8; 64] = [0u8; 64];
-
 // ---------------------------------------------------------------------------
 // Stats
 // ---------------------------------------------------------------------------
@@ -302,9 +623,6 @@ pub struct Stats {
     pub connections_cfproxy: AtomicI64,
     pub connections_masque: AtomicI64,
     pub connections_awg: AtomicI64,
-    pub connections_vless: AtomicI64,
-    pub connections_opera: AtomicI64,
-    pub connections_proton: AtomicI64,
     pub socks5_v2_sessions: AtomicI64,
     pub socks5_v1_downgrades: AtomicI64,
     pub socks5_fastpath_hits: AtomicI64,
@@ -341,15 +659,13 @@ impl Stats {
         let ph = self.pool_hits.load(Ordering::Relaxed);
         let pm = self.pool_misses.load(Ordering::Relaxed);
         format!(
-            "total={} active={} ws={} cf={} masque={} awg={} vless={} opera={} v2={} v1_down={} fp={} fb={} bad={} err={} pool={}/{} up={} down={}",
+            "total={} active={} ws={} cf={} masque={} awg={} v2={} v1_down={} fp={} fb={} bad={} err={} pool={}/{} up={} down={}",
             self.connections_total.load(Ordering::Relaxed),
             self.connections_active.load(Ordering::Relaxed),
             self.connections_ws.load(Ordering::Relaxed),
             self.connections_cfproxy.load(Ordering::Relaxed),
             self.connections_masque.load(Ordering::Relaxed),
             self.connections_awg.load(Ordering::Relaxed),
-            self.connections_vless.load(Ordering::Relaxed),
-            self.connections_opera.load(Ordering::Relaxed),
             self.socks5_v2_sessions.load(Ordering::Relaxed),
             self.socks5_v1_downgrades.load(Ordering::Relaxed),
             self.socks5_fastpath_hits.load(Ordering::Relaxed),
@@ -383,14 +699,6 @@ impl Stats {
         let awg = self.connections_awg.load(Ordering::Relaxed);
         if awg > 0 {
             parts.push(format!("awg:{}", awg));
-        }
-        let vless = self.connections_vless.load(Ordering::Relaxed);
-        if vless > 0 {
-            parts.push(format!("vless:{}", vless));
-        }
-        let opera = self.connections_opera.load(Ordering::Relaxed);
-        if opera > 0 {
-            parts.push(format!("opera:{}", opera));
         }
         let v2 = self.socks5_v2_sessions.load(Ordering::Relaxed);
         if v2 > 0 {
@@ -428,9 +736,6 @@ impl Stats {
         self.connections_cfproxy.store(0, Ordering::Relaxed);
         self.connections_masque.store(0, Ordering::Relaxed);
         self.connections_awg.store(0, Ordering::Relaxed);
-        self.connections_vless.store(0, Ordering::Relaxed);
-        self.connections_opera.store(0, Ordering::Relaxed);
-        self.connections_proton.store(0, Ordering::Relaxed);
         self.socks5_v2_sessions.store(0, Ordering::Relaxed);
         self.socks5_v1_downgrades.store(0, Ordering::Relaxed);
         self.socks5_fastpath_hits.store(0, Ordering::Relaxed);
@@ -522,14 +827,6 @@ pub fn init_logging(verbose: bool) {
     LOG_VERBOSE.store(verbose, Ordering::Relaxed);
 }
 
-pub fn now_unix_f64() -> f64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
-}
-
 pub fn now_unix() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -538,113 +835,4 @@ pub fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
-// ---------------------------------------------------------------------------
-// Opera VPN Upstream Proxy Configuration
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug)]
-pub struct OperaVpnConfig {
-    pub vless_enabled: bool,
-    pub warp_enabled: bool,
-    pub endpoint: String,
-}
-
-pub static OPERA_VPN: Lazy<RwLock<OperaVpnConfig>> = Lazy::new(|| {
-    RwLock::new(OperaVpnConfig {
-        vless_enabled: false,
-        warp_enabled: false,
-        endpoint: "77.111.247.139:443".to_string(),
-    })
-});
-
-pub fn set_opera_vpn_config(vless_enabled: bool, warp_enabled: bool, endpoint: &str) {
-    let mut cfg = OPERA_VPN.write();
-    cfg.vless_enabled = vless_enabled;
-    cfg.warp_enabled = warp_enabled;
-    if !endpoint.trim().is_empty() {
-        cfg.endpoint = endpoint.trim().to_string();
-    }
-    linfo!(
-        "Opera VPN config updated: vless={}, warp={}, endpoint={}",
-        cfg.vless_enabled,
-        cfg.warp_enabled,
-        cfg.endpoint
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Proton VPN Upstream Configuration (WireGuard)
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug)]
-pub struct ProtonVpnConfig {
-    pub enabled: bool,
-    pub server_ip: String,
-    pub server_port: u16,
-    pub peer_public_key: String,
-    pub private_key: String,
-    pub client_ip: String,
-    pub dns_ip: String,
-    pub node_name: String,
-}
-
-impl Default for ProtonVpnConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            server_ip: "91.229.23.180".to_string(),
-            server_port: 51820,
-            peer_public_key: "jbTC1lYeHxiz1LNSJHQMKDTq6sHgcWxkBwXvt7GWo1E=".to_string(),
-            private_key: String::new(),
-            client_ip: "10.2.0.2".to_string(),
-            dns_ip: "10.2.0.1".to_string(),
-            node_name: "NL-FREE#1".to_string(),
-        }
-    }
-}
-
-pub static PROTON_VPN: Lazy<RwLock<ProtonVpnConfig>> = Lazy::new(|| {
-    RwLock::new(ProtonVpnConfig::default())
-});
-
-pub fn set_proton_vpn_config(
-    server_ip: &str,
-    server_port: u16,
-    peer_public_key: &str,
-    private_key: &str,
-    client_ip: &str,
-    dns_ip: &str,
-    node_name: &str,
-) {
-    let mut cfg = PROTON_VPN.write();
-    if !server_ip.trim().is_empty() {
-        cfg.server_ip = server_ip.trim().to_string();
-    }
-    if server_port > 0 {
-        cfg.server_port = server_port;
-    }
-    if !peer_public_key.trim().is_empty() {
-        cfg.peer_public_key = peer_public_key.trim().to_string();
-    }
-    if !private_key.trim().is_empty() {
-        cfg.private_key = private_key.trim().to_string();
-    }
-    if !client_ip.trim().is_empty() {
-        cfg.client_ip = client_ip.trim().to_string();
-    }
-    if !dns_ip.trim().is_empty() {
-        cfg.dns_ip = dns_ip.trim().to_string();
-    }
-    if !node_name.trim().is_empty() {
-        cfg.node_name = node_name.trim().to_string();
-    }
-    cfg.enabled = true;
-    linfo!(
-        "Proton VPN config updated: {}:{} (node={}, client_ip={})",
-        cfg.server_ip,
-        cfg.server_port,
-        cfg.node_name,
-        cfg.client_ip
-    );
-}
 

@@ -13,5 +13,8 @@
     <!-- Inner Star / Spark Core -->
     <path
         android:pathData="M12,7L13.2,10.2L16.5,10.5L14,12.7L14.8,16L12,14.3L9.2,16L10,12.7L7.5,10.5L10.8,10.2L12,7Z"
-        android:fillColor="#FFFFFF" />
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
 </vector>

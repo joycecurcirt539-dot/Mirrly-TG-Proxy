@@ -78,13 +78,17 @@ impl Default for NetworkProfile {
             power_mode: "ACTIVE".to_string(),
             transport_sli: TransportSli::default(),
             happy_eyeballs_delay_ms: 0,
-            ip_family_preference: "DUAL_STACK".to_string(),
-            websocket_keep_alive_seconds: 30,
+            ip_family_preference: "IPV4_ONLY".to_string(),
+            websocket_keep_alive_seconds: 60,
         }
     }
 }
 
 impl NetworkProfile {
+    pub fn is_constrained(&self) -> bool {
+        self.cellular || self.metered
+    }
+
     /// Measurements are telemetry, not a new routing policy. Invalidating in-flight
     /// work for every SLI/bandwidth sample starves probes and background scans.
     fn invalidates_background_results(&self, previous: &Self) -> bool {
@@ -164,9 +168,8 @@ pub fn apply_profile(profile: NetworkProfile) -> NetworkProfile {
         };
 
         if changed {
-            MOBILE_NETWORK.store(effective.cellular, Ordering::Relaxed);
+            MOBILE_NETWORK.store(effective.cellular || effective.metered, Ordering::Relaxed);
             if effective.generation != previous_generation {
-                crate::timeline::set_network_generation(effective.generation);
                 crate::budget::DIAL_BUDGET.notify_generation_change(effective.generation);
                 crate::balancer::BALANCER.write().notify_generation_change(effective.generation);
             }

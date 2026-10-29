@@ -19,39 +19,6 @@ use tokio_util::sync::CancellationToken;
 // Target resolution
 // ---------------------------------------------------------------------------
 
-pub fn resolve_configured_target(dc: i32, is_media: bool) -> Option<String> {
-    let map = DC_OPT.read();
-    if is_media {
-        if let Some(t) = map.get(&(-dc)) {
-            if !t.is_empty() {
-                return Some(t.clone());
-            }
-        }
-        Some(get_dc_target_ip(dc, true).to_string())
-    } else {
-        if let Some(t) = map.get(&dc) {
-            if !t.is_empty() {
-                return Some(t.clone());
-            }
-        }
-        Some(get_dc_target_ip(dc, false).to_string())
-    }
-}
-
-pub fn resolve_fallback_target(dc: i32, is_media: bool) -> String {
-    get_dc_target_ip(dc, is_media).to_string()
-}
-
-pub fn ws_domains(dc: i32, _is_media: bool) -> Vec<String> {
-    let mut effective_dc = dc;
-    if let Some(o) = DC_OVERRIDES.get(&dc) {
-        effective_dc = *o;
-    }
-    vec![
-        format!("kws{}.web.telegram.org", effective_dc),
-        format!("kws{}-1.web.telegram.org", effective_dc),
-    ]
-}
 
 pub fn media_tag(is_media: bool) -> &'static str {
     if is_media {
@@ -183,8 +150,8 @@ impl WsPool {
                 } else {
                     configured.min(2).max(1)
                 }
-            } else if is_dc2_chat {
-                // Baseline pre-warm for DC2 chat on Wi-Fi: 1–2 ready sockets (up to configured)
+            } else if is_dc2_chat || is_dc2_media {
+                // Baseline pre-warm for DC2 chat and media on Wi-Fi: 1–2 ready sockets (up to configured)
                 configured.min(2).max(1)
             } else {
                 0
@@ -288,11 +255,15 @@ impl WsPool {
         let dc = slot.dc;
         let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
 
-        let (enabled, domains) = {
+        let (enabled, domains, has_user_worker) = {
             let cfg = CFPROXY.read();
-            (CFPROXY_ENABLED.load(Ordering::Relaxed), cfg.domains.clone())
+            (
+                CFPROXY_ENABLED.load(Ordering::Relaxed),
+                cfg.domains.clone(),
+                !cfg.user_domain.trim().is_empty(),
+            )
         };
-        if !enabled || domains.is_empty() {
+        if !enabled || domains.is_empty() || has_user_worker {
             state.refilling.store(0, Ordering::SeqCst);
             return;
         }
@@ -432,6 +403,17 @@ impl WsPool {
     /// Never alters generation of existing flows, never drops active bridges,
     /// and pre-warms 1–2 standby sockets for DC2 / demanded slots if dial budget allows.
     pub async fn prewarm(self: &Arc<Self>, _dc_opt_map: &HashMap<i32, String>) {
+        let (enabled, has_user_worker, domains_empty) = {
+            let cfg = CFPROXY.read();
+            (
+                CFPROXY_ENABLED.load(Ordering::Relaxed),
+                !cfg.user_domain.trim().is_empty(),
+                cfg.domains.is_empty(),
+            )
+        };
+        if !enabled || domains_empty || has_user_worker {
+            return;
+        }
         if !crate::budget::DIAL_BUDGET
             .has_free_budget_for(crate::budget::FlowCategory::Background)
             .await
@@ -589,6 +571,7 @@ pub async fn bridge_ws(
     initial_clt_data: Vec<u8>,
     cancel_token: CancellationToken,
     pool: Arc<WsPool>,
+    is_worker: bool,
 ) {
     let cancel = cancel_token.child_token();
     let _bridge_guard = cancel.clone().drop_guard();
@@ -616,11 +599,21 @@ pub async fn bridge_ws(
             let n = initial_clt_data.len();
             STATS.bytes_up.fetch_add(n as i64, Ordering::Relaxed);
 
-            let frames = splitter.process(&initial_clt_data, &mut clt_dec, &mut tg_enc);
-            if !frames.is_empty() {
-                if !matches!(crate::bridge::bounded_io(ws_up.send_batch(&frames), &cancel_up, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(()))) {
+            if is_worker {
+                let mut chunk = initial_clt_data;
+                clt_dec.xor(&mut chunk);
+                tg_enc.xor(&mut chunk);
+                if !matches!(crate::bridge::bounded_io(ws_up.send_batch(&[chunk]), &cancel_up, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(()))) {
                     cancel_up.cancel();
                     return;
+                }
+            } else {
+                let frames = splitter.process(&initial_clt_data, &mut clt_dec, &mut tg_enc);
+                if !frames.is_empty() {
+                    if !matches!(crate::bridge::bounded_io(ws_up.send_batch(&frames), &cancel_up, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(()))) {
+                        cancel_up.cancel();
+                        return;
+                    }
                 }
             }
         }
@@ -648,19 +641,33 @@ pub async fn bridge_ws(
             let n = chunk_data.len();
             STATS.bytes_up.fetch_add(n as i64, Ordering::Relaxed);
 
-            let frames = splitter.process(&chunk_data, &mut clt_dec, &mut tg_enc);
-            if !frames.is_empty() {
-                if !matches!(crate::bridge::bounded_io(ws_up.send_batch(&frames), &cancel_up, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(()))) {
+            if is_worker {
+                // WsFraming::Tunnel: Cloudflare Worker is a streaming TCP tunnel, not an MTProto packet parser.
+                // Forwarding raw chunks directly (bounded to WS_BRIDGE_CHUNK_SIZE = 64 KiB) avoids
+                // accumulating packets > 1 MiB which violates Cloudflare Worker's 1 MiB message limit!
+                let mut chunk = chunk_data;
+                clt_dec.xor(&mut chunk);
+                tg_enc.xor(&mut chunk);
+                if !matches!(crate::bridge::bounded_io(ws_up.send_batch(&[chunk]), &cancel_up, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(()))) {
                     break;
+                }
+            } else {
+                let frames = splitter.process(&chunk_data, &mut clt_dec, &mut tg_enc);
+                if !frames.is_empty() {
+                    if !matches!(crate::bridge::bounded_io(ws_up.send_batch(&frames), &cancel_up, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(()))) {
+                        break;
+                    }
                 }
             }
         }
 
         if !clean_eof { cancel_up.cancel(); return; }
-        let tail = splitter.flush(&mut tg_enc);
-        if !tail.is_empty() {
-            if !matches!(crate::bridge::bounded_io(ws_up.send_batch(&tail), &cancel_up, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(()))) {
-                cancel_up.cancel(); return;
+        if !is_worker {
+            let tail = splitter.flush(&mut tg_enc);
+            if !tail.is_empty() {
+                if !matches!(crate::bridge::bounded_io(ws_up.send_batch(&tail), &cancel_up, BRIDGE_WRITE_TIMEOUT).await, Ok(Ok(()))) {
+                    cancel_up.cancel(); return;
+                }
             }
         }
 
@@ -746,75 +753,103 @@ pub async fn bridge_ws(
     ws.close().await;
 }
 
-// ---------------------------------------------------------------------------
-// Cfproxy fallback
-// ---------------------------------------------------------------------------
-
-pub fn get_dc_target_ip(dc: i32, is_media: bool) -> &'static str {
-    if is_media {
-        match dc {
-            1 => "149.154.175.51",
-            2 => "149.154.167.52",
-            3 => "149.154.175.101",
-            4 => "149.154.167.92",
-            5 => "91.108.56.165",
-            203 => "91.105.192.100",
-            _ => "149.154.167.52",
-        }
-    } else {
-        match dc {
-            1 => "149.154.175.50",
-            2 => "149.154.167.51",
-            3 => "149.154.175.100",
-            4 => "149.154.167.91",
-            5 => "91.108.56.130",
-            203 => "91.105.192.100",
-            _ => "149.154.167.51",
-        }
-    }
-}
-
-pub fn get_dc_target_ipv6(dc: i32, is_media: bool) -> &'static str {
-    if is_media {
-        match dc {
-            1 => "2001:b28:f23d:f001::b",
-            2 => "2001:67c:4e8:f002::b",
-            3 => "2001:b28:f23d:f003::b",
-            4 => "2001:67c:4e8:f004::b",
-            5 => "2001:b28:f23f:f005::b",
-            203 => "2001:67c:4e8:f002::b",
-            _ => "2001:67c:4e8:f002::b",
-        }
-    } else {
-        match dc {
-            1 => "2001:b28:f23d:f001::a",
-            2 => "2001:67c:4e8:f002::a",
-            3 => "2001:b28:f23d:f003::a",
-            4 => "2001:67c:4e8:f004::a",
-            5 => "2001:b28:f23f:f005::a",
-            203 => "2001:67c:4e8:f002::a",
-            _ => "2001:67c:4e8:f002::a",
-        }
-    }
-}
-
-pub fn get_dc_target_ip_for_current_network(dc: i32, is_media: bool) -> &'static str {
-    if crate::recovery::is_ipv6_only_network() {
-        get_dc_target_ipv6(dc, is_media)
-    } else {
-        get_dc_target_ip(dc, is_media)
-    }
-}
 
 async fn cfproxy_acquire_ws(
     pool: &Arc<WsPool>,
     dc: i32,
     is_media: bool,
     cancel_token: &CancellationToken,
-) -> Option<(Arc<RawWebSocket>, String)> {
+) -> Option<(Arc<RawWebSocket>, String, bool)> {
     pool.record_demand(dc, is_media);
 
-    // 1. Попытка мгновенного захвата сокета из предварительно прогретого пула (0 ms)
+    let (use_cf, user_domain) = {
+        let cfg = CFPROXY.read();
+        (
+            CFPROXY_ENABLED.load(Ordering::Relaxed),
+            cfg.user_domain.trim().to_string(),
+        )
+    };
+    if !use_cf {
+        return None;
+    }
+
+    let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
+
+    // Tier 1: User's Cloudflare Worker (WSS /apiws with Flowseal Media DC4 Fix)
+    if !user_domain.is_empty() {
+        let remaining = cfproxy_429_cooldown_remaining(&user_domain);
+        if remaining == Duration::ZERO {
+            // Tier 1a: Instant capture from pre-warmed WsPool socket pool (0 ms)
+            if let Some((ws, domain)) = pool.get(dc, is_media).await {
+                linfo!(
+                    " DC{}{} acquired from WsPool Worker socket pool (0 ms): {}",
+                    dc,
+                    media_tag(is_media),
+                    domain
+                );
+                return Some((ws, domain, true));
+            }
+
+            let target_dst = canonical_dc_ipv4(effective_dc);
+            let session_id = format!("{:016x}", rand::random::<u64>());
+            let path = format!(
+                "/apiws?dst={}&dc={}&media={}&sid={}",
+                target_dst,
+                effective_dc,
+                if is_media { "1" } else { "0" },
+                session_id
+            );
+            ldebug!(
+                "MTProto Worker attempt {} -> DC{}{} (dst={})",
+                user_domain, effective_dc, media_tag(is_media), target_dst
+            );
+            let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
+            let worker_timeout = if is_mobile {
+                crate::config::adaptive_ws_connect_timeout().clamp(3.2, 4.2)
+            } else {
+                crate::config::adaptive_ws_connect_timeout().clamp(3.5, 5.0)
+            };
+            let dial_res = tokio::select! {
+                _ = cancel_token.cancelled() => return None,
+                res = cf_connect_domain_with_category(
+                    &user_domain,
+                    &path,
+                    None,
+                    worker_timeout,
+                    crate::budget::FlowCategory::UserFlow,
+                    Some(cancel_token),
+                ) => res,
+            };
+            let (ws_opt, resolved_ip, err_opt) = dial_res;
+            if let Some(ws) = ws_opt {
+                if !resolved_ip.is_empty() {
+                    ldebug!("MTProto Worker ok {} via {}", user_domain, resolved_ip);
+                } else {
+                    ldebug!("MTProto Worker ok {}", user_domain);
+                }
+                clear_cfproxy_429_cooldown(&user_domain);
+                return Some((Arc::new(ws), user_domain, true));
+            }
+            if let Some(e) = err_opt {
+                if is_http_status_error(&e, 429) {
+                    mark_cfproxy_429_cooldown(&user_domain, &e);
+                }
+                lwarn!(
+                    "MTProto Worker fail {}: {}, Flowseal Anycast SDN is disabled in worker mode",
+                    user_domain, e.compact()
+                );
+            }
+        } else {
+            ldebug!(
+                "MTProto Worker {} is cooling down ({:.0}s)",
+                user_domain, remaining.as_secs_f64()
+            );
+        }
+        // In Worker mode, Flowseal SDN is strictly NOT used as requested
+        return None;
+    }
+
+    // Tier 2a: Instant capture from pre-warmed WsPool socket pool (0 ms)
     if let Some((ws, domain)) = pool.get(dc, is_media).await {
         linfo!(
             " DC{}{} acquired from WsPool socket pool (0 ms): {}",
@@ -822,35 +857,38 @@ async fn cfproxy_acquire_ws(
             media_tag(is_media),
             domain
         );
-        return Some((ws, domain));
+        return Some((ws, domain, false));
     }
 
-    // 2. Если в пуле сокетов не оказалось (Miss), запускаем параллельную Anycast CDN гонку
+    // Tier 2b: Parallel Happy Eyeballs Anycast CDN race
     let race_res = cfproxy_acquire_ws_race(dc, is_media, cancel_token).await;
-
-    // 3. Фоново восполняем пул для этого слота, чтобы следующий сокет был взят мгновенно
-    let slot = DcSlot {
-        dc,
-        is_media: is_media_int(is_media),
-    };
-    let state = pool.get_slot(slot).await;
-    if state
-        .refilling
-        .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
-        .is_ok()
-    {
-        let p = pool.clone();
-        let gen = pool.generation.load(Ordering::SeqCst);
-        let cancel = pool.cancel_refill.read().clone();
-        tokio::spawn(async move {
-            p.refill(slot, state, gen, cancel).await;
-        });
+    if race_res.is_some() {
+        // Replenish slot in background for next request
+        let slot = DcSlot {
+            dc,
+            is_media: is_media_int(is_media),
+        };
+        let state = pool.get_slot(slot).await;
+        if state
+            .refilling
+            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            let p = pool.clone();
+            let gen = pool.generation.load(Ordering::SeqCst);
+            let cancel = pool.cancel_refill.read().clone();
+            tokio::spawn(async move {
+                p.refill(slot, state, gen, cancel).await;
+            });
+        }
+        return race_res.map(|(ws, d)| (ws, d, false));
     }
 
-    race_res
+    // Direct web.telegram.org fallback is omitted: it is blocked by TSPU in Russia and causes 3.5s stalls.
+    None
 }
 
-async fn cfproxy_acquire_ws_race(
+pub(crate) async fn cfproxy_acquire_ws_race(
     dc: i32,
     is_media: bool,
     cancel_token: &CancellationToken,
@@ -866,11 +904,7 @@ async fn cfproxy_acquire_ws_race(
 
     let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
 
-    // MTProto routes exclusively via Flowseal Anycast CDNs (kws{effective_dc}.{domain}/apiws).
-    // NOTE: Custom user workers and developer workers are deliberately disabled for MTProto
-    // because MTProto Obfs2 framing over Cloudflare Workers (cloudflare:sockets) breaks the
-    // Telegram web gateway connection and prevents Anycast CDN balancer from functioning.
-    // Cloudflare Workers are reserved exclusively for the SOCKS5 proxy protocol stack.
+    // Parallel Anycast CDN targets (kws{effective_dc}.{domain}/apiws)
     let mut candidate_targets: Vec<(String, String)> = Vec::new();
 
     if !domains.is_empty() {
@@ -880,11 +914,20 @@ async fn cfproxy_acquire_ws_race(
         let diverse_ordered = crate::node_independence::NODE_INDEPENDENCE_TRACKER
             .read()
             .select_diverse_race_candidates(&ordered, 4);
-        for d in diverse_ordered {
-            let remaining = cfproxy_429_cooldown_remaining(&d);
+        for d in &diverse_ordered {
+            let remaining = cfproxy_429_cooldown_remaining(d);
             if remaining == Duration::ZERO {
                 let domain = format!("kws{}.{}", effective_dc, d);
                 candidate_targets.push((domain, "/apiws".to_string()));
+            }
+        }
+        for d in &ordered {
+            if !diverse_ordered.contains(d) && cfproxy_429_cooldown_remaining(d) == Duration::ZERO {
+                let domain = format!("kws{}.{}", effective_dc, d);
+                candidate_targets.push((domain, "/apiws".to_string()));
+                if candidate_targets.len() >= 6 {
+                    break;
+                }
             }
         }
     }
@@ -1094,14 +1137,15 @@ pub async fn do_fallback(
     let use_cf = CFPROXY_ENABLED.load(Ordering::Relaxed);
 
     if use_cf {
-        if let Some((ws, chosen_domain)) =
+        if let Some((ws, chosen_domain, is_worker)) =
             cfproxy_acquire_ws(pool, dc, is_media, &cancel_token).await
         {
             STATS.connections_cfproxy.fetch_add(1, Ordering::Relaxed);
             linfo!(
-                " DC{}{} connected via CDN: {}",
+                " DC{}{} connected via {}: {}",
                 dc,
                 media_tag(is_media),
+                if is_worker { "Worker WSS" } else { "CDN" },
                 chosen_domain
             );
 
@@ -1127,6 +1171,7 @@ pub async fn do_fallback(
                 initial_clt_data,
                 cancel_token,
                 pool.clone(),
+                is_worker,
             )
             .await;
             return true;
@@ -1164,7 +1209,7 @@ pub async fn handle_client(
         .unwrap_or_else(|_| "unknown".to_string());
     let label = peer;
 
-    set_sock_opts(&conn);
+    set_client_sock_opts(&conn);
 
     let current_secret = PROXY_SECRET.read().clone();
     let secret_bytes = hex::decode(&current_secret).unwrap_or_default();
@@ -1317,8 +1362,8 @@ pub async fn handle_client(
     let tg_decryptor = new_aes_ctr(&tg_dec_prekey_and_iv[..32], &tg_dec_prekey_and_iv[32..]);
 
     let mut dc_bytes = [0u8; 2];
-    let dc_idx = effective_dc;
-    LittleEndian::write_u16(&mut dc_bytes, dc_idx as u16);
+    let dc_idx = if is_media { -effective_dc } else { effective_dc };
+    LittleEndian::write_u16(&mut dc_bytes, (dc_idx as i16) as u16);
 
     let mut tail_plain = [0u8; 8];
     tail_plain[0..4].copy_from_slice(proto_tag);
@@ -1356,39 +1401,6 @@ pub async fn handle_client(
         cancel_token,
     )
     .await;
-}
-
-#[allow(dead_code)]
-
-pub async fn connect_direct_ws(
-    target: &str,
-    domains: &[String],
-    timeout: f64,
-) -> (Option<RawWebSocket>, bool, bool) {
-    if domains.is_empty() {
-        return (None, false, false);
-    }
-    let mut ws_failed_redirect = false;
-    let mut all_redirects = true;
-
-    for dom in domains {
-        match ws_connect(target, dom, "/apiws", timeout).await {
-            Ok(ws) => return (Some(ws), ws_failed_redirect, false),
-            Err(e) => {
-                STATS.ws_errors.fetch_add(1, Ordering::Relaxed);
-                if let Some(h) = e.handshake() {
-                    if h.is_redirect() {
-                        ws_failed_redirect = true;
-                    } else {
-                        all_redirects = false;
-                    }
-                } else {
-                    all_redirects = false;
-                }
-            }
-        }
-    }
-    (None, ws_failed_redirect, all_redirects)
 }
 
 // ---------------------------------------------------------------------------
@@ -1504,53 +1516,25 @@ pub fn parse_cidr_pool(cidrs_str: &str) -> HashMap<i32, String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_dc_target_ip_media_and_chat() {
-        // Chat IPs
-        assert_eq!(get_dc_target_ip(1, false), "149.154.175.50");
-        assert_eq!(get_dc_target_ip(2, false), "149.154.167.51");
-        assert_eq!(get_dc_target_ip(3, false), "149.154.175.100");
-        assert_eq!(get_dc_target_ip(4, false), "149.154.167.91");
-        assert_eq!(get_dc_target_ip(5, false), "91.108.56.130");
-        assert_eq!(get_dc_target_ip(203, false), "91.105.192.100");
-
-        // Media IPs
-        assert_eq!(get_dc_target_ip(1, true), "149.154.175.51");
-        assert_eq!(get_dc_target_ip(2, true), "149.154.167.52");
-        assert_eq!(get_dc_target_ip(3, true), "149.154.175.101");
-        assert_eq!(get_dc_target_ip(4, true), "149.154.167.92");
-        assert_eq!(get_dc_target_ip(5, true), "91.108.56.165");
-        assert_eq!(get_dc_target_ip(203, true), "91.105.192.100");
-    }
 
     #[test]
-    fn test_dc_target_ipv6_and_current_network() {
-        assert_eq!(get_dc_target_ipv6(1, false), "2001:b28:f23d:f001::a");
-        assert_eq!(get_dc_target_ipv6(2, false), "2001:67c:4e8:f002::a");
-        assert_eq!(get_dc_target_ipv6(1, true), "2001:b28:f23d:f001::b");
-        assert_eq!(get_dc_target_ipv6(2, true), "2001:67c:4e8:f002::b");
+    fn test_mtproto_media_dc_negation() {
+        let dc = 2;
+        let is_media = true;
+        let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
+        let dc_idx = if is_media { -effective_dc } else { effective_dc };
+        let mut dc_bytes = [0u8; 2];
+        LittleEndian::write_u16(&mut dc_bytes, (dc_idx as i16) as u16);
+        let decoded = LittleEndian::read_u16(&dc_bytes) as i16;
+        assert_eq!(decoded, -2);
+        assert!(decoded < 0);
 
-        crate::recovery::set_ipv6_only_network(false);
-        assert_eq!(get_dc_target_ip_for_current_network(2, false), "149.154.167.51");
-
-        crate::recovery::set_ipv6_only_network(true);
-        assert_eq!(get_dc_target_ip_for_current_network(2, false), "2001:67c:4e8:f002::a");
-        crate::recovery::set_ipv6_only_network(false);
-    }
-
-    #[test]
-    fn test_ws_domains_media_prefix() {
-        let dc2_chat = ws_domains(2, false);
-        assert_eq!(dc2_chat[0], "kws2.web.telegram.org");
-        assert_eq!(dc2_chat[1], "kws2-1.web.telegram.org");
-
-        let dc2_media = ws_domains(2, true);
-        assert_eq!(dc2_media[0], "kws2.web.telegram.org");
-        assert_eq!(dc2_media[1], "kws2-1.web.telegram.org");
-
-        let dc4_media = ws_domains(4, true);
-        assert_eq!(dc4_media[0], "kws4.web.telegram.org");
-        assert_eq!(dc4_media[1], "kws4-1.web.telegram.org");
+        let is_chat = false;
+        let dc_idx_chat = if is_chat { -effective_dc } else { effective_dc };
+        LittleEndian::write_u16(&mut dc_bytes, (dc_idx_chat as i16) as u16);
+        let decoded_chat = LittleEndian::read_u16(&dc_bytes) as i16;
+        assert_eq!(decoded_chat, 2);
+        assert!(decoded_chat > 0);
     }
 
     #[test]
@@ -1569,12 +1553,14 @@ mod tests {
         let slot_dc2_chat = DcSlot { dc: 2, is_media: 0 };
         let slot_dc4_chat = DcSlot { dc: 4, is_media: 0 };
         let slot_dc2_media = DcSlot { dc: 2, is_media: 1 };
+        let slot_dc4_media = DcSlot { dc: 4, is_media: 1 };
 
-        // 1. Mobile profile: DC2 chat has baseline target 1 for 0 ms pre-warm, others are 0 without demand
+        // 1. Mobile profile: DC2 chat and media have baseline target 1 for 0 ms pre-warm, DC4 slots are 0 without demand
         MOBILE_NETWORK.store(true, Ordering::Relaxed);
         assert_eq!(pool.target_size(slot_dc2_chat), 1);
         assert_eq!(pool.target_size(slot_dc4_chat), 0);
-        assert_eq!(pool.target_size(slot_dc2_media), 0);
+        assert_eq!(pool.target_size(slot_dc2_media), 1);
+        assert_eq!(pool.target_size(slot_dc4_media), 0);
 
         // 2. Client demands DC4 chat -> target size becomes 1 (standby)
         pool.record_demand(4, false);
@@ -1589,6 +1575,7 @@ mod tests {
         MTPROTO_STANDBY_PER_ACTIVE_SLOT_REQUESTED.store(4, Ordering::Relaxed);
         assert_eq!(pool.target_size(slot_dc2_chat), 2); // Baseline 2 on Wi-Fi until sustained useful RX
 
+        pool.record_demand(2, false);
         pool.record_useful_rx(2, false);
         pool.record_useful_rx(2, false);
         assert_eq!(pool.target_size(slot_dc2_chat), 4); // Expands to 4 after sustained useful traffic

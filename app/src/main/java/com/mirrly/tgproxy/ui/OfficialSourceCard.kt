@@ -1,50 +1,40 @@
 package com.mirrly.tgproxy.ui
-import androidx.compose.ui.res.stringResource
 
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.os.Build
-import android.view.WindowManager
-import androidx.core.view.WindowCompat
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ui.theme.*
 import com.mirrly.tgproxy.util.SignatureStatus
 import com.mirrly.tgproxy.util.SignatureVerifier
-import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OfficialSourceCard(
     modifier: Modifier = Modifier
@@ -53,7 +43,6 @@ fun OfficialSourceCard(
     val haptic = LocalHapticFeedback.current
     val repoUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy"
 
-    val currentUpdateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
     val signatureStatus = remember { SignatureVerifier.verify(context) }
     val isUnofficial = signatureStatus == SignatureStatus.UNOFFICIAL_MODIFIED
     val statusColor = if (isUnofficial) Color(0xFFFF9E00) else ActiveGreenLed
@@ -75,7 +64,7 @@ fun OfficialSourceCard(
             .padding(vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Build Status Header (Seamless without card background)
+        // Build Status Header (Seamless without card background, Zero-Background / Outline-Only)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -85,8 +74,8 @@ fun OfficialSourceCard(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(CircleShape)
-                    .background(statusColor.copy(alpha = 0.12f))
-                    .border(1.dp, statusColor.copy(alpha = 0.3f), CircleShape)
+                    .background(Color.Transparent)
+                    .border(1.dp, statusColor.copy(alpha = 0.5f), CircleShape)
             ) {
                 if (isUnofficial) {
                     Icon(
@@ -106,17 +95,16 @@ fun OfficialSourceCard(
             }
 
             Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = if (isUnofficial) stringResource(R.string.official_source_unofficial_title) else stringResource(R.string.official_source_official_title),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite
-                    )
-                }
+                Text(
+                    text = if (isUnofficial) {
+                        stringResource(R.string.official_source_unofficial_title)
+                    } else {
+                        stringResource(R.string.official_source_official_title)
+                    },
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite
+                )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = if (isUnofficial) {
@@ -131,27 +119,24 @@ fun OfficialSourceCard(
             }
         }
 
-        // 2 Compact Action Buttons Row
+        // Action Buttons Row (Outline-Only, Zero-Background, SpringPress)
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             // Button 1: Repository (GitHub)
-            Button(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    showRepoConfirmDialog = true
-                },
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = ActiveGreenLed
-                ),
-                border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.4f)),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(38.dp)
+                    .height(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .background(Color.Transparent)
+                    .springPress(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showRepoConfirmDialog = true
+                    }),
+                contentAlignment = Alignment.Center
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -166,27 +151,29 @@ fun OfficialSourceCard(
                     Text(
                         text = stringResource(R.string.official_source_btn_repo),
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = ActiveGreenLed
                     )
                 }
             }
 
-            // Button 2: Check Build Authenticity via Hashcode
-            OutlinedButton(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    if (isUnofficial) {
-                        showUnofficialWarningDialog = true
-                    } else {
-                        showSecurityDialog = true
-                    }
-                },
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, statusColor.copy(alpha = 0.5f)),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            // Button 2: Check Build Authenticity via Hash
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(38.dp)
+                    .height(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, statusColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .background(Color.Transparent)
+                    .springPress(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (isUnofficial) {
+                            showUnofficialWarningDialog = true
+                        } else {
+                            showSecurityDialog = true
+                        }
+                    }),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = stringResource(R.string.official_source_btn_check_hash),
@@ -198,172 +185,168 @@ fun OfficialSourceCard(
         }
     }
 
-    // 1. Unofficial Build Warning Dialog (Opens if Hash fails / signature is modified)
+    // 1. Unofficial Build Warning Sheet (Opens if signature is modified)
     if (showUnofficialWarningDialog) {
         UnofficialBuildDialog(
             onDismiss = { showUnofficialWarningDialog = false }
         )
     }
 
-    // 2. Security Dialog (Opens if Hash matches official signature)
+    // 2. Security Bottom Sheet (Zero-Popup MirrlyModalBottomSheet)
     if (showSecurityDialog) {
         val currentSha256 = remember { SignatureVerifier.getSignatureSha256(context) }
-        val isOfficial = signatureStatus == SignatureStatus.OFFICIAL_RELEASE || signatureStatus == SignatureStatus.DEBUG_BUILD
-        val themeColor = if (isOfficial) ActiveGreenLed else Color(0xFFFF9E00)
+        val isMatchesOfficial = currentSha256.equals(SignatureVerifier.OFFICIAL_RELEASE_SHA256, ignoreCase = true) ||
+            SignatureVerifier.OFFICIAL_RELEASE_SHA256.replace(":", "").equals(currentSha256.replace(":", ""), ignoreCase = true)
 
-        Dialog(
+        MirrlyModalBottomSheet(
             onDismissRequest = { showSecurityDialog = false },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false,
-                dismissOnBackPress = true,
-                dismissOnClickOutside = true
-            )
+            maxTabletWidth = 500.dp
         ) {
-            DialogBackdropBox(
-                onDismiss = { showSecurityDialog = false }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(top = 4.dp, bottom = 8.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
-                // Detailed Security Info with Smooth Fading Edges
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                // Category Pill (Outline-Only, Zero-Background)
+                Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth()
-                        .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
-                        .navigationBarsPadding()
-                        .padding(bottom = 120.dp, top = 24.dp)
-                        .padding(horizontal = 24.dp)
-                        .verticalScroll(rememberScrollState())
-                        .clickable(enabled = false) {}
+                        .border(1.dp, statusColor.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                        .background(Color.Transparent)
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Category Pill
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = themeColor.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, themeColor.copy(alpha = 0.35f))
+                    Text(
+                        text = stringResource(R.string.official_source_dialog_category),
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = statusColor,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                // Main Title
+                Text(
+                    text = stringResource(R.string.official_source_dialog_title),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite,
+                    textAlign = TextAlign.Center
+                )
+
+                // Card 1: Status Explanation Card (Outline-Only, Zero-Background)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, statusColor.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                        .background(Color.Transparent)
+                        .padding(14.dp)
+                ) {
+                    Text(
+                        text = when (signatureStatus) {
+                            SignatureStatus.OFFICIAL_RELEASE -> stringResource(R.string.official_source_sig_official)
+                            SignatureStatus.DEBUG_BUILD -> stringResource(R.string.official_source_sig_debug)
+                            else -> stringResource(R.string.official_source_sig_generic)
+                        },
+                        fontSize = 12.5.sp,
+                        color = TextWhite.copy(alpha = 0.9f),
+                        textAlign = TextAlign.Start,
+                        lineHeight = 18.sp
+                    )
+                }
+
+                // Card 2: SHA-256 Fingerprint Display Card (Outline-Only, Zero-Background)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(16.dp))
+                        .background(Color.Transparent)
+                        .padding(14.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = stringResource(R.string.official_source_dialog_category),
+                            text = stringResource(R.string.official_source_dialog_fingerprint_title),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = themeColor,
-                            letterSpacing = 1.sp,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                            color = TextMuted,
+                            letterSpacing = 0.8.sp
                         )
-                    }
-
-                    // Main Title
-                    Text(
-                        text = stringResource(R.string.official_source_dialog_title),
-                        fontSize = 21.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite,
-                        textAlign = TextAlign.Center,
-                        letterSpacing = 0.3.sp
-                    )
-
-                    // Card 1: Status Explanation (Glass Card)
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = themeColor.copy(alpha = 0.08f),
-                        border = BorderStroke(1.dp, themeColor.copy(alpha = 0.30f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
                         Text(
-                            text = when (signatureStatus) {
-                                SignatureStatus.OFFICIAL_RELEASE -> stringResource(R.string.official_source_sig_official)
-                                SignatureStatus.DEBUG_BUILD -> stringResource(R.string.official_source_sig_debug)
-                                else -> stringResource(R.string.official_source_sig_generic)
-                            },
-                            fontSize = 13.sp,
-                            color = TextWhite.copy(alpha = 0.90f),
+                            text = currentSha256,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = if (isMatchesOfficial) ActiveGreenLed else statusColor,
                             textAlign = TextAlign.Start,
-                            lineHeight = 18.5.sp,
-                            modifier = Modifier.padding(14.dp)
+                            lineHeight = 16.5.sp
                         )
-                    }
-
-                    // Card 2: SHA-256 Fingerprint Display (Glass Card)
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color.White.copy(alpha = 0.04f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.official_source_dialog_fingerprint_title),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.65f),
-                                letterSpacing = 0.6.sp
-                            )
-                            Text(
-                                text = currentSha256,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Normal,
-                                color = TextWhite.copy(alpha = 0.95f),
-                                textAlign = TextAlign.Start,
-                                lineHeight = 17.sp
-                            )
-                        }
                     }
                 }
 
-                // Bottom Floating Action Buttons (Seamless over blurred background)
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // Action Row: Copy Hash + Close
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(bottom = 32.dp)
-                        .fillMaxWidth(0.90f)
-                        .clickable(enabled = false) {}
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            try {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("SHA256 Signature", currentSha256)
-                                clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, context.getString(R.string.official_source_hash_copied), Toast.LENGTH_SHORT).show()
-                            } catch (_: Exception) {}
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = TextWhite.copy(alpha = 0.90f)
-                        ),
+                    // Copy Hash Button
+                    Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
-                            .springPress()
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
+                            .background(Color.Transparent)
+                            .springPress(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                try {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("SHA256 Signature", currentSha256)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.official_source_hash_copied),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } catch (_: Exception) {}
+                            }),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(stringResource(R.string.action_copy_alt), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            text = stringResource(R.string.action_copy_alt),
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextWhite
+                        )
                     }
 
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showSecurityDialog = false
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White.copy(alpha = 0.20f),
-                            contentColor = TextWhite
-                        ),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                    // Close Button
+                    Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
-                            .springPress()
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .border(1.dp, ActiveGreenLed.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                            .background(Color.Transparent)
+                            .springPress(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showSecurityDialog = false
+                            }),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(stringResource(R.string.action_close), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = stringResource(R.string.action_close),
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ActiveGreenLed
+                        )
                     }
                 }
             }

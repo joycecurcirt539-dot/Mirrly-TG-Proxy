@@ -17,7 +17,7 @@ object ConnectionHealthFormatter {
 
     fun formatVerdict(context: Context, rawVerdict: String): String {
         return when (rawVerdict.trim()) {
-            "Optimal Connection", "Идеальный канал связи" -> context.getString(R.string.verdict_ideal_channel)
+            "Optimal Connection", "Идеальный канал связи", "Stable Connection", "Стабильный канал связи" -> context.getString(R.string.verdict_ideal_channel)
             "Operator DPI Block", "Блокировка DPI оператором" -> context.getString(R.string.verdict_dpi_blocked)
             "Secure TLS Failure", "Сбой защищенного TLS" -> context.getString(R.string.verdict_tls_failed)
             "Good Connection", "Хорошее соединение" -> context.getString(R.string.verdict_good_connection)
@@ -32,13 +32,15 @@ object ConnectionHealthFormatter {
 
     fun formatDetail(context: Context, rawDetail: String): String {
         return when (rawDetail.trim()) {
-            "Minimal latency and stable direct WSS tunnel", "Минимальная задержка и стабильный прямой WSS-туннель" ->
+            "Minimal latency and stable direct WSS tunnel", "Минимальная задержка и стабильный прямой WSS-туннель",
+            "Low latency and direct WSS tunnel", "Низкая задержка и прямой WSS-туннель" ->
                 context.getString(R.string.verdict_ideal_channel_desc)
             "TCP/ClientHello packet reset detected by middlebox", "Обнаружен сброс TCP/ClientHello пакетов middlebox-системой" ->
                 context.getString(R.string.verdict_dpi_blocked_desc)
             "TLS handshake aborted or invalid server certificate", "Разрыв TLS-рукопожатия или попытка подмены сертификата узла" ->
                 context.getString(R.string.verdict_tls_failed_desc)
-            "Minor latency variation (mobile or Wi-Fi jitter)", "Небольшая вариация задержки (джиттер мобильной сети или Wi-Fi)" ->
+            "Minor latency variation (mobile or Wi-Fi jitter)", "Небольшая вариация задержки (джиттер мобильной сети или Wi-Fi)",
+            "Незначительные колебания задержки (джиттер)" ->
                 context.getString(R.string.verdict_good_connection_desc)
             "Increased cellular radio jitter (LTE/5G) or cell congestion", "Повышенный джиттер сотового радиоканала (LTE/5G) или перегрузка вышки" ->
                 context.getString(R.string.verdict_operator_delays_desc)
@@ -58,7 +60,7 @@ object ConnectionHealthFormatter {
 
     fun formatChatVerdict(context: Context, rawChatVerdict: String): String {
         return when (rawChatVerdict.trim()) {
-            "Ideal for media", "Идеально для медиа" -> context.getString(R.string.chat_verdict_ideal)
+            "Ideal for media", "Идеально для медиа", "Stable media throughput", "Стабильная передача медиа" -> context.getString(R.string.chat_verdict_ideal)
             "Stable", "Стабильно" -> context.getString(R.string.chat_verdict_stable)
             "Moderate speed", "Умеренная скорость" -> context.getString(R.string.chat_verdict_moderate)
             "Download delays", "Задержка загрузки" -> context.getString(R.string.chat_verdict_delays)
@@ -70,7 +72,7 @@ object ConnectionHealthFormatter {
 
     fun formatMosGrade(context: Context, rawMosGrade: String): String {
         return when (rawMosGrade.trim()) {
-            "HD Voice (Excellent)", "HD Voice (Отлично)" -> context.getString(R.string.mos_grade_hd)
+            "HD Voice (Excellent)", "HD Voice (Отлично)", "HD Voice (High quality)", "HD Voice (Высокое)" -> context.getString(R.string.mos_grade_hd)
             "Good quality", "Хорошее качество" -> context.getString(R.string.mos_grade_good)
             "Acceptable", "Приемлемо" -> context.getString(R.string.mos_grade_acceptable)
             "With noise", "С помехами" -> context.getString(R.string.mos_grade_noise)

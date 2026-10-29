@@ -37,6 +37,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -175,7 +177,8 @@ class PingEngine(
     private val configGenerationProvider: () -> Long = { 1L },
     private val isSocks5Provider: () -> Boolean = { false },
     private val probeExecutor: (suspend (String) -> PingProbeResult)? = null,
-    private val onSelfHealingRequired: ((FailureType) -> Unit)? = null
+    private val onSelfHealingRequired: ((FailureType) -> Unit)? = null,
+    private val onSnapshotUpdated: ((PingSnapshot) -> Unit)? = null
 ) {
     val probeGeneration = AtomicLong(1L)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -222,8 +225,17 @@ class PingEngine(
     var isDormant: Boolean = false
         private set
 
+    private val screenWakeSignal = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
     @Volatile
     var isScreenOn: Boolean = true
+        set(value) {
+            val wasOff = !field
+            field = value
+            if (value && wasOff) {
+                screenWakeSignal.tryEmit(Unit)
+            }
+        }
 
     val smoothedPingMs: Long
         get() = currentSnapshot.smoothedPingMs
@@ -243,6 +255,11 @@ class PingEngine(
             while (isActive) {
                 if (isDormant) {
                     delay(30000L)
+                    continue
+                }
+                if (!isScreenOn) {
+                    // Полная заморозка пинга при выключенном экране: 0 сетевых запросов и 0 холостых пробуждений CPU
+                    screenWakeSignal.first()
                     continue
                 }
                 val stamp = captureProbeStamp()
@@ -515,6 +532,10 @@ class PingEngine(
         )
 
         try {
+            onSnapshotUpdated?.invoke(currentSnapshot)
+        } catch (_: Exception) {}
+
+        try {
             val target = targetProvider().trim()
             onProbeCompleted?.invoke(probe, target)
         } catch (_: Exception) {}
@@ -602,10 +623,10 @@ class PingEngine(
             }
         }
         val throughput = trafficThroughputProvider()
-        return if (throughput > 102_400L) { // > 100 KB/s
-            30000L
+        return if (throughput > 10_240L) { // > 10 KB/s: активный трафик Telegram (медиа, чаты, звонки)
+            45000L // 45с: исключаем паразитную нагрузку и конкуренцию за радиомодем
         } else {
-            20000L
+            30000L // 30с: спокойный интервал в режиме ожидания при включенном экране
         }
     }
 
@@ -653,13 +674,36 @@ class PingEngine(
                     443
                 }
 
-                val addrs = DohResolver.resolve(hostClean)
+                // 0. Нативный TCP Ping через Rust Tokio с защитой сокета через Android VpnService
+                try {
+                    val (success, rttMs) = NativeProxy.pingHost(hostClean, port, timeoutMs.coerceAtMost(2500L).toInt())
+                    if (success && rttMs >= 0) {
+                        return PingProbeResult(
+                            rawRttMs = rttMs,
+                            success = true,
+                            failureType = FailureType.NONE
+                        )
+                    }
+                } catch (t: Throwable) {
+                    AppLogger.d("PingEngine", "Native ping fell through: ${t.message}")
+                }
+
+                val addrs = try {
+                    val d = hostClean.lowercase()
+                    if (d.endsWith(".workers.dev") || d.endsWith(".pages.dev") || d.endsWith(".cloudflare.com")) {
+                        listOf(InetAddress.getByName("172.67.153.159"), InetAddress.getByName("104.21.234.180"))
+                    } else {
+                        InetAddress.getAllByName(hostClean).toList()
+                    }
+                } catch (_: Exception) {
+                    emptyList()
+                }
                 if (addrs.isEmpty()) {
                     return PingProbeResult(
                         rawRttMs = -1L,
                         success = false,
                         failureType = FailureType.DNS_FAILURE,
-                        errorDetail = "Не удалось разрешить IP-адрес для $hostClean (DoH / DNS Failure)"
+                        errorDetail = "Не удалось разрешить IP-адрес для $hostClean (DNS Failure)"
                     )
                 }
 
@@ -671,6 +715,7 @@ class PingEngine(
                     try {
                         val t0 = System.nanoTime()
                         Socket().use { s ->
+                            VpnSocketProtector.protect(s)
                             s.tcpNoDelay = true
                             s.connect(InetSocketAddress(addr, port), connectTimeout)
                         }

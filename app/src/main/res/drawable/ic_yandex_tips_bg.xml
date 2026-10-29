@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <!-- Yandex Tips Yellow Background Squircle -->
+    <path
+        android:pathData="M 22,0 L 78,0 C 90,0 100,10 100,22 L 100,78 C 100,90 90,100 78,100 L 22,100 C 10,100 0,90 0,78 L 0,22 C 0,10 10,0 22,0 Z"
+        android:fillColor="#FFFCDA00" />
+</vector>

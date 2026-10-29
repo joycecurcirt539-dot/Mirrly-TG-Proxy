@@ -72,7 +72,7 @@ async fn start_association(
     let root = cancel.clone();
     let sessions = Arc::new(parking_lot::RwLock::new(cancel.clone()));
     let task = tokio::spawn(async move {
-        run_socks5_server("127.0.0.1".into(), addr.port(), root, sessions, listener)
+        run_socks5_server("127.0.0.1".into(), addr.port(), root, sessions, listener, None)
             .await
             .unwrap();
     });

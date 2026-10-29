@@ -250,64 +250,58 @@ class DohResolverTest {
     @Test
     fun testDohProvidersConfigurationAndCloudflareExclusionByDefault() {
         val global = DohResolver.GLOBAL_PROVIDERS
-        assertEquals(15, global.size)
+        assertEquals(4, global.size)
 
         val iran = DohResolver.IRAN_PROVIDERS
         assertEquals(6, iran.size)
 
         val all = DohResolver.ALL_PROVIDERS
-        assertEquals(21, all.size)
+        assertEquals(10, all.size)
 
-        // Language-based visibility tests
-        assertEquals(15, DohResolver.getAvailableProviders("ru").size)
-        assertEquals(21, DohResolver.getAvailableProviders("en").size)
-        assertEquals(21, DohResolver.getAvailableProviders("fa").size)
-        assertEquals(15, DohResolver.getAvailableProviders("ru-RU").size)
-        assertEquals(21, DohResolver.getAvailableProviders("fa-IR").size)
+        // Language-based visibility tests: 4 for ru/en, 10 (4 global + 6 Iran) for fa
+        assertEquals(4, DohResolver.getAvailableProviders("ru").size)
+        assertEquals(4, DohResolver.getAvailableProviders("en").size)
+        assertEquals(10, DohResolver.getAvailableProviders("fa").size)
+        assertEquals(4, DohResolver.getAvailableProviders("ru-RU").size)
+        assertEquals(10, DohResolver.getAvailableProviders("fa-IR").size)
 
         val defaultIds = DohResolver.DEFAULT_ENABLED_PROVIDER_IDS
-        // Cloudflare, Google, Quad9, GeoHide and Xbox must NOT be enabled by default
-        assertFalse(defaultIds.contains("cloudflare"))
-        assertFalse(defaultIds.contains("cloudflare_sec"))
-        assertFalse(defaultIds.contains("google"))
-        assertFalse(defaultIds.contains("google_sec"))
-        assertFalse(defaultIds.contains("quad9"))
-        assertFalse(defaultIds.contains("controld_uncensored"))
-        assertFalse(defaultIds.contains("controld_malware"))
-        assertFalse(defaultIds.contains("geohide"))
-        assertFalse(defaultIds.contains("xbox"))
+        assertTrue(defaultIds.contains("adguard"))
+        assertTrue(defaultIds.contains("yandex"))
+        assertTrue(defaultIds.contains("cloudflare"))
+        assertTrue(defaultIds.contains("google"))
+        assertEquals(4, defaultIds.size)
 
-        // In Russian, Iran providers must NOT be in default enabled or available providers
+        // In Russian and English, Iran providers must NOT be in default enabled or available providers
         val ruDefaults = DohResolver.getDefaultEnabledProviderIds("ru")
         assertFalse(ruDefaults.contains("shecan"))
         assertFalse(ruDefaults.contains("electro"))
         assertFalse(ruDefaults.contains("doh_403"))
 
-        // In Persian and English, Iran providers ARE in available providers and default enabled
+        val enDefaults = DohResolver.getDefaultEnabledProviderIds("en")
+        assertFalse(enDefaults.contains("shecan"))
+        assertFalse(enDefaults.contains("electro"))
+        assertFalse(enDefaults.contains("doh_403"))
+
+        // In Persian, Iran providers ARE in available providers and default enabled
         val faDefaults = DohResolver.getDefaultEnabledProviderIds("fa")
         assertTrue(faDefaults.contains("shecan"))
         assertTrue(faDefaults.contains("electro"))
         assertTrue(faDefaults.contains("doh_403"))
 
-        val enDefaults = DohResolver.getDefaultEnabledProviderIds("en")
-        assertTrue(enDefaults.contains("shecan"))
-        assertTrue(enDefaults.contains("electro"))
-        assertTrue(enDefaults.contains("doh_403"))
-
-        // AdGuard, Yandex, DNS.SB, NextDNS, Control D must be enabled by default
+        // Only AdGuard, Yandex, Cloudflare, Google must be in default enabled global providers
         assertTrue(defaultIds.contains("adguard"))
         assertTrue(defaultIds.contains("yandex"))
-        assertTrue(defaultIds.contains("dnssb"))
-        assertTrue(defaultIds.contains("dnssb_sec"))
-        assertTrue(defaultIds.contains("nextdns"))
-        assertTrue(defaultIds.contains("controld"))
+        assertTrue(defaultIds.contains("cloudflare"))
+        assertTrue(defaultIds.contains("google"))
+        assertEquals(4, defaultIds.size)
 
         // Verify active providers filtering
-        DohResolver.setActiveProviders(setOf("adguard", "dnssb"))
+        DohResolver.setActiveProviders(setOf("adguard", "yandex"))
         assertEquals(2, DohResolver.getActiveProviders().size)
         val csv = DohResolver.getActiveEndpointsCsv()
         assertTrue(csv.contains("94.140.14.14/resolve"))
-        assertTrue(csv.contains("185.222.222.222"))
+        assertTrue(csv.contains("common.dot.dns.yandex.net"))
         assertFalse(csv.contains("1.1.1.1"))
 
         // Reset
@@ -341,15 +335,10 @@ class DohResolverTest {
         val packet = DohResolver.buildDnsQueryPacket("api.telegram.org")
         assertTrue(packet.isNotEmpty())
 
-        val geohide = DohResolver.ALL_PROVIDERS.first { it.id == "geohide" }
-        assertTrue(geohide.useDnsParam)
-        val geohideUrl = DohResolver.buildDnsQueryUrl(geohide, "api.telegram.org")
-        assertTrue(geohideUrl.startsWith("https://dns.geohide.ru/dns-query?dns="))
-
-        val xbox = DohResolver.ALL_PROVIDERS.first { it.id == "xbox" }
-        assertTrue(xbox.useDnsParam)
-        val xboxUrl = DohResolver.buildDnsQueryUrl(xbox, "api.telegram.org")
-        assertTrue(xboxUrl.startsWith("https://xbox-dns.ru/dns-query?dns="))
+        val yandex = DohResolver.ALL_PROVIDERS.first { it.id == "yandex" }
+        assertTrue(yandex.useDnsParam)
+        val yandexUrl = DohResolver.buildDnsQueryUrl(yandex, "api.telegram.org")
+        assertTrue(yandexUrl.startsWith("https://common.dot.dns.yandex.net/dns-query?dns="))
 
         val adguard = DohResolver.ALL_PROVIDERS.first { it.id == "adguard" }
         assertFalse(adguard.useDnsParam)
@@ -443,8 +432,8 @@ class DohResolverTest {
     fun testHedgedResolveGeneratesMaxTwoRequests() = runBlocking {
         val originalProviders = DohResolver.getActiveProviders()
         try {
-            DohResolver.setActiveProviders(setOf("adguard", "dnssb", "dnssb_sec", "nextdns", "controld"))
-            assertTrue(DohResolver.getActiveProviders().size >= 5)
+            DohResolver.setActiveProviders(setOf("adguard", "yandex", "cloudflare", "google"))
+            assertEquals(4, DohResolver.getActiveProviders().size)
 
             // hedgedResolve on an invalid domain under USER_IN_TUNNEL must only attempt
             // primary and secondary (not 5+ providers), and cleanly complete/timeout

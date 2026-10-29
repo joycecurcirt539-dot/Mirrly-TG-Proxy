@@ -1,52 +1,37 @@
 package com.mirrly.tgproxy.ui
-import androidx.compose.ui.res.stringResource
 
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.scaleIn
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.os.Build
-import android.view.WindowManager
-import androidx.core.view.WindowCompat
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.mirrly.tgproxy.R
-import com.mirrly.tgproxy.ui.theme.*
+import com.mirrly.tgproxy.ui.theme.ActiveGreenLed
+import com.mirrly.tgproxy.ui.theme.AmoledBorder
+import com.mirrly.tgproxy.ui.theme.TextWhite
+import com.mirrly.tgproxy.ui.theme.springPress
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UnofficialBuildDialog(
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val officialReleasesUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/latest"
     var showConfirmLinkDialog by remember { mutableStateOf(false) }
@@ -59,130 +44,114 @@ fun UnofficialBuildDialog(
         )
     }
 
-    var isVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        isVisible = true
-    }
-
     val warningAmber = Color(0xFFFF9E00)
-    val warningRed = Color(0xFFFF3B30)
 
-    Dialog(
+    MirrlyModalBottomSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false
-        )
+        maxTabletWidth = 480.dp
     ) {
-        DialogBackdropBox(
-            onDismiss = onDismiss
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(top = 4.dp, bottom = 8.dp)
+                .verticalScroll(rememberScrollState())
         ) {
-            // Detailed Warning Content with Smooth Fading Edges
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+            // Category Pill (Outline-Only, Zero-Background)
+            Box(
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .adaptiveContainerWidth(440.dp)
-                    .fadingEdges(topFadeHeight = 32.dp, bottomFadeHeight = 64.dp)
-                    .navigationBarsPadding()
-                    .padding(bottom = 160.dp, top = 24.dp)
-                    .padding(horizontal = 24.dp)
-                    .verticalScroll(rememberScrollState())
-                    .clickable(enabled = false) {}
+                    .border(1.dp, warningAmber.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                    .background(Color.Transparent)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
             ) {
-                // Category Pill
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = warningAmber.copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, warningAmber.copy(alpha = 0.40f))
-                ) {
-                    Text(
-                        text = stringResource(R.string.unofficial_dialog_category),
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = warningAmber,
-                        letterSpacing = 1.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                    )
-                }
-
-                // Title
                 Text(
-                    text = stringResource(R.string.unofficial_dialog_title),
-                    fontSize = 20.sp,
+                    text = stringResource(R.string.unofficial_dialog_category),
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    textAlign = TextAlign.Center,
-                    letterSpacing = 0.3.sp
+                    color = warningAmber,
+                    letterSpacing = 1.sp
                 )
-
-                // Body text in Amber Glass Card
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = warningAmber.copy(alpha = 0.08f),
-                    border = BorderStroke(1.dp, warningAmber.copy(alpha = 0.30f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = stringResource(R.string.unofficial_dialog_desc),
-                        fontSize = 13.sp,
-                        color = TextWhite.copy(alpha = 0.90f),
-                        textAlign = TextAlign.Start,
-                        lineHeight = 19.sp,
-                        modifier = Modifier.padding(14.dp)
-                    )
-                }
             }
 
-            // Floating Bottom Action Buttons (Seamless over blurred background)
+            // Title
+            Text(
+                text = stringResource(R.string.unofficial_dialog_title),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextWhite,
+                textAlign = TextAlign.Center
+            )
+
+            // Warning Body Card (Outline-Only, Zero-Background)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, warningAmber.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                    .background(Color.Transparent)
+                    .padding(14.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.unofficial_dialog_desc),
+                    fontSize = 13.sp,
+                    color = TextWhite.copy(alpha = 0.9f),
+                    textAlign = TextAlign.Start,
+                    lineHeight = 19.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            // Action Buttons (Outline-Only, SpringPress)
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 28.dp)
-                    .fillMaxWidth()
-                    .clickable(enabled = false) {}
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Button(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        showConfirmLinkDialog = true
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ActiveGreenLed.copy(alpha = 0.20f),
-                        contentColor = ActiveGreenLed
-                    ),
-                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.50f)),
+                // Download Official Release Button
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
-                        .springPress()
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(1.dp, ActiveGreenLed.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
+                        .background(Color.Transparent)
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showConfirmLinkDialog = true
+                        }),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(stringResource(R.string.unofficial_dialog_btn_download), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = stringResource(R.string.unofficial_dialog_btn_download),
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ActiveGreenLed
+                    )
                 }
 
-                OutlinedButton(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onDismiss()
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = TextWhite.copy(alpha = 0.90f)
-                    ),
+                // Ignore Risk / Dismiss Button
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(44.dp)
-                        .springPress()
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
+                        .background(Color.Transparent)
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDismiss()
+                        }),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(stringResource(R.string.unofficial_dialog_btn_dismiss), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        text = stringResource(R.string.unofficial_dialog_btn_dismiss),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextWhite.copy(alpha = 0.8f)
+                    )
                 }
             }
         }

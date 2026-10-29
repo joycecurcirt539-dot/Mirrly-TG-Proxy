@@ -18,77 +18,67 @@ class CloudflareWorkerRelayContractTest {
     @Test
     fun `tcp relay confirms upstream before websocket upgrade`() {
         val worker = TgConstants.CLOUDFLARE_WORKER_JS_CODE
-        val opened = worker.lastIndexOf("tcpSocket.opened")
-        val upgrade = worker.lastIndexOf("const webSocketPair = new WebSocketPair()")
+        val opened = worker.lastIndexOf("tcp.opened")
+        val upgrade = worker.lastIndexOf("new WebSocketPair()")
 
         assertTrue(opened >= 0, "Worker must await cloudflare socket opened")
         assertTrue(upgrade > opened, "WebSocket 101 must only be created after upstream TCP is open")
-        assertTrue(worker.contains("status: 502"), "Upstream connection failures must reject the upgrade")
-        assertTrue(worker.contains("tcpSocket.closed.then"), "Worker must observe upstream closure")
+        assertTrue(worker.contains("error('Telegram connection failed', 502)"), "Upstream connection failures must reject the upgrade")
     }
 
     @Test
     fun `tcp relay has bounded websocket to tcp queue`() {
         val worker = TgConstants.CLOUDFLARE_WORKER_JS_CODE
 
-        assertTrue(worker.contains("MAX_WS_MESSAGE_BYTES"))
         assertTrue(worker.contains("MAX_PENDING_WRITE_BYTES"))
-        assertTrue(worker.contains("pendingWriteBytes + data.byteLength"))
-        assertTrue(worker.contains("serverWs.close(1009"))
-        assertTrue(worker.contains("createBoundedSequentialWriter"))
-        assertTrue(worker.contains("TCP_WRITE_TIMEOUT_MS"))
+        assertTrue(worker.contains("pendingBytes += data.byteLength"))
+        assertTrue(worker.contains("cleanup(1009"))
+        assertTrue(worker.contains("writer.write(data)"))
     }
 
     @Test
-    fun `tcp relay enforces downlink backpressure and slow reader protection`() {
+    fun `tcp relay enforces downlink credit from client`() {
         val worker = TgConstants.CLOUDFLARE_WORKER_JS_CODE
 
-        assertTrue(worker.contains("DOWNLINK_HIGH_WATERMARK"))
-        assertTrue(worker.contains("DOWNLINK_LOW_WATERMARK"))
-        assertTrue(worker.contains("MAX_DOWNLINK_CHUNK"))
-        assertTrue(worker.contains("SLOW_READER_SOAK_TIMEOUT_MS"))
-        assertTrue(worker.contains("pumpTcpToWebSocket"))
-        assertTrue(worker.contains("serverWs.close(1008"))
+        assertTrue(worker.contains("DOWNLINK_WINDOW_BYTES"))
+        assertTrue(worker.contains("DOWNLINK_CHUNK_BYTES"))
+        assertTrue(worker.contains("MIN_DOWNLINK_WINDOW_BYTES"))
+        assertTrue(worker.contains("MAX_DOWNLINK_WINDOW_BYTES"))
+        assertTrue(worker.contains("flow && sentBytes - ackedBytes >= downlinkWindow"))
+        assertTrue(worker.contains("/^ack:(\\d+)$/"))
+        assertTrue(!worker.contains("bufferedAmount"))
     }
 
     @Test
-    fun `all worker deployment templates match flow control and relay contracts`() {
+    fun `all worker deployment templates use the same source`() {
         val rootDir = java.io.File("..").canonicalFile
-        val candidates = listOf(
-            java.io.File(rootDir, "tools/deploy-worker/worker.js"),
-            java.io.File(rootDir, "docs/cloudflare_worker.js")
-        )
+        val canonical = java.io.File(rootDir, "tools/deploy-worker/worker.js").readText().trimEnd()
+        val candidates = listOf("docs/cloudflare_worker.js", "app/src/main/assets/worker.js")
 
-        for (file in candidates) {
-            if (!file.exists()) continue
-            val text = file.readText()
-            assertTrue(text.contains("createBoundedSequentialWriter"), "${file.name} must have bounded sequential writer")
-            assertTrue(text.contains("pumpTcpToWebSocket"), "${file.name} must have downlink pump with backpressure")
-            assertTrue(text.contains("MAX_WS_MESSAGE_BYTES"), "${file.name} must specify MAX_WS_MESSAGE_BYTES")
-            assertTrue(text.contains("MAX_PENDING_WRITE_BYTES"), "${file.name} must specify MAX_PENDING_WRITE_BYTES")
-            assertTrue(text.contains("DOWNLINK_HIGH_WATERMARK"), "${file.name} must specify DOWNLINK_HIGH_WATERMARK")
-            assertTrue(text.contains("0x56, 0x02, 0x00, 0x00"), "${file.name} must specify /tcp-v2 control ACK")
-            assertTrue(text.contains("serverWs.binaryType = \"arraybuffer\""), "${file.name} must explicitly configure arraybuffer binaryType")
-            assertTrue(text.contains("serverWs.accept()"), "${file.name} must call serverWs.accept()")
-            assertTrue(text.contains("raw instanceof Blob"), "${file.name} must handle Blob payloads to prevent zero-length loss")
+        for (path in candidates) {
+            val text = java.io.File(rootDir, path).readText().trimEnd()
+            assertTrue(text == canonical, "$path must match canonical Worker")
         }
+        assertTrue(TgConstants.CLOUDFLARE_WORKER_JS_CODE == canonical)
+        assertTrue(java.io.File(rootDir, "tools/deploy-worker/deploy.ps1").readText().contains(canonical))
+        assertTrue(java.io.File(rootDir, "tools/deploy-worker/deploy.sh").readText().contains(canonical))
     }
 
     @Test
     fun `worker specifies binaryType arraybuffer before accept`() {
         val worker = TgConstants.CLOUDFLARE_WORKER_JS_CODE
-        val binaryTypeIdx = worker.indexOf("serverWs.binaryType = \"arraybuffer\"")
-        val acceptIdx = worker.indexOf("serverWs.accept()")
+        val binaryTypeIdx = worker.indexOf("server.binaryType = 'arraybuffer'")
+        val acceptIdx = worker.indexOf("server.accept()")
 
         assertTrue(binaryTypeIdx >= 0, "Worker must set binaryType = arraybuffer")
-        assertTrue(acceptIdx > binaryTypeIdx, "binaryType must be set BEFORE serverWs.accept()")
+        assertTrue(acceptIdx > binaryTypeIdx, "binaryType must be set BEFORE server.accept()")
     }
 
     @Test
-    fun `worker decodes Blob payloads to prevent zero-length loss`() {
+    fun `worker accepts binary websocket payloads`() {
         val worker = TgConstants.CLOUDFLARE_WORKER_JS_CODE
-        assertTrue(worker.contains("raw instanceof Blob"), "Worker must check for Blob payloads")
-        assertTrue(worker.contains("raw.arrayBuffer()"), "Worker must decode Blob via arrayBuffer()")
+        assertTrue(worker.contains("event.data instanceof ArrayBuffer"))
+        assertTrue(worker.contains("ArrayBuffer.isView(event.data)"))
     }
 
     @Test
@@ -97,15 +87,15 @@ class CloudflareWorkerRelayContractTest {
         val ps1 = java.io.File(rootDir, "tools/deploy-worker/deploy.ps1").readText()
         val sh = java.io.File(rootDir, "tools/deploy-worker/deploy.sh").readText()
 
-        assertTrue(ps1.contains("compatibility_date = \"2025-01-01\""), "deploy.ps1 must pin compatibility_date 2025-01-01")
-        assertTrue(sh.contains("compatibility_date = \"2025-01-01\""), "deploy.sh must pin compatibility_date 2025-01-01")
+        assertTrue(ps1.contains("compatibility_date = \"2026-09-29\""), "deploy.ps1 must pin compatibility_date 2026-09-29")
+        assertTrue(sh.contains("compatibility_date = \"2026-09-29\""), "deploy.sh must pin compatibility_date 2026-09-29")
     }
 
     @Test
     fun `tcp-v2 relay emits versioned control ack frame`() {
         val worker = TgConstants.CLOUDFLARE_WORKER_JS_CODE
-        assertTrue(worker.contains("isTcpV2"), "Worker must detect /tcp-v2 route")
-        assertTrue(worker.contains("0x56, 0x02, 0x00, 0x00"), "Worker must emit versioned relay-ready control ACK frame")
+        assertTrue(worker.contains("url.pathname === '/tcp-v2'"))
+        assertTrue(worker.contains("0x56, flow ? 0x03 : 0x02, 0x00, 0x00"))
     }
 
     @Test
@@ -116,4 +106,3 @@ class CloudflareWorkerRelayContractTest {
         org.junit.jupiter.api.Assertions.assertEquals(1L, stats.totalSocks5V1Downgrades.get())
     }
 }
-

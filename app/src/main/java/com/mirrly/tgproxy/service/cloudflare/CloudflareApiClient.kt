@@ -352,7 +352,7 @@ object CloudflareApiClient {
     ): Result<Boolean> {
         val metadataJson = JSONObject()
             .put("main_module", "worker.js")
-            .put("compatibility_date", "2025-01-01")
+            .put("compatibility_date", "2026-09-29")
             .toString()
 
         val multipartBody = MultipartBody.Builder()

@@ -21,15 +21,11 @@ package com.mirrly.tgproxy.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -120,10 +116,10 @@ fun LicenseScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .staggeredEntrance(index = 0)
-                    .clip(RoundedCornerShape(24.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(Color.Transparent)
-                    .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(24.dp))
-                    .padding(20.dp)
+                    .border(1.dp, AmoledBorder, RoundedCornerShape(20.dp))
+                    .padding(18.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(
@@ -133,29 +129,29 @@ fun LicenseScreen(
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(44.dp)
                                 .clip(CircleShape)
-                                .background(ActiveGreenLed.copy(alpha = 0.15f))
-                                .border(1.5.dp, ActiveGreenLed.copy(alpha = 0.5f), CircleShape)
+                                .background(Color.Transparent)
+                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.45f), CircleShape)
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_license),
                                 contentDescription = null,
                                 tint = ActiveGreenLed,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
 
                         Column {
                             Text(
                                 text = stringResource(R.string.license_gnu_gpl_title),
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = TextWhite
                             )
                             Text(
                                 text = "Copyright (c) 2026 R1Xern (Mirrly Dev)",
-                                fontSize = 12.5.sp,
+                                fontSize = 12.sp,
                                 color = TextMuted
                             )
                         }
@@ -164,7 +160,7 @@ fun LicenseScreen(
                     Text(
                         text = stringResource(R.string.license_header_desc),
                         fontSize = 13.sp,
-                        lineHeight = 19.sp,
+                        lineHeight = 18.sp,
                         color = TextWhite.copy(alpha = 0.85f)
                     )
 
@@ -172,15 +168,16 @@ fun LicenseScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Button(
-                            onClick = { openGitHubLicense() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.Transparent,
-                                contentColor = ActiveGreenLed
-                            ),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, ActiveGreenLed),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f).height(42.dp)
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, ActiveGreenLed.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+                                .springPress(onClick = { openGitHubLicense() }),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_github),
@@ -189,18 +186,24 @@ fun LicenseScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("GitHub", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(
+                                text = "GitHub",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = ActiveGreenLed
+                            )
                         }
 
-                        Button(
-                            onClick = { copyLicenseToClipboard() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF141A29),
-                                contentColor = TextWhite
-                            ),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1F283D)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f).height(42.dp)
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                                .springPress(onClick = { copyLicenseToClipboard() }),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_copy),
@@ -209,7 +212,12 @@ fun LicenseScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.license_btn_copy), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(
+                                text = stringResource(R.string.license_btn_copy),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = TextWhite
+                            )
                         }
                     }
                 }
@@ -233,7 +241,7 @@ fun LicenseScreen(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color.Transparent)
-                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(20.dp))
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(20.dp))
                         .padding(18.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -241,7 +249,11 @@ fun LicenseScreen(
                         PermissionRow(text = stringResource(R.string.license_perm_modification))
                         PermissionRow(text = stringResource(R.string.license_perm_copyleft))
                         PermissionRow(text = stringResource(R.string.license_perm_patent_protection))
-                        HorizontalDivider(color = Color(0xFF161A26), thickness = 1.dp, modifier = Modifier.padding(vertical = 4.dp))
+                        HorizontalDivider(
+                            color = AmoledBorder,
+                            thickness = 1.dp,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
                         Text(
                             text = stringResource(R.string.license_condition_notice),
                             fontSize = 12.sp,
@@ -283,8 +295,8 @@ fun LicenseScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF0D111A))
-                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(14.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -295,15 +307,18 @@ fun LicenseScreen(
                             .weight(1f)
                             .height(38.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isRu) ActiveGreenLed.copy(alpha = 0.18f) else Color.Transparent)
-                            .border(if (isRu) 1.dp else 0.dp, if (isRu) ActiveGreenLed.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(10.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
+                            .background(Color.Transparent)
+                            .then(
+                                if (isRu) {
+                                    Modifier.border(1.dp, ActiveGreenLed.copy(alpha = 0.75f), RoundedCornerShape(10.dp))
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .springPress(onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 selectedLanguage = "ru"
-                            }
+                            })
                     ) {
                         Text(
                             text = stringResource(R.string.license_lang_russian),
@@ -320,15 +335,18 @@ fun LicenseScreen(
                             .weight(1f)
                             .height(38.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isEn) ActiveGreenLed.copy(alpha = 0.18f) else Color.Transparent)
-                            .border(if (isEn) 1.dp else 0.dp, if (isEn) ActiveGreenLed.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(10.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
+                            .background(Color.Transparent)
+                            .then(
+                                if (isEn) {
+                                    Modifier.border(1.dp, ActiveGreenLed.copy(alpha = 0.75f), RoundedCornerShape(10.dp))
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .springPress(onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 selectedLanguage = "en"
-                            }
+                            })
                     ) {
                         Text(
                             text = stringResource(R.string.license_lang_english),
@@ -344,11 +362,15 @@ fun LicenseScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF080B12))
-                        .border(1.dp, Color(0xFF181E2E), RoundedCornerShape(16.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(16.dp))
                         .padding(16.dp)
                 ) {
-                    Crossfade(targetState = selectedLanguage, animationSpec = tween(220), label = "licenseCrossfade") { lang ->
+                    Crossfade(
+                        targetState = selectedLanguage,
+                        animationSpec = tween(200),
+                        label = "licenseCrossfade"
+                    ) { lang ->
                         val textToDisplay = if (lang == "ru") fullLicenseTextRu else fullLicenseTextEn
                         Text(
                             text = textToDisplay,
@@ -392,10 +414,16 @@ fun LicenseScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onBack()
-                    }) {
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onBack()
+                        },
+                        modifier = Modifier.springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onBack()
+                        })
+                    ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_arrow_left),
                             contentDescription = stringResource(R.string.action_back),
@@ -407,13 +435,6 @@ fun LicenseScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
-
-        // Delicate Cyber Particles floating over entire license interface
-        CyberParticlesOverlay(
-            modifier = Modifier.fillMaxSize(),
-            particleCount = 42,
-            alphaMultiplier = 0.70f
-        )
     }
 }
 
@@ -426,15 +447,15 @@ private fun PermissionRow(text: String) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(20.dp)
+                .size(18.dp)
                 .clip(CircleShape)
-                .background(ActiveGreenLed.copy(alpha = 0.2f))
+                .border(1.dp, ActiveGreenLed.copy(alpha = 0.5f), CircleShape)
         ) {
-            Text(
-                text = "✓",
-                color = ActiveGreenLed,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
+            Icon(
+                painter = painterResource(id = R.drawable.ic_check_circle),
+                contentDescription = null,
+                tint = ActiveGreenLed,
+                modifier = Modifier.size(11.dp)
             )
         }
         Text(

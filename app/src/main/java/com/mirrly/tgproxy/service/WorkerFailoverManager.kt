@@ -84,9 +84,14 @@ object WorkerFailoverManager {
         }
     }
 
+    fun isFailoverApplicable(app: MirrlyApplication): Boolean {
+        if (!app.proxyServer.isRunning || !app.prefsManager.isAutoFailoverEnabled()) return false
+        return app.config.isSocks5Mode || (app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO && app.config.useWorkerMtproto)
+    }
+
     fun startRecoveryWatchdogIfNeeded() {
         val app = MirrlyApplication.instance
-        if (!app.proxyServer.isRunning || !app.config.isSocks5Mode || !app.prefsManager.isAutoFailoverEnabled()) return
+        if (!isFailoverApplicable(app)) return
         if (recoveryJob?.isActive == true) return
 
         val hasOpenCircuits = circuitRecords.values.any { it.state == CircuitState.OPEN || it.state == CircuitState.HALF_OPEN }
@@ -97,7 +102,7 @@ object WorkerFailoverManager {
             while (isActive) {
                 delay(15000)
 
-                if (!app.proxyServer.isRunning || !app.config.isSocks5Mode || !app.prefsManager.isAutoFailoverEnabled()) {
+                if (!isFailoverApplicable(app)) {
                     AppLogger.d("WorkerFailover", "Proxy service stopped or failover disabled. Stopping Watchdog.")
                     break
                 }
@@ -132,8 +137,9 @@ object WorkerFailoverManager {
     /** Preflight diagnostics may update health, but are not a continuous probe series. */
     fun handleActiveWorkerSuccess(domain: String, rttMs: Long) {
         val app = MirrlyApplication.instance
+        val currentMode = app.config.proxyMode
         val worker = (app.prefsManager.getDeveloperWorkers() + app.prefsManager.getCustomWorkers())
-            .find { it.id == app.prefsManager.getActiveWorkerId() && it.domain.equals(domain, true) }
+            .find { it.id == app.prefsManager.getActiveWorkerId(currentMode) && it.domain.equals(domain, true) }
             ?: return
         circuitRecords.getOrPut(worker.id) {
             WorkerCircuitRecord(workerId = worker.id, domain = worker.domain)
@@ -149,13 +155,13 @@ object WorkerFailoverManager {
         observedAtMs: Long
     ) = mutex.withLock {
         val app = MirrlyApplication.instance
-        if (!app.proxyServer.isRunning || !app.config.isSocks5Mode) return@withLock
-        if (!app.prefsManager.isAutoFailoverEnabled()) return@withLock
+        if (!isFailoverApplicable(app)) return@withLock
         if (networkGeneration != app.proxyServer.currentProfileGeneration.get()) return@withLock
         if (observedAtMs <= lastObservationMs) return@withLock
 
 
-        val activeId = app.prefsManager.getActiveWorkerId()
+        val currentMode = app.config.proxyMode
+        val activeId = app.prefsManager.getActiveWorkerId(currentMode)
         val allWorkers = app.prefsManager.getDeveloperWorkers() + app.prefsManager.getCustomWorkers()
         // A late result from the previous worker must never penalize the new one.
         val activeWorker = allWorkers.find {
@@ -245,10 +251,11 @@ object WorkerFailoverManager {
 
         if (bestWorker != null) {
             val selected = bestWorker
+            val currentMode = app.config.proxyMode
             val switched = app.proxyServer.networkStabilizationGate.tryChange {
-                if (app.prefsManager.getActiveWorkerId() != brokenWorker.id) return@tryChange false
+                if (app.prefsManager.getActiveWorkerId(currentMode) != brokenWorker.id) return@tryChange false
                 // fromUserAction = false: не перезаписываем постоянный выбор пользователя (user_primary_worker_id)
-                app.prefsManager.setActiveWorkerId(selected.id, fromUserAction = false)
+                app.prefsManager.setActiveWorkerId(selected.id, mode = currentMode, fromUserAction = false)
                 switchPolicy.switched(brokenWorker.id, now)
                 lastFailoverTimestampMs = System.currentTimeMillis()
                 true
@@ -312,8 +319,9 @@ object WorkerFailoverManager {
                         // Если восстановился исходный primary воркер пользователя, переключаемся обратно!
                         val currentState = _failoverState.value
                         if (currentState.isFailoverActive && currentState.originalPrimaryWorkerId == worker.id) {
+                            val currentMode = app.config.proxyMode
                             AppLogger.i("WorkerFailover", "Original primary worker '${worker.name}' recovered! Reverting failover.")
-                            app.prefsManager.setActiveWorkerId(worker.id, fromUserAction = false)
+                            app.prefsManager.setActiveWorkerId(worker.id, mode = currentMode, fromUserAction = false)
                             _failoverState.value = FailoverState(isFailoverActive = false)
                         }
                     } else {

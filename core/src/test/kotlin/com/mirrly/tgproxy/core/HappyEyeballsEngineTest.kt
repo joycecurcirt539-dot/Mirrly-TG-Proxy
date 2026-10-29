@@ -293,11 +293,11 @@ class HappyEyeballsEngineTest {
         val ordered = HappyEyeballsEngine.prioritizeAddresses(listOf(ipv4_1, ipv6_1, ipv4_2, ipv6_2))
 
         assertEquals(4, ordered.size)
-        // Dual-stack: IPv6, IPv4, IPv6, IPv4
-        assertEquals(ipv6_1, ordered[0])
-        assertEquals(ipv4_1, ordered[1])
-        assertEquals(ipv6_2, ordered[2])
-        assertEquals(ipv4_2, ordered[3])
+        // Dual-stack: IPv4 first to avoid Cloudflare Anycast IPv6 TSPU blackhole
+        assertEquals(ipv4_1, ordered[0])
+        assertEquals(ipv4_2, ordered[1])
+        assertEquals(ipv6_1, ordered[2])
+        assertEquals(ipv6_2, ordered[3])
     }
 
     @Test
@@ -312,5 +312,46 @@ class HappyEyeballsEngineTest {
         val extracted = HappyEyeballsEngine.extractIpv4FromNat64(synthesized)
         assertNotNull(extracted)
         assertEquals(originalIpv4.hostAddress, extracted?.hostAddress)
+    }
+
+    @Test
+    fun testIpFamilyPreferenceIpv4OnlyFiltersOutIpv6() {
+        val ipv6_1 = InetAddress.getByName("2606:4700::1")
+        val ipv6_2 = InetAddress.getByName("2606:4700::2")
+        val ipv4_1 = InetAddress.getByName("104.21.1.1")
+        val ipv4_2 = InetAddress.getByName("172.67.1.1")
+
+        HappyEyeballsEngine.setIpFamilyPreference(IpFamilyPreference.IPV4_ONLY)
+        val ordered = HappyEyeballsEngine.prioritizeAddresses(listOf(ipv4_1, ipv6_1, ipv4_2, ipv6_2))
+
+        assertEquals(2, ordered.size)
+        assertTrue(ordered[0] is java.net.Inet4Address)
+        assertTrue(ordered[1] is java.net.Inet4Address)
+    }
+
+    @Test
+    fun testIpFamilyPreferenceIpv4OnlyFallbackWhenNoIpv4() {
+        val ipv6_1 = InetAddress.getByName("2606:4700::1")
+        val ipv6_2 = InetAddress.getByName("2606:4700::2")
+
+        HappyEyeballsEngine.setIpFamilyPreference(IpFamilyPreference.IPV4_ONLY)
+        val ordered = HappyEyeballsEngine.prioritizeAddresses(listOf(ipv6_1, ipv6_2))
+
+        assertEquals(2, ordered.size)
+        assertTrue(ordered[0] is java.net.Inet6Address)
+        assertTrue(ordered[1] is java.net.Inet6Address)
+    }
+
+    @Test
+    fun testIpFamilyPreferenceIpv6First() {
+        val ipv6_1 = InetAddress.getByName("2606:4700::1")
+        val ipv4_1 = InetAddress.getByName("104.21.1.1")
+
+        HappyEyeballsEngine.setIpFamilyPreference(IpFamilyPreference.IPV6_FIRST)
+        val ordered = HappyEyeballsEngine.prioritizeAddresses(listOf(ipv4_1, ipv6_1))
+
+        assertEquals(2, ordered.size)
+        assertEquals(ipv6_1, ordered[0])
+        assertEquals(ipv4_1, ordered[1])
     }
 }

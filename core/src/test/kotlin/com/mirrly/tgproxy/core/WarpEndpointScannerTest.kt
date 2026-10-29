@@ -181,7 +181,7 @@ class WarpEndpointScannerTest {
     }
 
     @Test
-    fun testMockUdpQuicInitialProbeFallbackToWireGuard() = runBlocking {
+    fun testMockUdpQuicInitialProbeDetection() = runBlocking {
         val mockSocket = DatagramSocket(0, InetAddress.getByName("127.0.0.1"))
         val mockPort = mockSocket.localPort
 
@@ -191,12 +191,13 @@ class WarpEndpointScannerTest {
                 val packet = DatagramPacket(recvBuf, recvBuf.size)
                 mockSocket.receive(packet)
 
-                // WireGuard initiation packet sent for WARP endpoints (148 bytes)
-                assertEquals(148, packet.length, "WARP initiation probe must be 148 bytes")
+                // QUIC probe packet sent for MASQUE_QUIC endpoints (64 bytes)
+                assertEquals(64, packet.length, "QUIC initiation probe must be 64 bytes")
 
-                // Reply with 92-byte Handshake Response
-                val resp = ByteArray(92)
-                resp[0] = 0x02 // Handshake Response message type
+                // Reply with 40-byte QUIC Initial / ServerHello packet (pktType 0x00, version 1)
+                val resp = ByteArray(40)
+                resp[0] = 0xC0.toByte()
+                resp[1] = 0; resp[2] = 0; resp[3] = 0; resp[4] = 1
 
                 val replyPacket = DatagramPacket(resp, resp.size, packet.address, packet.port)
                 mockSocket.send(replyPacket)
@@ -214,7 +215,8 @@ class WarpEndpointScannerTest {
             assertTrue(res.isAlive, "Endpoint should be detected as alive")
             assertTrue(res.rttMs >= 0, "RTT should be positive")
             assertEquals(WarpProbeProtocol.MASQUE_QUIC, res.scanProtocol)
-            assertEquals("WireGuard (Handshake Response)", res.probeProtocol)
+            assertEquals("QUIC (Initial / ServerHello, 40 bytes)", res.probeProtocol)
+            assertEquals(WarpEndpointStage.PROTOCOL_RECOGNIZED, res.stage)
         } finally {
             mockSocket.close()
             serverThread.join(1000)

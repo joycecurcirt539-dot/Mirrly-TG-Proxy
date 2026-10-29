@@ -1,10 +1,6 @@
 package com.mirrly.tgproxy.service
 
 import android.content.Context
-import androidx.work.Constraints
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.core.ApkType
@@ -32,7 +28,11 @@ object UpdateManager {
     private const val KEY_CACHED_EXPECTED_SHA256_LIST = "cached_expected_sha256_list"
     private const val KEY_CACHED_CHANGELOG_PREVIEW = "cached_changelog_preview"
     private const val KEY_CACHED_APK_ASSETS = "cached_apk_assets"
+    private const val KEY_LAST_CHECK_TIMESTAMP = "last_update_check_timestamp"
     private const val WORK_NAME = "mirrly_periodic_update_checker"
+
+    // Automatic update check cooldown: 24 hours (eliminates redundant cold-start network calls)
+    private const val AUTO_CHECK_COOLDOWN_MS = 24 * 60 * 60 * 1000L
 
     // Re-notify reminder interval: 4 hours (14,400,000 ms)
     private const val NOTIFICATION_REMINDER_INTERVAL_MS = 4 * 60 * 60 * 1000L
@@ -58,6 +58,11 @@ object UpdateManager {
 
     fun onAppInit(context: Context) {
         try {
+            // Cancel any obsolete background WorkManager jobs (0 periodic wakeups)
+            try {
+                WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+            } catch (_: Exception) {}
+
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val currentAppVersion = com.mirrly.tgproxy.BuildConfig.VERSION_NAME
             val lastAppVersion = prefs.getString("last_installed_app_version", null)
@@ -88,7 +93,89 @@ object UpdateManager {
                 }
             }
             UpdateDownloader.resetStatus()
+
+            // Restore cached release state immediately without network requests
+            if (_updateState.value == null) {
+                val cached = restoreCachedReleaseInfo(prefs, currentAppVersion)
+                if (cached != null && cached.isUpdateAvailable) {
+                    _updateState.value = cached
+                }
+            }
         } catch (_: Exception) {}
+    }
+
+    private fun restoreCachedReleaseInfo(
+        prefs: android.content.SharedPreferences,
+        currentAppVersion: String
+    ): ReleaseInfo? {
+        val rawCachedVersion = prefs.getString(KEY_CACHED_VERSION, null) ?: return null
+        val cleanCachedVersion = UpdateChecker.cleanVersionString(rawCachedVersion)
+        val isStillAvailable = UpdateChecker.isVersionNewer(cleanCachedVersion, currentAppVersion)
+        val isCachedIgnored = try {
+            MirrlyApplication.instance.prefsManager.isUpdateVersionIgnored(cleanCachedVersion)
+        } catch (_: Exception) { false }
+
+        val cachedHtmlUrl = prefs.getString(KEY_CACHED_HTML_URL, "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases") ?: ""
+        val cachedNotes = prefs.getString(KEY_CACHED_RELEASE_NOTES, "") ?: ""
+        val cachedDownloadUrl = prefs.getString(KEY_CACHED_DOWNLOAD_URL, null)
+        val cachedSha256 = prefs.getString(KEY_CACHED_EXPECTED_SHA256, null)
+        val cachedShaListJson = prefs.getString(KEY_CACHED_EXPECTED_SHA256_LIST, null)
+        val cachedPreview = prefs.getString(KEY_CACHED_CHANGELOG_PREVIEW, "") ?: ""
+        val cachedAssetsJson = prefs.getString(KEY_CACHED_APK_ASSETS, null)
+        val cachedEtag = prefs.getString(KEY_CACHED_ETAG, null)
+
+        val restoredShaList = mutableListOf<String>()
+        if (!cachedShaListJson.isNullOrBlank()) {
+            runCatching {
+                val arr = JSONArray(cachedShaListJson)
+                for (i in 0 until arr.length()) {
+                    val sha = arr.optString(i, "")
+                    if (sha.isNotBlank()) {
+                        restoredShaList.add(sha)
+                    }
+                }
+            }
+        }
+        if (restoredShaList.isEmpty() && cachedSha256 != null) {
+            restoredShaList.add(cachedSha256)
+        }
+
+        val restoredAssets = mutableListOf<ReleaseApkAsset>()
+        if (!cachedAssetsJson.isNullOrBlank()) {
+            runCatching {
+                val arr = JSONArray(cachedAssetsJson)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val typeName = obj.optString("type", "UNIVERSAL")
+                    val apkType = runCatching { ApkType.valueOf(typeName) }.getOrDefault(ApkType.UNIVERSAL)
+                    restoredAssets.add(
+                        ReleaseApkAsset(
+                            name = obj.optString("name", ""),
+                            downloadUrl = obj.optString("url", ""),
+                            sizeBytes = obj.optLong("size", 0L),
+                            apkType = apkType,
+                            sha256 = obj.optString("sha256", "").takeIf { it.isNotBlank() }
+                        )
+                    )
+                }
+            }
+        }
+
+        return ReleaseInfo(
+            tagName = if (isStillAvailable) cleanCachedVersion else currentAppVersion,
+            versionName = if (isStillAvailable) cleanCachedVersion else currentAppVersion,
+            htmlUrl = cachedHtmlUrl,
+            releaseNotes = cachedNotes,
+            isUpdateAvailable = isStillAvailable,
+            downloadUrl = if (isStillAvailable) cachedDownloadUrl else null,
+            etag = cachedEtag,
+            isNotModified = true,
+            expectedSha256 = if (isStillAvailable) cachedSha256 else null,
+            expectedSha256List = if (isStillAvailable) restoredShaList else emptyList(),
+            changelogPreview = cachedPreview,
+            isIgnored = isCachedIgnored,
+            apkAssets = restoredAssets
+        )
     }
 
     fun ignoreVersion(context: Context, version: String) {
@@ -138,6 +225,29 @@ object UpdateManager {
             _updateState.value = null
         }
 
+        // Automatic check rate-limiter: eliminates parasitic network calls on repeated app launches
+        if (!forceRefresh) {
+            val lastCheckMs = prefs.getLong(KEY_LAST_CHECK_TIMESTAMP, 0L)
+            val elapsed = System.currentTimeMillis() - lastCheckMs
+            if (elapsed in 0 until AUTO_CHECK_COOLDOWN_MS) {
+                val existing = _updateState.value ?: restoreCachedReleaseInfo(prefs, currentAppVersion)
+                if (existing != null) {
+                    _updateState.value = existing
+                    return Result.success(existing)
+                } else if (lastCheckMs > 0L) {
+                    val upToDate = ReleaseInfo(
+                        tagName = currentAppVersion,
+                        versionName = currentAppVersion,
+                        htmlUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases",
+                        releaseNotes = "",
+                        isUpdateAvailable = false,
+                        isNotModified = true
+                    )
+                    return Result.success(upToDate)
+                }
+            }
+        }
+
         val cachedEtag = if (forceRefresh) null else prefs.getString(KEY_CACHED_ETAG, null)
 
         val result = UpdateChecker.checkForUpdates(
@@ -145,6 +255,8 @@ object UpdateManager {
             cachedEtag = cachedEtag
         )
         result.onSuccess { rawInfo ->
+            prefs.edit().putLong(KEY_LAST_CHECK_TIMESTAMP, System.currentTimeMillis()).apply()
+
             val cleanVer = UpdateChecker.cleanVersionString(rawInfo.versionName)
             val isIgnored = try {
                 MirrlyApplication.instance.prefsManager.isUpdateVersionIgnored(cleanVer)
@@ -159,82 +271,10 @@ object UpdateManager {
             }
 
             if (info.isNotModified) {
-                val rawCachedVersion = prefs.getString(KEY_CACHED_VERSION, null)
-                    ?: _updateState.value?.versionName
-
-                if (!rawCachedVersion.isNullOrBlank()) {
-                    val cleanCachedVersion = UpdateChecker.cleanVersionString(rawCachedVersion)
-                    val isStillAvailable = UpdateChecker.isVersionNewer(
-                        cleanCachedVersion,
-                        currentAppVersion
-                    )
-                    val isCachedIgnored = try {
-                        MirrlyApplication.instance.prefsManager.isUpdateVersionIgnored(cleanCachedVersion)
-                    } catch (_: Exception) { false }
-
-                    val cachedHtmlUrl = prefs.getString(KEY_CACHED_HTML_URL, "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases") ?: ""
-                    val cachedNotes = prefs.getString(KEY_CACHED_RELEASE_NOTES, "") ?: ""
-                    val cachedDownloadUrl = prefs.getString(KEY_CACHED_DOWNLOAD_URL, null)
-                    val cachedSha256 = prefs.getString(KEY_CACHED_EXPECTED_SHA256, null)
-                    val cachedShaListJson = prefs.getString(KEY_CACHED_EXPECTED_SHA256_LIST, null)
-                    val cachedPreview = prefs.getString(KEY_CACHED_CHANGELOG_PREVIEW, "") ?: ""
-                    val cachedAssetsJson = prefs.getString(KEY_CACHED_APK_ASSETS, null)
-
-                    val restoredShaList = mutableListOf<String>()
-                    if (!cachedShaListJson.isNullOrBlank()) {
-                        runCatching {
-                            val arr = JSONArray(cachedShaListJson)
-                            for (i in 0 until arr.length()) {
-                                val sha = arr.optString(i, "")
-                                if (sha.isNotBlank()) {
-                                    restoredShaList.add(sha)
-                                }
-                            }
-                        }
-                    }
-                    if (restoredShaList.isEmpty() && cachedSha256 != null) {
-                        restoredShaList.add(cachedSha256)
-                    }
-
-                    val restoredAssets = mutableListOf<ReleaseApkAsset>()
-                    if (!cachedAssetsJson.isNullOrBlank()) {
-                        runCatching {
-                            val arr = JSONArray(cachedAssetsJson)
-                            for (i in 0 until arr.length()) {
-                                val obj = arr.getJSONObject(i)
-                                val typeName = obj.optString("type", "UNIVERSAL")
-                                val apkType = runCatching { ApkType.valueOf(typeName) }.getOrDefault(ApkType.UNIVERSAL)
-                                restoredAssets.add(
-                                    ReleaseApkAsset(
-                                        name = obj.optString("name", ""),
-                                        downloadUrl = obj.optString("url", ""),
-                                        sizeBytes = obj.optLong("size", 0L),
-                                        apkType = apkType,
-                                        sha256 = obj.optString("sha256", "").takeIf { it.isNotBlank() }
-                                    )
-                                )
-                            }
-                        }
-                    }
-
-                    val reconstructedInfo = ReleaseInfo(
-                        tagName = if (isStillAvailable) cleanCachedVersion else currentAppVersion,
-                        versionName = if (isStillAvailable) cleanCachedVersion else currentAppVersion,
-                        htmlUrl = cachedHtmlUrl,
-                        releaseNotes = cachedNotes,
-                        isUpdateAvailable = isStillAvailable,
-                        downloadUrl = if (isStillAvailable) cachedDownloadUrl else null,
-                        etag = info.etag ?: cachedEtag,
-                        isNotModified = true,
-                        expectedSha256 = if (isStillAvailable) cachedSha256 else null,
-                        expectedSha256List = if (isStillAvailable) restoredShaList else emptyList(),
-                        changelogPreview = cachedPreview,
-                        isIgnored = isCachedIgnored,
-                        apkAssets = restoredAssets
-                    )
+                val reconstructedInfo = restoreCachedReleaseInfo(prefs, currentAppVersion)
+                if (reconstructedInfo != null) {
                     _updateState.value = reconstructedInfo
-
-                    if (!isStillAvailable || isCachedIgnored) {
+                    if (!reconstructedInfo.isUpdateAvailable || reconstructedInfo.isIgnored) {
                         clearUpdateCache(prefs)
                         if (!reconstructedInfo.etag.isNullOrBlank()) {
                             prefs.edit().putString(KEY_CACHED_ETAG, reconstructedInfo.etag).apply()
@@ -307,29 +347,12 @@ object UpdateManager {
     }
 
     /**
-     * Schedules 24/7 periodic background update checks every 2 hours via WorkManager.
+     * Cancels any previously scheduled background WorkManager update tasks.
+     * Background periodic polling is disabled to eliminate parasitic network and battery overhead.
      */
-    fun scheduleDaytimeCheck(context: Context) {
-        schedulePeriodicCheck(context)
-    }
-
-    fun schedulePeriodicCheck(context: Context) {
+    fun cancelPeriodicCheck(context: Context) {
         try {
-            val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build()
-
-            val workRequest = PeriodicWorkRequestBuilder<UpdateCheckWorker>(2, TimeUnit.HOURS)
-                .setConstraints(constraints)
-                .build()
-
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                WORK_NAME,
-                ExistingPeriodicWorkPolicy.UPDATE,
-                workRequest
-            )
-        } catch (_: Exception) {
-            // WorkManager initialization safety guard
-        }
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+        } catch (_: Exception) {}
     }
 }

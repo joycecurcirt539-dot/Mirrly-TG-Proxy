@@ -19,7 +19,7 @@
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers_&_WARP-1E293B?logo=cloudflare&logoColor=F38020)](https://workers.cloudflare.com)
 [![NDK](https://img.shields.io/badge/NDK-Rust_&_C++-1E293B?logo=cplusplus&logoColor=00599C)](https://developer.android.com/ndk)
 <br/>
-[![Release](https://img.shields.io/badge/نسخه-v2.0.0.3-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
+[![Release](https://img.shields.io/badge/نسخه-v2.1.0-1E293B?logo=github&logoColor=00E676)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
 [![Language](https://img.shields.io/badge/زبان-RU_%7C_EN_%7C_FA-1E293B?logo=translate&logoColor=26A5E4)](#7-رابط-کاربری-برنامه)
 [![Genesis](https://img.shields.io/badge/آغاز-27.07.2026-1E293B?logo=git&logoColor=00E676)](CHANGELOG.md)
 [![Downloads](https://img.shields.io/github/downloads/joycecurcirt539-dot/Mirrly-TG-Proxy/total?color=1E293B&logo=github&logoColor=0088CC)](https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases)
@@ -308,10 +308,11 @@ flowchart TD
 | `customCfDomain` | `""` | دامنه اختصاصی ورکر کلودفلر کاربر |
 | `speedPresetName` | `AUTO` | پروفایل سرعت: `AUTO`, `ECO`, `BALANCED`, `TURBO`, `ULTRA` |
 | `tcpNoDelayModeName` | `AUTO` | تنظیم الگوریتم نیگل: `AUTO`, `ON`, `OFF` |
-| `bufferSizeBytes` | `262144` (256 کیلوبایت) | حجم پیش‌فرض بافرهای سوکت شبکه |
+| `bufferSizeBytes` | `0` (تنظیم خودکار سیستم‌عامل) | حجم پیش‌فرض بافرهای سوکت شبکه (0 = تنظیم پویای لینوکس) |
 | `useDefaultWorkerSocks5` | `true` | استفاده از ورکر توسعه‌دهندگان در صورت خالی بودن دامنه کاربر |
 | `isBatteryGuardEnabled` | `false` | خاموش‌سازی هوشمند برنامه با کاهش باتری |
 | `batteryGuardThreshold` | `15` | درصد بحرانی باتری جهت توقف سرویس |
+| `isAdaptiveQoSEnabled` | `false` | مدیریت حرارتی تطبیقی و کاهش مصرف باتری (QoS) |
 | `allowPublicRelayFallbackForPrivateVps` | `false` | جلوگیری از نشت ترافیک سرور شخصی به نودهای عمومی |
 | `autostartOnBoot` | `false` | اجرای خودکار پروکسی همراه با روشن شدن گوشی |
 | `verboseLogs` | `true` | ثبت کامل گزارش‌های تشخیصی شبکه |

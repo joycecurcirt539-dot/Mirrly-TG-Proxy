@@ -1,6 +1,5 @@
-use crate::config::OPERA_VPN;
 use crate::socks5::{socks5_acquire_cf_ws, SocksUplink};
-use crate::{ldebug, linfo, lwarn};
+use crate::{linfo, lwarn};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
@@ -24,11 +23,8 @@ pub struct UdpRoutePin {
     generation: crate::generation_guard::GenerationStamp,
     mode: i32,
     intent_generation: u64,
-    vless_config: crate::vless::VlessConfig,
-    opera_endpoint: String,
 }
 pub enum SocksUdpUplink {
-    Vless(crate::vless::VlessUplink),
     Masque(crate::masque::MasqueTunnel),
     Awg(crate::awg::AwgTunnel),
 }
@@ -320,9 +316,8 @@ impl RouteSupervisor {
     pub fn set_intent(&self, mode: i32, intent_gen: u64, fallback_enabled: bool) {
         let policy = *self.trust_policy.read();
         let initial_route = match mode {
-            crate::masque::UPLINK_MASQUE
-            | crate::masque::UPLINK_WARP_CASCADE
-            | crate::masque::UPLINK_AWG => RouteKind::Awg,
+            crate::masque::UPLINK_MASQUE | crate::masque::UPLINK_WARP_CASCADE => RouteKind::Masque,
+            crate::masque::UPLINK_AWG => RouteKind::Awg,
             crate::masque::UPLINK_VLESS | crate::masque::UPLINK_HYBRID => {
                 if policy.allow_opera_transport_hop {
                     RouteKind::VlessOperaHop
@@ -425,8 +420,7 @@ impl RouteSupervisor {
             (i.mode, i.fallback_enabled)
         };
         let policy = *self.trust_policy.read();
-        let is_private =
-            policy.is_private_node || crate::vless::VLESS_CONFIG.read().is_direct_vps();
+        let is_private = policy.is_private_node;
         let active = *self.active_route.read();
 
         match active {
@@ -467,255 +461,10 @@ impl RouteSupervisor {
         target_addr: &str,
         cancel_token: &CancellationToken,
     ) -> Option<SocksUplink> {
-        let expected = crate::generation_guard::snapshot();
-        let result = ACQUIRE_GENERATION
-            .scope(
-                expected,
-                self.acquire_socks5_uplink_inner(target_addr, cancel_token),
-            )
-            .await;
-        if !crate::generation_guard::is_current(expected) {
-            if let Some(uplink) = result {
-                match uplink {
-                    SocksUplink::Ws(ws) | SocksUplink::VlessWs(ws) => {
-                        let _ = ws.close().await;
-                    }
-                    other => drop(other),
-                }
-            }
-            return None;
-        }
-        result
-    }
-
-    async fn acquire_socks5_uplink_inner(
-        &self,
-        target_addr: &str,
-        cancel_token: &CancellationToken,
-    ) -> Option<SocksUplink> {
-        let (mode, fallback_enabled) = {
-            let i = self.intent.read();
-            (i.mode, i.fallback_enabled)
-        };
-        let policy = *self.trust_policy.read();
-        let is_private =
-            policy.is_private_node || crate::vless::VLESS_CONFIG.read().is_direct_vps();
-
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        match mode {
-            crate::masque::UPLINK_VLESS => {
-                // 1. Primary VLESS (either direct VPS, or via Opera Transport Hop to VPS, or CDN)
-                let vless_cooldown = self.vless_cooldown_until_ms.load(Ordering::Relaxed);
-                if now_ms >= vless_cooldown {
-                    if let Some(uplink) =
-                        crate::vless::vless_acquire_uplink(target_addr, cancel_token).await
-                    {
-                        let (use_opera_hop, _) = {
-                            let op = OPERA_VPN.read();
-                            (op.vless_enabled, op.endpoint.clone())
-                        };
-                        if use_opera_hop && policy.allow_opera_transport_hop {
-                            self.transition_to(RouteKind::VlessOperaHop, "vless_opera_hop_success");
-                        } else {
-                            self.transition_to(RouteKind::VlessDirect, "vless_direct_success");
-                        }
-                        return Some(SocksUplink::from(uplink));
-                    }
-                }
-
-                // 2. Opera Direct Exit (to destination) ONLY IF explicitly allowed by user trust policy on VLESS failure
-                let (use_opera_direct, opera_ep) = {
-                    let op = OPERA_VPN.read();
-                    (
-                        op.vless_enabled && policy.allow_opera_direct_exit,
-                        op.endpoint.clone(),
-                    )
-                };
-                if use_opera_direct && !opera_ep.is_empty() {
-                    if let Ok((host, port)) = crate::vless::parse_target_addr(target_addr) {
-                        ldebug!(
-                            "SOCKS5 VLESS: connecting via Opera Direct Exit {} -> {}:{}",
-                            opera_ep,
-                            host,
-                            port
-                        );
-                        if let Ok(stream) = crate::ws::connect_via_http_proxy(
-                            &opera_ep,
-                            &host,
-                            port,
-                            Duration::from_secs(5),
-                        )
-                        .await
-                        {
-                            self.transition_to(RouteKind::OperaDirect, "opera_direct_exit");
-                            return Some(SocksUplink::Tcp(stream, Vec::new(), None));
-                        }
-                    }
-                }
-
-                // 3. Fallback:
-                if is_private && !policy.allow_public_relay_fallback {
-                    lwarn!(
-                        "RouteSupervisor: VLESS Private VPS failed for {}. Fallback to public relay is prohibited by trust policy.",
-                        target_addr
-                    );
-                    self.vless_cooldown_until_ms
-                        .store(now_ms + 15_000, Ordering::Relaxed);
-                    self.transition_to(RouteKind::None, "vless_private_isolated");
-                    return None;
-                }
-
-                // Fallback to Worker WSS if allowed
-                if fallback_enabled {
-                    lwarn!(
-                        "RouteSupervisor: VLESS failed for {}, falling back to Worker WSS",
-                        target_addr
-                    );
-                    self.vless_cooldown_until_ms
-                        .store(now_ms + 15_000, Ordering::Relaxed);
-                    self.transition_to(RouteKind::Worker, "vless_failed_fallback_worker");
-                    if let Some(ws) = socks5_acquire_cf_ws(target_addr, cancel_token).await {
-                        return Some(SocksUplink::Ws(ws));
-                    }
-                }
-                None
-            }
-            crate::masque::UPLINK_MASQUE => {
-                // Cloudflare WARP Anycast (WireGuard / AmneziaWG)
-                let awg_cooldown = self.awg_cooldown_until_ms.load(Ordering::Relaxed);
-                if now_ms >= awg_cooldown {
-                    if let Some(tunnel) =
-                        crate::awg::awg_acquire_tunnel(target_addr, cancel_token).await
-                    {
-                        self.transition_to(RouteKind::Awg, "awg_tunnel_success");
-                        return Some(SocksUplink::Awg(tunnel));
-                    }
-                    lwarn!(
-                        "RouteSupervisor: WARP Anycast failed for {}",
-                        target_addr
-                    );
-                    self.awg_cooldown_until_ms
-                        .store(now_ms + 25_000, Ordering::Relaxed);
-                }
-                None
-            }
-            crate::masque::UPLINK_WARP_CASCADE => {
-                // Primary: WARP Anycast (WireGuard / AmneziaWG)
-                let awg_cooldown = self.awg_cooldown_until_ms.load(Ordering::Relaxed);
-                if now_ms >= awg_cooldown {
-                    if let Some(tunnel) =
-                        crate::awg::awg_acquire_tunnel(target_addr, cancel_token).await
-                    {
-                        self.transition_to(RouteKind::Awg, "awg_tunnel_success");
-                        return Some(SocksUplink::Awg(tunnel));
-                    }
-                    lwarn!(
-                        "RouteSupervisor: WARP Anycast failed for {}, evaluating fallback",
-                        target_addr
-                    );
-                    self.awg_cooldown_until_ms
-                        .store(now_ms + 30_000, Ordering::Relaxed);
-                }
-
-                // Fallback: Cloudflare Worker WSS Relay if allowed
-                if fallback_enabled {
-                    lwarn!(
-                        "RouteSupervisor: WARP Anycast failed, fallback to Worker WSS for {}",
-                        target_addr
-                    );
-                    self.transition_to(RouteKind::Worker, "warp_failed_fallback_worker");
-                    if let Some(ws) = socks5_acquire_cf_ws(target_addr, cancel_token).await {
-                        return Some(SocksUplink::Ws(ws));
-                    }
-                }
-
-                None
-            }
-            crate::masque::UPLINK_AWG => {
-                // Primary & Only: WARP AmneziaWG. Isolated mode.
-                let awg_cooldown = self.awg_cooldown_until_ms.load(Ordering::Relaxed);
-                if now_ms >= awg_cooldown {
-                    if let Some(tunnel) =
-                        crate::awg::awg_acquire_tunnel(target_addr, cancel_token).await
-                    {
-                        self.transition_to(RouteKind::Awg, "awg_tunnel_success");
-                        return Some(SocksUplink::Awg(tunnel));
-                    }
-                    lwarn!("RouteSupervisor: WARP AmneziaWG failed for {}", target_addr);
-                    self.awg_cooldown_until_ms
-                        .store(now_ms + 25_000, Ordering::Relaxed);
-                }
-                None
-            }
-            crate::masque::UPLINK_HYBRID => {
-                // 1. Primary: VLESS
-                let vless_cooldown = self.vless_cooldown_until_ms.load(Ordering::Relaxed);
-                if now_ms >= vless_cooldown {
-                    if let Some(uplink) =
-                        crate::vless::vless_acquire_uplink(target_addr, cancel_token).await
-                    {
-                        let (use_opera_hop, _) = {
-                            let op = OPERA_VPN.read();
-                            (op.vless_enabled, op.endpoint.clone())
-                        };
-                        if use_opera_hop && policy.allow_opera_transport_hop {
-                            self.transition_to(
-                                RouteKind::VlessOperaHop,
-                                "hybrid_vless_opera_hop_success",
-                            );
-                        } else {
-                            self.transition_to(
-                                RouteKind::VlessDirect,
-                                "hybrid_vless_direct_success",
-                            );
-                        }
-                        return Some(SocksUplink::from(uplink));
-                    }
-                    self.vless_cooldown_until_ms
-                        .store(now_ms + 20_000, Ordering::Relaxed);
-                }
-
-                // Private VPS: check trust policy before falling back to WARP / Worker
-                if is_private && !policy.allow_public_relay_fallback {
-                    lwarn!(
-                        "RouteSupervisor: Hybrid VLESS (Private VPS) failed for {}. Fallback to public relay is prohibited by trust policy.",
-                        target_addr
-                    );
-                    self.transition_to(RouteKind::None, "hybrid_vless_private_isolated");
-                    return None;
-                }
-
-                // 2. Fallback: WARP Anycast (WireGuard / AmneziaWG)
-                let awg_cooldown = self.awg_cooldown_until_ms.load(Ordering::Relaxed);
-                if now_ms >= awg_cooldown {
-                    if let Some(tunnel) =
-                        crate::awg::awg_acquire_tunnel(target_addr, cancel_token).await
-                    {
-                        self.transition_to(RouteKind::Awg, "hybrid_awg_success");
-                        return Some(SocksUplink::Awg(tunnel));
-                    }
-                    self.awg_cooldown_until_ms
-                        .store(now_ms + 25_000, Ordering::Relaxed);
-                }
-
-                // 3. Fallback: Cloudflare Worker WSS Relay
-                self.transition_to(RouteKind::Worker, "hybrid_fallback_worker");
-                socks5_acquire_cf_ws(target_addr, cancel_token)
-                    .await
-                    .map(SocksUplink::Ws)
-            }
-            _ => {
-                // Worker WSS
-                self.transition_to(RouteKind::Worker, "worker_selected");
-                socks5_acquire_cf_ws(target_addr, cancel_token)
-                    .await
-                    .map(SocksUplink::Ws)
-            }
-        }
+        self.transition_to(RouteKind::Worker, "worker_selected");
+        socks5_acquire_cf_ws(target_addr, cancel_token)
+            .await
+            .map(SocksUplink::Ws)
     }
 
     /// Pin the effective UDP transport once, before SOCKS success. Worker/Opera/direct
@@ -749,8 +498,6 @@ impl RouteSupervisor {
             generation,
             mode: intent.mode,
             intent_generation: intent.generation,
-            vless_config: crate::vless::VLESS_CONFIG.read().clone(),
-            opera_endpoint: OPERA_VPN.read().endpoint.clone(),
         })
     }
 
@@ -779,21 +526,6 @@ impl RouteSupervisor {
             _ = cancel_token.cancelled() => return None,
             result = tokio::time::timeout(Duration::from_secs(10), async {
                 match pin.route {
-                    RouteKind::VlessDirect => {
-                        crate::vless::dial_single_vless_config(&pin.vless_config, target_addr,
-                            crate::vless::VLESS_CMD_UDP, cancel_token).await.map(SocksUdpUplink::Vless)
-                    }
-                    RouteKind::VlessOperaHop => {
-                        let cfg = &pin.vless_config;
-                        let domain = if cfg.tls_sni.is_empty() { &cfg.domain } else { &cfg.tls_sni };
-                        if pin.opera_endpoint.is_empty() || domain.is_empty() { return None; }
-                        let header = crate::vless::build_vless_header_cmd(&cfg.uuid, target_addr,
-                            &[], &cfg.effective_flow(), crate::vless::VLESS_CMD_UDP).ok()?;
-                        let ws = crate::ws::ws_connect_via_opera_proxy(&pin.opera_endpoint, domain,
-                            &cfg.path, Duration::from_secs(5)).await.ok()?;
-                        ws.send(&header).await.ok()?;
-                        Some(SocksUdpUplink::Vless(crate::vless::VlessUplink::Ws(ws)))
-                    }
                     RouteKind::Masque | RouteKind::Awg => {
                         crate::awg::awg_acquire_tunnel(target_addr, cancel_token).await.map(SocksUdpUplink::Awg)
                     }
@@ -813,8 +545,7 @@ impl RouteSupervisor {
         let intent = self.intent.read().clone();
         let trace_list = self.trace.read().clone();
         let policy = *self.trust_policy.read();
-        let is_private =
-            policy.is_private_node || crate::vless::VLESS_CONFIG.read().is_direct_vps();
+        let is_private = policy.is_private_node;
         let transport_ready = self.transport_ready.load(Ordering::Relaxed);
         let app_ready = self.app_ready.load(Ordering::Relaxed);
         let last_app_err = self.last_app_error.read().clone();
@@ -918,36 +649,33 @@ mod tests {
     fn test_route_supervisor_supports_udp() {
         let sup = RouteSupervisor::new();
 
-        sup.set_intent(crate::masque::UPLINK_MASQUE, false);
+        sup.set_intent(crate::masque::UPLINK_MASQUE, 1, false);
         assert!(sup.supports_udp());
 
-        sup.set_intent(crate::masque::UPLINK_AWG, false);
+        sup.set_intent(crate::masque::UPLINK_AWG, 1, false);
         assert!(sup.supports_udp());
 
-        sup.set_intent(crate::masque::UPLINK_WARP_CASCADE, true);
+        sup.set_intent(crate::masque::UPLINK_WARP_CASCADE, 1, true);
         assert!(sup.supports_udp());
 
-        sup.set_intent(crate::masque::UPLINK_VLESS, false);
+        sup.set_intent(crate::masque::UPLINK_VLESS, 1, false);
         assert!(sup.supports_udp());
 
-        sup.set_intent(crate::masque::UPLINK_HYBRID, true);
+        sup.set_intent(crate::masque::UPLINK_HYBRID, 1, true);
         assert!(sup.supports_udp());
 
-        sup.set_intent(crate::masque::UPLINK_WORKER, false);
-        assert!(!sup.supports_udp());
-
-        sup.set_intent(crate::masque::UPLINK_DIRECT, false);
+        sup.set_intent(crate::masque::UPLINK_WORKER, 1, false);
         assert!(!sup.supports_udp());
     }
 
     #[test]
     fn test_route_state_json_contains_supports_udp() {
         let sup = RouteSupervisor::new();
-        sup.set_intent(crate::masque::UPLINK_MASQUE, false);
+        sup.set_intent(crate::masque::UPLINK_MASQUE, 1, false);
         let json = sup.get_route_state_json();
         assert!(json.contains("\"supports_udp\":true"));
 
-        sup.set_intent(crate::masque::UPLINK_WORKER, false);
+        sup.set_intent(crate::masque::UPLINK_WORKER, 1, false);
         let json_worker = sup.get_route_state_json();
         assert!(json_worker.contains("\"supports_udp\":false"));
     }

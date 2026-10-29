@@ -178,10 +178,13 @@ pub fn record_if_current(
         decision
     })?;
     if decision.action == Some(RecoveryAction::RequestGlobalReset) {
-        crate::reset_network_sockets_for_reason_if_current(
+        crate::reset_network_routing_for_reason_if_current(
             expected,
             "reason-aware recovery exhausted",
         );
+        DNS_RECOVERY_EPOCH.fetch_add(1, Ordering::Relaxed);
+        TCP_RECOVERY_EPOCH.fetch_add(1, Ordering::Relaxed);
+        TLS_RECOVERY_EPOCH.fetch_add(1, Ordering::Relaxed);
     }
     if let Some(action) = decision.action {
         crate::linfo!(
@@ -404,14 +407,42 @@ pub fn set_ipv6_only_network(is_ipv6_only: bool) {
     IPV6_ONLY_NETWORK.store(is_ipv6_only, Ordering::Relaxed);
 }
 
+pub fn is_cloudflare_anycast_ipv6(ip: &std::net::Ipv6Addr) -> bool {
+    let segs = ip.segments();
+    // 2606:4700::/32
+    if segs[0] == 0x2606 && segs[1] == 0x4700 {
+        return true;
+    }
+    // 2a06:98c0::/29 (2a06:98c0..98c7)
+    if segs[0] == 0x2a06 && (segs[1] & 0xfff8) == 0x98c0 {
+        return true;
+    }
+    // 2400:cb00::/32
+    if segs[0] == 0x2400 && segs[1] == 0xcb00 {
+        return true;
+    }
+    // 2405:8100::/32, 2405:b500::/32
+    if segs[0] == 0x2405 && (segs[1] == 0x8100 || segs[1] == 0xb500) {
+        return true;
+    }
+    // 2803:f800::/32
+    if segs[0] == 0x2803 && segs[1] == 0xf800 {
+        return true;
+    }
+    // 2c0f:f248::/32
+    if segs[0] == 0x2c0f && segs[1] == 0xf248 {
+        return true;
+    }
+    false
+}
+
 pub fn order_socket_addrs_for_host(
     network_gen: u64,
     hostname: &str,
     addrs: &[SocketAddr],
 ) -> Vec<SocketAddr> {
-    let mut ordered = addrs.to_vec();
-    if ordered.len() <= 1 {
-        return ordered;
+    if addrs.len() <= 1 {
+        return addrs.to_vec();
     }
     let clean_host = sanitize_scope(hostname);
     let tracker = PATH_FAMILY_TRACKER.lock();
@@ -420,27 +451,55 @@ pub fn order_socket_addrs_for_host(
     let ipv6_failures = metrics.map(|m| m.ipv6_failures).unwrap_or(0);
     let ipv4_failures = metrics.map(|m| m.ipv4_failures).unwrap_or(0);
     let ipv6_only = is_ipv6_only_network();
-    let is_mobile = crate::config::MOBILE_NETWORK.load(Ordering::Relaxed);
+
+    let mut v4_addrs: Vec<SocketAddr> = Vec::new();
+    let mut v6_addrs: Vec<SocketAddr> = Vec::new();
+
+    for &addr in addrs {
+        if addr.is_ipv4() {
+            v4_addrs.push(addr);
+        } else {
+            v6_addrs.push(addr);
+        }
+    }
+
+    let epoch = TCP_RECOVERY_EPOCH.load(Ordering::Relaxed) as usize;
 
     if ipv6_only || (ipv4_failures > 0 && ipv6_failures == 0) {
         // IPv6-only network or IPv4 broken -> place IPv6 first
-        ordered.sort_by_key(|addr| addr.is_ipv4());
-    } else if is_mobile || (ipv6_failures > 0 && ipv4_failures == 0) {
-        // Rapid IPv6 demotion or cellular: working IPv4 is placed first
-        ordered.sort_by_key(|addr| addr.is_ipv6());
-    } else {
-        // RFC 8305: By default in dual-stack networks, IPv6 is preferred.
-        // Interleave / rotate with recovery epoch without permanently locking IPv4 first.
-        let epoch = TCP_RECOVERY_EPOCH.load(Ordering::Relaxed) as usize;
-        if epoch % 2 == 1 {
-            ordered.sort_by_key(|addr| addr.is_ipv6());
-        } else {
-            ordered.sort_by_key(|addr| addr.is_ipv4());
+        if v6_addrs.len() > 1 && epoch > 0 {
+            let rotation = epoch % v6_addrs.len();
+            v6_addrs.rotate_left(rotation);
         }
-        let rotation = epoch % ordered.len();
-        ordered.rotate_left(rotation);
+        if v4_addrs.len() > 1 && epoch > 0 {
+            let rotation = epoch % v4_addrs.len();
+            v4_addrs.rotate_left(rotation);
+        }
+        let mut ordered = v6_addrs;
+        ordered.extend(v4_addrs);
+        ordered
+    } else {
+        // Interleave with working IPv4 first to avoid Cloudflare Anycast IPv6 dropouts on Russian ISPs.
+        // Rotate within IPv4 candidates so Anycast IPv6 is NEVER rotated into Candidate 0!
+        if v4_addrs.len() > 1 && epoch > 0 {
+            let rotation = epoch % v4_addrs.len();
+            v4_addrs.rotate_left(rotation);
+        }
+        if v6_addrs.len() > 1 && epoch > 0 {
+            let rotation = epoch % v6_addrs.len();
+            v6_addrs.rotate_left(rotation);
+        }
+
+        // Sort v6 so anycast IPv6 is placed after non-anycast IPv6 if any
+        v6_addrs.sort_by_key(|addr| match addr.ip() {
+            std::net::IpAddr::V6(ip6) => is_cloudflare_anycast_ipv6(&ip6),
+            _ => false,
+        });
+
+        let mut ordered = v4_addrs;
+        ordered.extend(v6_addrs);
+        ordered
     }
-    ordered
 }
 
 pub fn order_socket_addrs(addrs: &[SocketAddr]) -> Vec<SocketAddr> {
@@ -507,9 +566,9 @@ mod tests {
 
     #[test]
     fn test_new_network_generation_does_not_inherit_permanent_ban() {
-        let gen1 = 1;
-        let gen2 = 2;
-        let host = "worker1.pages.dev";
+        let gen1 = 201;
+        let gen2 = 202;
+        let host = "worker-ban-test.pages.dev";
         let ipv6 = SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0x2606, 0x4700, 0, 0, 0, 0, 0, 1)), 443);
         let ipv4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(104, 21, 1, 1)), 443);
         let candidates = vec![ipv6, ipv4];

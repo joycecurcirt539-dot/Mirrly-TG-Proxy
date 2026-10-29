@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import com.mirrly.tgproxy.ui.theme.AmoledBackground
 
 /**
  * Reliable search Dialog Window with traversing tree ViewParent.
@@ -123,7 +124,56 @@ fun rememberDialogBlurState(
                 onDispose {}
             }
         } else {
-            onDispose {}
+            // Path B: Windowless root view attached to WindowManager (e.g. Compose ModalBottomSheetWindow)
+            val root = view.rootView
+            val wm = view.context.getSystemService(WindowManager::class.java)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && wm != null) {
+                fun applyRootBlur(enabled: Boolean) {
+                    try {
+                        val lp = root.layoutParams as? WindowManager.LayoutParams ?: return
+                        if (enabled) {
+                            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+                            lp.blurBehindRadius = blurRadiusPx
+                            lp.dimAmount = 0.35f
+                            wm.updateViewLayout(root, lp)
+                            isBlurActive = true
+                            android.util.Log.i("MirrlyBlur", "Applied FLAG_BLUR_BEHIND ($blurRadiusPx px) to ModalBottomSheetWindow")
+                        } else {
+                            lp.flags = (lp.flags and WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv()) or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+                            lp.blurBehindRadius = 0
+                            lp.dimAmount = 0.65f
+                            wm.updateViewLayout(root, lp)
+                            isBlurActive = false
+                            android.util.Log.i("MirrlyBlur", "Cleared FLAG_BLUR_BEHIND from ModalBottomSheetWindow")
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MirrlyBlur", "applyRootBlur error: ${e.message}")
+                    }
+                }
+
+                val initialBlur = wm.isCrossWindowBlurEnabled
+                root.post {
+                    applyRootBlur(initialBlur)
+                }
+
+                val blurListener = java.util.function.Consumer<Boolean> { enabled ->
+                    root.post {
+                        applyRootBlur(enabled)
+                    }
+                }
+                try {
+                    wm.addCrossWindowBlurEnabledListener(blurListener)
+                } catch (_: Exception) {}
+
+                onDispose {
+                    try {
+                        wm.removeCrossWindowBlurEnabledListener(blurListener)
+                    } catch (_: Exception) {}
+                }
+            } else {
+                onDispose {}
+            }
         }
     }
 
@@ -131,11 +181,13 @@ fun rememberDialogBlurState(
 }
 
 /**
- * Unified fullscreen container dialog with adaptive background and floating particles:
- * - note note WindowManager Blur: note note note + note note note.
- * - note note Blur (Android 8..11, note GPU, Xiaomi/Samsung without support): note note acrylic note (88% opacity).
- * - note note and note note dialog note note note note micro-particles (CyberParticlesOverlay).
+ * Unified container for legacy dialogs.
+ * Deprecated under MirrlyUI Zero-Popup rule: use MirrlyModalBottomSheet or inline components instead.
  */
+@Deprecated(
+    message = "MirrlyUI Zero-Popup dogma strictly prohibits modal Dialogs. Use MirrlyModalBottomSheet instead.",
+    level = DeprecationLevel.WARNING
+)
 @Composable
 fun DialogBackdropBox(
     onDismiss: () -> Unit,
@@ -147,9 +199,9 @@ fun DialogBackdropBox(
     val isBlurActive = rememberDialogBlurState(blurRadiusPx = blurRadiusPx)
     val scrimInteractionSource = remember { MutableInteractionSource() }
     val scrimColor = if (isBlurActive) {
-        Color.Black.copy(alpha = 0.35f)
+        AmoledBackground.copy(alpha = 0.35f)
     } else {
-        Color(0xFF060A13).copy(alpha = 0.88f)
+        AmoledBackground.copy(alpha = 0.50f)
     }
 
     Box(

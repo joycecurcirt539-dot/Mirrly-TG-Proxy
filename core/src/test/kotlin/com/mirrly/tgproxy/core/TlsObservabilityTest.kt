@@ -297,12 +297,5 @@ class TlsObservabilityTest {
             wsCode.contains("handshake_kind()"),
             "ws.rs must inspect handshake_kind() to detect resumption"
         )
-
-        val vlessRs = File(rootDir, "mirrlyengine/src/vless.rs")
-        val vlessCode = vlessRs.readText()
-        assertTrue(
-            vlessCode.contains("crate::tls_observability::TLS_TRACKER.write().record_success"),
-            "vless.rs must record TLS handshake success"
-        )
     }
 }

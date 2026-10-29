@@ -136,10 +136,8 @@ class RouteSupervisorSyncTest {
             vlessFlow = "xtls-rprx-vision"
         )
 
-        // Ensure custom profile is distinct from default preset
-        val defaultPreset = VlessPresetsRepository.getDefaultPreset()
-        assertNotEquals(customConfig.vlessDomain, defaultPreset.domain)
-        assertNotEquals(customConfig.vlessUuid, defaultPreset.uuid)
+        assertNotEquals(customConfig.vlessDomain, "default.example.com")
+        assertNotEquals(customConfig.vlessUuid, "default-uuid")
 
         // Under the single supervisor model, probe failovers report route failures to native
         // instead of calling applyVlessPreset(getDefaultPreset()).

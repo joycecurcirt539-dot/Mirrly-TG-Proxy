@@ -170,12 +170,6 @@ class ProxyStats {
     var timeToUsefulRxMs: Long = -1L
 
     @Volatile
-    var stageTimelineSli: StageTimelineSliSummary? = null
-
-    @Volatile
-    var recentTimelineAttempts: List<ConnectionTimelineItem> = emptyList()
-
-    @Volatile
     var dialBudgetStats: DialBudgetStats? = null
 
     @Volatile

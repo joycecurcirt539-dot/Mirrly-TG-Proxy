@@ -3,6 +3,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AddressFamily {
@@ -138,6 +139,10 @@ pub struct NodeTelemetry {
     pub asn: String,
     pub bytes_before_stall: u64,
     pub total_bytes_transferred: u64,
+    pub downlink_ewma_bps: f64,
+    pub downlink_samples: u32,
+    #[serde(skip)]
+    last_downlink_sample: Option<Instant>,
     pub success_count: u64,
     pub failure_count: u64,
     pub consecutive_failures: u32,
@@ -155,6 +160,9 @@ impl NodeTelemetry {
             asn: "UNKNOWN".to_string(),
             bytes_before_stall: 0,
             total_bytes_transferred: 0,
+            downlink_ewma_bps: 0.0,
+            downlink_samples: 0,
+            last_downlink_sample: None,
             success_count: 0,
             failure_count: 0,
             consecutive_failures: 0,
@@ -303,6 +311,39 @@ impl NodeIndependenceTracker {
             .or_insert_with(|| NodeTelemetry::new(domain_norm));
 
         entry.total_bytes_transferred = entry.total_bytes_transferred.saturating_add(bytes);
+    }
+
+    /// Only sizeable completed downlink windows describe media throughput.
+    pub fn record_downlink_sample(&mut self, domain: &str, bytes: u64, elapsed: Duration) {
+        if bytes < 512 * 1024 {
+            return;
+        }
+        let domain_norm = crate::balancer::normalize_domain(domain);
+        if domain_norm.is_empty() {
+            return;
+        }
+        let entry = self.nodes.entry(domain_norm.clone())
+            .or_insert_with(|| NodeTelemetry::new(domain_norm));
+        let bps = bytes as f64 / elapsed.as_secs_f64().max(0.001);
+        entry.downlink_ewma_bps = if entry.downlink_samples == 0 {
+            bps
+        } else {
+            0.3 * bps + 0.7 * entry.downlink_ewma_bps
+        };
+        entry.downlink_samples = entry.downlink_samples.saturating_add(1);
+        entry.last_downlink_sample = Some(Instant::now());
+    }
+
+    pub fn fresh_downlink_bps(&self, domain: &str) -> Option<f64> {
+        let norm = crate::balancer::normalize_domain(domain);
+        let node = self.nodes.get(&norm)?;
+        if node.downlink_samples > 0 && node.consecutive_failures == 0
+            && node.last_downlink_sample?.elapsed() < Duration::from_secs(10 * 60)
+        {
+            Some(node.downlink_ewma_bps)
+        } else {
+            None
+        }
     }
 
     pub fn record_node_failure(&mut self, domain: &str, ip: Option<IpAddr>, colo: Option<&str>) {

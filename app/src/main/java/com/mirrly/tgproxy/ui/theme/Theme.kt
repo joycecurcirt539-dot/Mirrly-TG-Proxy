@@ -64,6 +64,8 @@ val InactiveGrayLed = Color(0xFF383840)
 val TextWhite = Color(0xFFFFFFFF)
 val TextMuted = Color(0xFF888894)
 val MinimalAccent = Color(0xFF00F5D4)
+val BloodRed = Color(0xFFFF1744)
+val BloodRedDark = Color(0xFFD50000)
 
 // MTProto Protocol Theme (Signature Neon Cyan / Emerald)
 val MtprotoAccent = Color(0xFF00F5D4)
@@ -79,12 +81,6 @@ val Socks5Secondary = Color(0xFF7C4DFF)
 val Socks5Light = Color(0xFFC084FC)
 val Socks5Indigo = Color(0xFF818CF8)
 
-// WEB Protocol Theme (Electric Cyber Crimson / Neon Coral)
-val WebAccent = Color(0xFFFF2A6D)
-val WebGlow = Color(0x3DFF2A6D)
-val WebSecondary = Color(0xFFFF5376)
-val WebLight = Color(0xFFFF7597)
-val WebRuby = Color(0xFFFF0055)
 
 data class ProtocolColors(
     val primary: Color,
@@ -119,16 +115,6 @@ val Socks5Palette = ProtocolColors(
     orb4 = Color(0xFF818CF8)
 )
 
-val WebPalette = ProtocolColors(
-    primary = WebAccent,
-    glow = WebGlow,
-    secondary = WebSecondary,
-    light = WebLight,
-    orb1 = Color(0xFFFF2A6D),
-    orb2 = Color(0xFFFF0055),
-    orb3 = Color(0xFFE040FB),
-    orb4 = Color(0xFFFF5252)
-)
 
 @Composable
 fun rememberAnimatedProtocolColors(
@@ -392,6 +378,88 @@ fun Modifier.fourWayFadingEdges(
     }
 
 /**
+ * Universal 4-Way Screen Perimeter Vignette Modifier.
+ * Casts a smooth optical vignette across all 4 screen edges:
+ * - Top: softly shades the system status bar (clock, battery, Wi-Fi) without harsh rectangular cutoffs.
+ * - Bottom: softly shades the system navigation bar.
+ * - Start/End: adds subtle edge falloff so floating content seamlessly dissolves towards viewport borders.
+ */
+fun Modifier.screenPerimeterVignette(
+    topHeight: Dp = 80.dp,
+    bottomHeight: Dp = 64.dp,
+    sideWidth: Dp = 16.dp,
+    topAlpha: Float = 0.65f,
+    bottomAlpha: Float = 0.50f,
+    sideAlpha: Float = 0.30f
+): Modifier = this.drawBehind {
+    val w = size.width
+    val h = size.height
+    if (w <= 0f || h <= 0f) return@drawBehind
+
+    val topPx = topHeight.toPx().coerceAtMost(h / 3f)
+    val bottomPx = bottomHeight.toPx().coerceAtMost(h / 3f)
+    val sidePx = sideWidth.toPx().coerceAtMost(w / 4f)
+
+    // 1. Top status bar falloff vignette
+    if (topPx > 0f) {
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Black.copy(alpha = topAlpha.coerceIn(0f, 1f)),
+                    Color.Black.copy(alpha = (topAlpha * 0.45f).coerceIn(0f, 1f)),
+                    Color.Transparent
+                ),
+                startY = 0f,
+                endY = topPx
+            )
+        )
+    }
+
+    // 2. Bottom navigation bar falloff vignette
+    if (bottomPx > 0f) {
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color.Black.copy(alpha = (bottomAlpha * 0.45f).coerceIn(0f, 1f)),
+                    Color.Black.copy(alpha = bottomAlpha.coerceIn(0f, 1f))
+                ),
+                startY = h - bottomPx,
+                endY = h
+            )
+        )
+    }
+
+    // 3. Start (Left) edge falloff
+    if (sidePx > 0f) {
+        drawRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    Color.Black.copy(alpha = sideAlpha.coerceIn(0f, 1f)),
+                    Color.Transparent
+                ),
+                startX = 0f,
+                endX = sidePx
+            )
+        )
+    }
+
+    // 4. End (Right) edge falloff
+    if (sidePx > 0f) {
+        drawRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color.Black.copy(alpha = sideAlpha.coerceIn(0f, 1f))
+                ),
+                startX = w - sidePx,
+                endX = w
+            )
+        )
+    }
+}
+
+/**
  * Universal Staggered Entrance Animation Modifier.
  * Sequentially animates cards and menu items floating upwards with smooth deceleration (Fade + Slide).
  * Preserves entered state via rememberSaveable so it never re-animates on back navigation.
@@ -436,9 +504,11 @@ fun Modifier.staggeredEntrance(
  */
 fun Modifier.springPress(
     onClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
     pressScale: Float = 0.97f,
     interactionSource: MutableInteractionSource? = null
 ): Modifier = composed {
+    if (!enabled) return@composed this
     val internalInteractionSource = interactionSource ?: remember { MutableInteractionSource() }
     var pointerPressed by remember { mutableStateOf(false) }
     val sourcePressed by internalInteractionSource.collectIsPressedAsState()

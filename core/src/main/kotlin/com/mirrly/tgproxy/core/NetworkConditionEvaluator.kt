@@ -8,6 +8,8 @@
  * (at your option) any later version.
  */
 
+@file:Suppress("DEPRECATION")
+
 package com.mirrly.tgproxy.core
 
 import kotlin.math.roundToLong
@@ -81,7 +83,7 @@ data class AdaptivePolicySnapshot(
     val isAutoSpeedPreset: Boolean = true,
     val tcpNoDelayMode: TcpNoDelayMode = TcpNoDelayMode.AUTO,
     val configuredPoolSize: Int = 2,
-    val configuredBufferSizeBytes: Int = 262_144,
+    val configuredBufferSizeBytes: Int = 0,
     val configuredTcpNoDelay: Boolean = true,
     val probeId: Long = observedAtMs
 )
@@ -112,7 +114,7 @@ data class NetworkEvaluationDecision(
 class AdaptiveNetworkPolicyController(
     val thresholds: AdaptivePolicyThresholds = AdaptivePolicyThresholds(),
     initialPoolSize: Int = 2,
-    initialBufferSizeBytes: Int = BUFFER_SIZE_BALANCED,
+    initialBufferSizeBytes: Int = BUFFER_SIZE_AUTOTUNE,
     initialTcpNoDelay: Boolean = true,
     private val stabilizationGate: NetworkStabilizationGate? = null
 ) {
@@ -377,7 +379,9 @@ class AdaptiveNetworkPolicyController(
             selectPoolWithHysteresis(currentDecision.recommendedPoolSize, throughputEma.roundToLong())
         }
         val targetPool = rawPool.coerceIn(1, 4).coerceAtMost(snapshot.qosThrottleLevel.maxPoolSize)
-        val rawBuffer = if (!snapshot.isAutoSpeedPreset) {
+        val rawBuffer = if (snapshot.configuredBufferSizeBytes == BUFFER_SIZE_AUTOTUNE) {
+            BUFFER_SIZE_AUTOTUNE
+        } else if (!snapshot.isAutoSpeedPreset) {
             snapshot.configuredBufferSizeBytes
         } else if (state == AdaptiveNetworkState.DEGRADED || state == AdaptiveNetworkState.UNAVAILABLE) {
             BUFFER_SIZE_ECO
@@ -393,7 +397,9 @@ class AdaptiveNetworkPolicyController(
         } else {
             bufferForPool(targetPool)
         }
-        val targetBuffer = if (rawBuffer == BUFFER_SIZE_AUTOTUNE) {
+        val targetBuffer = if (snapshot.qosThrottleLevel == QoSThrottleLevel.SEVERE) {
+            BUFFER_SIZE_ECO
+        } else if (rawBuffer == BUFFER_SIZE_AUTOTUNE) {
             BUFFER_SIZE_AUTOTUNE
         } else {
             rawBuffer.coerceAtMost(snapshot.qosThrottleLevel.maxBufferSizeBytes)

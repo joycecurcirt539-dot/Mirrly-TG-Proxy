@@ -32,9 +32,9 @@ object WorkerPingTester {
     private val probe by lazy {
         WorkerRelayHealthProbe(OkHttpClient.Builder()
             .dns(DohOkHttpDns.INSTANCE)
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(5, TimeUnit.SECONDS)
-            .callTimeout(6, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(25, TimeUnit.SECONDS)
+            .callTimeout(30, TimeUnit.SECONDS)
             .followRedirects(false)
             .followSslRedirects(false)
             .retryOnConnectionFailure(false)
@@ -65,7 +65,16 @@ object WorkerPingTester {
         }
 
         // 1. Попытка высокоточного SOCKS5 v2 релей-пробинга (WebSocket /tcp-v2 с 4-байтным контрольным ACK)
-        val relayResult = probeRelayInternal(cleanDomain, timeoutMs = minOf(2500L, 400L))
+        try {
+            val (statusStr, rttMs) = com.mirrly.tgproxy.core.NativeProxy.pingWorker(cleanDomain, 5000)
+            if (statusStr == "ONLINE") {
+                return@withContext WorkerStatus.ONLINE to rttMs
+            } else if (statusStr == "RATE_LIMITED_429") {
+                return@withContext WorkerStatus.RATE_LIMITED_429 to rttMs
+            }
+        } catch (_: Throwable) {}
+
+        val relayResult = probeRelayInternal(cleanDomain, timeoutMs = 25_000L)
         if (relayResult.first == WorkerStatus.ONLINE) {
             com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 2)
             return@withContext relayResult
@@ -77,7 +86,6 @@ object WorkerPingTester {
         // Проверяем доступность воркера, статус Cloudflare и сигнатуру скрипта Mirrly
         val httpResult = verifyWorkerHttpEndpoint(cleanDomain)
         if (httpResult.first == WorkerStatus.ONLINE) {
-            com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 1)
             return@withContext httpResult
         } else if (httpResult.first == WorkerStatus.RATE_LIMITED_429) {
             return@withContext httpResult
@@ -89,14 +97,14 @@ object WorkerPingTester {
     /** Root HTTP is reachability only; ONLINE requires the versioned upstream-ready ACK. */
     suspend fun probeWorkerRelayContract(
         domain: String,
-        timeoutMs: Long = 3500L
+        timeoutMs: Long = 25_000L
     ): Pair<WorkerStatus, Long?> = withContext(Dispatchers.IO) {
         val cleanDomain = sanitizeDomain(domain)
         if (cleanDomain.isBlank() || cleanDomain.any { it in "/?#@" }) {
             return@withContext WorkerStatus.ERROR_UNREACHABLE to null
         }
 
-        val relayResult = probeRelayInternal(cleanDomain, minOf(timeoutMs, 400L))
+        val relayResult = probeRelayInternal(cleanDomain, timeoutMs)
         if (relayResult.first == WorkerStatus.ONLINE) {
             com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 2)
             return@withContext relayResult
@@ -104,12 +112,7 @@ object WorkerPingTester {
             return@withContext relayResult
         }
 
-        // Fallback к валидированному эндпоинту Cloudflare Worker Mirrly
-        val httpResult = verifyWorkerHttpEndpoint(cleanDomain)
-        if (httpResult.first == WorkerStatus.ONLINE) {
-            com.mirrly.tgproxy.core.NativeProxy.setWorkerProtocol(cleanDomain, 1)
-        }
-        httpResult
+        relayResult
     }
 
     private suspend fun probeRelayInternal(cleanDomain: String, timeoutMs: Long): Pair<WorkerStatus, Long?> {

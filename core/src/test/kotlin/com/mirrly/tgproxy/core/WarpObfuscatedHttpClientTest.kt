@@ -143,7 +143,7 @@ class WarpObfuscatedHttpClientTest {
             .build()
 
         val serverCerts = HandshakeCertificates.Builder()
-            .heldCertificate(matchingCert)
+            .heldCertificate(matchingCert, rootCa.certificate)
             .build()
 
         val clientCerts = HandshakeCertificates.Builder()
@@ -262,6 +262,7 @@ class WarpObfuscatedHttpClientTest {
                 candidatesList = listOf("127.0.0.1"),
                 customContext = clientCerts.sslContext(),
                 host = "api.cloudflareclient.com",
+                sniHost = "api.cloudflareclient.com",
                 port = port,
                 enableFragmentation = enableFragmentation
             )

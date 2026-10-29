@@ -16,7 +16,7 @@ heartbeat-test-utils = []
 tokio = { version = "1.40", features = ["full"] }
 tokio-util = "0.7"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "aws_lc_rs", "std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = "1.10"
 webpki-roots = "0.26"
 ring = { version = "0.17", default-features = false, features = ["std"] }
@@ -36,6 +36,7 @@ serde_json = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-manual-roots-no-provider", "json"] }
 parking_lot = "0.12"
 socket2 = { version = "0.5", features = ["all"] }
+libc = "0.2"
 quinn = { version = "0.11", default-features = false, features = ["rustls", "runtime-tokio"] }
 url = "2.5"
 bytes = "1"

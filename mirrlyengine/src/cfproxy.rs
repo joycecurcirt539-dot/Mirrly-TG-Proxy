@@ -4,9 +4,7 @@ use crate::ws::{
     WsError,
 };
 use crate::{ldebug, lerror, linfo, lwarn};
-use serde::Deserialize;
-use std::collections::HashSet;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -129,7 +127,7 @@ pub fn canonical_cfproxy_cooldown_key(domain: &str) -> String {
     if let Some((prefix, base)) = normalized.split_once('.') {
         if prefix.starts_with("kws")
             && prefix.len() > 3
-            && prefix[3..].chars().all(|character| character.is_ascii_digit())
+            && prefix[3..].chars().all(|character| character.is_ascii_digit() || character == '-')
         {
             return base.to_string();
         }
@@ -243,19 +241,32 @@ pub fn cfproxy_429_cooldown_remaining(domain: &str) -> Duration {
     }
     let now = Instant::now();
     let current_net = crate::generation_guard::current_network();
-    let recovery_remaining = CFPROXY_RECOVERY_CIRCUIT
-        .read()
-        .get(&d)
-        .and_then(|entry| {
-            // Path-specific TCP/TLS/Relay failures are scoped to network generation.
-            // If the network generation has changed, the path failure does NOT block the new network!
-            if current_net > 0 && entry.network_generation > 0 && current_net != entry.network_generation {
-                None
-            } else {
-                Some(entry.until.saturating_duration_since(now))
-            }
-        })
-        .unwrap_or(Duration::ZERO);
+
+    // Check if domain is the user's primary custom worker.
+    // User custom worker must NEVER be suppressed by path-level / recovery circuit breaks
+    // caused by mobile network jitter, resets or timeouts. Only strict HTTP 429 applies to it.
+    let is_custom_user_worker = {
+        let user_d = CFPROXY.read().user_domain.trim().to_string();
+        !user_d.is_empty() && canonical_cfproxy_cooldown_key(&user_d) == d
+    };
+
+    let recovery_remaining = if is_custom_user_worker {
+        Duration::ZERO
+    } else {
+        CFPROXY_RECOVERY_CIRCUIT
+            .read()
+            .get(&d)
+            .and_then(|entry| {
+                // Path-specific TCP/TLS/Relay failures are scoped to network generation.
+                // If the network generation has changed, the path failure does NOT block the new network!
+                if current_net > 0 && entry.network_generation > 0 && current_net != entry.network_generation {
+                    None
+                } else {
+                    Some(entry.until.saturating_duration_since(now))
+                }
+            })
+            .unwrap_or(Duration::ZERO)
+    };
 
     let mut map = CFPROXY_429.write();
     let until = match map.get(&d).and_then(|state| state.until) {
@@ -473,27 +484,10 @@ pub async fn try_refresh_cfproxy_domains() -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Dual-Stack DNS over HTTPS (DoH) & System DNS Resolver (RFC 8305 Dual-Stack)
+// Dual-Stack DNS Resolver (Cloudflare Anycast & System DNS)
 // ---------------------------------------------------------------------------
 
-#[derive(Deserialize)]
-struct DohAnswer {
-    #[serde(rename = "data")]
-    data: String,
-    #[serde(rename = "type")]
-    type_: i32,
-}
-#[derive(Deserialize)]
-struct DohResponse {
-    #[serde(rename = "Answer", default)]
-    answer: Vec<DohAnswer>,
-}
-
 pub const CF_ANYCAST_IPS_V4: &[&str] = &[
-    "188.114.96.1",
-    "188.114.97.1",
-    "188.114.96.3",
-    "188.114.97.3",
     "172.67.153.159",
     "172.67.74.152",
     "104.21.234.180",
@@ -502,6 +496,10 @@ pub const CF_ANYCAST_IPS_V4: &[&str] = &[
     "162.159.153.4",
     "162.159.192.1",
     "141.101.90.0",
+    "188.114.96.1",
+    "188.114.97.1",
+    "188.114.96.3",
+    "188.114.97.3",
 ];
 
 pub const CF_ANYCAST_IPS_V6: &[&str] = &[
@@ -531,34 +529,17 @@ pub fn default_cf_anycast_dual_stack() -> Vec<IpAddr> {
 
 pub fn interleave_dual_stack_ips(v6: Vec<IpAddr>, v4: Vec<IpAddr>) -> Vec<IpAddr> {
     let mut interleaved = Vec::with_capacity(v6.len() + v4.len());
-    let max_len = v6.len().max(v4.len());
     let ipv6_only = crate::recovery::is_ipv6_only_network();
-    let is_mobile = crate::config::MOBILE_NETWORK.load(std::sync::atomic::Ordering::Relaxed);
     if ipv6_only {
-        // In IPv6-only network, all IPv6 addresses come first
+        // In pure IPv6-only network without CLAT, all IPv6 addresses come first
         interleaved.extend(v6);
         interleaved.extend(v4);
-    } else if is_mobile {
-        // Mobile cellular optimization: Cloudflare IPv4 has near 100% reachability across mobile carriers
-        // whereas IPv6 is frequently non-routed or dropped by middleboxes/TSPU. Interleave IPv4 first.
-        for i in 0..max_len {
-            if i < v4.len() {
-                interleaved.push(v4[i]);
-            }
-            if i < v6.len() {
-                interleaved.push(v6[i]);
-            }
-        }
     } else {
-        // RFC 8305 Dual-Stack: Interleave with IPv6 first
-        for i in 0..max_len {
-            if i < v6.len() {
-                interleaved.push(v6[i]);
-            }
-            if i < v4.len() {
-                interleaved.push(v4[i]);
-            }
-        }
+        // Cellular networks and Russian ISPs running TSPU heavily blackhole or throttle
+        // Cloudflare Anycast IPv6 (2606:4700::/32). Placing all clean IPv4 addresses first
+        // avoids the 3-5s IPv6 SYN timeout completely across mobile and Wi-Fi tethering.
+        interleaved.extend(v4);
+        interleaved.extend(v6);
     }
     interleaved
 }
@@ -577,26 +558,65 @@ static DOH_CACHE: Lazy<
     parking_lot::RwLock<std::collections::HashMap<String, CfDohCacheEntry>>,
 > = Lazy::new(|| parking_lot::RwLock::new(std::collections::HashMap::new()));
 
-static DOH_ENDPOINTS: Lazy<parking_lot::RwLock<Vec<String>>> = Lazy::new(|| {
-    parking_lot::RwLock::new(vec![
-        "https://9.9.9.9/dns-query".to_string(),
-        "https://94.140.14.14/dns-query".to_string(),
-        "https://dns.comms.one/dns-query".to_string(),
-        "https://geohide.org/dns-query".to_string(),
-        "https://195.201.201.32/dns-query".to_string(),
-        "https://194.242.2.2/dns-query".to_string(),
-        "https://76.76.2.0/dns-query".to_string(),
-    ])
-});
+#[derive(Clone, Debug)]
+pub struct CfWinnerCacheEntry {
+    pub addr: SocketAddr,
+    pub expires_at: Instant,
+    pub network_generation: u64,
+}
+
+static WINNER_CACHE: Lazy<
+    parking_lot::RwLock<std::collections::HashMap<String, CfWinnerCacheEntry>>,
+> = Lazy::new(|| parking_lot::RwLock::new(std::collections::HashMap::new()));
+
+pub fn clear_winner_cache() {
+    WINNER_CACHE.write().clear();
+}
+
+pub fn invalidate_winner_host(domain: &str) {
+    let domain = normalize_cf_domain(domain);
+    if !domain.is_empty() {
+        WINNER_CACHE.write().remove(&domain);
+    }
+}
+
+pub fn get_cached_winner(domain: &str) -> Option<SocketAddr> {
+    let domain = normalize_cf_domain(domain);
+    let cur_gen = crate::network_profile::current_generation();
+    let entry = WINNER_CACHE.read().get(&domain)?.clone();
+    if Instant::now() < entry.expires_at && entry.network_generation == cur_gen {
+        Some(entry.addr)
+    } else {
+        None
+    }
+}
+
+pub fn set_cached_winner(expected: crate::generation_guard::GenerationStamp, domain: &str, addr: SocketAddr) {
+    let domain = normalize_cf_domain(domain);
+    if !domain.is_empty() {
+        crate::generation_guard::apply_if_current(expected, || {
+            WINNER_CACHE.write().insert(
+                domain,
+                CfWinnerCacheEntry {
+                    addr,
+                    expires_at: Instant::now() + Duration::from_secs(900),
+                    network_generation: expected.network,
+                },
+            );
+        });
+    }
+}
 
 pub fn clear_doh_cache() {
     DOH_CACHE.write().clear();
+    WINNER_CACHE.write().clear();
 }
 
 pub fn invalidate_doh_host(domain: &str) {
     let domain = normalize_cf_domain(domain);
     if !domain.is_empty() {
         DOH_CACHE.write().remove(&domain);
+        WINNER_CACHE.write().remove(&domain);
     }
 }
 
@@ -653,6 +673,14 @@ pub fn mark_cfproxy_recovery_circuit_at_stage(
     if key.is_empty() {
         return;
     }
+    let user_d = CFPROXY.read().user_domain.trim().to_string();
+    if !user_d.is_empty() && canonical_cfproxy_cooldown_key(&user_d) == key {
+        ldebug!(
+            " Suppressing recovery circuit cooldown for primary custom worker {}",
+            key
+        );
+        return;
+    }
     let until = Instant::now() + delay;
     let mut map = CFPROXY_RECOVERY_CIRCUIT.write();
     let effective_until = map
@@ -691,19 +719,8 @@ pub fn clear_all_recovery_cooldowns() {
     CFPROXY_RECOVERY_CIRCUIT.write().clear();
 }
 
-pub fn set_doh_endpoints(endpoints_csv: &str) {
-    let mut list = Vec::new();
-    for item in endpoints_csv.split(',') {
-        let trimmed = item.trim();
-        if !trimmed.is_empty() {
-            list.push(trimmed.to_string());
-        }
-    }
-    if !list.is_empty() {
-        crate::linfo!("SetDohEndpoints: updated to {} endpoints", list.len());
-        *DOH_ENDPOINTS.write() = list;
-        clear_doh_cache();
-    }
+pub fn set_doh_endpoints(_endpoints_csv: &str) {
+    // No-op: DoH is removed from MTProto and SOCKS5 pipelines
 }
 
 pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
@@ -717,7 +734,19 @@ pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
         return crate::network_profile::filter_ip_family(vec![ip]);
     }
 
-    // 2. Cache hit (0 ms, MOB-022: validated against current network generation & negative TTL)
+    // 2. Cloudflare Edge Anycast fast-path (0 ms, zero DoH):
+    // All Cloudflare Workers (both *.workers.dev/*.pages.dev and custom domains)
+    // run on Cloudflare Anycast edge. Connecting directly to Anycast IPs
+    // bypasses DoH completely, eliminating DNS latency and TSPU censorship stalls.
+    let is_cf = crate::config::is_cloudflare_domain(domain)
+        || CFPROXY.read().user_domain.eq_ignore_ascii_case(domain)
+        || crate::config::LAST_SOCKS5_WORKER.read().eq_ignore_ascii_case(domain);
+    if is_cf {
+        let anycast = default_cf_anycast_dual_stack();
+        return crate::network_profile::filter_ip_family(anycast);
+    }
+
+    // 3. Cache hit (0 ms)
     let cur_gen = crate::network_profile::current_generation();
     if let Some(entry) = DOH_CACHE.read().get(domain).cloned() {
         if Instant::now() < entry.expires_at && entry.network_generation == cur_gen {
@@ -730,7 +759,7 @@ pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
         }
     }
 
-    // 3. Per-host DNS singleflight: deduplicates concurrent resolutions for the same domain
+    // 4. Per-host singleflight resolution via system getaddrinfo (zero DoH)
     let expected = crate::generation_guard::snapshot();
     let domain_key = format!("{}:{}:{}:{}", expected.network, expected.profile, expected.config, domain);
     let domain_task = domain.to_string();
@@ -742,258 +771,37 @@ pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
     crate::network_profile::filter_ip_family(resolved)
 }
 
-async fn query_cf_doh_type(
-    client: &reqwest::Client,
-    endpoint: &str,
-    domain: &str,
-    qtype: &str,
-    tx: &tokio::sync::mpsc::Sender<IpAddr>,
-) -> bool {
-    let full = format!("{}?name={}&type={}", endpoint, domain, qtype);
-    match client
-        .get(&full)
-        .header("Accept", "application/dns-json")
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().as_u16() == 200 => {
-            if let Ok(r) = resp.json::<DohResponse>().await {
-                let mut found = false;
-                for ans in r.answer {
-                    if ans.type_ == 1 {
-                        if let Ok(ip) = ans.data.trim().parse::<Ipv4Addr>() {
-                            found = true;
-                            let _ = tx.send(IpAddr::V4(ip)).await;
-                        }
-                    } else if ans.type_ == 28 {
-                        if let Ok(ip) = ans.data.trim().parse::<Ipv6Addr>() {
-                            found = true;
-                            let _ = tx.send(IpAddr::V6(ip)).await;
-                        }
-                    }
-                }
-                found
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
-}
-
-async fn query_doh_single(
-    client: reqwest::Client,
-    endpoint: String,
-    domain: String,
-    tx: tokio::sync::mpsc::Sender<IpAddr>,
-    tx_err: tokio::sync::mpsc::Sender<()>,
-) {
-    let q_a = query_cf_doh_type(&client, &endpoint, &domain, "A", &tx);
-    let q_aaaa = query_cf_doh_type(&client, &endpoint, &domain, "AAAA", &tx);
-    let (res_a, res_aaaa) = tokio::join!(q_a, q_aaaa);
-    if !res_a && !res_aaaa {
-        let _ = tx_err.send(()).await;
-    }
-}
-
 async fn resolve_dual_stack_ips_uncached(
     domain: &str,
     expected: crate::generation_guard::GenerationStamp,
 ) -> Vec<IpAddr> {
-    let cur_gen = crate::network_profile::current_generation();
-    if let Some(entry) = DOH_CACHE.read().get(domain).cloned() {
-        if Instant::now() < entry.expires_at && entry.network_generation == cur_gen {
-            if entry.is_negative {
-                return Vec::new();
-            }
-            if !entry.ips.is_empty() {
-                return entry.ips;
-            }
-        }
-    }
-
-    // MOB-021: Acquire global DNS concurrency permit to limit radio congestion
-    let _dns_permit = crate::budget::DNS_BUDGET.acquire(None).await.ok();
-
-    let endpoints = crate::recovery::order_resolver_endpoints({
-        let guard = DOH_ENDPOINTS.read();
-        if guard.is_empty() {
-            vec![
-                "https://94.140.14.14/resolve".to_string(),
-                "https://185.222.222.222/dns-query".to_string(),
-            ]
-        } else {
-            guard.clone()
-        }
-    });
-
-    let primary_ep = endpoints.get(0).cloned();
-    let secondary_ep = endpoints.get(1).cloned();
-
-    let client = HTTP_CLIENT.clone();
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<IpAddr>(16);
-    let (tx_err, mut rx_err) = tokio::sync::mpsc::channel::<()>(4);
-
-    struct AbortOnDrop(Vec<tokio::task::JoinHandle<()>>);
-    impl Drop for AbortOnDrop {
-        fn drop(&mut self) {
-            for task in &self.0 {
-                task.abort();
-            }
-        }
-    }
-    let mut tasks = AbortOnDrop(Vec::new());
-
-    // 1. Concurrent fast system DNS lookup (network-bound, dual-stack via getaddrinfo)
+    if crate::config::is_cloudflare_domain(domain)
+        || CFPROXY.read().user_domain.eq_ignore_ascii_case(domain)
+        || crate::config::LAST_SOCKS5_WORKER.read().eq_ignore_ascii_case(domain)
     {
-        let domain_str = domain.to_string();
-        let tx = tx.clone();
-        tasks.0.push(tokio::spawn(async move {
-            let host = format!("{}:443", domain_str);
-            if let Ok(Ok(addrs)) =
-                tokio::time::timeout(Duration::from_millis(600), tokio::net::lookup_host(host))
-                    .await
-            {
-                for a in addrs {
-                    let _ = tx.send(a.ip()).await;
-                }
-            }
-        }));
+        let anycast = default_cf_anycast_dual_stack();
+        cache_resolved_ips_if_current(expected, domain, anycast.clone());
+        return anycast;
     }
 
-    // 2. Primary selected DoH query (single HTTP query for A records)
-    if let Some(ep) = primary_ep {
-        let client = client.clone();
-        let domain = domain.to_string();
-        let tx = tx.clone();
-        let tx_err = tx_err.clone();
-        tasks.0.push(tokio::spawn(async move {
-            query_doh_single(client, ep, domain, tx, tx_err).await;
-        }));
-    }
-
-    // MOB-021: Hedge delay (180ms). Second DoH is only launched after hedge delay or primary DoH error.
-    let hedge_timer = tokio::time::sleep(Duration::from_millis(180));
-    tokio::pin!(hedge_timer);
-    let mut hedged = false;
-
-    let deadline = tokio::time::sleep(Duration::from_millis(1200));
-    tokio::pin!(deadline);
-
-    let mut seen = HashSet::new();
-    let mut v6 = Vec::new();
-    let mut v4 = Vec::new();
-
-    loop {
-        tokio::select! {
-            _ = &mut deadline => break,
-            _ = &mut hedge_timer, if !hedged => {
-                hedged = true;
-                if let Some(sec_ep) = secondary_ep.clone() {
-                    let client = client.clone();
-                    let domain = domain.to_string();
-                    let tx = tx.clone();
-                    let tx_err = tx_err.clone();
-                    tasks.0.push(tokio::spawn(async move {
-                        query_doh_single(client, sec_ep, domain, tx, tx_err).await;
-                    }));
-                }
-            }
-            err = rx_err.recv(), if !hedged => {
-                if err.is_some() {
-                    hedged = true;
-                    if let Some(sec_ep) = secondary_ep.clone() {
-                        let client = client.clone();
-                        let domain = domain.to_string();
-                        let tx = tx.clone();
-                        let tx_err = tx_err.clone();
-                        tasks.0.push(tokio::spawn(async move {
-                            query_doh_single(client, sec_ep, domain, tx, tx_err).await;
-                        }));
-                    }
-                }
-            }
-            msg = rx.recv() => {
-                match msg {
-                    Some(ip) => {
-                        if seen.insert(ip) {
-                            match ip {
-                                IpAddr::V6(_) => v6.push(ip),
-                                IpAddr::V4(_) => v4.push(ip),
-                            }
-                            if (!v4.is_empty() && !v6.is_empty()) || seen.len() >= 4 {
-                                break;
-                            }
-                        }
-                    }
-                    None => break,
-                }
-            }
+    // Fast system DNS lookup (network-bound, dual-stack via getaddrinfo)
+    let host = format!("{}:443", domain);
+    let mut addrs_list = Vec::new();
+    if let Ok(Ok(addrs)) = tokio::time::timeout(Duration::from_millis(500), tokio::net::lookup_host(host)).await {
+        for a in addrs {
+            addrs_list.push(a.ip());
         }
     }
 
-    for task in &tasks.0 {
-        task.abort();
+    if addrs_list.is_empty() {
+        // Fallback to Anycast dual-stack
+        let anycast = default_cf_anycast_dual_stack();
+        cache_resolved_ips_if_current(expected, domain, anycast.clone());
+        return anycast;
     }
 
-    if !crate::generation_guard::is_current(expected) {
-        return Vec::new();
-    }
-
-    let mut interleaved = interleave_dual_stack_ips(v6, v4);
-    if interleaved.is_empty() {
-        crate::recovery::record_if_current(
-            expected,
-            domain,
-            crate::recovery::RecoveryCause::DnsFailure,
-        );
-        if crate::vless::is_cloudflare_domain(domain) {
-            crate::linfo!(
-                "DNS failure for confirmed Cloudflare domain '{}'; applying explicit Anycast Fallback policy",
-                domain
-            );
-            interleaved = default_cf_anycast_dual_stack();
-            let fam = crate::dns::AddressFamily::from_ips(&interleaved);
-            let _ = crate::generation_guard::apply_if_current(expected, || {
-                DOH_CACHE.write().insert(
-                    domain.to_string(),
-                    CfDohCacheEntry {
-                        ips: interleaved.clone(),
-                        expires_at: Instant::now() + Duration::from_secs(300),
-                        is_negative: false,
-                        family: fam,
-                        resolver_source: "Cloudflare-Anycast-Fallback".to_string(),
-                        network_generation: expected.network,
-                    },
-                );
-            });
-        } else {
-            crate::lwarn!(
-                "DNS failure for non-Cloudflare domain '{}'; Anycast fallback strictly forbidden",
-                domain
-            );
-            let _ = crate::generation_guard::apply_if_current(expected, || {
-                DOH_CACHE.write().insert(
-                    domain.to_string(),
-                    CfDohCacheEntry {
-                        ips: Vec::new(),
-                        expires_at: Instant::now() + Duration::from_secs(15),
-                        is_negative: true,
-                        family: crate::dns::AddressFamily::None,
-                        resolver_source: "DnsFailure-NonCloudflare".to_string(),
-                        network_generation: expected.network,
-                    },
-                );
-            });
-        }
-    } else {
-        cache_resolved_ips_if_current(expected, domain, interleaved.clone());
-    }
-    if crate::generation_guard::is_current(expected) {
-        interleaved
-    } else {
-        Vec::new()
-    }
+    cache_resolved_ips_if_current(expected, domain, addrs_list.clone());
+    addrs_list
 }
 
 pub async fn resolve_clean_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
@@ -1005,7 +813,7 @@ pub async fn resolve_clean_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
         return vec![ip];
     }
     let ips = resolve_dual_stack_ips(domain).await;
-    if !crate::vless::is_cloudflare_domain(domain) {
+    if !crate::config::is_cloudflare_domain(domain) {
         let anycast = default_cf_anycast_dual_stack();
         ips.into_iter().filter(|ip| !anycast.contains(ip)).collect()
     } else {
@@ -1092,23 +900,17 @@ pub async fn cf_connect_domain_with_category(
     let dial_attempt = async {
         let path = if path.is_empty() { "/apiws" } else { path };
 
-        let attempt_timeout = if MOBILE_NETWORK.load(std::sync::atomic::Ordering::Relaxed) {
-            crate::ws::ws_connect_timeout(timeout).max(CFPROXY_MOBILE_DIAL_TIMEOUT)
-        } else {
-            crate::ws::ws_connect_timeout(timeout)
-        };
+        let is_mobile = MOBILE_NETWORK.load(std::sync::atomic::Ordering::Relaxed);
+        let dial_timeout = crate::config::adaptive_dial_timeout(is_mobile);
+        let attempt_timeout = crate::ws::ws_connect_timeout(timeout);
         let phase_timeout = if path.starts_with("/tcp") {
             attempt_timeout
-        } else if MOBILE_NETWORK.load(std::sync::atomic::Ordering::Relaxed) {
-            attempt_timeout.min(CFPROXY_MOBILE_DIAL_TIMEOUT)
-        } else if attempt_timeout > CFPROXY_DIAL_PHASE_TIMEOUT {
-            CFPROXY_DIAL_PHASE_TIMEOUT
         } else {
-            attempt_timeout
+            attempt_timeout.max(dial_timeout)
         };
 
         let candidate_ips = resolve_dual_stack_ips(domain).await;
-        let is_anycast_fallback = if crate::vless::is_cloudflare_domain(domain) {
+        let is_anycast_fallback = if crate::config::is_cloudflare_domain(domain) {
             let anycast = default_cf_anycast_dual_stack();
             !candidate_ips.is_empty() && candidate_ips.iter().all(|ip| anycast.contains(ip))
         } else {
@@ -1134,18 +936,37 @@ pub async fn cf_connect_domain_with_category(
             );
         }
 
-        ldebug!(
-            " CF Happy Eyeballs dial {} with {} dual-stack IPs (fallback_ip={})",
-            domain,
-            candidate_addrs.len(),
-            is_anycast_fallback
-        );
+        // RFC 8305 Section 6: Stateful Address Selection
+        // Prioritize the sticky winning address at the head of candidate_addrs (position 0).
+        // Happy Eyeballs dials this address immediately at T=0.
+        // If it succeeds, only this address connects. If it stalls, the next candidate starts at T=250ms,
+        // preventing connection dropouts without any sequential blocking delays!
+        let mut addrs_to_dial = candidate_addrs;
+        if let Some(sticky_addr) = get_cached_winner(domain) {
+            if let Some(pos) = addrs_to_dial.iter().position(|&a| a == sticky_addr) {
+                if pos > 0 {
+                    addrs_to_dial.swap(0, pos);
+                }
+                ldebug!(
+                    "CF Stateful address selection: prioritized sticky winner {} -> {} (pos 0)",
+                    domain,
+                    sticky_addr.ip()
+                );
+            }
+        } else {
+            ldebug!(
+                " CF Happy Eyeballs dial {} with {} dual-stack IPs (fallback_ip={})",
+                domain,
+                addrs_to_dial.len(),
+                is_anycast_fallback
+            );
+        }
 
         match crate::ws::ws_connect_happy_eyeballs_ext(
             domain,
             path,
             early_data,
-            &candidate_addrs,
+            &addrs_to_dial,
             phase_timeout,
         )
         .await
@@ -1153,9 +974,11 @@ pub async fn cf_connect_domain_with_category(
             Ok((ws, winner_addr)) => {
                 let winner_ip = winner_addr.ip().to_string();
                 ldebug!(" CF Happy Eyeballs connected {} -> {}", domain, winner_ip);
+                set_cached_winner(expected, domain, winner_addr);
                 (Some(ws), winner_ip, None)
             }
             Err(e) => {
+                invalidate_winner_host(domain);
                 if is_anycast_fallback {
                     crate::recovery::record_if_current(
                         expected,
@@ -1231,13 +1054,13 @@ pub async fn cf_connect_fronted_ext(
     } else {
         path
     };
+    let is_mobile = MOBILE_NETWORK.load(std::sync::atomic::Ordering::Relaxed);
+    let dial_timeout = crate::config::adaptive_dial_timeout(is_mobile);
     let attempt_timeout = crate::ws::ws_connect_timeout(timeout);
     let phase_timeout = if path.starts_with("/tcp") {
         attempt_timeout
-    } else if attempt_timeout > CFPROXY_DIAL_PHASE_TIMEOUT {
-        CFPROXY_DIAL_PHASE_TIMEOUT
     } else {
-        attempt_timeout
+        attempt_timeout.max(dial_timeout)
     };
 
     let server_addr_trimmed = server_address.trim();
@@ -1286,7 +1109,7 @@ pub async fn cf_connect_fronted_ext(
             &parsed_host
         };
         let ips = resolve_dual_stack_ips(domain_to_resolve).await;
-        let is_fb = if crate::vless::is_cloudflare_domain(domain_to_resolve) {
+        let is_fb = if crate::config::is_cloudflare_domain(domain_to_resolve) {
             let anycast = default_cf_anycast_dual_stack();
             !ips.is_empty() && ips.iter().all(|ip| anycast.contains(ip))
         } else {
@@ -1475,7 +1298,7 @@ pub async fn race_rank_domains(dc: i32) {
             if !crate::generation_guard::is_current(expected) {
                 return;
             }
-            if let Some(latency_ms) = probe_domain_latency(&domain, dc, CFPROXY_RACE_TIMEOUT).await
+            if let Some(latency_ms) = probe_domain_latency(&domain, dc, crate::config::adaptive_race_timeout()).await
             {
                 let _ = tx.send((domain.clone(), latency_ms)).await;
                 let base = crate::balancer::normalize_domain(&domain);
@@ -1567,55 +1390,8 @@ pub async fn race_all_primary_dcs() {
 }
 
 pub async fn start_background_balancer_loop(cancel_token: tokio_util::sync::CancellationToken) {
-    if !MOBILE_NETWORK.load(std::sync::atomic::Ordering::Relaxed) {
-        // Wi-Fi keeps the established eager ranking behaviour.
-        tokio::join!(race_rank_domains(2), race_rank_domains(4),);
-
-        let cancel_init = cancel_token.clone();
-        tokio::spawn(async move {
-            tokio::select! {
-                _ = cancel_init.cancelled() => return,
-                _ = tokio::time::sleep(Duration::from_millis(500)) => {
-                    tokio::join!(
-                        race_rank_domains(5),
-                        race_rank_domains(1),
-                    );
-                }
-            }
-        });
-    } else {
-        ldebug!("Cellular profile: startup CDN ranking deferred to real MTProto demand");
-    }
-
-    let cancel_ech = cancel_token.clone();
-    tokio::spawn(async move {
-        tokio::select! {
-            _ = cancel_ech.cancelled() => return,
-            _ = tokio::time::sleep(Duration::from_millis(300)) => {
-                let user_dom = CFPROXY.read().user_domain.clone();
-                let _ = crate::dns::refresh_ech_config_from_doh(&user_dom).await;
-            }
-        }
-    });
-
-    // 3. Periodic race every 60 minutes for all primary DCs
-    let mut interval = tokio::time::interval(CFPROXY_RACE_INTERVAL);
-    // consume the initial instant tick
-    interval.tick().await;
-
-    loop {
-        tokio::select! {
-            _ = cancel_token.cancelled() => break,
-            _ = interval.tick() => {
-                if MOBILE_NETWORK.load(std::sync::atomic::Ordering::Relaxed) {
-                    ldebug!("Cellular profile: periodic full CDN race skipped");
-                } else {
-                    ldebug!("Плановый запуск Fast Anycast Race для всех DC (1 раз в 60 минут)...");
-                    race_all_primary_dcs().await;
-                }
-            }
-        }
-    }
+    ldebug!("Balancer background loop started (on-demand mode; background racing disabled)");
+    cancel_token.cancelled().await;
 }
 
 #[cfg(test)]
@@ -1667,10 +1443,10 @@ mod tests {
         let v4_1 = "1.1.1.1".parse::<IpAddr>().unwrap();
         let v4_2 = "1.0.0.1".parse::<IpAddr>().unwrap();
 
-        // RFC 8305 Dual-Stack: IPv6 preferred first
+        // Dual-Stack: IPv4 preferred first on Cloudflare Anycast for TSPU bypass
         crate::recovery::set_ipv6_only_network(false);
         let interleaved = interleave_dual_stack_ips(vec![v6_1, v6_2], vec![v4_1, v4_2]);
-        assert_eq!(interleaved, vec![v6_1, v4_1, v6_2, v4_2]);
+        assert_eq!(interleaved, vec![v4_1, v4_2, v6_1, v6_2]);
 
         // IPv6-only network: IPv6 first without IPv4 interleaved ahead
         crate::recovery::set_ipv6_only_network(true);
@@ -1704,6 +1480,13 @@ mod tests {
     }
 
     #[test]
+    fn test_canonical_cfproxy_cooldown_key() {
+        assert_eq!(canonical_cfproxy_cooldown_key("kws2.worker.dev"), "worker.dev");
+        assert_eq!(canonical_cfproxy_cooldown_key("kws2-1.worker.dev"), "worker.dev");
+        assert_eq!(canonical_cfproxy_cooldown_key("worker.dev"), "worker.dev");
+    }
+
+    #[test]
     fn test_parse_cfproxy_domains() {
         let raw_data = "# Remote domains list from GitHub\n\nvirkgj.com\nvmmzovy.com\n# Comment\nmkuosckvso.com\n";
         let parsed = parse_cfproxy_domains(raw_data);
@@ -1715,17 +1498,17 @@ mod tests {
 
     #[test]
     fn test_non_cloudflare_domain_forbids_anycast_fallback() {
-        assert!(!crate::vless::is_cloudflare_domain("api.telegram.org"));
-        assert!(!crate::vless::is_cloudflare_domain("telegram.org"));
-        assert!(!crate::vless::is_cloudflare_domain("example.com"));
-        assert!(!crate::vless::is_cloudflare_domain("evil-cloudflare.com"));
-        assert!(!crate::vless::is_cloudflare_domain("notcloudflare.com"));
+        assert!(!crate::config::is_cloudflare_domain("api.telegram.org"));
+        assert!(!crate::config::is_cloudflare_domain("telegram.org"));
+        assert!(!crate::config::is_cloudflare_domain("example.com"));
+        assert!(!crate::config::is_cloudflare_domain("evil-cloudflare.com"));
+        assert!(!crate::config::is_cloudflare_domain("notcloudflare.com"));
 
-        assert!(crate::vless::is_cloudflare_domain("my-worker.workers.dev"));
-        assert!(crate::vless::is_cloudflare_domain("test.pages.dev"));
-        assert!(crate::vless::is_cloudflare_domain("cloudflare.com"));
-        assert!(crate::vless::is_cloudflare_domain("dns.cloudflare.com"));
-        assert!(crate::vless::is_cloudflare_domain("tunnel.trycloudflare.com"));
+        assert!(crate::config::is_cloudflare_domain("my-worker.workers.dev"));
+        assert!(crate::config::is_cloudflare_domain("test.pages.dev"));
+        assert!(crate::config::is_cloudflare_domain("cloudflare.com"));
+        assert!(crate::config::is_cloudflare_domain("dns.cloudflare.com"));
+        assert!(crate::config::is_cloudflare_domain("tunnel.trycloudflare.com"));
     }
 
     #[test]
@@ -1781,11 +1564,12 @@ mod tests {
         assert!(try_acquire_cfproxy_half_open_trial(domain, net_gen_2));
 
         // 2. 429 rate-limiting is GLOBAL across network switches
-        let dummy_headers = HashMap::new();
-        let err_429 = WsError::HttpUpgradeFailed {
+        let err_429 = WsError::Handshake(crate::ws::WsHandshakeError {
             status_code: 429,
-            headers: dummy_headers,
-        };
+            status_line: "429 Too Many Requests".to_string(),
+            headers: std::collections::HashMap::new(),
+            location: String::new(),
+        });
         mark_cfproxy_429_cooldown(domain, &err_429);
 
         // 429 blocks both Net Gen 1 and Net Gen 2

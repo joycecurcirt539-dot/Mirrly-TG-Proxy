@@ -19,6 +19,7 @@
 package com.mirrly.tgproxy.core
 
 import java.io.File
+import java.net.InetSocketAddress
 import java.net.Socket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,17 +46,17 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     )
     val transportPoolStatus: StateFlow<TransportPoolStatus> = _transportPoolStatus.asStateFlow()
 
+    private val _warmPoolStatus = MutableStateFlow<WarmPoolStatus?>(null)
+    val warmPoolStatus: StateFlow<WarmPoolStatus?> = _warmPoolStatus.asStateFlow()
+
     private val _adaptiveNetworkDecision = MutableStateFlow(adaptiveController.currentDecision)
     val adaptiveNetworkDecision: StateFlow<NetworkEvaluationDecision> = _adaptiveNetworkDecision.asStateFlow()
 
-    fun setTcpNoDelayMode(mode: TcpNoDelayMode) {
-        config.tcpNoDelayModeName = mode.name
-        val effective = when (mode) {
-            TcpNoDelayMode.ON -> true
-            TcpNoDelayMode.OFF -> false
-            TcpNoDelayMode.AUTO -> adaptiveNetworkDecision.value.recommendedTcpNoDelay
-        }
+    fun setNagleMode(mode: NagleMode) {
+        config.nagleMode = mode
+        val effective = (mode == NagleMode.DISABLED)
         config.tcpNoDelay = effective
+        currentEffectiveTcpNoDelay = effective
         if (isNativeRunning) {
             try {
                 NativeProxy.setTcpNoDelay(effective)
@@ -63,6 +64,13 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 AppLogger.w("LocalProxyServer", "Failed to set TCP_NODELAY: ${t.message}")
             }
         }
+    }
+
+    @Deprecated("Use setNagleMode instead")
+    @Suppress("DEPRECATION")
+    fun setTcpNoDelayMode(mode: TcpNoDelayMode) {
+        val nagle = if (mode == TcpNoDelayMode.ON) NagleMode.DISABLED else NagleMode.ENABLED
+        setNagleMode(nagle)
     }
 
     private val _isRunningFlow = MutableStateFlow(false)
@@ -86,23 +94,35 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     val pingEngine = PingEngine(
         targetProvider = {
             if (config.isSocks5Mode) {
-                val cfDomain = config.getEffectiveCfDomain()
-                if (cfDomain.isNotBlank()) cfDomain else TgConstants.DEFAULT_SOCKS5_DEV_WORKER
+                config.getEffectiveCfDomain()
             } else {
-                TgConstants.getWsDomains(2).firstOrNull() ?: ("kws2." + TgConstants.decodeCfDomain("virkgj.com"))
+                if (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) {
+                    config.getEffectiveCfDomain()
+                } else {
+                    TgConstants.getWsDomains(2).firstOrNull() ?: ("kws2." + TgConstants.decodeCfDomain("virkgj.com"))
+                }
             }
         },
-        isSocks5Provider = { config.isSocks5Mode },
+        isSocks5Provider = { config.isSocks5Mode || (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) },
         onSelfHealingRequired = { failureType ->
             AppLogger.w("LocalProxyServer", "Watchdog: Зафиксирован сетевой сбой $failureType")
             when (failureType) {
                 FailureType.DNS_FAILURE -> {
-                    DohResolver.clearCache()
+                    // DNS failure handler: DoH removed
                 }
                 FailureType.CONNECT_TIMEOUT -> {
                     // Мягкая обработка таймаута соединения без сброса рабочих потоков
                 }
                 else -> {}
+            }
+        },
+        onSnapshotUpdated = { snapshot ->
+            if (snapshot.smoothedPingMs > 0) {
+                val nextSli = effectiveNetworkProfile.transportSli.copy(
+                    smoothedRttMs = snapshot.smoothedPingMs,
+                    jitterMs = snapshot.jitterMs
+                )
+                updateTransportSli(nextSli)
             }
         }
     )
@@ -195,11 +215,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             stop()
         }
 
-        if (!baseConfig.hasSocks5Auth) {
-            val (u, p) = ProxyConfig.generateRandomSocks5Credentials()
-            baseConfig.socks5Username = u
-            baseConfig.socks5Password = p
-        }
 
         // Обновляем параметры текущего экземпляра config под требования VPN
         config.proxyModeName = ProxyMode.SOCKS5.name
@@ -219,7 +234,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         config.operaVpnNodeId = baseConfig.operaVpnNodeId
         config.awgStrategyName = baseConfig.awgStrategyName
         config.awgCustomIni = baseConfig.awgCustomIni
-        config.enabledDohProviderIds = baseConfig.enabledDohProviderIds
 
         return performStart(cacheDir)
     }
@@ -238,39 +252,26 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         if (cacheDir != null) {
             try {
                 NativeProxy.setCfProxyCacheDir(cacheDir.absolutePath)
-                VlessPresetsRepository.loadDynamicPool(cacheDir)
             } catch (t: Throwable) {
-                AppLogger.e("LocalProxyServer", "Не удалось установить кэш-директорию Cloudflare/VLESS: ${t.message}")
+                AppLogger.e("LocalProxyServer", "Не удалось установить кэш-директорию Cloudflare: ${t.message}")
             }
         }
-        VlessPresetsRepository.syncFallbackPoolToNative()
 
         NativeProxy.setPoolSize(config.poolSize.coerceIn(2, 16))
         NativeProxy.setMtprotoStandbyPerActiveSlot(config.mtprotoStandbyPerActiveSlot)
         
-        val initialNoDelay = when (config.tcpNoDelayMode) {
-            TcpNoDelayMode.ON -> true
-            TcpNoDelayMode.OFF -> false
-            TcpNoDelayMode.AUTO -> config.tcpNoDelay
-        }
+        val initialNoDelay = (config.nagleMode == NagleMode.DISABLED)
         currentEffectiveTcpNoDelay = initialNoDelay
         NativeProxy.setTcpNoDelay(initialNoDelay)
 
-        if (config.isSocks5Mode && !config.hasSocks5Auth) {
-            val (u, p) = ProxyConfig.generateRandomSocks5Credentials()
-            config.socks5Username = u
-            config.socks5Password = p
-        }
 
         NativeProxy.setSocks5Auth(
             username = config.socks5Username,
             password = config.socks5Password
         )
-        DohResolver.setActiveProviders(config.enabledDohProviderIds)
-        NativeProxy.setDohEndpoints(DohResolver.getActiveEndpointsCsv())
-        NativeProxy.setEchEnabled(config.isEchEnabled)
-        NativeProxy.setWsRandomizationEnabled(config.isWsRandomizationEnabled)
         NativeProxy.setTlsRecordPaddingEnabled(config.isTlsRecordPaddingEnabled)
+        NativeProxy.setTlsClientHelloSplitEnabled(config.isTlsClientHelloSplitEnabled)
+        NativeProxy.setDialThrottlingEnabled(config.isDialThrottlingEnabled)
 
         if (isVpnServer) {
             // Для системного VPN режима использование Cloudflare воркеров категорически отключено
@@ -279,43 +280,23 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 userDomain = ""
             )
             NativeProxy.setUplinkMode(config.vpnUplinkMode)
-            if (config.isVpnVlessUplink) {
-                NativeProxy.setVlessExtendedConfig(
-                    uuid = config.vlessUuid,
-                    path = config.vlessPath,
-                    domain = config.getEffectiveVlessDomain(),
-                    serverAddress = config.getEffectiveVlessServerAddress(),
-                    serverPort = config.getEffectiveVlessServerPort(),
-                    tlsSni = config.getEffectiveVlessSni(),
-                    hostHeader = config.getEffectiveVlessHost(),
-                    transport = config.vlessTransport,
-                    security = config.vlessSecurity,
-                    publicKey = config.vlessPublicKey,
-                    shortId = config.vlessShortId,
-                    fingerprint = config.vlessFingerprint,
-                    spiderX = config.vlessSpiderX,
-                    flow = config.vlessFlow,
-                    headerType = config.vlessHeaderType
-                )
-            }
             if (config.isVpnAnyWarpUplink) {
                 val awgIni = config.awgCustomIni.trim().ifEmpty {
                     config.getAmneziaWgConfig(cleanEndpoint = config.effectivePeerEndpoint)
                 }
                 NativeProxy.setAwgConfig(awgIni)
             }
-            NativeProxy.setOperaVpnConfig(
-                vlessEnabled = config.useOperaVpnForVless,
-                warpEnabled = config.useOperaVpnForWarp,
-                endpoint = config.getEffectiveOperaEndpoint()
-            )
         } else {
             // Для автономных режимов прокси (MTProto / SOCKS5):
-            // MTProto: прямое подключение к Telegram DC через Anycast CDN Flowseal (enabled = true, userDomain = "")
-            // SOCKS5: строго Cloudflare Worker WSS (enabled = true, userDomain = effectiveDomain)
-            // Аплинк для обоих режимов прокси ВСЕГДА WORKER!
+            // MTProto: если включен useWorkerMtproto — строго через Cloudflare Worker WSS пользователя.
+            // Если выключен — через распределенную сеть Anycast SDN Flowseal (CFProxy).
+            // SOCKS5: строго Cloudflare Worker WSS.
             val useCf = config.cfProxyEnabled
-            val workerDomain = if (config.isSocks5Mode) config.getEffectiveCfDomain() else ""
+            val workerDomain = if (config.isSocks5Mode) {
+                config.getEffectiveCfDomain()
+            } else {
+                if (config.useWorkerMtproto) config.getEffectiveCfDomain() else ""
+            }
 
             NativeProxy.setCfProxyConfig(
                 enabled = useCf,
@@ -327,21 +308,24 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         var code: Int
 
         if (config.isSocks5Mode) {
-            AppLogger.i("LocalProxyServer", "Запуск нативного SOCKS5 движка на порту ${config.socks5Port} (auth=${config.hasSocks5Auth})...")
-            var attempts = 0
-            do {
+            val workerDomain = config.getEffectiveCfDomain()
+            AppLogger.i("LocalProxyServer", "Запуск нативного SOCKS5 движка на порту ${config.socks5Port} (worker=${workerDomain.ifBlank { "direct" }}, auth=${config.hasSocks5Auth}, optimistic=${config.socks5OptimisticResponse})...")
+            NativeProxy.setSocks5Optimistic(config.socks5OptimisticResponse)
+            var code = -1
+            val maxAttempts = 4
+            for (attempt in 1..maxAttempts) {
                 code = NativeProxy.startSocks5Proxy(
                     host = config.bindHost,
                     port = config.socks5Port,
                     verbose = if (config.verboseLogs) 1 else 0
                 )
                 if (code == 0) break
-                attempts++
-                if (attempts < 3) {
-                    AppLogger.w("LocalProxyServer", "Порт SOCKS5 ${config.socks5Port} освобождается (код $code), повторный запуск ($attempts/3) через 150мс...")
-                    Thread.sleep(150)
+                AppLogger.w("LocalProxyServer", "Порт ${config.socks5Port} освобождается (код $code, попытка $attempt/$maxAttempts), ожидание...")
+                if (code == -1) {
+                    NativeProxy.stopProxy()
                 }
-            } while (attempts < 3)
+                Thread.sleep(attempt * 120L)
+            }
 
             if (code == 0) {
                 isNativeRunning = true
@@ -349,28 +333,22 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 if (startTimeMs == 0L) {
                     startTimeMs = System.currentTimeMillis()
                 }
-                AppLogger.i("LocalProxyServer", "Нативный SOCKS5 движок успешно запущен на порту ${config.socks5Port}")
+                stats.activeCascadeStage = if (workerDomain.isNotBlank()) "Cloudflare Worker WSS" else "Direct TCP"
+                stats.activeEffectiveRoute = workerDomain.ifBlank { "Direct TCP" }
+                AppLogger.i("LocalProxyServer", "Нативный SOCKS5 движок успешно запущен на ${config.bindHost}:${config.socks5Port}")
             } else {
+                AppLogger.e("LocalProxyServer", "Ошибка запуска нативного SOCKS5 движка после $maxAttempts попыток: код $code")
                 isNativeRunning = false
                 isRunning = false
-                AppLogger.e("LocalProxyServer", "Не удалось запустить нативный SOCKS5 движок (код: $code)")
                 return false
             }
         } else {
             AppLogger.i("LocalProxyServer", "Запуск нативного MTProto движка на ${config.bindHost}:${config.bindPort}...")
             val secret = config.rawSecret32
             val defaultDcIps = "1:149.154.175.50,2:149.154.167.51,3:149.154.175.100,4:149.154.167.91,5:91.108.56.130,203:91.105.192.100"
-            code = NativeProxy.startProxy(
-                host = config.bindHost,
-                port = config.bindPort,
-                dcIps = defaultDcIps,
-                secret = secret,
-                verbose = if (config.verboseLogs) 1 else 0
-            )
-
-            if (code == -3 || code == 3) {
-                AppLogger.w("LocalProxyServer", "Порт ${config.bindPort} освобождается (код $code), повторный запуск через 150мс...")
-                Thread.sleep(150)
+            var code = -1
+            val maxAttempts = 4
+            for (attempt in 1..maxAttempts) {
                 code = NativeProxy.startProxy(
                     host = config.bindHost,
                     port = config.bindPort,
@@ -378,6 +356,12 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                     secret = secret,
                     verbose = if (config.verboseLogs) 1 else 0
                 )
+                if (code == 0) break
+                AppLogger.w("LocalProxyServer", "Порт ${config.bindPort} освобождается (код $code, попытка $attempt/$maxAttempts), ожидание...")
+                if (code == -1) {
+                    NativeProxy.stopProxy()
+                }
+                Thread.sleep(attempt * 120L)
             }
 
             if (code == 0) {
@@ -423,6 +407,18 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                             else -> stats.activeCascadeStage
                         }
                     }
+
+                    try {
+                        val warm = NativeProxy.getWarmPoolStatus()
+                        _warmPoolStatus.value = warm
+                    } catch (_: Exception) {}
+
+                    val isMob = effectiveNetworkProfile.cellular || effectiveNetworkProfile.metered
+                    _transportPoolStatus.value = config.getTransportPoolStatus(
+                        isMobile = isMob,
+                        isRunning = isRunning,
+                        activeConnections = stats.activeConnections.get()
+                    )
                 }
                 stats.updateSpeed()
                 val snapshot = pingEngine.currentSnapshot
@@ -445,8 +441,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 stats.bufferbloatGrade = snapshot.bufferbloatGrade
                 stats.currentAlpha = snapshot.currentAlpha
                 stats.rttHistory = snapshot.rttHistory
-                val dcDist = stats.dcAffinityEngine.calculateSocketDistribution(config.poolSize)
-                stats.dcAffinitySummary = dcDist.summary
 
                 if (config.isAutoSpeedPreset && isNativeRunning) {
                     updateAutoTuning()
@@ -458,12 +452,11 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         pingEngine.start()
         adaptiveHeartbeatEngine.start()
 
-        activeLivenessProbe.isEnabled = config.isLivenessProbeEnabled
+        activeLivenessProbe.isEnabled = false
         activeLivenessProbe.timeoutMs = config.livenessProbeTimeoutMs
         activeLivenessProbe.failoverThreshold = config.livenessProbeFailoverThreshold
-        if (isVpnServer && config.isLivenessProbeEnabled) {
+        if (isVpnServer) {
             val initialStage = when {
-                config.isVpnVlessUplink -> CascadeStage.STAGE_3_VLESS_PRESET
                 config.isVpnMasqueUplink -> {
                     val (ip, _) = WarpEndpointScanner.parseEndpoint(config.warpPeerEndpoint)
                     if (ip.contains(":")) CascadeStage.STAGE_0_IPV6_WARP
@@ -473,15 +466,14 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             }
             activeLivenessProbe.setInitialStage(initialStage)
             stats.activeCascadeStage = initialStage.title
-            activeLivenessProbe.start()
-        } else if (!isVpnServer) {
+        } else {
             stats.activeCascadeStage = when (config.proxyMode) {
-                ProxyMode.SOCKS5 -> "Cloudflare Worker"
-                ProxyMode.MTPROTO -> "Flowseal Anycast CDN"
+                ProxyMode.SOCKS5 -> "Cloudflare Worker WSS"
+                ProxyMode.MTPROTO -> if (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) "Cloudflare Worker" else "Flowseal Anycast CDN"
             }
             stats.activeEffectiveRoute = when (config.proxyMode) {
-                ProxyMode.SOCKS5 -> config.getEffectiveCfDomain().ifBlank { "Cloudflare Worker WSS" }
-                ProxyMode.MTPROTO -> "Flowseal Anycast CDN"
+                ProxyMode.SOCKS5 -> config.getEffectiveCfDomain().ifBlank { "Cloudflare Worker" }
+                ProxyMode.MTPROTO -> if (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) config.getEffectiveCfDomain() else "Flowseal Anycast CDN"
             }
         }
         return true
@@ -502,6 +494,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         adaptiveHeartbeatEngine.stop()
         activeLivenessProbe.stop()
         isNativeRunning = false
+        _warmPoolStatus.value = null
         autoConsecutiveHighTicks = 0
         autoConsecutiveLowTicks = 0
 
@@ -548,10 +541,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             baseTcpNoDelay = config.tcpNoDelay
         )
 
-        // Синхронизируем TCP_NODELAY при изменении
-        if (config.isAutoSpeedPreset) {
-            applyTcpNoDelay(decision.recommendedTcpNoDelay)
-        }
 
         val candidatePool = decision.recommendedPoolSize
         val currentPool = config.poolSize
@@ -578,14 +567,17 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     private fun applyAutoDecision(decision: NetworkEvaluationDecision) {
         val clampedPool = decision.recommendedPoolSize.coerceIn(2, 16).coerceAtMost(qosEngine.maxAllowedPoolSize)
-        if (clampedPool == config.poolSize && config.bufferSizeBytes == decision.recommendedBufferSizeBytes) return
+        val targetBuffer = if (config.isSocks5Mode) config.bufferSizeBytes else
+            decision.recommendedBufferSizeBytes.coerceAtMost(qosEngine.maxAllowedBufferSizeBytes)
+        if (clampedPool == config.poolSize && config.bufferSizeBytes == targetBuffer) return
 
         config.poolSize = clampedPool
-        config.bufferSizeBytes = decision.recommendedBufferSizeBytes.coerceAtMost(qosEngine.maxAllowedBufferSizeBytes)
+        config.bufferSizeBytes = targetBuffer
+        val bufferStatus = if (config.bufferSizeBytes == 0) "авто ОС" else "${config.bufferSizeBytes / 1024} КБ"
 
         AppLogger.i(
             "LocalProxyServer",
-            "Авто-адаптация стека: ${decision.summary} (буфер: ${config.bufferSizeBytes / 1024} КБ, TCP_NODELAY: ${decision.recommendedTcpNoDelay}, QoS: ${qosEngine.currentThrottleLevel.name})"
+            "Авто-адаптация стека: ${decision.summary} (буфер: $bufferStatus, TCP_NODELAY: ${decision.recommendedTcpNoDelay}, QoS: ${qosEngine.currentThrottleLevel.name})"
         )
 
         if (isNativeRunning) {
@@ -656,7 +648,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     fun onWorkerChanged(newWorkerDomain: String) {
         config.customCfDomain = newWorkerDomain
-        DohResolver.clearCache()
         pingEngine.reset()
         updateWorkerConfig()
     }
@@ -667,28 +658,46 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
             return
         }
         val effectiveDomain = config.getEffectiveCfDomain()
-        AppLogger.i("LocalProxyServer", "Обновление конфигурации воркера → '$effectiveDomain'")
+        val workerEnabled = if (config.isSocks5Mode) {
+            config.cfProxyEnabled && effectiveDomain.isNotBlank()
+        } else {
+            config.cfProxyEnabled
+        }
+        val domainToPass = if (config.isSocks5Mode) {
+            effectiveDomain
+        } else {
+            if (config.useWorkerMtproto) effectiveDomain else ""
+        }
+        AppLogger.i("LocalProxyServer", "Обновление конфигурации воркера → '$domainToPass' (enabled=$workerEnabled, mtprotoWorker=${config.useWorkerMtproto})")
         if (isNativeRunning) {
             try {
                 NativeProxy.setCfProxyConfig(
-                    enabled = config.cfProxyEnabled,
-                    userDomain = if (config.isSocks5Mode) effectiveDomain else ""
+                    enabled = workerEnabled,
+                    userDomain = domainToPass
                 )
-                NativeProxy.setEchEnabled(config.isEchEnabled)
-                NativeProxy.setWsRandomizationEnabled(config.isWsRandomizationEnabled)
-        NativeProxy.setTlsRecordPaddingEnabled(config.isTlsRecordPaddingEnabled)
+                NativeProxy.setTlsRecordPaddingEnabled(config.isTlsRecordPaddingEnabled)
+                NativeProxy.setTlsClientHelloSplitEnabled(config.isTlsClientHelloSplitEnabled)
             } catch (t: Throwable) {
                 AppLogger.w("LocalProxyServer", "Ошибка применения нового воркера в NativeProxy: ${t.message}")
             }
         }
+        stats.activeCascadeStage = when (config.proxyMode) {
+            ProxyMode.SOCKS5 -> "Cloudflare Worker WSS"
+            ProxyMode.MTPROTO -> if (config.useWorkerMtproto && domainToPass.isNotBlank()) "Cloudflare Worker" else "Flowseal Anycast CDN"
+        }
+        stats.activeEffectiveRoute = when (config.proxyMode) {
+            ProxyMode.SOCKS5 -> effectiveDomain.ifBlank { "Cloudflare Worker" }
+            ProxyMode.MTPROTO -> if (config.useWorkerMtproto && domainToPass.isNotBlank()) domainToPass else "Flowseal Anycast CDN"
+        }
         measurePingAsync()
     }
 
-    /**
-     * Динамически применяет флаг ECH (Encrypted Client Hello) в нативном движке.
-     */
+    fun applyUseWorkerMtproto(enabled: Boolean) {
+        config.useWorkerMtproto = enabled
+        updateWorkerConfig()
+    }
+
     fun applyEchEnabled(enabled: Boolean) {
-        config.isEchEnabled = enabled
         AppLogger.i("LocalProxyServer", "Смена режима ECH → $enabled")
         if (isNativeRunning) {
             try {
@@ -699,9 +708,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
     }
 
-    /**
-     * Динамически применяет флаг рандомизации TLS Record Padding в нативном движке.
-     */
     fun applyWsRandomizationEnabled(enabled: Boolean) {
         NativeProxy.setWsRandomizationEnabled(enabled)
     }
@@ -718,23 +724,23 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
     }
 
-    /**
-     * Динамически применяет выбранный набор DoH-провайдеров без перезапуска службы.
-     */
-    fun applyDohConfig(providerIds: Set<String>) {
-        config.enabledDohProviderIds = providerIds
-        DohResolver.setActiveProviders(providerIds)
-        DohResolver.clearCache()
-        val endpointsCsv = DohResolver.getActiveEndpointsCsv()
-        AppLogger.i("LocalProxyServer", "Обновлены DoH провайдеры (${providerIds.size} активных) → $endpointsCsv")
+    fun applyTlsClientHelloSplitEnabled(enabled: Boolean) {
+        config.isTlsClientHelloSplitEnabled = enabled
+        AppLogger.i("LocalProxyServer", "Смена режима TLS ClientHello Split → $enabled")
         if (isNativeRunning) {
             try {
-                NativeProxy.setDohEndpoints(endpointsCsv)
-                NativeProxy.resetNetworkSockets()
+                NativeProxy.setTlsClientHelloSplitEnabled(enabled)
             } catch (t: Throwable) {
-                AppLogger.w("LocalProxyServer", "Сбой применения DoH провайдеров в NativeProxy: ${t.message}")
+                AppLogger.w("LocalProxyServer", "NativeProxy.setTlsClientHelloSplitEnabled($enabled) не удался: ${t.message}")
             }
         }
+    }
+
+    /**
+     * DoH удален из контура MTProto и SOCKS5.
+     */
+    fun applyDohConfig(providerIds: Set<String>) {
+        config.enabledDohProviderIds = emptySet()
     }
 
     /**
@@ -744,10 +750,10 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         val clamped = if (newSize <= 0) {
             0
         } else {
-            newSize.coerceIn(32 * 1024, 2 * 1024 * 1024)
+            newSize.coerceIn(32 * 1024, 1024 * 1024)
         }
         config.bufferSizeBytes = clamped
-        if (isNativeRunning && clamped > 0) {
+        if (isNativeRunning) {
             try {
                 NativeProxy.setSocketBufferSizes(config.bufferSizeBytes, config.bufferSizeBytes)
             } catch (t: Throwable) {
@@ -765,7 +771,9 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     ) {
         config.happyEyeballsDelayMs = happyEyeballsDelayMs.coerceIn(100L, 1000L)
         config.ipFamilyPreference = ipFamilyPreference
-        config.webSocketKeepAliveSeconds = webSocketKeepAliveSeconds.coerceIn(15, 60)
+        config.webSocketKeepAliveSeconds = webSocketKeepAliveSeconds.coerceIn(15, 120)
+        HappyEyeballsEngine.setIpFamilyPreference(config.ipFamilyPreference)
+        HappyEyeballsEngine.setAttemptDelayMs(config.happyEyeballsDelayMs)
         effectiveNetworkProfile = effectiveNetworkProfile.copy(
             happyEyeballsDelayMs = config.happyEyeballsDelayMs,
             ipFamilyPreference = config.ipFamilyPreference.name,
@@ -827,6 +835,14 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
     }
 
+    fun updateTransportSli(sli: TransportSli) {
+        effectiveNetworkProfile = effectiveNetworkProfile.withTransportSli(sli)
+        if (isNativeRunning) {
+            try { NativeProxy.setNetworkProfileJson(effectiveNetworkProfile.toJsonString()) }
+            catch (t: Throwable) { AppLogger.w("LocalProxyServer", "Failed to update native transport SLI: ${t.message}") }
+        }
+    }
+
     fun updateScreenPowerMode(screenOn: Boolean, powerSaveMode: Boolean) {
         effectiveNetworkProfile = effectiveNetworkProfile.withRuntime(screenOn, powerSaveMode)
         pingEngine.isScreenOn = screenOn
@@ -874,10 +890,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         val gen = nextGeneration()
         setNetworkInterface(isMobile, isScreenOn)
         resumeNetworkMonitoring()
-        try {
-            DohResolver.setNetworkGeneration(gen)
-            DohResolver.clearCache()
-        } catch (_: Throwable) {}
         try {
             HappyEyeballsEngine.setNetworkGeneration(gen)
             HappyEyeballsEngine.clearRating()
@@ -976,25 +988,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         if (isNativeRunning) {
             try {
                 NativeProxy.setUplinkMode(mode)
-                if (mode == UplinkMode.VLESS) {
-                    NativeProxy.setVlessExtendedConfig(
-                        uuid = config.vlessUuid,
-                        path = config.vlessPath,
-                        domain = config.getEffectiveVlessDomain(),
-                        serverAddress = config.getEffectiveVlessServerAddress(),
-                        serverPort = config.getEffectiveVlessServerPort(),
-                        tlsSni = config.getEffectiveVlessSni(),
-                        hostHeader = config.getEffectiveVlessHost(),
-                        transport = config.vlessTransport,
-                        security = config.vlessSecurity,
-                        publicKey = config.vlessPublicKey,
-                        shortId = config.vlessShortId,
-                        fingerprint = config.vlessFingerprint,
-                        spiderX = config.vlessSpiderX,
-                        flow = config.vlessFlow,
-                        headerType = config.vlessHeaderType
-                    )
-                } else if (config.isVpnAnyWarpUplink) {
+                if (config.isVpnAnyWarpUplink) {
                     val awgIni = config.awgCustomIni.trim().ifEmpty {
                         config.getAmneziaWgConfig(cleanEndpoint = config.warpPeerEndpoint)
                     }
@@ -1026,150 +1020,10 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         return true
     }
 
-    /**
-     * Применяет полный пресет VLESS (включая Reality/Vision/Transport) к конфигурации и нативному ядру.
-     */
-    fun applyVlessPreset(preset: VlessPreset) {
-        VlessPresetsRepository.applyPreset(preset, config)
-        applyVlessConfig(
-            uuid = preset.uuid,
-            path = preset.path,
-            domain = preset.domain,
-            serverAddress = preset.serverAddress,
-            serverPort = preset.effectiveServerPort,
-            tlsSni = preset.tlsSni,
-            hostHeader = preset.hostHeader,
-            transport = preset.transport,
-            security = preset.security,
-            publicKey = preset.publicKey,
-            shortId = preset.shortId,
-            fingerprint = preset.fingerprint,
-            spiderX = preset.spiderX,
-            flow = preset.flow,
-            headerType = preset.headerType
-        )
-    }
-
-    /**
-     * Динамически применяет конфигурацию VLESS (UUID, путь, домен, Clean IP, SNI и Extended Security/Transport).
-     */
-    fun applyVlessConfig(
-        uuid: String,
-        path: String,
-        domain: String = "",
-        serverAddress: String = "",
-        serverPort: Int = 443,
-        tlsSni: String = "",
-        hostHeader: String = "",
-        transport: String = "",
-        security: String = "",
-        publicKey: String = "",
-        shortId: String = "",
-        fingerprint: String = "",
-        spiderX: String = "",
-        flow: String = "",
-        headerType: String = ""
-    ) {
-        config.vlessUuid = uuid
-        config.vlessPath = path
-        if (domain.isNotBlank()) {
-            config.vlessDomain = domain
-        }
-        if (serverAddress.isNotBlank()) {
-            config.vlessServerAddress = serverAddress
-        }
-        if (serverPort > 0) {
-            config.vlessServerPort = serverPort
-        }
-        if (tlsSni.isNotBlank()) {
-            config.vlessTlsSni = tlsSni
-        }
-        if (hostHeader.isNotBlank()) {
-            config.vlessHostHeader = hostHeader
-        }
-        if (transport.isNotBlank()) {
-            config.vlessTransport = transport
-        }
-        if (security.isNotBlank()) {
-            config.vlessSecurity = security
-        }
-        if (publicKey.isNotBlank()) {
-            config.vlessPublicKey = publicKey
-        }
-        if (shortId.isNotBlank()) {
-            config.vlessShortId = shortId
-        }
-        if (fingerprint.isNotBlank()) {
-            config.vlessFingerprint = fingerprint
-        }
-        if (spiderX.isNotBlank()) {
-            config.vlessSpiderX = spiderX
-        }
-        if (flow.isNotBlank()) {
-            config.vlessFlow = flow
-        }
-        if (headerType.isNotBlank()) {
-            config.vlessHeaderType = headerType
-        }
-        val effectiveDomain = if (domain.isNotBlank()) domain else config.getEffectiveVlessDomain()
-        val effectiveServerAddr = config.getEffectiveVlessServerAddress()
-        val effectivePort = config.getEffectiveVlessServerPort()
-        val effectiveSni = config.getEffectiveVlessSni()
-        val effectiveHost = config.getEffectiveVlessHost()
-        AppLogger.i("LocalProxyServer", "Применение конфигурации VLESS: uuid=$uuid, path=$path, server=$effectiveServerAddr:$effectivePort, sni=$effectiveSni, host=$effectiveHost, transport=${config.vlessTransport}, sec=${config.vlessSecurity}")
-        if (isNativeRunning) {
-            try {
-                NativeProxy.setVlessExtendedConfig(
-                    uuid = uuid,
-                    path = path,
-                    domain = effectiveDomain,
-                    serverAddress = effectiveServerAddr,
-                    serverPort = effectivePort,
-                    tlsSni = effectiveSni,
-                    hostHeader = effectiveHost,
-                    transport = config.vlessTransport,
-                    security = config.vlessSecurity,
-                    publicKey = config.vlessPublicKey,
-                    shortId = config.vlessShortId,
-                    fingerprint = config.vlessFingerprint,
-                    spiderX = config.vlessSpiderX,
-                    flow = config.vlessFlow,
-                    headerType = config.vlessHeaderType
-                )
-                NativeProxy.resetNetworkSockets()
-            } catch (t: Throwable) {
-                AppLogger.w("LocalProxyServer", "Сбой применения VLESS конфигурации в NativeProxy: ${t.message}")
-            }
-        }
-    }
-
-
-    /**
-     * Динамически применяет конфигурацию Opera VPN прокси для VLESS и WARP.
-     */
-    fun applyOperaVpnConfig() {
-        AppLogger.i("LocalProxyServer", "Применение конфигурации Opera VPN: vless=${config.useOperaVpnForVless}, warp=${config.useOperaVpnForWarp}, ep=${config.getEffectiveOperaEndpoint()}")
-        if (isNativeRunning) {
-            try {
-                NativeProxy.setOperaVpnConfig(
-                    vlessEnabled = config.useOperaVpnForVless,
-                    warpEnabled = config.useOperaVpnForWarp,
-                    endpoint = config.getEffectiveOperaEndpoint()
-                )
-                NativeProxy.resetNetworkSockets()
-            } catch (t: Throwable) {
-                AppLogger.w("LocalProxyServer", "Сбой применения Opera VPN конфигурации в NativeProxy: ${t.message}")
-            }
-        }
-    }
-
     fun getWarpStatus(): String? = NativeProxy.getWarpStatus()
 
-    fun getVlessStatus(): String? = NativeProxy.getVlessStatus()
-
     fun onNetworkRestored() {
-        AppLogger.i("LocalProxyServer", "Сетевое подключение восстановлено. Сброс сокетов, DoH-кэша, Happy Eyeballs рейтинга и PingEngine...")
-        DohResolver.clearCache()
+        AppLogger.i("LocalProxyServer", "Сетевое подключение восстановлено. Сброс сокетов, Happy Eyeballs рейтинга и PingEngine...")
         HappyEyeballsEngine.clearRating()
         stats.dcAffinityEngine.reset()
         pingEngine.reset()
@@ -1186,9 +1040,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         adaptiveHeartbeatEngine.isScreenOn = isScreenOn
         activeLivenessProbe.isScreenOn = isScreenOn
         pingEngine.isScreenOn = isScreenOn
-        try {
-            DohResolver.setMobileNetwork(isMobile)
-        } catch (_: Throwable) {}
     }
 
     fun setNetworkDormancy(isDormant: Boolean) {
@@ -1222,34 +1073,10 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     }
 
     /**
-     * Предиктивный упреждающий прогрев пула WsPool при пробуждении устройства.
-     * В SOCKS5 режиме пул отсутствует — метод является безопасным no-op.
-     * В MTProto режиме пополняет пул незанятых сокетов (WarmupWsPool) БЕЗ сброса активных сессий.
+     * Предиктивный упреждающий прогрев отключен в пользу прямого соединения по требованию (0 мс холостых сокетов).
      */
     fun predictivePreWarm(reason: String = "ACTION_USER_PRESENT") {
-        if (!isRunning || !isNativeRunning) return
-        if (config.isSocks5Mode) {
-            AppLogger.i("LocalProxyServer", "Предиктивный прогрев SOCKS5 ($reason)...")
-            try {
-                NativeProxy.onScreenWakeup()
-                val worker = config.getEffectiveCfDomain()
-                if (worker.isNotBlank()) {
-                    scope.launch(Dispatchers.IO) {
-                        try {
-                            DohResolver.resolve(worker, DnsScope.BOOTSTRAP)
-                        } catch (_: Throwable) {}
-                    }
-                }
-            } catch (t: Throwable) {
-                AppLogger.w("LocalProxyServer", "Сбой предиктивного прогрева SOCKS5: ${t.message}")
-            }
-            return
-        }
-        AppLogger.i("LocalProxyServer", "Предиктивный прогрев WsPool ($reason)...")
-        try {
-            NativeProxy.onScreenWakeup()
-            NativeProxy.warmupWsPool()
-        } catch (_: Exception) {}
+        // Safe no-op: speculative socket warming removed to conserve network and battery
     }
 
     fun getPoolSocketCount(): Int = stats.activeConnections.get()
@@ -1315,28 +1142,24 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 applyWarpEndpoint("188.114.96.1:443")
                 applyVpnUplinkMode(UplinkMode.MASQUE)
             }
-            CascadeStage.STAGE_3_VLESS_PRESET -> {
-                val preset = VlessPresetsRepository.getDefaultPreset()
-                applyVlessPreset(preset)
-                applyVpnUplinkMode(UplinkMode.VLESS)
-            }
         }
     }
 
     /**
-     * Динамически включает/выключает быструю контрольную пробу туннеля.
+     * Проверяет, отвечает ли локальный сокет-слушатель прокси на loopback-соединения.
+     * Возвращает true, если TCP handshake успешно завершен за timeoutMs миллисекунд.
      */
-    fun applyLivenessProbeConfig(enabled: Boolean, timeoutMs: Int = 800, threshold: Int = 2) {
-        config.isLivenessProbeEnabled = enabled
-        config.livenessProbeTimeoutMs = timeoutMs
-        config.livenessProbeFailoverThreshold = threshold
-        activeLivenessProbe.isEnabled = enabled
-        activeLivenessProbe.timeoutMs = timeoutMs
-        activeLivenessProbe.failoverThreshold = threshold
-        if (enabled && isRunning && isVpnServer) {
-            activeLivenessProbe.start()
-        } else {
-            activeLivenessProbe.stop()
+    fun isPortResponding(timeoutMs: Int = 500): Boolean {
+        if (!isRunning || !isNativeRunning) return false
+        val port = if (config.isSocks5Mode) config.socks5Port else config.bindPort
+        val host = config.bindHost.ifBlank { "127.0.0.1" }
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(host, port), timeoutMs)
+                true
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 }

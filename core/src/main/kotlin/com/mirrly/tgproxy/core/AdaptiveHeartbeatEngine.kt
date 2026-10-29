@@ -18,14 +18,6 @@
 
 package com.mirrly.tgproxy.core
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-
 /**
  * Интеллектуальный движок адаптивного Keep-Alive (Adaptive NAT Heartbeat).
  * Защищает мобильные сокеты от разрыва агрессивным CGNAT оператора (LTE/5G)
@@ -35,8 +27,6 @@ class AdaptiveHeartbeatEngine(
     private val statsProvider: () -> ProxyStats,
     private val onHeartbeatTick: () -> Unit
 ) {
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private var loopJob: Job? = null
 
     @Volatile
     var isMobileNetwork: Boolean = false
@@ -45,32 +35,11 @@ class AdaptiveHeartbeatEngine(
     var isScreenOn: Boolean = true
 
     fun start() {
-        if (loopJob?.isActive == true) return
-        loopJob = scope.launch {
-            while (isActive) {
-                delay(5000L) // Проверка каждые 5 сек
-
-                val intervalMs = calculateTargetIntervalMs()
-                val stats = statsProvider()
-                val idleMs = System.currentTimeMillis() - stats.lastActivityTimestamp.get()
-
-                if (idleMs >= intervalMs) {
-                    AppLogger.d(
-                        "AdaptiveHeartbeat",
-                        "NAT пульс отправлен (Сеть: ${if (isMobileNetwork) "Cellular" else "Wi-Fi"}, лимит: ${intervalMs / 1000}с, простой: ${idleMs / 1000}с)"
-                    )
-                    stats.lastActivityTimestamp.set(System.currentTimeMillis())
-                    try {
-                        onHeartbeatTick()
-                    } catch (_: Exception) {}
-                }
-            }
-        }
+        // Native TCP keep-alive handles socket liveness at OS level without periodic wake-ups
     }
 
     fun stop() {
-        loopJob?.cancel()
-        loopJob = null
+        // Safe no-op
     }
 
     fun calculateTargetIntervalMs(): Long {

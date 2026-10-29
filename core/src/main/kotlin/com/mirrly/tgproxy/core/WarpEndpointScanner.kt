@@ -164,7 +164,7 @@ object WarpEndpointScanner {
 
     private const val TAG = "WarpEndpointScanner"
 
-    const val MASQUE_SNI = "consumer-masque.cloudflareclient.com"
+    const val MASQUE_SNI = "cdnjs.cloudflare.com"
     const val MASQUE_ALPN = "h3"
 
     @Volatile
@@ -274,7 +274,7 @@ object WarpEndpointScanner {
     /**
      * Возвращает пул из 50 преднастроенных Anycast-профилей (комбинация чистых IP и приоритетных портов).
      */
-    fun getPreconfiguredProfiles50(includeIpv6: Boolean = true): List<String> {
+    fun getPreconfiguredProfiles50(includeIpv6: Boolean = false): List<String> {
         val candidates = LinkedHashSet<String>()
         val ipPool = if (includeIpv6) CLEAN_IPV4_POOL + CLEAN_IPV6_POOL else CLEAN_IPV4_POOL
         var ipIndex = 0
@@ -305,7 +305,7 @@ object WarpEndpointScanner {
     }
 
     val PRECONFIGURED_PROFILES_50: List<String> by lazy {
-        getPreconfiguredProfiles50(includeIpv6 = true)
+        getPreconfiguredProfiles50(includeIpv6 = false)
     }
 
     /**
@@ -321,7 +321,7 @@ object WarpEndpointScanner {
         timeoutMs: Long = 400L,
         maxConcurrency: Int = 20,
         useFragmentation: Boolean = true,
-        protocol: WarpProbeProtocol = WarpProbeProtocol.WIREGUARD,
+        protocol: WarpProbeProtocol = WarpProbeProtocol.MASQUE_QUIC,
         minStage: WarpEndpointStage? = null
     ): List<WarpEndpointCandidate> = scanEndpoints(
         endpoints = endpoints,
@@ -346,11 +346,43 @@ object WarpEndpointScanner {
         endpoint: String,
         timeoutMs: Long = 750,
         useFragmentation: Boolean = true,
-        protocol: WarpProbeProtocol = WarpProbeProtocol.WIREGUARD
+        protocol: WarpProbeProtocol = WarpProbeProtocol.MASQUE_QUIC
     ): WarpEndpointCandidate = withContext(Dispatchers.IO) {
         val (ipStr, port) = parseEndpoint(endpoint)
         if (ipStr.isBlank() || port <= 0) {
             return@withContext WarpEndpointCandidate(ipStr, port, endpoint, isAlive = false, scanProtocol = protocol)
+        }
+
+        // 0. Нативный опрос через защищенный сокет в Rust Tokio runtime
+        try {
+            val protoCode = if (protocol == WarpProbeProtocol.WIREGUARD) 1 else 0
+            val jsonStr = NativeProxy.probeWarpEndpoints(endpoint, protoCode, timeoutMs.toInt())
+            val arr = org.json.JSONArray(jsonStr)
+            if (arr.length() > 0) {
+                val obj = arr.getJSONObject(0)
+                val isAlive = obj.optBoolean("is_alive", false)
+                val rtt = obj.optLong("rtt_ms", -1L)
+                val stageStr = obj.optString("stage", "UNREACHABLE")
+                val stage = when (stageStr) {
+                    "PROTOCOL_RECOGNIZED" -> WarpEndpointStage.PROTOCOL_RECOGNIZED
+                    "UDP_RESPONSIVE" -> WarpEndpointStage.UDP_RESPONSIVE
+                    else -> WarpEndpointStage.UNREACHABLE
+                }
+                if (isAlive) {
+                    return@withContext WarpEndpointCandidate(
+                        ip = ipStr,
+                        port = port,
+                        endpoint = endpoint,
+                        rttMs = rtt,
+                        isAlive = true,
+                        scanProtocol = protocol,
+                        stage = stage,
+                        probeProtocol = "${protocol.displayName} (Native Rust Engine)"
+                    )
+                }
+            }
+        } catch (t: Throwable) {
+            AppLogger.d(TAG, "Native warp probe fell through: ${t.message}")
         }
 
         // 1. Быстрая попытка чистого зонда
@@ -391,7 +423,7 @@ object WarpEndpointScanner {
             socket.soTimeout = timeoutMs.toInt()
 
             val probePayload = when (protocol) {
-                WarpProbeProtocol.MASQUE_QUIC,
+                WarpProbeProtocol.MASQUE_QUIC -> WarpPacketFragmenter.createQuicVersionNegotiationProbe()
                 WarpProbeProtocol.WIREGUARD -> WarpPacketFragmenter.createWireGuardInitiationProbe()
             }
             if (probePayload.isEmpty()) {
@@ -443,7 +475,10 @@ object WarpEndpointScanner {
             val elapsedMs = (System.nanoTime() - startNs) / 1_000_000L
             val recvLen = recvPacket.length
 
-            val (stage, protocolDesc) = classifyWireGuardResponse(recvBuffer, recvLen)
+            val (stage, protocolDesc) = when (protocol) {
+                WarpProbeProtocol.MASQUE_QUIC -> classifyQuicResponse(recvBuffer, recvLen)
+                WarpProbeProtocol.WIREGUARD -> classifyWireGuardResponse(recvBuffer, recvLen)
+            }
 
             AppLogger.d(TAG, "Эндпоинт $endpoint ответил ($protocol, stage=$stage, ${if (useDesync) "десинхр" else "чистый"}): $protocolDesc за ${elapsedMs}мс")
             WarpEndpointCandidate(
@@ -540,7 +575,7 @@ object WarpEndpointScanner {
         maxConcurrency: Int = 12,
         timeoutMs: Long = 750,
         useFragmentation: Boolean = true,
-        protocol: WarpProbeProtocol = WarpProbeProtocol.WIREGUARD,
+        protocol: WarpProbeProtocol = WarpProbeProtocol.MASQUE_QUIC,
         minStage: WarpEndpointStage? = null,
         onProgress: ((scanned: Int, total: Int, bestFound: WarpEndpointCandidate?) -> Unit)? = null
     ): List<WarpEndpointCandidate> = coroutineScope {
@@ -585,7 +620,7 @@ object WarpEndpointScanner {
         useFragmentation: Boolean = true,
         maxCandidatesToProbe: Int = 24,
         timeoutMs: Long = 400L,
-        protocol: WarpProbeProtocol = WarpProbeProtocol.WIREGUARD,
+        protocol: WarpProbeProtocol = WarpProbeProtocol.MASQUE_QUIC,
         preferSticky: Boolean = true,
         minStage: WarpEndpointStage = WarpEndpointStage.PROTOCOL_RECOGNIZED,
         isCurrent: () -> Boolean = { true }
@@ -633,6 +668,9 @@ object WarpEndpointScanner {
 
         val verifiedCandidates = aliveCandidates.filter { it.isSuitableForSticky(minStage) }
         val best = verifiedCandidates.firstOrNull()
+            ?: (if (minStage != WarpEndpointStage.UDP_RESPONSIVE) {
+                aliveCandidates.firstOrNull { it.isSuitableForSticky(WarpEndpointStage.UDP_RESPONSIVE) }
+            } else null)
         if (best != null) {
             setStickyProfile(best)
             recordStickySuccess()
@@ -663,20 +701,21 @@ object WarpEndpointScanner {
             if (trimmed.startsWith("[")) {
                 val closeBracket = trimmed.indexOf(']')
                 val ip = trimmed.substring(1, closeBracket)
-                val port = trimmed.substring(closeBracket + 2).toInt()
-                Pair(ip, port)
+                val portStr = trimmed.substring(closeBracket + 2)
+                val port = portStr.toIntOrNull() ?: 500
+                Pair(ip, if (port <= 0) 500 else port)
             } else {
                 val lastColon = trimmed.lastIndexOf(':')
                 if (lastColon > 0) {
                     val ip = trimmed.substring(0, lastColon)
-                    val port = trimmed.substring(lastColon + 1).toInt()
-                    Pair(ip, port)
+                    val port = trimmed.substring(lastColon + 1).toIntOrNull() ?: 500
+                    Pair(ip, if (port <= 0) 500 else port)
                 } else {
                     Pair(trimmed, 500)
                 }
             }
         } catch (_: Exception) {
-            Pair("", 0)
+            Pair(trimmed, 500)
         }
     }
 }

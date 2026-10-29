@@ -321,116 +321,25 @@ object DohResolver {
             id = "yandex",
             name = "Yandex DNS",
             description = "Russian domestic resolver (TSPU Whitelist fallback)",
-            endpointUrl = "https://common.dot.yandex.net/dns-query",
+            endpointUrl = "https://common.dot.dns.yandex.net/dns-query",
             isDefaultEnabled = true,
-            acceptHeader = "application/dns-message",
-            useDnsParam = true
-        ),
-        DohProvider(
-            id = "dnssb",
-            name = "DNS.SB (Primary)",
-            description = "Private DNS without logs or filtering (Anycast)",
-            endpointUrl = "https://185.222.222.222/dns-query",
-            isDefaultEnabled = true,
-            acceptHeader = "application/dns-json"
-        ),
-        DohProvider(
-            id = "dnssb_sec",
-            name = "DNS.SB (Secondary)",
-            description = "Backup European Anycast node",
-            endpointUrl = "https://45.11.45.11/dns-query",
-            isDefaultEnabled = true,
-            acceptHeader = "application/dns-json"
-        ),
-        DohProvider(
-            id = "nextdns",
-            name = "NextDNS",
-            description = "Global ultrafast Anycast network",
-            endpointUrl = "https://dns.nextdns.io/dns-query",
-            isDefaultEnabled = true,
-            acceptHeader = "application/dns-json"
-        ),
-        DohProvider(
-            id = "controld",
-            name = "Control D (Standard)",
-            description = "High-speed uncensored DNS",
-            endpointUrl = "https://freedns.controld.com/p0",
-            isDefaultEnabled = true,
-            acceptHeader = "application/dns-message"
-        ),
-        DohProvider(
-            id = "controld_uncensored",
-            name = "Control D (Uncensored)",
-            description = "Open resolver without filters",
-            endpointUrl = "https://freedns.controld.com/uncensored",
-            isDefaultEnabled = false,
-            acceptHeader = "application/dns-message"
-        ),
-        DohProvider(
-            id = "controld_malware",
-            name = "Control D (Security)",
-            description = "Malware and phishing protection",
-            endpointUrl = "https://freedns.controld.com/malware",
-            isDefaultEnabled = false,
-            acceptHeader = "application/dns-message"
-        ),
-        DohProvider(
-            id = "quad9",
-            name = "Quad9 DNS",
-            description = "Swiss Anycast without commercial tracking",
-            endpointUrl = "https://dns.quad9.net/dns-query",
-            isDefaultEnabled = false,
-            acceptHeader = "application/dns-message"
-        ),
-        DohProvider(
-            id = "geohide",
-            name = "GeoHide DNS",
-            description = "Bypass regional blocks and filtering",
-            endpointUrl = "https://dns.geohide.ru/dns-query",
-            isDefaultEnabled = false,
-            acceptHeader = "application/dns-message",
-            useDnsParam = true
-        ),
-        DohProvider(
-            id = "xbox",
-            name = "Xbox DNS",
-            description = "Smart DNS for Microsoft services and gaming",
-            endpointUrl = "https://xbox-dns.ru/dns-query",
-            isDefaultEnabled = false,
             acceptHeader = "application/dns-message",
             useDnsParam = true
         ),
         DohProvider(
             id = "cloudflare",
             name = "Cloudflare (1.1.1.1)",
-            description = "Global Anycast (may be throttled in RU)",
+            description = "Global Anycast resolver",
             endpointUrl = "https://1.1.1.1/dns-query",
-            isDefaultEnabled = false,
-            acceptHeader = "application/dns-json"
-        ),
-        DohProvider(
-            id = "cloudflare_sec",
-            name = "Cloudflare (1.0.0.1)",
-            description = "Secondary Cloudflare Anycast address",
-            endpointUrl = "https://1.0.0.1/dns-query",
-            isDefaultEnabled = false,
+            isDefaultEnabled = true,
             acceptHeader = "application/dns-json"
         ),
         DohProvider(
             id = "google",
             name = "Google DNS (8.8.8.8)",
-            description = "Backup global Google resolver",
+            description = "Global Google Anycast resolver",
             endpointUrl = "https://8.8.8.8/resolve",
-            isDefaultEnabled = false,
-            isGoogleStyle = true,
-            acceptHeader = "application/dns-json"
-        ),
-        DohProvider(
-            id = "google_sec",
-            name = "Google DNS (8.8.4.4)",
-            description = "Secondary Google Public DNS address",
-            endpointUrl = "https://8.8.4.4/resolve",
-            isDefaultEnabled = false,
+            isDefaultEnabled = true,
             isGoogleStyle = true,
             acceptHeader = "application/dns-json"
         )
@@ -501,16 +410,18 @@ object DohResolver {
 
     val ALL_PROVIDERS: List<DohProvider> = GLOBAL_PROVIDERS + IRAN_PROVIDERS
 
-    fun isIranOrEnglish(langCode: String): Boolean {
+    fun isPersian(langCode: String): Boolean {
         val clean = langCode.trim().lowercase()
-        if (clean == "fa" || clean.startsWith("fa") || clean == "en" || clean.startsWith("en")) return true
-        if (clean == "ru" || clean.startsWith("ru")) return false
+        if (clean == "fa" || clean.startsWith("fa")) return true
+        if (clean == "ru" || clean.startsWith("ru") || clean == "en" || clean.startsWith("en")) return false
         val sysLang = java.util.Locale.getDefault().language.lowercase()
-        return sysLang.startsWith("fa") || sysLang.startsWith("en")
+        return sysLang.startsWith("fa")
     }
 
+    fun isIranOrEnglish(langCode: String): Boolean = isPersian(langCode)
+
     fun getAvailableProviders(langCode: String = ""): List<DohProvider> {
-        return if (isIranOrEnglish(langCode)) ALL_PROVIDERS else GLOBAL_PROVIDERS
+        return if (isPersian(langCode)) ALL_PROVIDERS else GLOBAL_PROVIDERS
     }
 
     fun getDefaultEnabledProviderIds(langCode: String = ""): Set<String> {
@@ -600,6 +511,10 @@ object DohResolver {
         "188.114.97.1",
         "188.114.98.1",
         "188.114.99.1",
+        "1.1.1.1",
+        "1.0.0.1",
+        "1.1.1.2",
+        "1.1.1.3",
         "172.67.73.1",
         "104.21.234.1",
         "104.26.12.1",
@@ -740,6 +655,42 @@ object DohResolver {
     ): List<InetAddress> {
         totalMisses.incrementAndGet()
 
+        // 0. Native Rust Engine DoH Resolution (Protected sockets, Tokio runtime, DNS_BUDGET)
+        try {
+            val nativeIps = NativeProxy.resolveDns(
+                cleanDomain,
+                if (scope == DnsScope.USER_IN_TUNNEL) 1 else 0
+            )
+            if (nativeIps.isNotEmpty()) {
+                val parsed = nativeIps.mapNotNull { ipStr ->
+                    try { InetAddress.getByName(ipStr) } catch (_: Exception) { null }
+                }
+                if (parsed.isNotEmpty()) {
+                    val addresses = HappyEyeballsEngine.prioritizeAddresses(parsed)
+                    val entry = DohCacheEntry(
+                        domain = cleanDomain,
+                        addresses = addresses,
+                        expiresAtTimestampMs = timeProvider() + 300_000L,
+                        providerName = "Native-Rust-DoH",
+                        isSecure = true,
+                        isNegative = false,
+                        family = AddressFamily.fromAddresses(addresses),
+                        resolverSource = "Native-Rust-DoH",
+                        networkGeneration = curGen
+                    )
+                    cacheIfCurrent(expectedEpoch, entry)
+                    totalDohSuccess.incrementAndGet()
+                    AppLogger.d(
+                        TAG,
+                        "DNS [scope=$scope, gen=$curGen] resolved via Native Rust Engine: '$cleanDomain' -> ${addresses.map { it.hostAddress }}"
+                    )
+                    return addresses
+                }
+            }
+        } catch (t: Throwable) {
+            AppLogger.d(TAG, "Native DNS resolution fell through: ${t.message}")
+        }
+
         // Hedged Resolution с учетом общего DNS бюджета (MOB-021)
         val hedgedResult = dnsBudget.withBudget {
             hedgedResolve(cleanDomain, scope)
@@ -751,7 +702,7 @@ object DohResolver {
 
         if (hedgedResult != null && hedgedResult.addresses.isNotEmpty()) {
             val (rawAddresses, ttlSec, providerName, isSecure) = hedgedResult
-            val addresses = HappyEyeballsEngine.prioritizeAddresses(rawAddresses)
+            val addresses = HappyEyeballsEngine.prioritizeAddresses(cleanDomain, rawAddresses)
             val effectiveTtlMs = if (isSecure) {
                 ttlSec.coerceIn(MIN_TTL_SECONDS, MAX_TTL_SECONDS) * 1000L
             } else {
@@ -1219,6 +1170,9 @@ object DohResolver {
         clearInFlightResolutions()
         val size = cache.size
         cache.clear()
+        try {
+            NativeProxy.clearDnsCache()
+        } catch (_: Throwable) {}
         AppLogger.i(TAG, "Local DoH cache cleared ($size entries removed)")
     }
 

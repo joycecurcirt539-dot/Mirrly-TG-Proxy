@@ -101,7 +101,7 @@ object WarpPipelineProfiler {
         // Фаза 1: CONFIG_ACQUISITION
         _currentPhase.value = WarpPhase.CONFIG_ACQUISITION
         val (configValid, tConfig) = measurePhase {
-            val privKey = if (config.warpPrivateKey.isNotBlank()) config.warpPrivateKey else WarpAccountManager.BOOTSTRAP_PROFILE.privateKeyBase64
+            val privKey = config.warpPrivateKey
             val hasKey = privKey.isNotBlank() && privKey.length >= 40
             val hasToken = config.warpToken.isNotBlank()
             hasKey && hasToken

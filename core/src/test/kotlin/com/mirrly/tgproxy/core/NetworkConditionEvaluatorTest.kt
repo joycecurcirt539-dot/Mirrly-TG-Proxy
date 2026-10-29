@@ -247,6 +247,6 @@ class NetworkConditionEvaluatorTest {
         assertFalse(serviceSource.contains("NetworkConditionEvaluator.evaluate"))
         assertFalse(uiSource.contains("NetworkConditionEvaluator.evaluate"))
         assertTrue(uiSource.contains("server.adaptiveNetworkDecision.collectAsState()"))
-        assertTrue(uiSource.contains("server.setTcpNoDelayMode(mode)"))
+        assertTrue(uiSource.contains("server.setNagleMode(mode)"))
     }
 }

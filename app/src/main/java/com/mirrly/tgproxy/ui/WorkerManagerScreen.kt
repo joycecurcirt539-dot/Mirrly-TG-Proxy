@@ -26,14 +26,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.provider.Settings
-import android.view.WindowManager
 import android.widget.Toast
-import androidx.annotation.StringRes
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
+import androidx.annotation.StringRes
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -41,11 +38,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -68,28 +61,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -97,36 +81,46 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.content.ContextCompat
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.core.CircuitState
 import com.mirrly.tgproxy.core.DomainFormatStatus
-import com.mirrly.tgproxy.core.TgConstants
+import com.mirrly.tgproxy.core.ProxyMode
 import com.mirrly.tgproxy.core.WorkerDomainNormalizer
 import com.mirrly.tgproxy.core.WorkerProfile
 import com.mirrly.tgproxy.core.WorkerStatus
 import com.mirrly.tgproxy.service.PreferencesManager
+import com.mirrly.tgproxy.service.WorkerFailoverManager
 import com.mirrly.tgproxy.service.WorkerPingTester
-import com.mirrly.tgproxy.ui.theme.*
 import com.mirrly.tgproxy.service.cloudflare.CloudflareApiClient
 import com.mirrly.tgproxy.service.cloudflare.CloudflareWorkerPayload
+import com.mirrly.tgproxy.ui.theme.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class ManagerSection(@StringRes val titleRes: Int) {
     WORKERS(R.string.wm_tab_workers),
     DEPLOY(R.string.wm_tab_deploy),
     SHARE(R.string.wm_tab_share),
-    SCANNER(R.string.wm_tab_scanner)
+    SCANNER(R.string.wm_tab_scanner),
+    GUIDE(R.string.wm_tab_guide)
 }
 
-
+/**
+ * MirrlyUI Worker Manager Screen.
+ * Strictly adheres to:
+ * - Dogma 1: Zero Background / Outline-Only architecture.
+ * - Dogma 2: Zero-Popup doctrine (All dialogs rewritten to MirrlyModalBottomSheet).
+ * - Kinetic spring physics (Modifier.springPress) on all interactive elements.
+ * - Zero emoji & anti-slop technical precision.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkerManagerScreen(
     prefs: PreferencesManager,
     onBack: () -> Unit,
     initialSection: ManagerSection = ManagerSection.WORKERS,
+    initialProtocol: ProxyMode? = null,
     onOpenAnalytics: (() -> Unit)? = null,
     onOpenSpeedTest: (() -> Unit)? = null
 ) {
@@ -136,9 +130,12 @@ fun WorkerManagerScreen(
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    val isSocks5 by prefs.isSocks5Flow.collectAsState(initial = false)
-    val protoColors = LocalProtocolColors.current
-    val activeProtoColor = protoColors.primary
+    val currentProxyMode by prefs.proxyModeFlow.collectAsState(initial = prefs.getEffectiveProxyMode())
+    var targetProtocol by remember(initialProtocol) {
+        mutableStateOf(initialProtocol ?: currentProxyMode)
+    }
+
+    val activeProtoColor = if (targetProtocol == ProxyMode.MTPROTO) MtprotoAccent else Socks5Accent
 
     val sections = remember { ManagerSection.values().toList() }
 
@@ -147,7 +144,10 @@ fun WorkerManagerScreen(
     }
 
     // Workers State
-    val activeWorkerId by prefs.activeWorkerIdFlow.collectAsState()
+    val activeWorkerIdMtproto by prefs.activeWorkerIdMtprotoFlow.collectAsState()
+    val activeWorkerIdSocks5 by prefs.activeWorkerIdSocks5Flow.collectAsState()
+    val activeWorkerId = if (targetProtocol == ProxyMode.MTPROTO) activeWorkerIdMtproto else activeWorkerIdSocks5
+
     var customWorkers by remember { mutableStateOf(prefs.getCustomWorkers()) }
     val devWorkers = remember { prefs.getDeveloperWorkers() }
 
@@ -163,14 +163,15 @@ fun WorkerManagerScreen(
     var searchQuery by remember { mutableStateOf("") }
     val searchFocusRequester = remember { FocusRequester() }
 
-    var showAddDialog by remember { mutableStateOf(false) }
-    var showQrScanner by remember { mutableStateOf(false) }
+    var showAddSheet by remember { mutableStateOf(false) }
+    var showQrScannerSheet by remember { mutableStateOf(false) }
     var prefillDomain by remember { mutableStateOf("") }
     var prefillName by remember { mutableStateOf("") }
     var selectedShareWorker by remember { mutableStateOf<WorkerProfile?>(null) }
     var workerToDelete by remember { mutableStateOf<WorkerProfile?>(null) }
+    var workerNotOwnedForUpdate by remember { mutableStateOf<WorkerProfile?>(null) }
 
-    var headerHeightDp by remember { mutableStateOf(210.dp) }
+    var headerHeightDp by remember { mutableStateOf(175.dp) }
 
     fun handleDismiss() {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -179,32 +180,6 @@ fun WorkerManagerScreen(
 
     BackHandler {
         handleDismiss()
-    }
-
-    fun switchToNextSubTab() {
-        if (currentSection == ManagerSection.WORKERS) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            currentSection = ManagerSection.DEPLOY
-        } else if (currentSection == ManagerSection.DEPLOY) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            currentSection = ManagerSection.SHARE
-        } else if (currentSection == ManagerSection.SHARE) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            currentSection = ManagerSection.SCANNER
-        }
-    }
-
-    fun switchToPreviousSubTab() {
-        if (currentSection == ManagerSection.DEPLOY) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            currentSection = ManagerSection.WORKERS
-        } else if (currentSection == ManagerSection.SHARE) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            currentSection = ManagerSection.DEPLOY
-        } else if (currentSection == ManagerSection.SCANNER) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            currentSection = ManagerSection.SHARE
-        }
     }
 
     fun refreshWorkers() {
@@ -277,7 +252,6 @@ fun WorkerManagerScreen(
         }
     }
 
-    // Worker list calculation (personal workers only)
     val allWorkers = remember(customWorkers) { customWorkers }
     val filteredWorkers = remember(allWorkers, searchQuery) {
         val trimmed = searchQuery.trim()
@@ -300,123 +274,23 @@ fun WorkerManagerScreen(
 
     val workersListState = rememberLazyListState()
 
-    val currentOnNextTab by rememberUpdatedState(::switchToNextSubTab)
-    val currentOnPrevTab by rememberUpdatedState(::switchToPreviousSubTab)
-    val currentHandleDismiss by rememberUpdatedState(::handleDismiss)
-
-    val nestedScrollConnection = remember(density) {
-        object : NestedScrollConnection {
-            private var overscrollY = 0f
-            private val thresholdPx = with(density) { 48.dp.toPx() }
-
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (overscrollY > 0f && available.y < 0f) {
-                    val consumedY = available.y.coerceAtLeast(-overscrollY)
-                    overscrollY += consumedY
-                    return Offset(0f, consumedY)
-                }
-                return Offset.Zero
-            }
-
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource
-            ): Offset {
-                if (source == NestedScrollSource.Drag) {
-                    if (available.y > 0f) {
-                        overscrollY += available.y
-                        if (overscrollY > thresholdPx) {
-                            overscrollY = 0f
-                            currentHandleDismiss()
-                        }
-                        return Offset(0f, available.y)
-                    } else if (available.y < -thresholdPx) {
-                        overscrollY = 0f
-                        currentHandleDismiss()
-                    }
-                }
-                return Offset.Zero
-            }
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                val touchSlop = viewConfiguration.touchSlop
-                val thresholdPx = 36.dp.toPx()
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    var totalX = 0f
-                    var totalY = 0f
-                    var isHorizontalLocked = false
-                    var isVerticalLocked = false
-                    val pointerId = down.id
-
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Main)
-                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                        if (!change.pressed) break
-
-                        val positionChange = change.positionChange()
-                        val dx = positionChange.x
-                        val dy = positionChange.y
-
-                        if (!isHorizontalLocked && !isVerticalLocked) {
-                            totalX += dx
-                            totalY += dy
-                            val absX = kotlin.math.abs(totalX)
-                            val absY = kotlin.math.abs(totalY)
-
-                            if (absX > touchSlop || absY > touchSlop) {
-                                if (absX > absY) {
-                                    isHorizontalLocked = true
-                                    change.consume()
-                                } else {
-                                    isVerticalLocked = true
-                                    // Lock to vertical - let list scroll / pull down handle this gesture exclusively
-                                    break
-                                }
-                            }
-                        } else if (isHorizontalLocked) {
-                            totalX += dx
-                            change.consume()
-                        }
-                    }
-
-                    if (isHorizontalLocked) {
-                        if (totalX < -thresholdPx) {
-                            currentOnNextTab()
-                        } else if (totalX > thresholdPx) {
-                            currentOnPrevTab()
-                        }
-                    }
-                }
-            }
-    ) {
-        // Delicate Cyber Particles floating in background behind worker manager interface
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Ambient background particles
         CyberParticlesOverlay(
             modifier = Modifier.fillMaxSize(),
             particleCount = 14,
-            alphaMultiplier = 0.50f
+            alphaMultiplier = 0.45f
         )
 
-        // 1. SCROLLABLE BODY CONTENT (AnimatedContent between WORKERS, DEPLOY, SHARE, SCANNER)
+        // 1. SECTION CONTENT BODY
         AnimatedContent(
             targetState = currentSection,
             modifier = Modifier
                 .fillMaxSize()
-                .fourWayFadingEdges(
-                    topFadeHeight = 28.dp,
-                    bottomFadeHeight = 56.dp,
-                    startFadeWidth = 12.dp,
-                    endFadeWidth = 12.dp
-                ),
+                .fadingEdges(topFadeHeight = 28.dp, bottomFadeHeight = 44.dp),
             transitionSpec = {
-                val fromIndex = ManagerSection.values().indexOf(initialState)
-                val toIndex = ManagerSection.values().indexOf(targetState)
+                val fromIndex = sections.indexOf(initialState)
+                val toIndex = sections.indexOf(targetState)
                 if (toIndex >= fromIndex) {
                     (slideInHorizontally(
                         animationSpec = spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow),
@@ -443,524 +317,366 @@ fun WorkerManagerScreen(
         ) { section ->
             when (section) {
                 ManagerSection.WORKERS -> {
-                    if (filteredWorkers.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(bottom = 40.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (searchQuery.isNotEmpty()) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_shield),
-                                        contentDescription = null,
-                                        tint = TextMuted.copy(alpha = 0.4f),
-                                        modifier = Modifier.size(52.dp)
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.wm_nodes_not_found),
-                                        color = TextMuted,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            } else {
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = Color(0xFFF38020).copy(alpha = 0.08f),
-                                    border = BorderStroke(1.dp, Color(0xFFF38020).copy(alpha = 0.35f)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 24.dp)
-                                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        if (filteredWorkers.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(
+                                        top = headerHeightDp,
+                                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 80.dp,
+                                        start = 20.dp,
+                                        end = 20.dp
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (searchQuery.isNotEmpty()) {
                                     Column(
-                                        modifier = Modifier.padding(20.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(42.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xFFF38020).copy(alpha = 0.15f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_info_circle),
-                                                contentDescription = null,
-                                                tint = Color(0xFFF38020),
-                                                modifier = Modifier.size(22.dp)
-                                            )
-                                        }
-                                        Text(
-                                            text = stringResource(R.string.wm_dev_workers_removed_title),
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp,
-                                            color = TextWhite,
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Text(
-                                            text = stringResource(R.string.wm_dev_workers_removed_reason),
-                                            fontWeight = FontWeight.Medium,
-                                            fontSize = 12.5.sp,
-                                            color = TextWhite.copy(alpha = 0.85f),
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Text(
-                                            text = stringResource(R.string.wm_dev_workers_removed_desc),
-                                            fontSize = 12.sp,
-                                            color = TextMuted,
-                                            textAlign = TextAlign.Center,
-                                            lineHeight = 16.sp
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Button(
-                                                onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    currentSection = ManagerSection.DEPLOY
-                                                },
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF38020)),
-                                                shape = RoundedCornerShape(10.dp),
-                                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                                            ) {
-                                                Text(
-                                                    text = stringResource(R.string.wm_dev_workers_removed_btn),
-                                                    fontSize = 12.5.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color.White
-                                                )
-                                            }
-                                            Surface(
-                                                shape = RoundedCornerShape(10.dp),
-                                                color = activeProtoColor.copy(alpha = 0.12f),
-                                                border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.45f)),
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(10.dp))
-                                                    .springPress(onClick = {
-                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                        showAddDialog = true
-                                                    })
-                                            ) {
-                                                Text(
-                                                    text = stringResource(R.string.wm_btn_add_short),
-                                                    color = activeProtoColor,
-                                                    fontSize = 12.5.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        LazyColumn(
-                            state = workersListState,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .nestedScroll(nestedScrollConnection),
-                            contentPadding = PaddingValues(
-                                top = headerHeightDp + 8.dp,
-                                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 110.dp,
-                                start = 16.dp,
-                                end = 16.dp
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            // Quick Cloudflare Personal Worker Deploy Banner (Styled 1:1 like GlassWorkerCard)
-                            item(key = "cf_quick_deploy_banner") {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color.Transparent,
-                                    border = BorderStroke(1.dp, Color(0xFF181E2E)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .clickable {
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            currentSection = ManagerSection.DEPLOY
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 8.5.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.weight(1f).padding(end = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(9.dp)
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(28.dp)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color(0xFFF38020).copy(alpha = 0.12f))
-                                                    .border(1.dp, Color(0xFFF38020).copy(alpha = 0.35f), RoundedCornerShape(8.dp)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    painter = painterResource(id = R.drawable.ic_diag_cloudflare),
-                                                    contentDescription = null,
-                                                    tint = Color(0xFFF38020),
-                                                    modifier = Modifier.size(15.dp)
-                                                )
-                                            }
-
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = stringResource(R.string.cf_deploy_quick_banner_title),
-                                                    color = TextWhite,
-                                                    fontSize = 12.5.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Text(
-                                                    text = stringResource(R.string.cf_deploy_quick_banner_desc),
-                                                    color = TextMuted,
-                                                    fontSize = 11.sp,
-                                                    lineHeight = 14.sp
-                                                )
-                                            }
-                                        }
-
                                         Icon(
-                                            painter = painterResource(id = R.drawable.ic_chevron_right),
+                                            painter = painterResource(id = R.drawable.ic_shield),
                                             contentDescription = null,
                                             tint = TextMuted,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(46.dp)
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.wm_nodes_not_found),
+                                            color = TextMuted,
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Medium
                                         )
                                     }
-                                }
-                            }
-
-                            // Notice that developer workers were removed
-                            item(key = "dev_workers_removed_banner") {
+                                } else {
                                     Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = Color(0xFFF38020).copy(alpha = 0.08f),
-                                        border = BorderStroke(1.dp, Color(0xFFF38020).copy(alpha = 0.35f)),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .clickable {
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                currentSection = ManagerSection.DEPLOY
-                                            }
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = Color.Transparent,
+                                        border = BorderStroke(1.dp, AmoledBorder),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 12.dp, vertical = 9.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        Column(
+                                            modifier = Modifier.padding(20.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(28.dp)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color(0xFFF38020).copy(alpha = 0.15f))
-                                                    .border(1.dp, Color(0xFFF38020).copy(alpha = 0.4f), RoundedCornerShape(8.dp)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    painter = painterResource(id = R.drawable.ic_info_circle),
-                                                    contentDescription = null,
-                                                    tint = Color(0xFFF38020),
-                                                    modifier = Modifier.size(15.dp)
-                                                )
-                                            }
-
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = stringResource(R.string.wm_dev_workers_removed_title),
-                                                    color = TextWhite,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Text(
-                                                    text = stringResource(R.string.wm_dev_workers_removed_reason),
-                                                    color = TextWhite.copy(alpha = 0.85f),
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Medium
-                                                )
-                                                Text(
-                                                    text = stringResource(R.string.wm_dev_workers_removed_desc),
-                                                    color = TextMuted,
-                                                    fontSize = 10.5.sp,
-                                                    lineHeight = 13.5.sp
-                                                )
-                                            }
-
                                             Icon(
-                                                painter = painterResource(id = R.drawable.ic_chevron_right),
+                                                painter = painterResource(id = R.drawable.ic_diag_worker),
                                                 contentDescription = null,
-                                                tint = TextMuted,
-                                                modifier = Modifier.size(16.dp)
+                                                tint = activeProtoColor,
+                                                modifier = Modifier.size(36.dp)
                                             )
+                                            Text(
+                                                text = "Воркеры не добавлены",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp,
+                                                color = TextWhite,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Text(
+                                                text = "Добавьте собственный Cloudflare Worker узел для WSS туннелирования трафика.",
+                                                fontSize = 12.sp,
+                                                color = TextMuted,
+                                                textAlign = TextAlign.Center,
+                                                lineHeight = 16.sp
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = Color.Transparent,
+                                                    border = BorderStroke(1.dp, AmoledBorder),
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .springPress(onClick = {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                            currentSection = ManagerSection.DEPLOY
+                                                        })
+                                                ) {
+                                                    Text(
+                                                        text = "Деплой",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color(0xFFF38020),
+                                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                                    )
+                                                }
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = Color.Transparent,
+                                                    border = BorderStroke(1.dp, activeProtoColor),
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .springPress(onClick = {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                            prefillDomain = ""
+                                                            prefillName = ""
+                                                            showAddSheet = true
+                                                        })
+                                                ) {
+                                                    Text(
+                                                        text = "Добавить вручную",
+                                                        color = activeProtoColor,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
+                            }
+                        } else {
+                            LazyColumn(
+                                state = workersListState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(
+                                    top = headerHeightDp + 8.dp,
+                                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 90.dp,
+                                    start = 16.dp,
+                                    end = 16.dp
+                               ),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Search bar if visible
+                                if (isSearchVisible) {
+                                    item(key = "search_field") {
+                                        OutlinedTextField(
+                                            value = searchQuery,
+                                            onValueChange = { searchQuery = it },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .focusRequester(searchFocusRequester),
+                                            placeholder = {
+                                                Text(
+                                                    text = stringResource(R.string.wm_search_placeholder),
+                                                    color = TextMuted,
+                                                    fontSize = 12.5.sp
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.ic_search),
+                                                    contentDescription = null,
+                                                    tint = if (searchQuery.isNotEmpty()) activeProtoColor else TextMuted,
+                                                    modifier = Modifier.size(17.dp)
+                                                )
+                                            },
+                                            trailingIcon = {
+                                                if (searchQuery.isNotEmpty()) {
+                                                    IconButton(onClick = {
+                                                        searchQuery = ""
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    }) {
+                                                        Text("✕", color = TextMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                            },
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                            keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedContainerColor = Color.Transparent,
+                                                unfocusedContainerColor = Color.Transparent,
+                                                focusedBorderColor = activeProtoColor,
+                                                unfocusedBorderColor = AmoledBorder,
+                                                focusedTextColor = TextWhite,
+                                                unfocusedTextColor = TextWhite,
+                                                cursorColor = activeProtoColor
+                                            )
+                                        )
+                                    }
+                                }
 
-                            // Warning Card for 429 Rate Limit
-                            if (hasRateLimitedWorkers) {
-                                item(key = "rate_limit_warning") {
-                                    val warningColor = if (isActiveWorkerRateLimited) Color(0xFFEF4444) else Color(0xFFF59E0B)
-                                    val titleRes = if (isActiveWorkerRateLimited) R.string.wm_limit_429_active_title else R.string.wm_limit_rate_limit_title
-                                    val descRes = if (isActiveWorkerRateLimited) R.string.wm_limit_429_active_desc else R.string.wm_limit_429_public_desc
-
-                                    Surface(
-                                        shape = RoundedCornerShape(13.dp),
-                                        color = warningColor.copy(alpha = 0.08f),
-                                        border = BorderStroke(1.dp, warningColor.copy(alpha = 0.45f)),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 2.dp)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                // Rate Limit warning banner if triggered
+                                if (hasRateLimitedWorkers) {
+                                    item(key = "rate_limit_warning") {
+                                        val warningColor = if (isActiveWorkerRateLimited) Color(0xFFFF1744) else Color(0xFFF5A623)
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color.Transparent,
+                                            border = BorderStroke(1.dp, warningColor),
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Row(
+                                                modifier = Modifier.padding(12.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                                             ) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(6.dp)
+                                                        .size(7.dp)
                                                         .clip(CircleShape)
                                                         .background(warningColor)
                                                 )
-                                                Surface(
-                                                    shape = RoundedCornerShape(5.dp),
-                                                    color = Color.Transparent,
-                                                    border = BorderStroke(1.dp, warningColor.copy(alpha = 0.35f))
-                                                ) {
+                                                Column(modifier = Modifier.weight(1f)) {
                                                     Text(
-                                                        text = stringResource(R.string.wm_limit_429),
-                                                        fontSize = 10.sp,
+                                                        text = stringResource(if (isActiveWorkerRateLimited) R.string.wm_limit_429_active_title else R.string.wm_limit_rate_limit_title),
                                                         fontWeight = FontWeight.Bold,
-                                                        color = warningColor,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                                        fontSize = 12.sp,
+                                                        color = warningColor
+                                                    )
+                                                    Text(
+                                                        text = stringResource(if (isActiveWorkerRateLimited) R.string.wm_limit_429_active_desc else R.string.wm_limit_429_public_desc),
+                                                        fontSize = 11.5.sp,
+                                                        color = TextWhite,
+                                                        lineHeight = 15.sp
                                                     )
                                                 }
-                                                Text(
-                                                    text = stringResource(titleRes),
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.sp,
-                                                    color = warningColor
-                                                )
                                             }
-                                            Text(
-                                                text = stringResource(descRes),
-                                                fontSize = 12.sp,
-                                                color = TextWhite.copy(alpha = 0.85f),
-                                                lineHeight = 16.5.sp
-                                            )
                                         }
                                     }
                                 }
-                            }
 
-                            itemsIndexed(
-                                items = filteredWorkers,
-                                key = { _, item -> item.id }
-                            ) { _, worker ->
-                                val isActive = worker.id == activeWorkerId
-                                GlassWorkerCard(
-                                    worker = worker,
-                                    isActive = isActive,
-                                    activeAccentColor = activeProtoColor,
-                                    pingInfo = pingResults[worker.domain],
-                                    onSelect = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        prefs.setActiveWorkerId(worker.id)
-                                        Toast.makeText(context, context.getString(R.string.wm_toast_activated, worker.name), Toast.LENGTH_SHORT).show()
-                                    },
-                                    onVisitSite = {
-                                        try {
-                                            val url = "https://${worker.domain}"
-                                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                itemsIndexed(
+                                    items = filteredWorkers,
+                                    key = { _, item -> item.id }
+                                ) { _, worker ->
+                                    val isActive = worker.id == activeWorkerId
+                                    val isActiveMtproto = worker.id == activeWorkerIdMtproto
+                                    val isActiveSocks5 = worker.id == activeWorkerIdSocks5
+                                    GlassWorkerCard(
+                                        worker = worker,
+                                        isActive = isActive,
+                                        isActiveMtproto = isActiveMtproto,
+                                        isActiveSocks5 = isActiveSocks5,
+                                        activeAccentColor = activeProtoColor,
+                                        pingInfo = pingResults[worker.domain],
+                                        onSelect = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            prefs.setActiveWorkerId(worker.id, mode = targetProtocol)
+                                            val protoLabel = if (targetProtocol == ProxyMode.MTPROTO) "MTProto" else "SOCKS5"
+                                            Toast.makeText(context, context.getString(R.string.wm_toast_activated, "${worker.name} ($protoLabel)"), Toast.LENGTH_SHORT).show()
+                                        },
+                                        onVisitSite = {
+                                            try {
+                                                val url = "https://${worker.domain}"
+                                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                }
+                                                context.startActivity(browserIntent)
+                                            } catch (_: Exception) {
+                                                Toast.makeText(context, "Не удалось открыть браузер", Toast.LENGTH_SHORT).show()
                                             }
-                                            context.startActivity(browserIntent)
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "Не удалось открыть браузер", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    onToggleType = null,
-                                    onUpdateScript = if (!worker.isDeveloperWorker) {
-                                        {
-                                            val cfToken = prefs.getCloudflareToken()
-                                            val cfAccountId = prefs.getCloudflareAccountId()
-                                            if (cfToken.isNullOrBlank() || cfAccountId.isNullOrBlank()) {
-                                                Toast.makeText(context, "Для обновления скрипта авторизуйтесь в Cloudflare (вкладка Деплой)", Toast.LENGTH_LONG).show()
-                                                currentSection = ManagerSection.DEPLOY
-                                            } else {
-                                                updatingCardWorkerId = worker.id
-                                                scope.launch {
-                                                    val scriptName = if (worker.domain.contains(".workers.dev")) {
-                                                        worker.domain.substringBefore(".workers.dev").substringBefore(".")
-                                                    } else {
-                                                        worker.name.trim().lowercase().replace(Regex("[^a-z0-9_-]"), "-")
+                                        },
+                                        onUpdateScript = if (!worker.isDeveloperWorker) {
+                                            {
+                                                val cfToken = prefs.getCloudflareToken()
+                                                val cfAccountId = prefs.getCloudflareAccountId()
+                                                if (cfToken.isNullOrBlank() || cfAccountId.isNullOrBlank()) {
+                                                    Toast.makeText(context, "Авторизуйтесь в Cloudflare (вкладка Деплой)", Toast.LENGTH_LONG).show()
+                                                    currentSection = ManagerSection.DEPLOY
+                                                } else if (!prefs.isWorkerOwnedByCurrentUser(worker)) {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    workerNotOwnedForUpdate = worker
+                                                } else {
+                                                    updatingCardWorkerId = worker.id
+                                                    scope.launch {
+                                                        val scriptName = if (worker.domain.contains(".workers.dev")) {
+                                                            worker.domain.substringBefore(".workers.dev").substringBefore(".")
+                                                        } else {
+                                                            worker.name.trim().lowercase().replace(Regex("[^a-z0-9_-]"), "-")
+                                                        }
+                                                        val scriptCode = CloudflareWorkerPayload.getWorkerScript(context)
+                                                        Toast.makeText(context, "Загрузка скрипта на Cloudflare...", Toast.LENGTH_SHORT).show()
+                                                        val deployRes = CloudflareApiClient.deployWorkerScript(
+                                                            cfToken,
+                                                            cfAccountId,
+                                                            scriptName,
+                                                            scriptCode,
+                                                            prefs
+                                                        )
+                                                        if (deployRes.isSuccess) {
+                                                            CloudflareApiClient.verifyWorkerHealth(worker.domain, maxWaitSeconds = 6)
+                                                            prefs.updateCustomWorkerScriptVersion(worker.domain, CloudflareWorkerPayload.SCRIPT_VERSION)
+                                                            refreshWorkers()
+                                                            Toast.makeText(context, context.getString(R.string.cf_deploy_toast_updated), Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            val err = deployRes.exceptionOrNull()?.message ?: "Ошибка загрузки"
+                                                            Toast.makeText(context, "Ошибка обновления: $err", Toast.LENGTH_LONG).show()
+                                                        }
+                                                        updatingCardWorkerId = null
                                                     }
-                                                    val scriptCode = CloudflareWorkerPayload.getWorkerScript(context)
-                                                    Toast.makeText(context, "Загрузка скрипта на Cloudflare...", Toast.LENGTH_SHORT).show()
-                                                    val deployRes = CloudflareApiClient.deployWorkerScript(
-                                                        cfToken,
-                                                        cfAccountId,
-                                                        scriptName,
-                                                        scriptCode,
-                                                        prefs
-                                                    )
-                                                    if (deployRes.isSuccess) {
-                                                        CloudflareApiClient.verifyWorkerHealth(worker.domain, maxWaitSeconds = 6)
-                                                        prefs.updateCustomWorkerScriptVersion(worker.domain, CloudflareWorkerPayload.SCRIPT_VERSION)
-                                                        refreshWorkers()
-                                                        Toast.makeText(context, context.getString(R.string.cf_deploy_toast_updated), Toast.LENGTH_SHORT).show()
-                                                    } else {
-                                                        val err = deployRes.exceptionOrNull()?.message ?: "Ошибка загрузки"
-                                                        Toast.makeText(context, "Ошибка обновления: $err", Toast.LENGTH_LONG).show()
-                                                    }
-                                                    updatingCardWorkerId = null
                                                 }
                                             }
-                                        }
-                                    } else null,
-                                    isUpdatingScript = updatingCardWorkerId == worker.id,
-                                    onShare = if (!worker.isDeveloperWorker) {
-                                        {
-                                            selectedShareWorker = worker
-                                            currentSection = ManagerSection.SHARE
-                                        }
-                                    } else null,
-                                    onDelete = if (!worker.isDeveloperWorker) {
-                                        {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            workerToDelete = worker
-                                        }
-                                    } else null
-                                )
-                            }
-
-                            // App Links Info Banner
-                            item(key = "deep_link_perm_info") {
-                                    Surface(
-                                        shape = RoundedCornerShape(13.dp),
-                                        color = Color.White.copy(alpha = 0.03f),
-                                    border = BorderStroke(1.dp, Color(0xFF1E283D)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 4.dp, bottom = 4.dp)
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_diag_protocol),
-                                                contentDescription = null,
-                                                tint = activeProtoColor,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                text = stringResource(R.string.wm_import_links_title),
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 12.5.sp,
-                                                color = TextWhite
-                                            )
-                                        }
-                                        Text(
-                                            text = stringResource(R.string.wm_import_links_desc),
-                                            fontSize = 11.5.sp,
-                                            color = TextMuted,
-                                            lineHeight = 15.5.sp
-                                        )
-                                        Surface(
-                                            shape = RoundedCornerShape(9.dp),
-                                            color = activeProtoColor.copy(alpha = 0.12f),
-                                            border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.40f)),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(32.dp)
-                                                .clip(RoundedCornerShape(9.dp))
-                                                .springPress(onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    try {
-                                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                                            val intent = Intent(
-                                                                android.provider.Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS,
-                                                                Uri.parse("package:${context.packageName}")
-                                                            ).apply {
-                                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                            }
-                                                            context.startActivity(intent)
-                                                        } else {
-                                                            val intent = Intent(
-                                                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                                                Uri.parse("package:${context.packageName}")
-                                                            ).apply {
-                                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                            }
-                                                            context.startActivity(intent)
-                                                        }
-                                                    } catch (_: Exception) {
-                                                        val intent = Intent(
-                                                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                                            Uri.parse("package:${context.packageName}")
-                                                        ).apply {
-                                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                        }
-                                                        context.startActivity(intent)
-                                                    }
-                                                })
-                                        ) {
-                                            Box(
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = stringResource(R.string.wm_btn_open_link_settings),
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = activeProtoColor
-                                                )
+                                        } else null,
+                                        isUpdatingScript = updatingCardWorkerId == worker.id,
+                                        onShare = if (!worker.isDeveloperWorker) {
+                                            {
+                                                selectedShareWorker = worker
+                                                currentSection = ManagerSection.SHARE
                                             }
-                                        }
-                                    }
+                                        } else null,
+                                        onDelete = if (!worker.isDeveloperWorker) {
+                                            {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                workerToDelete = worker
+                                            }
+                                        } else null
+                                    )
+                                }
+                            }
+                        }
+
+                        // Bottom Floating Add Worker Outline Button
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, activeProtoColor),
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .padding(
+                                    start = 20.dp,
+                                    end = 20.dp,
+                                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
+                                )
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    prefillDomain = ""
+                                    prefillName = ""
+                                    showAddSheet = true
+                                })
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_diag_worker),
+                                    contentDescription = null,
+                                    tint = activeProtoColor,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = stringResource(R.string.wm_btn_add),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = activeProtoColor
+                                )
                             }
                         }
                     }
                 }
-            }
-            ManagerSection.DEPLOY -> {
+                ManagerSection.DEPLOY -> {
                     CloudflareDeploySection(
                         prefs = prefs,
                         activeProtoColor = activeProtoColor,
-                        onWorkerDeployed = {
-                            refreshWorkers()
-                        },
+                        onWorkerDeployed = { refreshWorkers() },
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(
                                 top = headerHeightDp,
-                                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 40.dp
+                                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 30.dp
                             )
                     )
                 }
@@ -975,7 +691,7 @@ fun WorkerManagerScreen(
                         onAddWorkerClick = {
                             prefillDomain = ""
                             prefillName = ""
-                            showAddDialog = true
+                            showAddSheet = true
                         },
                         headerPadding = headerHeightDp
                     )
@@ -988,12 +704,12 @@ fun WorkerManagerScreen(
                             if (parsed.isValid) {
                                 prefillDomain = parsed.cleanDomain
                                 prefillName = parsed.suggestedName
-                                showAddDialog = true
+                                showAddSheet = true
                                 Toast.makeText(context, context.getString(R.string.wm_toast_qr_recognized, parsed.cleanDomain), Toast.LENGTH_SHORT).show()
                             } else if (rawScanned.isNotBlank()) {
                                 prefillDomain = rawScanned
                                 prefillName = ""
-                                showAddDialog = true
+                                showAddSheet = true
                             }
                         },
                         onPasteFromClipboard = {
@@ -1002,7 +718,7 @@ fun WorkerManagerScreen(
                                 val parsed = WorkerDomainNormalizer.normalize(clip)
                                 prefillDomain = parsed.cleanDomain
                                 prefillName = parsed.suggestedName
-                                showAddDialog = true
+                                showAddSheet = true
                                 Toast.makeText(context, context.getString(R.string.wm_toast_addr_pasted), Toast.LENGTH_SHORT).show()
                             } else {
                                 Toast.makeText(context, context.getString(R.string.wm_toast_clipboard_empty), Toast.LENGTH_SHORT).show()
@@ -1011,10 +727,22 @@ fun WorkerManagerScreen(
                         headerPadding = headerHeightDp
                     )
                 }
+                ManagerSection.GUIDE -> {
+                    ManualWorkerGuideContent(
+                        prefs = prefs,
+                        activeAccentColor = activeProtoColor,
+                        targetProtocol = targetProtocol,
+                        onWorkerAdded = {
+                            refreshWorkers()
+                            currentSection = ManagerSection.WORKERS
+                        },
+                        headerPadding = headerHeightDp
+                    )
+                }
             }
         }
 
-        // 2. PINNED FROSTED GLASS HEADER
+        // 2. PINNED MINIMALIST OUTLINE HEADER
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1027,35 +755,12 @@ fun WorkerManagerScreen(
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.99f),
-                            Color.Black.copy(alpha = 0.98f),
                             Color.Black.copy(alpha = 0.96f),
-                            Color.Black.copy(alpha = 0.88f),
+                            Color.Black.copy(alpha = 0.90f),
                             Color.Black.copy(alpha = 0.00f)
                         )
                     )
                 )
-                .pointerInput(Unit) {
-                    val thresholdPx = 28.dp.toPx()
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        var totalDragY = 0f
-                        val pointerId = down.id
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Main)
-                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                            if (!change.pressed) break
-                            val dy = change.positionChange().y
-                            totalDragY += dy
-                            if (totalDragY > 0f || totalDragY < 0f) {
-                                change.consume()
-                            }
-                        }
-                        if (totalDragY > thresholdPx || totalDragY < -thresholdPx) {
-                            currentHandleDismiss()
-                        }
-                    }
-                }
                 .padding(bottom = 8.dp)
         ) {
             Column(
@@ -1071,22 +776,27 @@ fun WorkerManagerScreen(
                             Text(
                                 text = stringResource(R.string.wm_title),
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 17.sp,
+                                fontSize = 16.5.sp,
                                 color = TextWhite,
                                 maxLines = 1,
-                                softWrap = false,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = when (currentSection) {
-                                    ManagerSection.DEPLOY -> stringResource(R.string.cf_deploy_header_subtitle)
-                                    else -> stringResource(R.string.wm_sub_socks5)
+                                    ManagerSection.DEPLOY -> "Cloudflare Worker Деплой"
+                                    ManagerSection.GUIDE -> "Инструкция по созданию"
+                                    ManagerSection.SHARE -> "Поделиться конфигурацией"
+                                    ManagerSection.SCANNER -> "Сканирование QR"
+                                    else -> if (targetProtocol == ProxyMode.MTPROTO) "Telegram MTProto WSS" else "Telegram SOCKS5 Relay"
                                 },
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = if (currentSection == ManagerSection.DEPLOY) Color(0xFFF38020) else activeProtoColor,
+                                color = when (currentSection) {
+                                    ManagerSection.DEPLOY -> Color(0xFFF38020)
+                                    ManagerSection.GUIDE -> Color(0xFF38BDF8)
+                                    else -> activeProtoColor
+                                },
                                 maxLines = 1,
-                                softWrap = false,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
@@ -1100,53 +810,50 @@ fun WorkerManagerScreen(
                                 painter = painterResource(id = R.drawable.ic_arrow_left),
                                 contentDescription = stringResource(R.string.action_back),
                                 tint = TextWhite,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     },
                     actions = {
                         if (currentSection == ManagerSection.WORKERS) {
-                                // Analytics Chart Button
-                                if (onOpenAnalytics != null) {
-                                    IconButton(
-                                        onClick = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            onOpenAnalytics()
-                                        },
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_diag_formula),
-                                            contentDescription = stringResource(R.string.wm_desc_analytics),
-                                            tint = activeProtoColor,
-                                            modifier = Modifier.size(19.dp)
-                                        )
-                                    }
-                                }
-
-                                // Toggle Search Bar
+                            if (onOpenAnalytics != null) {
                                 IconButton(
                                     onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        if (isSearchVisible && searchQuery.isNotEmpty()) {
-                                            searchQuery = ""
-                                        }
-                                        isSearchVisible = !isSearchVisible
-                                        if (!isSearchVisible) {
-                                            keyboardController?.hide()
-                                        }
+                                        onOpenAnalytics()
                                     },
                                     modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
-                                        painter = painterResource(id = R.drawable.ic_search),
-                                        contentDescription = stringResource(R.string.action_search),
-                                        tint = if (isSearchVisible || searchQuery.isNotEmpty()) activeProtoColor else TextWhite,
-                                        modifier = Modifier.size(19.dp)
+                                        painter = painterResource(id = R.drawable.ic_diag_formula),
+                                        contentDescription = stringResource(R.string.wm_desc_analytics),
+                                        tint = activeProtoColor,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
+                            }
 
-                            // Ping All Workers (ic_refresh with rotation)
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    if (isSearchVisible && searchQuery.isNotEmpty()) {
+                                        searchQuery = ""
+                                    }
+                                    isSearchVisible = !isSearchVisible
+                                    if (!isSearchVisible) {
+                                        keyboardController?.hide()
+                                    }
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_search),
+                                    contentDescription = stringResource(R.string.action_search),
+                                    tint = if (isSearchVisible || searchQuery.isNotEmpty()) activeProtoColor else TextWhite,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
                             IconButton(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1159,7 +866,7 @@ fun WorkerManagerScreen(
                                     contentDescription = stringResource(R.string.wm_desc_measure_ping),
                                     tint = if (isPinging) activeProtoColor else TextWhite,
                                     modifier = Modifier
-                                        .size(19.dp)
+                                        .size(18.dp)
                                         .rotate(pingRotation)
                                 )
                             }
@@ -1168,322 +875,85 @@ fun WorkerManagerScreen(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
 
-                // Primary Section Switcher Pill
-                val sectionCapsuleHeight = 36.dp
-                val sectionInnerPadding = 3.dp
-                val selectedIndex = sections.indexOf(currentSection).coerceAtLeast(0)
-
-                Box(
+                // Protocol Switcher (MTProto vs SOCKS5)
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    contentAlignment = Alignment.Center
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(sectionCapsuleHeight)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(Color.Transparent)
-                            .border(1.dp, Color(0xFF1E2434), RoundedCornerShape(18.dp))
-                            .padding(sectionInnerPadding)
-                    ) {
-                        val availableWidth = maxWidth
-                        val sectionTabWidth = availableWidth / sections.size
-
-                        val animatedSectionPillOffset by animateDpAsState(
-                            targetValue = sectionTabWidth * selectedIndex,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            ),
-                            label = "sectionPillOffset"
-                        )
-
-                        val currentPillColor = if (currentSection == ManagerSection.DEPLOY) Color(0xFFF38020) else activeProtoColor
-
-                        // Sliding Glowing Indicator Pill
-                        Box(
+                    listOf(
+                        ProxyMode.MTPROTO to "MTProto",
+                        ProxyMode.SOCKS5 to "SOCKS5"
+                    ).forEach { (mode, label) ->
+                        val isSel = targetProtocol == mode
+                        val modeColor = if (mode == ProxyMode.MTPROTO) MtprotoAccent else Socks5Accent
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(if (isSel) 1.dp else 0.dp, if (isSel) modeColor else Color.Transparent),
                             modifier = Modifier
-                                .offset(x = animatedSectionPillOffset)
-                                .width(sectionTabWidth)
+                                .weight(1f)
                                 .fillMaxHeight()
-                                .clip(RoundedCornerShape(15.dp))
-                                .background(currentPillColor.copy(alpha = 0.20f))
-                                .border(1.2.dp, currentPillColor.copy(alpha = 0.85f), RoundedCornerShape(15.dp))
-                        )
-
-                        // Segment Labels Row
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalAlignment = Alignment.CenterVertically
+                                .clip(RoundedCornerShape(8.dp))
+                                .springPress(onClick = {
+                                    if (targetProtocol != mode) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        targetProtocol = mode
+                                    }
+                                })
                         ) {
-                            sections.forEach { sec ->
-                                val isSelected = currentSection == sec
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .clip(RoundedCornerShape(15.dp))
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null
-                                        ) {
-                                            if (currentSection != sec) {
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                currentSection = sec
-                                            }
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    val activeSecColor = if (sec == ManagerSection.DEPLOY) Color(0xFFF38020) else activeProtoColor
-                                    Text(
-                                        text = stringResource(sec.titleRes),
-                                        color = if (isSelected) activeSecColor else TextMuted,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        letterSpacing = 0.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSel) modeColor else TextMuted
+                                )
                             }
                         }
                     }
                 }
 
-                // Sub-Controls depending on Active Section
-                AnimatedContent(
-                    targetState = currentSection,
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(180)).togetherWith(fadeOut(animationSpec = tween(140)))
-                    },
-                    label = "managerHeaderSubControls"
-                ) { section ->
-                    when (section) {
-                        ManagerSection.WORKERS -> {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                // Animated Search Bar
-                                AnimatedVisibility(
-                                    visible = isSearchVisible,
-                                    enter = expandVertically(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
-                                            fadeIn(animationSpec = tween(220)),
-                                    exit = shrinkVertically(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
-                                            fadeOut(animationSpec = tween(180))
-                                ) {
-                                    OutlinedTextField(
-                                        value = searchQuery,
-                                        onValueChange = { searchQuery = it },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .focusRequester(searchFocusRequester),
-                                        placeholder = {
-                                            Text(
-                                                text = stringResource(R.string.wm_search_placeholder),
-                                                color = TextMuted,
-                                                fontSize = 13.sp
-                                            )
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_search),
-                                                contentDescription = null,
-                                                tint = if (searchQuery.isNotEmpty()) activeProtoColor else TextMuted,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        },
-                                        trailingIcon = {
-                                            if (searchQuery.isNotEmpty()) {
-                                                IconButton(onClick = {
-                                                    searchQuery = ""
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                }) {
-                                                    Text("✕", color = TextMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                                }
-                                            }
-                                        },
-                                        singleLine = true,
-                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                        keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-                                        shape = RoundedCornerShape(13.dp),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedContainerColor = Color.Transparent,
-                                            unfocusedContainerColor = Color.Transparent,
-                                            focusedBorderColor = activeProtoColor.copy(alpha = 0.85f),
-                                            unfocusedBorderColor = Color(0xFF1E283D),
-                                            focusedTextColor = TextWhite,
-                                            unfocusedTextColor = TextWhite
-                                        )
-                                    )
-                                }
+                // Section Tabs Row (Outline only)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    sections.forEach { sec ->
+                        val isSelected = currentSection == sec
+                        val secColor = when (sec) {
+                            ManagerSection.DEPLOY -> Color(0xFFF38020)
+                            ManagerSection.GUIDE -> Color(0xFF38BDF8)
+                            else -> activeProtoColor
+                        }
 
-                                // Header bar: Personal Workers count badge + Add & Scanner buttons
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = activeProtoColor.copy(alpha = 0.10f),
-                                        border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.25f))
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = stringResource(R.string.wm_filter_custom),
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = TextWhite
-                                            )
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = activeProtoColor.copy(alpha = 0.25f)
-                                            ) {
-                                                Text(
-                                                    text = "${customWorkers.size}",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = activeProtoColor,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                        }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, if (isSelected) secColor else AmoledBorder),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .springPress(onClick = {
+                                    if (currentSection != sec) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        currentSection = sec
                                     }
-
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        // Add worker button
-                                        Surface(
-                                            shape = RoundedCornerShape(12.dp),
-                                            color = activeProtoColor.copy(alpha = 0.12f),
-                                            border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.45f)),
-                                            modifier = Modifier
-                                                .height(34.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .springPress(onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    prefillDomain = ""
-                                                    prefillName = ""
-                                                    showAddDialog = true
-                                                })
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxHeight()
-                                                    .padding(horizontal = 12.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = stringResource(R.string.wm_btn_add),
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.sp,
-                                                    color = activeProtoColor
-                                                )
-                                            }
-                                        }
-
-                                        // QR Scanner quick button
-                                        Surface(
-                                            shape = RoundedCornerShape(12.dp),
-                                            color = Color.Transparent,
-                                            border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.35f)),
-                                            modifier = Modifier
-                                                .height(34.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .springPress(onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    currentSection = ManagerSection.SCANNER
-                                                })
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxHeight()
-                                                    .padding(horizontal = 10.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Icon(
-                                                    painter = painterResource(id = R.drawable.ic_diag_worker),
-                                                    contentDescription = stringResource(R.string.wm_tab_scanner),
-                                                    tint = activeProtoColor,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                                Text(
-                                                    text = stringResource(R.string.wm_btn_qr),
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.sp,
-                                                    color = activeProtoColor
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        ManagerSection.DEPLOY -> {
-                            // Subheader banner removed as per user request (title is already in TopAppBar)
-                        }
-                        ManagerSection.SHARE -> {
-                            Surface(
-                                shape = RoundedCornerShape(11.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(1.dp, AmoledBorder),
-                                modifier = Modifier.fillMaxWidth().height(34.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
-                                    modifier = Modifier.padding(horizontal = 12.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_send),
-                                        contentDescription = null,
-                                        tint = activeProtoColor,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = stringResource(R.string.wm_qr_scanner_desc),
-                                        color = TextMuted,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
-                        }
-                        ManagerSection.SCANNER -> {
-                            Surface(
-                                shape = RoundedCornerShape(11.dp),
-                                color = Color.Transparent,
-                                border = BorderStroke(1.dp, AmoledBorder),
-                                modifier = Modifier.fillMaxWidth().height(34.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
-                                    modifier = Modifier.padding(horizontal = 12.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_diag_worker),
-                                        contentDescription = null,
-                                        tint = activeProtoColor,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = stringResource(R.string.wm_qr_scanner_sub),
-                                        color = TextMuted,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
+                                })
+                        ) {
+                            Text(
+                                text = stringResource(sec.titleRes),
+                                color = if (isSelected) secColor else TextMuted,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
                         }
                     }
                 }
@@ -1491,18 +961,20 @@ fun WorkerManagerScreen(
         }
     }
 
-    if (showAddDialog) {
-        AddWorkerDialog(
+    // ── BOTTOM SHEETS (DOGMA 2 ZERO-POPUP) ──
+
+    if (showAddSheet) {
+        AddWorkerSheet(
             prefs = prefs,
             activeAccentColor = activeProtoColor,
             initialDomain = prefillDomain,
             initialName = prefillName,
             onOpenQrScanner = {
-                showAddDialog = false
-                showQrScanner = true
+                showAddSheet = false
+                showQrScannerSheet = true
             },
             onDismiss = {
-                showAddDialog = false
+                showAddSheet = false
                 prefillDomain = ""
                 prefillName = ""
             },
@@ -1510,9 +982,9 @@ fun WorkerManagerScreen(
                 val res = prefs.addCustomWorker(name, domain)
                 res.fold(
                     onSuccess = { added ->
-                        prefs.setActiveWorkerId(added.id)
+                        prefs.setActiveWorkerId(added.id, mode = targetProtocol)
                         refreshWorkers()
-                        showAddDialog = false
+                        showAddSheet = false
                         prefillDomain = ""
                         prefillName = ""
                         Toast.makeText(context, context.getString(R.string.wm_toast_worker_added, added.name), Toast.LENGTH_SHORT).show()
@@ -1525,47 +997,63 @@ fun WorkerManagerScreen(
         )
     }
 
-    if (showQrScanner) {
-        QrCodeScannerDialog(
+    if (showQrScannerSheet) {
+        QrScannerSheet(
             activeAccentColor = activeProtoColor,
-            onDismiss = { showQrScanner = false },
+            onDismiss = { showQrScannerSheet = false },
             onQrScanned = { rawScanned ->
-                showQrScanner = false
+                showQrScannerSheet = false
                 val parsed = WorkerDomainNormalizer.normalize(rawScanned)
                 if (parsed.isValid) {
                     prefillDomain = parsed.cleanDomain
                     prefillName = parsed.suggestedName
-                    showAddDialog = true
+                    showAddSheet = true
                     Toast.makeText(context, context.getString(R.string.wm_toast_qr_recognized, parsed.cleanDomain), Toast.LENGTH_SHORT).show()
                 } else if (rawScanned.isNotBlank()) {
                     prefillDomain = rawScanned
                     prefillName = ""
-                    showAddDialog = true
+                    showAddSheet = true
                 }
             }
         )
     }
 
     workerToDelete?.let { worker ->
-        DeleteWorkerConfirmDialog(
+        DeleteWorkerConfirmSheet(
             worker = worker,
             onDismiss = { workerToDelete = null },
             onConfirm = {
                 prefs.deleteCustomWorker(worker.id)
+                val remaining = prefs.getCustomWorkers()
+                val app = com.mirrly.tgproxy.MirrlyApplication.instance
+                if (remaining.isEmpty()) {
+                    app.config.customCfDomain = ""
+                    app.prefsManager.saveConfig(app.config)
+                } else {
+                    app.config.customCfDomain = prefs.getActiveWorker().domain
+                    app.prefsManager.saveConfig(app.config)
+                }
                 refreshWorkers()
                 workerToDelete = null
                 Toast.makeText(context, context.getString(R.string.wm_toast_worker_deleted), Toast.LENGTH_SHORT).show()
             }
         )
     }
+
+    workerNotOwnedForUpdate?.let { worker ->
+        WorkerNotOwnedSheet(
+            worker = worker,
+            onDismiss = { workerNotOwnedForUpdate = null },
+            onOpenGuide = {
+                workerNotOwnedForUpdate = null
+                currentSection = ManagerSection.GUIDE
+            }
+        )
+    }
 }
 
-
-
-
-
 /**
- * Clean Frosted Glass Worker Card (Compact, transparent outline style)
+ * Outline-Only Worker Card.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1573,11 +1061,12 @@ private fun GlassWorkerCard(
     modifier: Modifier = Modifier,
     worker: WorkerProfile,
     isActive: Boolean,
+    isActiveMtproto: Boolean = false,
+    isActiveSocks5: Boolean = false,
     activeAccentColor: Color,
     pingInfo: Pair<WorkerStatus, Long?>?,
     onSelect: () -> Unit,
     onVisitSite: (() -> Unit)? = null,
-    onToggleType: (() -> Unit)? = null,
     onUpdateScript: (() -> Unit)? = null,
     isUpdatingScript: Boolean = false,
     onShare: (() -> Unit)?,
@@ -1589,10 +1078,9 @@ private fun GlassWorkerCard(
     val status = pingInfo?.first ?: WorkerStatus.UNKNOWN
     val pingMs = pingInfo?.second
 
-    val circuitRecord = com.mirrly.tgproxy.service.WorkerFailoverManager.getCircuitRecord(worker.id)
-    val circuitState = circuitRecord?.state ?: com.mirrly.tgproxy.core.CircuitState.CLOSED
+    val circuitRecord = WorkerFailoverManager.getCircuitRecord(worker.id)
+    val circuitState = circuitRecord?.state ?: CircuitState.CLOSED
 
-    // Dynamic seconds quarantine timer in real-time
     var currentRemSeconds by remember(circuitRecord?.cooldownUntilTimestamp, circuitState) {
         mutableStateOf(circuitRecord?.remainingCooldownSeconds ?: 0L)
     }
@@ -1601,28 +1089,27 @@ private fun GlassWorkerCard(
         while (true) {
             val rem = circuitRecord?.remainingCooldownSeconds ?: 0L
             currentRemSeconds = rem
-            if (rem <= 0L || circuitRecord?.state != com.mirrly.tgproxy.core.CircuitState.OPEN) {
+            if (rem <= 0L || circuitRecord?.state != CircuitState.OPEN) {
                 break
             }
-            kotlinx.coroutines.delay(1000L)
+            delay(1000L)
         }
     }
 
-    val isCircuitBroken = circuitState == com.mirrly.tgproxy.core.CircuitState.OPEN && currentRemSeconds > 0L
+    val isCircuitBroken = circuitState == CircuitState.OPEN && currentRemSeconds > 0L
 
     val (statusColor, statusText) = when {
         isCircuitBroken -> {
-            val text = stringResource(R.string.wm_status_quarantine, currentRemSeconds)
-            Pair(Color(0xFFEF4444), text)
+            Pair(Color(0xFFFF1744), stringResource(R.string.wm_status_quarantine, currentRemSeconds))
         }
-        circuitState == com.mirrly.tgproxy.core.CircuitState.HALF_OPEN || (circuitState == com.mirrly.tgproxy.core.CircuitState.OPEN && currentRemSeconds <= 0L) -> {
-            Pair(Color(0xFFF59E0B), stringResource(R.string.wm_status_checking))
+        circuitState == CircuitState.HALF_OPEN || (circuitState == CircuitState.OPEN && currentRemSeconds <= 0L) -> {
+            Pair(Color(0xFFF5A623), stringResource(R.string.wm_status_checking))
         }
         else -> {
             val color = when (status) {
-                WorkerStatus.ONLINE -> if ((pingMs ?: 0) < 250) Color(0xFF00E676) else Color(0xFFF59E0B)
-                WorkerStatus.RATE_LIMITED_429 -> Color(0xFFEF4444)
-                WorkerStatus.ERROR_UNREACHABLE -> Color(0xFFF59E0B)
+                WorkerStatus.ONLINE -> if ((pingMs ?: 0) < 250) ActiveGreenLed else Color(0xFFF5A623)
+                WorkerStatus.RATE_LIMITED_429 -> Color(0xFFFF1744)
+                WorkerStatus.ERROR_UNREACHABLE -> Color(0xFFF5A623)
                 WorkerStatus.UNKNOWN -> TextMuted
             }
             val text = when (status) {
@@ -1635,15 +1122,11 @@ private fun GlassWorkerCard(
         }
     }
 
-    val cardBorderColor = if (isActive) {
-        activeAccentColor.copy(alpha = 0.9f)
-    } else {
-        Color(0xFF181E2E)
-    }
+    val cardBorderColor = if (isActive) activeAccentColor else AmoledBorder
 
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = if (isActive) activeAccentColor.copy(alpha = 0.09f) else Color(0xFF0F1420).copy(alpha = 0.55f),
+        color = Color.Transparent,
         border = BorderStroke(if (isActive) 1.2.dp else 1.dp, cardBorderColor),
         modifier = modifier
             .fillMaxWidth()
@@ -1651,9 +1134,7 @@ private fun GlassWorkerCard(
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = {
-                    onSelect()
-                },
+                onClick = onSelect,
                 onLongClick = if (!worker.isDeveloperWorker) {
                     {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1668,10 +1149,10 @@ private fun GlassWorkerCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 11.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Top Row: Status Dot + Name + Protocol Pill [Right: Ping Status + Active Badge]
+            // Top Row: Status Dot + Name + Badges + Ping Status
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1682,7 +1163,6 @@ private fun GlassWorkerCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Status Indicator Dot
                     Box(
                         modifier = Modifier
                             .size(7.dp)
@@ -1690,7 +1170,6 @@ private fun GlassWorkerCard(
                             .background(statusColor)
                     )
 
-                    // Worker Name
                     Text(
                         text = worker.name,
                         color = TextWhite,
@@ -1700,46 +1179,46 @@ private fun GlassWorkerCard(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    // Protocol Tag Badge
-                    val protoBadgeColor = Color(0xFFA855F7)
-                    Surface(
-                        shape = RoundedCornerShape(5.dp),
-                        color = protoBadgeColor.copy(alpha = 0.14f),
-                        border = BorderStroke(0.8.dp, protoBadgeColor.copy(alpha = 0.45f))
-                    ) {
-                        Text(
-                            text = "Cloudflare Relay",
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = protoBadgeColor,
-                            maxLines = 1,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
-                        )
-                    }
-
-                    if (isActive) {
+                    if (isActiveMtproto) {
                         Surface(
                             shape = RoundedCornerShape(5.dp),
-                            color = activeAccentColor.copy(alpha = 0.15f),
-                            border = BorderStroke(0.8.dp, activeAccentColor.copy(alpha = 0.50f))
+                            color = Color.Transparent,
+                            border = BorderStroke(0.8.dp, MtprotoAccent)
                         ) {
                             Text(
-                                text = "АКТИВЕН",
+                                text = "MTPROTO",
                                 fontSize = 8.5.sp,
                                 fontWeight = FontWeight.Black,
-                                letterSpacing = 0.5.sp,
-                                color = activeAccentColor,
+                                letterSpacing = 0.4.sp,
+                                color = MtprotoAccent,
+                                modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.5.dp)
+                            )
+                        }
+                    }
+
+                    if (isActiveSocks5) {
+                        Surface(
+                            shape = RoundedCornerShape(5.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(0.8.dp, Socks5Accent)
+                        ) {
+                            Text(
+                                text = "SOCKS5",
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.4.sp,
+                                color = Socks5Accent,
                                 modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.5.dp)
                             )
                         }
                     }
                 }
 
-                // Monospace Ping Status Badge
+                // Monospace Ping Status Badge (Outline only)
                 Surface(
                     shape = RoundedCornerShape(6.dp),
-                    color = statusColor.copy(alpha = 0.10f),
-                    border = BorderStroke(0.7.dp, statusColor.copy(alpha = 0.30f))
+                    color = Color.Transparent,
+                    border = BorderStroke(0.8.dp, statusColor)
                 ) {
                     Text(
                         text = statusText,
@@ -1752,13 +1231,12 @@ private fun GlassWorkerCard(
                 }
             }
 
-            // Bottom Row: Domain / Subtitle [Right: Action Buttons]
+            // Bottom Row: Domain in Monospace + Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Domain
                 Text(
                     text = if (worker.isDeveloperWorker) stringResource(R.string.wm_official_node_desc) else worker.domain,
                     color = TextMuted,
@@ -1771,7 +1249,6 @@ private fun GlassWorkerCard(
                         .padding(end = 8.dp)
                 )
 
-                // Actions: Visit, Update Script, Share, Delete
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1779,22 +1256,19 @@ private fun GlassWorkerCard(
                     if (onVisitSite != null) {
                         Surface(
                             shape = CircleShape,
-                            color = activeAccentColor.copy(alpha = 0.10f),
-                            border = BorderStroke(0.8.dp, activeAccentColor.copy(alpha = 0.30f)),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, AmoledBorder),
                             modifier = Modifier
-                                .size(26.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onVisitSite()
-                                }
+                                .springPress(onClick = onVisitSite)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_globe),
                                     contentDescription = "Открыть сайт",
-                                    tint = activeAccentColor,
-                                    modifier = Modifier.size(13.5.dp)
+                                    tint = TextWhite,
+                                    modifier = Modifier.size(13.dp)
                                 )
                             }
                         }
@@ -1805,15 +1279,12 @@ private fun GlassWorkerCard(
                         val updateBtnColor = if (isOutdated) Color(0xFFF38020) else activeAccentColor
                         Surface(
                             shape = CircleShape,
-                            color = updateBtnColor.copy(alpha = if (isOutdated) 0.18f else 0.10f),
-                            border = BorderStroke(0.8.dp, updateBtnColor.copy(alpha = if (isOutdated) 0.50f else 0.30f)),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, if (isOutdated) Color(0xFFF38020) else AmoledBorder),
                             modifier = Modifier
-                                .size(26.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
-                                .clickable(enabled = !isUpdatingScript) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onUpdateScript()
-                                }
+                                .springPress(onClick = onUpdateScript)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 if (isUpdatingScript) {
@@ -1827,7 +1298,7 @@ private fun GlassWorkerCard(
                                         painter = painterResource(id = R.drawable.ic_refresh),
                                         contentDescription = stringResource(R.string.cf_deploy_btn_update_script),
                                         tint = updateBtnColor,
-                                        modifier = Modifier.size(13.5.dp)
+                                        modifier = Modifier.size(13.dp)
                                     )
                                 }
                             }
@@ -1837,22 +1308,19 @@ private fun GlassWorkerCard(
                     if (onShare != null) {
                         Surface(
                             shape = CircleShape,
-                            color = activeAccentColor.copy(alpha = 0.10f),
-                            border = BorderStroke(0.8.dp, activeAccentColor.copy(alpha = 0.30f)),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, AmoledBorder),
                             modifier = Modifier
-                                .size(26.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onShare()
-                                }
+                                .springPress(onClick = onShare)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Share,
                                     contentDescription = stringResource(R.string.wm_tab_share),
-                                    tint = activeAccentColor,
-                                    modifier = Modifier.size(12.5.dp)
+                                    tint = TextWhite,
+                                    modifier = Modifier.size(12.dp)
                                 )
                             }
                         }
@@ -1861,22 +1329,19 @@ private fun GlassWorkerCard(
                     if (onDelete != null) {
                         Surface(
                             shape = CircleShape,
-                            color = Color(0xFFEF4444).copy(alpha = 0.10f),
-                            border = BorderStroke(0.8.dp, Color(0xFFEF4444).copy(alpha = 0.30f)),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, BloodRed.copy(alpha = 0.5f)),
                             modifier = Modifier
-                                .size(26.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onDelete()
-                                }
+                                .springPress(onClick = onDelete)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_trash),
                                     contentDescription = stringResource(R.string.action_delete),
-                                    tint = Color(0xFFEF4444),
-                                    modifier = Modifier.size(12.5.dp)
+                                    tint = BloodRed,
+                                    modifier = Modifier.size(12.dp)
                                 )
                             }
                         }
@@ -1888,10 +1353,11 @@ private fun GlassWorkerCard(
 }
 
 /**
- * Frosted Glass Add Worker Modal Dialog (Info panels style, top-left back button, no emojis, smart normalizer and pre-flight tester)
+ * Add / Edit Worker Modal Sheet (MirrlyUI Zero-Popup Architecture).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddWorkerDialog(
+private fun AddWorkerSheet(
     prefs: PreferencesManager? = null,
     activeAccentColor: Color,
     initialDomain: String = "",
@@ -1915,664 +1381,774 @@ private fun AddWorkerDialog(
         WorkerDomainNormalizer.normalizeForm(nameText, domainText)
     }
 
-    Dialog(
-        onDismissRequest = {
-            if (!isCheckingWorker) onDismiss()
-        },
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-            dismissOnBackPress = !isCheckingWorker,
-            dismissOnClickOutside = !isCheckingWorker
+    MirrlyModalBottomSheet(onDismissRequest = {
+        if (!isCheckingWorker) onDismiss()
+    }) {
+        MirrlyBottomSheetHeader(
+            title = stringResource(R.string.wm_add_dialog_title),
+            subtitle = stringResource(R.string.wm_add_dialog_header),
+            onClose = { if (!isCheckingWorker) onDismiss() }
         )
-    ) {
-        DialogBackdropBox(
-            onDismiss = {
-                if (!isCheckingWorker) onDismiss()
-            }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Scrollable Content
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .adaptiveContainerWidth(440.dp)
-                    .verticalScroll(rememberScrollState())
-                    .navigationBarsPadding()
-                    .imePadding()
-                    .padding(
-                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
-                        bottom = 96.dp
-                    )
-                    .padding(horizontal = 24.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {}
-            ) {
-                // Category Pill
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = activeAccentColor.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.35f))
+            // 1. Worker Domain / URL Field
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = stringResource(R.string.wm_add_dialog_header),
-                        fontSize = 10.5.sp,
+                        text = stringResource(R.string.wm_add_field_url),
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = activeAccentColor,
-                        letterSpacing = 1.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                        letterSpacing = 0.4.sp
                     )
-                }
-
-                // Title
-                Text(
-                    text = stringResource(R.string.wm_add_dialog_title),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    textAlign = TextAlign.Center,
-                    letterSpacing = 0.3.sp
-                )
-
-                // Transparent Glass Container for Input Parameters
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.White.copy(alpha = 0.04f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(0.8.dp, BloodRed)
                     ) {
                         Text(
-                            text = stringResource(R.string.wm_add_params_header),
-                            fontSize = 12.sp,
+                            text = stringResource(R.string.wm_badge_required),
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
-                            color = activeAccentColor,
-                            letterSpacing = 0.5.sp
+                            color = BloodRed,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
+                    }
+                }
 
+                OutlinedTextField(
+                    value = domainText,
+                    onValueChange = {
+                        domainText = it
+                        unreachableWarning = null
+                    },
+                    placeholder = {
                         Text(
-                            text = stringResource(R.string.wm_add_params_desc),
+                            "worker.username.workers.dev",
+                            color = TextMuted,
                             fontSize = 12.sp,
-                            color = TextWhite.copy(alpha = 0.8f),
-                            lineHeight = 16.5.sp
+                            fontFamily = FontFamily.Monospace
                         )
-
-                        // ── 1. PRIMARY INPUT FIELD: WORKER DOMAIN / URL ──
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.wm_add_field_url),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = activeAccentColor,
-                                    letterSpacing = 0.5.sp
-                                )
-
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFE53935).copy(alpha = 0.15f),
-                                    border = BorderStroke(1.dp, Color(0xFFE53935).copy(alpha = 0.3f))
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.wm_badge_required),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFFF6B6B),
-                                        letterSpacing = 0.5.sp,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-
-                            OutlinedTextField(
-                                value = domainText,
-                                onValueChange = {
-                                    domainText = it
-                                    unreachableWarning = null
-                                },
-                                placeholder = {
-                                    Text(
-                                        "my-proxy.username.workers.dev",
-                                        color = TextMuted.copy(alpha = 0.45f),
-                                        fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                },
-                                textStyle = LocalTextStyle.current.copy(
-                                    color = TextWhite,
-                                    fontSize = 13.sp,
-                                    fontFamily = FontFamily.Monospace
-                                ),
-                                singleLine = true,
-                                trailingIcon = {
-                                    if (domainText.isNotBlank()) {
-                                        IconButton(onClick = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            domainText = ""
-                                            unreachableWarning = null
-                                        }) {
-                                            Text(
-                                                text = "✕",
-                                                color = TextMuted,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = activeAccentColor,
-                                    unfocusedBorderColor = Color(0xFF223048),
-                                    focusedTextColor = TextWhite,
-                                    unfocusedTextColor = TextWhite,
-                                    focusedLabelColor = activeAccentColor,
-                                    unfocusedLabelColor = TextMuted,
-                                    focusedContainerColor = Color.White.copy(alpha = 0.02f),
-                                    unfocusedContainerColor = Color.Transparent
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            // Dedicated Quick Actions: Paste from Clipboard & Scan QR
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                // Paste Button
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = activeAccentColor.copy(alpha = 0.08f),
-                                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.3f)),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .springPress(onClick = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            val clip = clipboardManager.getText()?.text.orEmpty().trim()
-                                            if (clip.isNotBlank()) {
-                                                val parsed = WorkerDomainNormalizer.normalizeForm(nameText, clip)
-                                                domainText = parsed.normalizedDomain
-                                                if (nameText.isBlank() && parsed.normalizedName.isNotBlank()) {
-                                                    nameText = parsed.normalizedName
-                                                }
-                                                Toast.makeText(context, context.getString(R.string.wm_toast_addr_normalized), Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                Toast.makeText(context, context.getString(R.string.wm_toast_clipboard_empty), Toast.LENGTH_SHORT).show()
-                                            }
-                                        })
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_copy),
-                                            contentDescription = null,
-                                            tint = activeAccentColor,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = stringResource(R.string.wm_btn_from_clipboard),
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = activeAccentColor
-                                        )
-                                    }
-                                }
-
-                                // Scan QR Button
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = activeAccentColor.copy(alpha = 0.12f),
-                                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.45f)),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .springPress(onClick = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            onOpenQrScanner()
-                                        })
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_diag_worker),
-                                            contentDescription = null,
-                                            tint = activeAccentColor,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = stringResource(R.string.wm_btn_qr_scanner),
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = activeAccentColor
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Live Validation & Predictive Status Badge
-                            if (domainText.isNotBlank() || formResult.wasSwapped) {
-                                val status = formResult.domainResult.status
-                                val isSuccess = status == DomainFormatStatus.VALID || status == DomainFormatStatus.HOMOGLYPHS_FIXED
-                                val isWarning = status == DomainFormatStatus.DASHBOARD_URL || status == DomainFormatStatus.NAME_ONLY || formResult.wasSwapped
-
-                                val badgeBg = when {
-                                    isSuccess -> ActiveGreenLed.copy(alpha = 0.08f)
-                                    isWarning -> Color(0xFFF5A623).copy(alpha = 0.08f)
-                                    else -> Color(0xFFE53935).copy(alpha = 0.08f)
-                                }
-                                val badgeBorder = when {
-                                    isSuccess -> ActiveGreenLed.copy(alpha = 0.35f)
-                                    isWarning -> Color(0xFFF5A623).copy(alpha = 0.35f)
-                                    else -> Color(0xFFE53935).copy(alpha = 0.35f)
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = badgeBg,
-                                    border = BorderStroke(1.dp, badgeBorder),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(7.dp)
-                                                    .clip(CircleShape)
-                                                    .background(
-                                                        when {
-                                                            isSuccess -> ActiveGreenLed
-                                                            isWarning -> Color(0xFFFFD166)
-                                                            else -> Color(0xFFFF6B6B)
-                                                        }
-                                                    )
-                                            )
-                                            Text(
-                                                text = when {
-                                                    formResult.wasSwapped -> stringResource(R.string.wm_format_swapped)
-                                                    status == DomainFormatStatus.HOMOGLYPHS_FIXED -> stringResource(R.string.wm_format_homoglyphs)
-                                                    isSuccess -> stringResource(R.string.wm_format_public)
-                                                    status == DomainFormatStatus.DASHBOARD_URL -> stringResource(R.string.wm_format_dashboard)
-                                                    status == DomainFormatStatus.NAME_ONLY -> stringResource(R.string.wm_format_name_only)
-                                                    else -> stringResource(R.string.wm_format_error)
-                                                },
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = when {
-                                                    isSuccess -> ActiveGreenLed
-                                                    isWarning -> Color(0xFFFFD166)
-                                                    else -> Color(0xFFFF6B6B)
-                                                },
-                                                letterSpacing = 0.5.sp
-                                            )
-                                        }
-
-                                        if (formResult.domainResult.cleanDomain.isNotBlank() && isSuccess) {
-                                            Text(
-                                                text = formResult.domainResult.cleanDomain,
-                                                fontSize = 13.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace,
-                                                color = TextWhite
-                                            )
-                                        }
-
-                                        if (formResult.wasSwapped) {
-                                            Text(
-                                                text = stringResource(R.string.wm_swap_detected_desc, nameText),
-                                                fontSize = 11.5.sp,
-                                                color = TextWhite.copy(alpha = 0.85f),
-                                                lineHeight = 15.sp
-                                            )
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color(0xFFF5A623).copy(alpha = 0.15f))
-                                                    .clickable {
-                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        domainText = formResult.normalizedDomain
-                                                        nameText = formResult.normalizedName
-                                                    }
-                                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Text(
-                                                    text = stringResource(R.string.wm_btn_apply_swap),
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color(0xFFFFD166)
-                                                )
-                                            }
-                                        } else {
-                                            Text(
-                                                text = formResult.domainResult.userMessage,
-                                                fontSize = 11.5.sp,
-                                                color = TextWhite.copy(alpha = 0.8f),
-                                                lineHeight = 15.sp
-                                            )
-                                        }
-                                    }
-                                }
+                    },
+                    textStyle = LocalTextStyle.current.copy(
+                        color = TextWhite,
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace
+                    ),
+                    singleLine = true,
+                    trailingIcon = {
+                        if (domainText.isNotBlank()) {
+                            IconButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                domainText = ""
+                                unreachableWarning = null
+                            }) {
+                                Text("✕", color = TextMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                         }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = activeAccentColor,
+                        unfocusedBorderColor = AmoledBorder,
+                        focusedTextColor = TextWhite,
+                        unfocusedTextColor = TextWhite,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        cursorColor = activeAccentColor
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                        // ── 2. SECONDARY INPUT FIELD: WORKER NAME ──
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.wm_field_name),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextMuted,
-                                    letterSpacing = 0.5.sp
-                                )
-
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color.White.copy(alpha = 0.06f),
-                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.wm_badge_optional),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextMuted,
-                                        letterSpacing = 0.5.sp,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
+                // Quick buttons: Clipboard & Scanner
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .springPress(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val clip = clipboardManager.getText()?.text.orEmpty().trim()
+                                if (clip.isNotBlank()) {
+                                    val parsed = WorkerDomainNormalizer.normalizeForm(nameText, clip)
+                                    domainText = parsed.normalizedDomain
+                                    if (nameText.isBlank() && parsed.normalizedName.isNotBlank()) {
+                                        nameText = parsed.normalizedName
+                                    }
+                                    Toast.makeText(context, context.getString(R.string.wm_toast_addr_normalized), Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, context.getString(R.string.wm_toast_clipboard_empty), Toast.LENGTH_SHORT).show()
                                 }
-                            }
-
-                            val placeholderName = formResult.domainResult.suggestedName.ifBlank { stringResource(R.string.wm_default_home_name) }
-
-                            OutlinedTextField(
-                                value = nameText,
-                                onValueChange = { nameText = it },
-                                placeholder = {
-                                    Text(
-                                        placeholderName,
-                                        color = TextMuted.copy(alpha = 0.45f),
-                                        fontSize = 12.sp
-                                    )
-                                },
-                                textStyle = LocalTextStyle.current.copy(
-                                    color = TextWhite,
-                                    fontSize = 13.sp
-                                ),
-                                singleLine = true,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = activeAccentColor,
-                                    unfocusedBorderColor = Color(0xFF223048),
-                                    focusedTextColor = TextWhite,
-                                    unfocusedTextColor = TextWhite,
-                                    focusedLabelColor = activeAccentColor,
-                                    unfocusedLabelColor = TextMuted,
-                                    focusedContainerColor = Color.White.copy(alpha = 0.02f),
-                                    unfocusedContainerColor = Color.Transparent
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-
-                        // ── 3. VISUAL REFERENCE GUIDE / QUICK HINT ──
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF0F172A).copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
-                            modifier = Modifier.fillMaxWidth()
+                            })
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_copy),
+                                contentDescription = null,
+                                tint = activeAccentColor,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.wm_btn_from_clipboard),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextWhite
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .springPress(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onOpenQrScanner()
+                            })
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_diag_worker),
+                                contentDescription = null,
+                                tint = activeAccentColor,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.wm_btn_qr_scanner),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextWhite
+                            )
+                        }
+                    }
+                }
+
+                // Live Validation Status Badge (Outline only)
+                if (domainText.isNotBlank() || formResult.wasSwapped) {
+                    val status = formResult.domainResult.status
+                    val isSuccess = status == DomainFormatStatus.VALID || status == DomainFormatStatus.HOMOGLYPHS_FIXED
+                    val isWarning = status == DomainFormatStatus.DASHBOARD_URL || status == DomainFormatStatus.NAME_ONLY || formResult.wasSwapped
+                    val badgeColor = when {
+                        isSuccess -> ActiveGreenLed
+                        isWarning -> Color(0xFFF5A623)
+                        else -> BloodRed
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, badgeColor),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(
-                                    text = stringResource(R.string.wm_help_where_header),
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = activeAccentColor,
-                                    letterSpacing = 0.5.sp
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(badgeColor)
                                 )
                                 Text(
-                                    text = stringResource(R.string.wm_help_where_desc),
+                                    text = when {
+                                        formResult.wasSwapped -> stringResource(R.string.wm_format_swapped)
+                                        status == DomainFormatStatus.HOMOGLYPHS_FIXED -> stringResource(R.string.wm_format_homoglyphs)
+                                        isSuccess -> stringResource(R.string.wm_format_public)
+                                        status == DomainFormatStatus.DASHBOARD_URL -> stringResource(R.string.wm_format_dashboard)
+                                        status == DomainFormatStatus.NAME_ONLY -> stringResource(R.string.wm_format_name_only)
+                                        else -> stringResource(R.string.wm_format_error)
+                                    },
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = badgeColor
+                                )
+                            }
+
+                            if (formResult.domainResult.cleanDomain.isNotBlank() && isSuccess) {
+                                Text(
+                                    text = formResult.domainResult.cleanDomain,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = TextWhite
+                                )
+                            }
+
+                            if (formResult.wasSwapped) {
+                                Text(
+                                    text = stringResource(R.string.wm_swap_detected_desc, nameText),
                                     fontSize = 11.sp,
-                                    color = TextWhite.copy(alpha = 0.72f),
-                                    lineHeight = 15.5.sp
+                                    color = TextMuted,
+                                    lineHeight = 14.sp
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.Transparent,
+                                    border = BorderStroke(1.dp, Color(0xFFF5A623)),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .springPress(onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            domainText = formResult.normalizedDomain
+                                            nameText = formResult.normalizedName
+                                        })
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.wm_btn_apply_swap),
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFF5A623),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = formResult.domainResult.userMessage,
+                                    fontSize = 11.sp,
+                                    color = TextMuted,
+                                    lineHeight = 14.sp
                                 )
                             }
                         }
                     }
                 }
+            }
 
-                // ── 4. UNREACHABLE / PRE-FLIGHT WARNING BANNER ──
-                if (unreachableWarning != null) {
+            // 2. Worker Name Field (Optional)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.wm_field_name),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextMuted,
+                        letterSpacing = 0.4.sp
+                    )
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color(0xFFE53935).copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, Color(0xFFE53935).copy(alpha = 0.35f)),
-                        modifier = Modifier.fillMaxWidth()
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(0.8.dp, AmoledBorder)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.wm_conn_warning_header),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFFF6B6B),
-                                letterSpacing = 0.5.sp
-                            )
-                            Text(
-                                text = unreachableWarning ?: "",
-                                fontSize = 11.5.sp,
-                                color = TextWhite.copy(alpha = 0.9f),
-                                lineHeight = 15.sp
-                            )
+                        Text(
+                            text = stringResource(R.string.wm_badge_optional),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = {
+                val placeholderName = formResult.domainResult.suggestedName.ifBlank { stringResource(R.string.wm_default_home_name) }
+
+                OutlinedTextField(
+                    value = nameText,
+                    onValueChange = { nameText = it },
+                    placeholder = {
+                        Text(placeholderName, color = TextMuted, fontSize = 12.sp)
+                    },
+                    textStyle = LocalTextStyle.current.copy(
+                        color = TextWhite,
+                        fontSize = 13.sp
+                    ),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = activeAccentColor,
+                        unfocusedBorderColor = AmoledBorder,
+                        focusedTextColor = TextWhite,
+                        unfocusedTextColor = TextWhite,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        cursorColor = activeAccentColor
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // Unreachable Warning Banner
+            if (unreachableWarning != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, BloodRed),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.wm_conn_warning_header),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = BloodRed
+                        )
+                        Text(
+                            text = unreachableWarning ?: "",
+                            fontSize = 11.5.sp,
+                            color = TextWhite,
+                            lineHeight = 15.sp
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, BloodRed),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .springPress(onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         val cleanDomain = formResult.normalizedDomain
                                         val finalName = formResult.normalizedName.ifBlank {
                                             formResult.domainResult.suggestedName.ifBlank { context.getString(R.string.wm_default_custom_name) }
                                         }
                                         onAdd(finalName, cleanDomain)
-                                    },
-                                    border = BorderStroke(1.dp, Color(0xFFFF6B6B).copy(alpha = 0.5f)),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1f).height(38.dp)
-                                ) {
+                                    })
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     Text(
                                         text = stringResource(R.string.wm_btn_save_anyway),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFFFF6B6B)
+                                        color = BloodRed
                                     )
                                 }
-
-                                Button(
-                                    onClick = {
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, activeAccentColor),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .springPress(onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         unreachableWarning = null
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = activeAccentColor),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1f).height(38.dp)
-                                ) {
+                                    })
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     Text(
                                         text = stringResource(R.string.wm_btn_fix),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF0A0E1A)
+                                        color = activeAccentColor
                                     )
                                 }
                             }
                         }
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(2.dp))
-
-                // ── 5. SAVE & PRE-FLIGHT VERIFICATION BUTTON ──
+            // Action Dock Buttons (Outline Only)
+            MirrlyActionDock {
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (isCheckingWorker) activeAccentColor.copy(alpha = 0.7f) else activeAccentColor,
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, AmoledBorder),
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .springPress(
-                            onClick = {
-                                if (isCheckingWorker) return@springPress
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        .weight(1f)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .springPress(onClick = {
+                            if (!isCheckingWorker) onDismiss()
+                        })
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stringResource(R.string.action_cancel),
+                            color = TextWhite,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
 
-                                val cleanDomain = formResult.normalizedDomain
-                                val finalName = formResult.normalizedName.ifBlank {
-                                    formResult.domainResult.suggestedName.ifBlank { context.getString(R.string.wm_default_custom_name) }
-                                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, activeAccentColor),
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .springPress(onClick = {
+                            if (isCheckingWorker) return@springPress
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
 
-                                if (cleanDomain.isBlank()) {
-                                    Toast.makeText(context, context.getString(R.string.wm_toast_specify_valid), Toast.LENGTH_SHORT).show()
-                                    return@springPress
-                                }
+                            val cleanDomain = formResult.normalizedDomain
+                            val finalName = formResult.normalizedName.ifBlank {
+                                formResult.domainResult.suggestedName.ifBlank { context.getString(R.string.wm_default_custom_name) }
+                            }
 
-                                if (formResult.domainResult.status == DomainFormatStatus.DASHBOARD_URL) {
-                                    unreachableWarning = formResult.domainResult.userMessage
-                                    return@springPress
-                                }
+                            if (cleanDomain.isBlank()) {
+                                Toast.makeText(context, context.getString(R.string.wm_toast_specify_valid), Toast.LENGTH_SHORT).show()
+                                return@springPress
+                            }
 
-                                scope.launch {
-                                    isCheckingWorker = true
-                                    checkStatusMessage = context.getString(R.string.wm_checking_node_avail)
-                                    unreachableWarning = null
+                            if (formResult.domainResult.status == DomainFormatStatus.DASHBOARD_URL) {
+                                unreachableWarning = formResult.domainResult.userMessage
+                                return@springPress
+                            }
 
-                                    val (status, pingMs) = WorkerPingTester.pingWorker(cleanDomain)
-                                    isCheckingWorker = false
-                                    checkStatusMessage = null
+                            scope.launch {
+                                isCheckingWorker = true
+                                checkStatusMessage = context.getString(R.string.wm_checking_node_avail)
+                                unreachableWarning = null
 
-                                    if (status == WorkerStatus.ONLINE || status == WorkerStatus.RATE_LIMITED_429) {
-                                        onAdd(finalName, cleanDomain)
-                                    } else {
-                                        unreachableWarning = context.getString(R.string.wm_unreachable_warning, cleanDomain)
-                                    }
+                                val (status, _) = WorkerPingTester.pingWorker(cleanDomain)
+                                isCheckingWorker = false
+                                checkStatusMessage = null
+
+                                if (status == WorkerStatus.ONLINE || status == WorkerStatus.RATE_LIMITED_429) {
+                                    onAdd(finalName, cleanDomain)
+                                } else {
+                                    unreachableWarning = context.getString(R.string.wm_unreachable_warning, cleanDomain)
                                 }
                             }
-                        )
+                        })
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         if (isCheckingWorker) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    color = Color(0xFF0A0E1A),
-                                    strokeWidth = 2.dp
+                                    modifier = Modifier.size(14.dp),
+                                    color = activeAccentColor,
+                                    strokeWidth = 1.5.dp
                                 )
                                 Text(
                                     text = checkStatusMessage ?: stringResource(R.string.wm_checking_node),
-                                    color = Color(0xFF0A0E1A),
+                                    color = activeAccentColor,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 13.5.sp
+                                    fontSize = 12.sp
                                 )
                             }
                         } else {
                             Text(
                                 text = stringResource(R.string.wm_btn_save_activate),
-                                color = Color(0xFF0A0E1A),
+                                color = activeAccentColor,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
+                                fontSize = 13.sp
                             )
                         }
                     }
                 }
+            }
+        }
+    }
+}
 
-                // Cancel Button
+/**
+ * Delete Confirmation Bottom Sheet (MirrlyUI Zero-Popup Architecture).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DeleteWorkerConfirmSheet(
+    worker: WorkerProfile,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+
+    MirrlyModalBottomSheet(onDismissRequest = onDismiss) {
+        MirrlyBottomSheetHeader(
+            title = stringResource(R.string.wm_delete_title),
+            onClose = onDismiss
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "Подтвердите удаление Cloudflare Worker узла из конфигурации приложения:",
+                fontSize = 12.5.sp,
+                color = TextMuted,
+                lineHeight = 17.sp
+            )
+
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = worker.name,
+                        color = TextWhite,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = worker.domain,
+                        color = TextMuted,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            MirrlyActionDock {
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = Color.Transparent,
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    border = BorderStroke(1.dp, AmoledBorder),
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .weight(1f)
                         .height(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .springPress(
-                            onClick = {
-                                if (isCheckingWorker) return@springPress
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onDismiss()
-                            }
-                        )
+                        .clip(RoundedCornerShape(12.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onDismiss()
+                        })
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             text = stringResource(R.string.action_cancel),
-                            color = TextWhite.copy(alpha = 0.85f),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.5.sp
+                            color = TextWhite,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(56.dp))
-            }
-
-            // Top Header with Back Button (pinned at top left over blurred background)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopStart)
-                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp)
-            ) {
-                IconButton(
-                    onClick = {
-                        if (!isCheckingWorker) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, BloodRed),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .springPress(onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onDismiss()
+                            onConfirm()
+                        })
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stringResource(R.string.action_delete),
+                            color = BloodRed,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * QR Code Scanner Bottom Sheet (MirrlyUI Zero-Popup Architecture).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QrScannerSheet(
+    activeAccentColor: Color,
+    onDismiss: () -> Unit,
+    onQrScanned: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasCameraPermission = isGranted
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasCameraPermission) {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    MirrlyModalBottomSheet(onDismissRequest = onDismiss) {
+        MirrlyBottomSheetHeader(
+            title = stringResource(R.string.wm_btn_qr_scanner),
+            subtitle = stringResource(R.string.wm_qr_scanner_sub),
+            onClose = onDismiss
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            if (hasCameraPermission) {
+                CameraQrScannerView(
+                    activeAccentColor = activeAccentColor,
+                    onScanned = { rawText ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onQrScanned(rawText)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(20.dp))
+                )
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, AmoledBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(20.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_diag_worker),
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = stringResource(R.string.wm_camera_disabled_title),
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = stringResource(R.string.wm_camera_disabled_desc),
+                            fontSize = 11.5.sp,
+                            color = TextMuted,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 15.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, activeAccentColor),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    permissionLauncher.launch(Manifest.permission.CAMERA)
+                                })
+                        ) {
+                            Text(
+                                text = stringResource(R.string.wm_btn_grant_access),
+                                color = activeAccentColor,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
                         }
                     }
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .springPress(onClick = {
+                        val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip?.getItemAt(0)?.text?.toString().orEmpty().trim()
+                        if (clip.isNotBlank()) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onQrScanned(clip)
+                        } else {
+                            Toast.makeText(context, context.getString(R.string.wm_toast_clipboard_empty), Toast.LENGTH_SHORT).show()
+                        }
+                    })
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        painter = painterResource(id = R.drawable.ic_arrow_left),
-                        contentDescription = stringResource(R.string.action_back),
-                        tint = TextWhite,
-                        modifier = Modifier.size(22.dp)
+                        painter = painterResource(id = R.drawable.ic_copy),
+                        contentDescription = null,
+                        tint = activeAccentColor,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.wm_btn_paste_address_link),
+                        color = TextWhite,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -2581,181 +2157,84 @@ private fun AddWorkerDialog(
 }
 
 /**
- * Frosted Glass Delete Confirmation Modal Dialog (Info panels style, top-left back button, no emojis)
+ * Worker Not Owned Bottom Sheet (MirrlyUI Zero-Popup Architecture).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DeleteWorkerConfirmDialog(
+private fun WorkerNotOwnedSheet(
     worker: WorkerProfile,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit
+    onOpenGuide: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true
+    MirrlyModalBottomSheet(onDismissRequest = onDismiss) {
+        MirrlyBottomSheetHeader(
+            title = stringResource(R.string.wm_update_not_owned_title),
+            onClose = onDismiss
         )
-    ) {
-        DialogBackdropBox(
-            onDismiss = onDismiss
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Scrollable Content
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .adaptiveContainerWidth(440.dp)
-                    .verticalScroll(rememberScrollState())
-                    .navigationBarsPadding()
-                    .imePadding()
-                    .padding(
-                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
-                        bottom = 96.dp
-                    )
-                    .padding(horizontal = 24.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {}
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, AmoledBorder)
             ) {
-                // Category Pill
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFFEF4444).copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.35f))
-                ) {
-                    Text(
-                        text = stringResource(R.string.wm_delete_header),
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFEF4444),
-                        letterSpacing = 1.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                    )
-                }
-
-                // Title
                 Text(
-                    text = stringResource(R.string.wm_delete_title),
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                    text = worker.domain,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
                     color = TextWhite,
-                    textAlign = TextAlign.Center,
-                    letterSpacing = 0.3.sp
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                 )
+            }
 
-                // Transparent Glass Container for Details
+            Text(
+                text = stringResource(R.string.wm_update_not_owned_desc),
+                fontSize = 12.sp,
+                color = TextMuted,
+                lineHeight = 17.sp,
+                textAlign = TextAlign.Center
+            )
+
+            MirrlyActionDock {
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color.White.copy(alpha = 0.04f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.wm_delete_confirm_header),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFEF4444),
-                            letterSpacing = 0.5.sp
-                        )
-
-                        Text(
-                            text = stringResource(R.string.wm_delete_confirm_desc, worker.name, worker.domain),
-                            fontSize = 13.sp,
-                            color = TextWhite.copy(alpha = 0.85f),
-                            lineHeight = 18.sp
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Delete Action Button
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color(0xFFEF4444),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, Color(0xFF38BDF8)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .springPress(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onConfirm()
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onOpenGuide()
                         })
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            text = stringResource(R.string.wm_btn_delete_node),
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            text = "Открыть инструкцию",
+                            color = Color(0xFF38BDF8),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
-                }
-
-                // Cancel Button
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .springPress(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onDismiss()
-                            }
-                        )
-                ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = stringResource(R.string.action_cancel),
-                            color = TextWhite.copy(alpha = 0.85f),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.5.sp
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(56.dp))
-            }
-
-            // Top Header with Back Button (pinned at top left over blurred background)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopStart)
-                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp)
-            ) {
-                IconButton(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onDismiss()
-                    }
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_arrow_left),
-                        contentDescription = stringResource(R.string.action_back),
-                        tint = TextWhite,
-                        modifier = Modifier.size(22.dp)
-                    )
                 }
             }
         }
     }
 }
 
+/**
+ * Share Worker Content (QR Code and links).
+ */
 @Composable
 private fun ShareWorkerContent(
     workers: List<WorkerProfile>,
@@ -2809,11 +2288,11 @@ private fun ShareWorkerContent(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Surface(
-                    shape = RoundedCornerShape(13.dp),
-                    color = activeAccentColor.copy(alpha = 0.14f),
-                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, activeAccentColor),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(13.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .springPress(onClick = onAddWorkerClick)
                 ) {
                     Text(
@@ -2856,21 +2335,14 @@ private fun ShareWorkerContent(
                 .verticalScroll(rememberScrollState())
                 .padding(
                     top = headerPadding + 8.dp,
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 110.dp,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 90.dp,
                     start = 16.dp,
                     end = 16.dp
                 ),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Worker Selector Horizontal Row
             if (workers.size > 1) {
-                Text(
-                    text = stringResource(R.string.wm_select_node_qr_prompt),
-                    color = TextMuted,
-                    fontSize = 11.5.sp,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
-                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2879,51 +2351,36 @@ private fun ShareWorkerContent(
                 ) {
                     workers.forEach { w ->
                         val isSelected = w.id == currentWorker.id
-                        val isActive = w.id == activeWorkerId
                         val chipBorder = if (isSelected) activeAccentColor else AmoledBorder
-                        val chipBg = if (isSelected) activeAccentColor.copy(alpha = 0.15f) else AmoledSurfaceLow
 
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = chipBg,
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Transparent,
                             border = BorderStroke(1.dp, chipBorder),
                             modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .springPress(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     onSelectWorker(w)
                                 })
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            Text(
+                                text = w.name,
+                                color = if (isSelected) activeAccentColor else TextWhite,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                            ) {
-                                if (isActive) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(activeAccentColor)
-                                    )
-                                }
-                                Text(
-                                    text = w.name,
-                                    color = if (isSelected) activeAccentColor else TextWhite,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                )
-                            }
+                            )
                         }
                     }
                 }
             }
 
-            // QR Code Card in Liquid Glass Amoled Style
+            // Outline QR Card
             Surface(
-                shape = RoundedCornerShape(26.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = Color.Transparent,
-                border = BorderStroke(1.2.dp, activeAccentColor.copy(alpha = 0.45f)),
+                border = BorderStroke(1.dp, AmoledBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -2931,202 +2388,129 @@ private fun ShareWorkerContent(
                     modifier = Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Header with Worker Name Badge
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.fillMaxWidth()
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, activeAccentColor)
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.35f))
-                        ) {
-                            Text(
-                                text = currentWorker.name,
-                                color = activeAccentColor,
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                        }
+                        Text(
+                            text = currentWorker.name,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = activeAccentColor,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
                     }
 
-                    // QR Code Frame in Cyber Dark AMOLED container
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(240.dp)
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(Color(0xFF090E18))
-                            .border(BorderStroke(1.5.dp, activeAccentColor.copy(alpha = 0.50f)), RoundedCornerShape(22.dp))
-                            .padding(12.dp)
-                    ) {
-                        if (qrBitmap != null) {
+                    if (qrBitmap != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(230.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .border(1.dp, AmoledBorder, RoundedCornerShape(16.dp))
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Image(
                                 bitmap = qrBitmap.asImageBitmap(),
                                 contentDescription = stringResource(R.string.wm_qr_code_desc),
                                 modifier = Modifier.fillMaxSize()
                             )
-                        } else {
-                            CircularProgressIndicator(color = activeAccentColor, modifier = Modifier.size(36.dp))
                         }
                     }
 
-                    // Domain address badge
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, Color(0xFF1E283D)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                clipboardManager.setText(AnnotatedString(currentWorker.domain))
-                                Toast.makeText(context, context.getString(R.string.wm_toast_domain_copied), Toast.LENGTH_SHORT).show()
-                            }
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = stringResource(R.string.wm_node_domain_label),
-                                    color = TextMuted,
-                                    fontSize = 10.5.sp
-                                )
-                                Text(
-                                    text = currentWorker.domain,
-                                    color = TextWhite,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_copy),
-                                contentDescription = stringResource(R.string.cf_guide_btn_copy),
-                                tint = activeAccentColor,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Quick Actions Buttons Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Share to Telegram / Social Apps
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.2.dp, activeAccentColor.copy(alpha = 0.7f)),
-                    modifier = Modifier
-                        .weight(1.3f)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .springPress(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onShare(currentWorker)
-                        })
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(horizontal = 12.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_send),
-                            contentDescription = null,
-                            tint = activeAccentColor,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.wm_btn_send_to_friend),
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = activeAccentColor
-                        )
-                    }
-                }
-
-                // Copy Link
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(1.dp, AmoledBorder),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .springPress(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            clipboardManager.setText(AnnotatedString(deepLink))
-                            Toast.makeText(context, context.getString(R.string.wm_toast_mirrly_link_copied), Toast.LENGTH_SHORT).show()
-                        })
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(horizontal = 10.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_copy),
-                            contentDescription = null,
-                            tint = TextWhite,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.wm_link_label),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextWhite
-                        )
-                    }
-                }
-            }
-
-            // Info Card
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color.Transparent,
-                border = BorderStroke(1.dp, AmoledBorder.copy(alpha = 0.6f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.Top,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_info_circle),
-                        contentDescription = null,
-                        tint = activeAccentColor,
-                        modifier = Modifier.size(18.dp)
-                    )
                     Text(
-                        text = stringResource(R.string.wm_friend_qr_hint),
+                        text = currentWorker.domain,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
                         color = TextMuted,
-                        fontSize = 11.5.sp,
-                        lineHeight = 16.sp
+                        textAlign = TextAlign.Center
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, AmoledBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    cb.setPrimaryClip(ClipData.newPlainText("Worker Link", deepLink))
+                                    Toast.makeText(context, context.getString(R.string.wm_toast_mirrly_link_copied), Toast.LENGTH_SHORT).show()
+                                })
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_copy),
+                                    contentDescription = null,
+                                    tint = activeAccentColor,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Скопировать",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextWhite
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, activeAccentColor),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onShare(currentWorker)
+                                })
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = null,
+                                    tint = activeAccentColor,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Поделиться",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = activeAccentColor
+                                )
+                            }
+                        }
+                    }
                 }
             }
-
-            Spacer(modifier = Modifier.height(56.dp))
         }
     }
 }
 
+/**
+ * Scanner Worker Content (Camera QR and clipboard paste).
+ */
 @Composable
 private fun ScannerWorkerContent(
     activeAccentColor: Color,
@@ -3165,18 +2549,17 @@ private fun ScannerWorkerContent(
             .verticalScroll(rememberScrollState())
             .padding(
                 top = headerPadding + 8.dp,
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 110.dp,
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 90.dp,
                 start = 16.dp,
                 end = 16.dp
             ),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Camera Viewport Card
         Surface(
-            shape = RoundedCornerShape(26.dp),
+            shape = RoundedCornerShape(20.dp),
             color = Color.Transparent,
-            border = BorderStroke(1.2.dp, activeAccentColor.copy(alpha = 0.45f)),
+            border = BorderStroke(1.dp, AmoledBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -3193,9 +2576,9 @@ private fun ScannerWorkerContent(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(290.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(20.dp))
+                            .height(280.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(16.dp))
                     )
                 } else {
                     Column(
@@ -3203,54 +2586,48 @@ private fun ScannerWorkerContent(
                         verticalArrangement = Arrangement.Center,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(260.dp)
-                            .background(Color.Transparent, RoundedCornerShape(20.dp))
-                            .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(20.dp))
+                            .height(240.dp)
+                            .border(BorderStroke(1.dp, AmoledBorder), RoundedCornerShape(16.dp))
                             .padding(20.dp)
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_diag_worker),
                             contentDescription = null,
                             tint = TextMuted,
-                            modifier = Modifier.size(44.dp)
+                            modifier = Modifier.size(40.dp)
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Text(
                             text = stringResource(R.string.wm_camera_disabled_title),
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
                             color = TextWhite,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = stringResource(R.string.wm_camera_disabled_desc),
-                            color = TextMuted,
-                            fontSize = 12.sp,
                             textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = stringResource(R.string.wm_camera_disabled_desc),
+                            fontSize = 11.5.sp,
+                            color = TextMuted,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 15.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = activeAccentColor.copy(alpha = 0.15f),
-                            border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, activeAccentColor),
                             modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .springPress(onClick = {
-                                    try {
-                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                            data = Uri.fromParts("package", context.packageName, null)
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        }
-                                        context.startActivity(intent)
-                                    } catch (_: Exception) {
-                                        permissionLauncher.launch(Manifest.permission.CAMERA)
-                                    }
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    permissionLauncher.launch(Manifest.permission.CAMERA)
                                 })
                         ) {
                             Text(
                                 text = stringResource(R.string.wm_btn_grant_access),
                                 color = activeAccentColor,
-                                fontSize = 12.5.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                             )
@@ -3258,53 +2635,395 @@ private fun ScannerWorkerContent(
                     }
                 }
 
-                // Subtitle
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, AmoledBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onPasteFromClipboard()
+                        })
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_copy),
+                            contentDescription = null,
+                            tint = activeAccentColor,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.wm_btn_paste_address_link),
+                            color = TextWhite,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Consolidated Interactive Step-by-Step Guide Section.
+ */
+@Composable
+private fun ManualWorkerGuideContent(
+    prefs: PreferencesManager,
+    activeAccentColor: Color,
+    targetProtocol: ProxyMode = ProxyMode.MTPROTO,
+    onWorkerAdded: () -> Unit,
+    headerPadding: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    var inputDomain by remember { mutableStateOf("") }
+    var domainError by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(
+                top = headerPadding + 8.dp,
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 60.dp,
+                start = 16.dp,
+                end = 16.dp
+            ),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Guide Overview Header
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.Transparent,
+            border = BorderStroke(1.dp, AmoledBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_diag_cloudflare),
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = stringResource(R.string.wm_guide_header_title),
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                        Text(
+                            text = "Cloudflare Dashboard",
+                            fontSize = 11.sp,
+                            color = Color(0xFF38BDF8),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
                 Text(
-                    text = stringResource(R.string.wm_scanner_hint),
+                    text = stringResource(R.string.wm_guide_header_subtitle),
+                    fontSize = 12.sp,
                     color = TextMuted,
-                    fontSize = 11.5.sp,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 16.sp
+                    lineHeight = 16.5.sp
                 )
             }
         }
 
-        // Quick Action: Paste from clipboard
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color.Transparent,
-            border = BorderStroke(1.dp, AmoledBorder),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(44.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .springPress(onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onPasteFromClipboard()
-                })
+        // Step 1: Authorization
+        GuideStepCard(
+            stepNumber = "1",
+            title = stringResource(R.string.wm_guide_step1_title),
+            desc = stringResource(R.string.wm_guide_step1_desc),
+            accentColor = Color(0xFF38BDF8)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, Color(0xFFF38020)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .springPress(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://dash.cloudflare.com/"))
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                            Toast.makeText(context, "Не удалось открыть браузер", Toast.LENGTH_SHORT).show()
+                        }
+                    })
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = stringResource(R.string.wm_guide_step1_btn),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFF38020)
+                    )
+                }
+            }
+        }
+
+        // Step 2: Create Worker
+        GuideStepCard(
+            stepNumber = "2",
+            title = stringResource(R.string.wm_guide_step2_title),
+            desc = stringResource(R.string.wm_guide_step2_desc),
+            accentColor = Color(0xFF38BDF8)
+        )
+
+        // Step 3: Script & Code
+        GuideStepCard(
+            stepNumber = "3",
+            title = stringResource(R.string.wm_guide_step3_title),
+            desc = stringResource(R.string.wm_guide_step3_desc),
+            accentColor = Color(0xFF38BDF8)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            val script = CloudflareWorkerPayload.getWorkerScript(context)
+                            val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cb.setPrimaryClip(ClipData.newPlainText("worker.js", script))
+                            Toast.makeText(context, context.getString(R.string.wm_guide_copied_toast), Toast.LENGTH_SHORT).show()
+                        })
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_copy),
+                            contentDescription = null,
+                            tint = Color(0xFF38BDF8),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.wm_guide_step3_btn_copy),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF38BDF8)
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, AmoledBorder),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy"))
+                                context.startActivity(intent)
+                            } catch (_: Exception) {
+                                Toast.makeText(context, "Не удалось открыть браузер", Toast.LENGTH_SHORT).show()
+                            }
+                        })
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_github),
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.wm_guide_step3_btn_github),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextWhite
+                        )
+                    }
+                }
+            }
+        }
+
+        // Step 4: Connection & Activation
+        GuideStepCard(
+            stepNumber = "4",
+            title = stringResource(R.string.wm_guide_step5_title),
+            desc = stringResource(R.string.wm_guide_step5_desc),
+            accentColor = Color(0xFF38BDF8)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = inputDomain,
+                    onValueChange = {
+                        inputDomain = it
+                        domainError = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = {
+                        Text(
+                            text = stringResource(R.string.wm_guide_step5_hint),
+                            fontSize = 12.sp,
+                            color = TextMuted
+                        )
+                    },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextWhite,
+                        unfocusedTextColor = TextWhite,
+                        focusedBorderColor = Color(0xFF38BDF8),
+                        unfocusedBorderColor = AmoledBorder,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        cursorColor = Color(0xFF38BDF8)
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                domainError?.let { err ->
+                    Text(text = err, color = BloodRed, fontSize = 11.5.sp)
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, activeAccentColor),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .springPress(onClick = {
+                            val normalized = WorkerDomainNormalizer.normalize(inputDomain)
+                            if (!normalized.isValid) {
+                                domainError = "Некорректный адрес домена воркера"
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            } else {
+                                val res = prefs.addCustomWorker(normalized.suggestedName, normalized.cleanDomain)
+                                res.fold(
+                                    onSuccess = { added ->
+                                        prefs.setActiveWorkerId(added.id, mode = targetProtocol)
+                                        Toast.makeText(context, "Воркер добавлен: ${added.domain}", Toast.LENGTH_SHORT).show()
+                                        onWorkerAdded()
+                                    },
+                                    onFailure = { err ->
+                                        domainError = err.message ?: "Ошибка добавления"
+                                    }
+                                )
+                            }
+                        })
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stringResource(R.string.wm_guide_step5_btn_add),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = activeAccentColor
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Step Card Helper with outline-only styling.
+ */
+@Composable
+private fun GuideStepCard(
+    stepNumber: String,
+    title: String,
+    desc: String,
+    accentColor: Color,
+    content: (@Composable () -> Unit)? = null
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, AmoledBorder),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(horizontal = 14.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_copy),
-                    contentDescription = null,
-                    tint = activeAccentColor,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, accentColor),
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stepNumber,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = accentColor
+                        )
+                    }
+                }
                 Text(
-                    text = stringResource(R.string.wm_btn_paste_address_link),
-                    fontSize = 12.5.sp,
+                    text = title,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextWhite
                 )
             }
+            Text(
+                text = desc,
+                fontSize = 11.5.sp,
+                color = TextMuted,
+                lineHeight = 16.sp
+            )
+            content?.invoke()
         }
-
-        Spacer(modifier = Modifier.height(56.dp))
     }
 }
-

@@ -17,7 +17,7 @@ object SignatureVerifier {
     private const val TAG = "SignatureVerifier"
 
     // Official release key SHA-256 fingerprint (used for fallback if native library fails)
-    private const val OFFICIAL_RELEASE_SHA256 = "00:32:69:CB:70:12:DF:37:61:E7:D3:92:79:5C:C3:55:02:43:39:A4:B2:1B:3F:B5:75:A4:C9:2B:CC:DD:25:16"
+    const val OFFICIAL_RELEASE_SHA256 = "00:32:69:CB:70:12:DF:37:61:E7:D3:92:79:5C:C3:55:02:43:39:A4:B2:1B:3F:B5:75:A4:C9:2B:CC:DD:25:16"
 
     @Volatile
     private var isNativeLoaded = false

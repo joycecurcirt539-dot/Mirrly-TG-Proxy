@@ -34,22 +34,26 @@ object WarpObfuscatedHttpClient {
     private const val TAG = "WarpObfHttp"
     internal const val HOST = "api.cloudflareclient.com"
     const val DEFAULT_TIMEOUT_MS = 5000
-    const val DEFAULT_MAX_CANDIDATES = 3
+    const val DEFAULT_MAX_CANDIDATES = 4
     internal const val MAX_RESPONSE_BYTES = 256 * 1024
     private const val MAX_HEADER_BYTES = 64 * 1024
     private const val MAX_TLS_BUFFER_BYTES = 256 * 1024
     private val candidates = listOf(
-        "104.16.24.84",
-        "104.16.192.82",
-        "104.16.132.229",
         "162.159.192.1",
         "188.114.96.1",
-        "188.114.97.1"
+        "188.114.97.1",
+        "162.159.193.1",
+        "162.159.195.1",
+        "104.16.24.84",
+        "104.16.192.82",
+        "104.16.132.229"
     )
     private val tlsContext by lazy { SSLContext.getInstance("TLS").apply { init(null, null, null) } }
     private val deadlineExecutor = ScheduledThreadPoolExecutor(1) { runnable ->
         Thread(runnable, "warp-registration-deadline").apply { isDaemon = true }
     }.apply { removeOnCancelPolicy = true }
+
+    const val DEFAULT_CAMOUFLAGE_SNI = "cdnjs.cloudflare.com"
 
     data class HttpResponse(val statusCode: Int, val statusMessage: String, val body: String, val connectedIp: String)
 
@@ -59,14 +63,16 @@ object WarpObfuscatedHttpClient {
         bodyJson: String? = null,
         authToken: String? = null,
         timeoutMs: Int = DEFAULT_TIMEOUT_MS,
-        maxCandidates: Int = DEFAULT_MAX_CANDIDATES
+        maxCandidates: Int = DEFAULT_MAX_CANDIDATES,
+        sniHost: String = DEFAULT_CAMOUFLAGE_SNI
     ): HttpResponse = executeInternal(
         method = method,
         path = path,
         bodyJson = bodyJson,
         authToken = authToken,
         timeoutMs = timeoutMs,
-        candidatesList = candidates.take(maxCandidates.coerceIn(1, candidates.size))
+        candidatesList = candidates.take(maxCandidates.coerceIn(1, candidates.size)),
+        sniHost = sniHost
     )
 
     internal fun executeInternal(
@@ -78,6 +84,7 @@ object WarpObfuscatedHttpClient {
         candidatesList: List<String> = candidates,
         customContext: SSLContext = tlsContext,
         host: String = HOST,
+        sniHost: String = DEFAULT_CAMOUFLAGE_SNI,
         port: Int = 443,
         enableFragmentation: Boolean = true
     ): HttpResponse {
@@ -85,7 +92,7 @@ object WarpObfuscatedHttpClient {
         val request = encodeRequest(method, path, bodyJson, authToken, host)
         val budget = timeoutMs.coerceIn(1000, 15000)
         return tryCandidatesWith(candidatesList) { ip ->
-            AppLogger.d(TAG, "Прямой зонд Cloudflare API: $ip (бюджет ${budget}мс)")
+            AppLogger.d(TAG, "Прямой зонд Cloudflare API: $ip (SNI: $sniHost, бюджет ${budget}мс)")
             Socket().use { socket ->
                 withinDeadline(budget, { socket.close() }) { deadline ->
                     socket.tcpNoDelay = true
@@ -94,8 +101,15 @@ object WarpObfuscatedHttpClient {
                         throw IOException("Socket protection failed; aborted to prevent VPN routing loop")
                     }
                     socket.connect(InetSocketAddress(ip, port), budget)
-                    val engine = createEngine(customContext, host, port)
-                    val connection = EngineConnection(socket, engine, deadline, host, enableFragmentation)
+                    val engine = createEngine(customContext, host = host, port = port, sniHost = sniHost)
+                    val connection = EngineConnection(
+                        socket = socket,
+                        engine = engine,
+                        deadline = deadline,
+                        expectedHost = sniHost,
+                        fallbackHost = host,
+                        enableFragmentation = enableFragmentation
+                    )
                     connection.handshake()
                     connection.write(request)
                     readHttpResponse(connection, ip, method)
@@ -113,11 +127,12 @@ object WarpObfuscatedHttpClient {
     internal fun createEngine(
         context: SSLContext = tlsContext,
         host: String = HOST,
-        port: Int = 443
-    ): SSLEngine = context.createSSLEngine(host, port).apply {
+        port: Int = 443,
+        sniHost: String = host
+    ): SSLEngine = context.createSSLEngine(sniHost, port).apply {
         useClientMode = true
         sslParameters = sslParameters.apply {
-            serverNames = listOf(SNIHostName(host))
+            serverNames = listOf(SNIHostName(sniHost))
             endpointIdentificationAlgorithm = "HTTPS"
         }
     }
@@ -190,6 +205,7 @@ object WarpObfuscatedHttpClient {
         private val engine: SSLEngine,
         private val deadline: Deadline,
         private val expectedHost: String = HOST,
+        private val fallbackHost: String = HOST,
         enableFragmentation: Boolean = true
     ) : InputStream() {
         private val input = socket.getInputStream()
@@ -210,8 +226,10 @@ object WarpObfuscatedHttpClient {
         private fun verifyPeerHostname() {
             val session = engine.session
             if (!session.isValid) throw SSLException("TLS session is not valid")
-            if (!okhttp3.internal.tls.OkHostnameVerifier.verify(expectedHost, session)) {
-                throw SSLPeerUnverifiedException("Certificate hostname mismatch: expected '$expectedHost'")
+            val matchesExpected = okhttp3.internal.tls.OkHostnameVerifier.verify(expectedHost, session)
+            val matchesFallback = okhttp3.internal.tls.OkHostnameVerifier.verify(fallbackHost, session)
+            if (!matchesExpected && !matchesFallback) {
+                throw SSLPeerUnverifiedException("Certificate hostname mismatch: expected '$expectedHost' or '$fallbackHost'")
             }
         }
 

@@ -110,6 +110,7 @@ pub struct DialBudgetInner {
     state: Mutex<BudgetState>,
     notify: Notify,
     current_gen: AtomicU64,
+    fixed_limits: Option<(usize, usize)>,
 }
 
 /// RAII Permit representing an acquired slot in the global dial budget.
@@ -183,19 +184,30 @@ impl DialBudgetManager {
                 state: Mutex::new(BudgetState::new()),
                 notify: Notify::new(),
                 current_gen: AtomicU64::new(1),
+                fixed_limits: None,
             }),
         }
     }
 
-    /// Returns current limits based on the network profile.
-    pub fn current_limits(&self) -> (usize, usize) {
-        if MOBILE_NETWORK.load(Ordering::Relaxed) {
-            // Cellular profile: max 2 active establishments, max 1 background probe
-            (2, 1)
-        } else {
-            // Wi-Fi profile: max 4 active establishments, max 2 background probes
-            (4, 2)
+    #[cfg(test)]
+    pub fn new_with_limits(est: usize, bg: usize) -> Self {
+        Self {
+            inner: Arc::new(DialBudgetInner {
+                state: Mutex::new(BudgetState::new()),
+                notify: Notify::new(),
+                current_gen: AtomicU64::new(1),
+                fixed_limits: Some((est, bg)),
+            }),
         }
+    }
+
+    /// Returns current limits based on the network profile and adaptive ranges.
+    pub fn current_limits(&self) -> (usize, usize) {
+        if let Some(fixed) = self.inner.fixed_limits {
+            return fixed;
+        }
+        let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
+        crate::config::adaptive_establishment_budget(is_mobile)
     }
 
     /// Notifies the budget manager of a network generation change (e.g. Wi-Fi <-> Cellular handover).
@@ -634,6 +646,7 @@ pub static DNS_BUDGET: Lazy<DnsBudgetManager> = Lazy::new(DnsBudgetManager::new)
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
 
     #[test]
     fn test_generation_change_without_entered_tokio_runtime() {
@@ -679,7 +692,7 @@ mod tests {
 
         // Mobile allows 2 total active establishments
         let p1 = mgr.acquire(FlowCategory::UserFlow, None).await.unwrap();
-        let p2 = mgr.acquire(FlowCategory::UserFlow, None).await.unwrap();
+        let _p2 = mgr.acquire(FlowCategory::UserFlow, None).await.unwrap();
 
         let stats = mgr.stats().await;
         assert_eq!(stats.active_user, 2);
@@ -703,12 +716,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_dial_budget_user_priority_over_background() {
-        MOBILE_NETWORK.store(true, Ordering::Relaxed);
-        let mgr = DialBudgetManager::new();
+        let mgr = DialBudgetManager::new_with_limits(2, 1);
 
-        // Consume all 2 slots
-        let p1 = mgr.acquire(FlowCategory::UserFlow, None).await.unwrap();
-        let p2 = mgr.acquire(FlowCategory::UserFlow, None).await.unwrap();
+        // Consume all slots for current mobile profile
+        let (est_limit, _) = mgr.current_limits();
+        let mut held_permits = Vec::new();
+        for _ in 0..est_limit {
+            held_permits.push(mgr.acquire(FlowCategory::UserFlow, None).await.unwrap());
+        }
 
         let mgr_bg = mgr.clone();
         let mgr_user = mgr.clone();
@@ -727,26 +742,29 @@ mod tests {
         // Let background queue up
         tokio::time::sleep(Duration::from_millis(30)).await;
 
+        let (tx_hold, rx_hold) = tokio::sync::oneshot::channel::<()>();
         let user_order_c = user_order.clone();
         let counter_user = counter.clone();
         let user_task = tokio::spawn(async move {
             let _p = mgr_user.acquire(FlowCategory::UserFlow, None).await.unwrap();
             user_order_c.store(counter_user.fetch_add(1, Ordering::SeqCst), Ordering::SeqCst);
+            let _ = rx_hold.await;
         });
 
         // Let user queue up
         tokio::time::sleep(Duration::from_millis(30)).await;
 
         // Release one slot
-        drop(p1);
+        let _ = held_permits.pop();
 
         // UserFlow must be admitted before Background despite arriving later!
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(user_order.load(Ordering::SeqCst), 1);
         assert_eq!(bg_order.load(Ordering::SeqCst), 0);
 
-        // Release second slot, allowing Background
-        drop(p2);
+        // Release user permit and remaining slots, allowing Background
+        let _ = tx_hold.send(());
+        held_permits.clear();
         let _ = bg_task.await;
         let _ = user_task.await;
         assert_eq!(bg_order.load(Ordering::SeqCst), 2);

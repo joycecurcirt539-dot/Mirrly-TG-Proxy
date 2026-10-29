@@ -70,15 +70,15 @@ class SocketBufferTuningTest {
         server.applyBufferSizeBytes(1024 * 1024)
         assertEquals(1024 * 1024, server.config.bufferSizeBytes)
 
+        // Выше верхнего предела (> 1 МиБ) -> clamp в 1 МиБ (1048576)
         server.applyBufferSizeBytes(2048 * 1024)
-        assertEquals(2048 * 1024, server.config.bufferSizeBytes)
+        assertEquals(1024 * 1024, server.config.bufferSizeBytes)
 
-        // Выше верхнего предела (> 2 МиБ) -> clamp в 2 МиБ (2097152)
         server.applyBufferSizeBytes(4 * 1024 * 1024)
-        assertEquals(2 * 1024 * 1024, server.config.bufferSizeBytes)
+        assertEquals(1024 * 1024, server.config.bufferSizeBytes)
 
         server.applyBufferSizeBytes(16 * 1024 * 1024)
-        assertEquals(2 * 1024 * 1024, server.config.bufferSizeBytes)
+        assertEquals(1024 * 1024, server.config.bufferSizeBytes)
     }
 
     @Test
@@ -247,7 +247,7 @@ class SocketBufferTuningTest {
 
         // 3. config.rs limits and baseline
         assertTrue(rustConfig.contains("MIN_SOCKET_BUFFER: i32 = 32 * 1024"))
-        assertTrue(rustConfig.contains("MAX_SOCKET_BUFFER: i32 = 2 * 1024 * 1024"))
+        assertTrue(rustConfig.contains("MAX_SOCKET_BUFFER: i32 = 1024 * 1024"))
         assertTrue(rustConfig.contains("autotune_baseline"))
 
         // 4. Kotlin declarations

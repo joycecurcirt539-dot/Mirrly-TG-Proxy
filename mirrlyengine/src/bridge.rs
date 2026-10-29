@@ -103,7 +103,9 @@ impl BridgeActivity {
                     let outcome = {
                         let state = self.state.lock();
                         if state.half_closed {
-                            if state.last_data.elapsed() >= Duration::from_secs(30) {
+                            // 5 minutes: enough for Telegram to process and acknowledge
+                            // large video or photo uploads before sending the media_id back.
+                            if state.last_data.elapsed() >= Duration::from_secs(300) {
                                 Some(std::io::ErrorKind::TimedOut)
                             } else {
                                 None

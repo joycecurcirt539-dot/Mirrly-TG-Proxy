@@ -59,7 +59,7 @@ fun DonationBanner(
 ) {
     val haptic = LocalHapticFeedback.current
     val donationUrl = "https://dalink.to/cartneyzix"
-    var showConfirmDialog by remember { mutableStateOf(false) }
+    var showDonationDialog by remember { mutableStateOf(false) }
     var isPermanentDismissVisible by remember { mutableStateOf(false) }
 
     // Delayed activation of "Do not not show" option (5-second delay)
@@ -68,14 +68,11 @@ fun DonationBanner(
         isPermanentDismissVisible = true
     }
 
-    if (showConfirmDialog) {
-        ExternalLinkConfirmDialog(
-            url = donationUrl,
-            title = stringResource(R.string.donation_banner_dialog_title),
-            description = stringResource(R.string.donation_banner_dialog_desc),
-            onDismiss = { showConfirmDialog = false },
-            onConfirmed = {
-                showConfirmDialog = false
+    if (showDonationDialog) {
+        DonationDialog(
+            onDismiss = { showDonationDialog = false },
+            onProceed = {
+                showDonationDialog = false
                 onSupportClicked()
             }
         )
@@ -168,7 +165,7 @@ fun DonationBanner(
                 OutlinedButton(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        showConfirmDialog = true
+                        showDonationDialog = true
                     },
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.outlinedButtonColors(

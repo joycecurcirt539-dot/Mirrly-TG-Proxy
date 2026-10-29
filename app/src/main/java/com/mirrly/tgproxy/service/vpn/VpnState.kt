@@ -64,6 +64,7 @@ enum class VpnFailureReason {
     PROFILE_INVALID,
     NETWORK_UNAVAILABLE,
     TIMEOUT,
+    TUNNEL_LOST,
     UNKNOWN;
 
     fun getDisplayMessage(): String = when (this) {
@@ -74,6 +75,7 @@ enum class VpnFailureReason {
         PROFILE_INVALID -> "Конфигурация профиля повреждена или не заполнена"
         NETWORK_UNAVAILABLE -> "Физическая сеть недоступна"
         TIMEOUT -> "Превышен таймаут установления защищенного туннеля"
+        TUNNEL_LOST -> "Соединение с защищенным туннелем разорвано или нативное ядро завершило работу"
         UNKNOWN -> "Неизвестная ошибка VPN службы"
     }
 }

@@ -18,15 +18,9 @@
 
 package com.mirrly.tgproxy.service
 
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.PowerManager
-import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.WorkerProfile
-import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -47,82 +41,23 @@ data class HotReserveRoutes(
 }
 
 /**
- * Менеджер предиктивного упреждающего прогрева сокетов (Predictive Socket Pre-Warming).
- * Заранее поднимает WSS/TLS сессии при включении/разблокировке экрана, чтобы соединение Telegram
- * открывалось с 0 мс задержки на рукопожатие.
- * Также поддерживает горячий резерв валидированных маршрутов (Smart Connect).
+ * Менеджер горячего резерва маршрутов и оптимизации соединения.
+ * Поддерживает актуальный пул валидированных маршрутов (Smart Connect / Hot Reserve).
  */
 object PredictivePreWarmManager {
     private const val TAG = "PredictivePreWarm"
-    const val DEBOUNCE_INTERVAL_MS = 10_000L // Минимум 10 секунд между прогревами
-    const val HOT_RESERVE_TTL_MS = 300_000L // 5 минут актуальности горячего резерва
+    const val DEBOUNCE_INTERVAL_MS = 10_000L
+    const val HOT_RESERVE_TTL_MS = 300_000L
 
     private val hotReserve = AtomicReference(HotReserveRoutes())
-    private val lastPreWarmTimestamp = AtomicLong(0L)
-    private var isRegistered = false
-
-    private val receiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val action = intent?.action ?: return
-            handleTrigger(context, action)
-        }
-    }
 
     fun start(context: Context) {
-        if (isRegistered) return
-        try {
-            val filter = IntentFilter().apply {
-                addAction(Intent.ACTION_USER_PRESENT)
-                addAction(Intent.ACTION_SCREEN_ON)
-                addAction(Intent.ACTION_POWER_CONNECTED)
-            }
-            context.registerReceiver(receiver, filter)
-            isRegistered = true
-            AppLogger.i(TAG, "Predictive pre-warm receiver successfully registered")
-        } catch (t: Throwable) {
-            AppLogger.w(TAG, "Failed to register predictive pre-warm receiver: ${t.message}")
-        }
+        // Фоновый упреждающий прогрев отключен в пользу прямого соединения по требованию
+        AppLogger.d(TAG, "Predictive screen-wake pre-warm is disabled (on-demand connection active)")
     }
 
     fun stop(context: Context) {
-        if (!isRegistered) return
-        try {
-            context.unregisterReceiver(receiver)
-            isRegistered = false
-            AppLogger.i(TAG, "Predictive pre-warm service stopped")
-        } catch (t: Throwable) {
-            AppLogger.w(TAG, "Failed to unregister receiver: ${t.message}")
-        }
-    }
-
-    fun triggerExplicitly(reason: String = "APP_FOREGROUND") {
-        handleTrigger(null, reason)
-    }
-
-    private fun handleTrigger(context: Context?, action: String) {
-        val app = MirrlyApplication.instance
-        if (!app.proxyServer.isRunning) return
-
-        // 1. Проверка режима энергосбережения
-        val ctx = context ?: app.applicationContext
-        val powerManager = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val isPowerSave = powerManager?.isPowerSaveMode == true
-        if (isPowerSave && action != Intent.ACTION_POWER_CONNECTED) {
-            AppLogger.d(TAG, "Skipping predictive pre-warm ($action): power save mode active")
-            return
-        }
-
-        // 2. Дебаунс и лимит частоты (минимум 30 сек между прогревами)
-        val now = System.currentTimeMillis()
-        val last = lastPreWarmTimestamp.get()
-        if (now - last < DEBOUNCE_INTERVAL_MS) {
-            AppLogger.d(TAG, "Skipping predictive pre-warm ($action): debounce (${(now - last) / 1000}s < 30s)")
-            return
-        }
-
-        lastPreWarmTimestamp.set(now)
-        AppLogger.i(TAG, "Initiating predictive pre-warm for WsPool ($action)...")
-        app.proxyServer.predictivePreWarm(action)
+        // Safe no-op
     }
 
     fun shouldPreWarm(

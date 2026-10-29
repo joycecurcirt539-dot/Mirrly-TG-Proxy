@@ -24,6 +24,7 @@ import android.net.Uri
 import android.os.PowerManager
 import androidx.browser.customtabs.CustomTabsIntent
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.service.PreferencesManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -100,8 +101,9 @@ object CloudflareOAuthManager {
 
     // HTTP communication handled via CloudflareNetworkClient
 
-    private var activeServerSocket: ServerSocket? = null
+    private val activeServerSockets = mutableListOf<ServerSocket>()
     private var serverJob: Job? = null
+    @Volatile private var currentAppContext: Context? = null
 
     // WakeLock to protect local loopback server & network exchange from Low Battery / Battery Saver freeze
     private var wakeLock: PowerManager.WakeLock? = null
@@ -109,6 +111,7 @@ object CloudflareOAuthManager {
     @Synchronized
     private fun acquireWakeLock(context: Context) {
         try {
+            currentAppContext = context.applicationContext
             releaseWakeLock()
             val pm = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
             wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Mirrly:CloudflareOAuthWakeLock")?.apply {
@@ -196,9 +199,18 @@ object CloudflareOAuthManager {
     }
 
     /**
+     * Checks if at least one ServerSocket is active and listening.
+     */
+    internal fun isServerListening(): Boolean {
+        synchronized(this) {
+            return activeServerSockets.isNotEmpty() && activeServerSockets.any { !it.isClosed }
+        }
+    }
+
+    /**
      * Initiates the full authorization workflow:
      * 1. Acquires power-management WakeLock to protect server against Doze and Battery Saver.
-     * 2. Starts local loopback server with IPv4 + IPv6 dual-stack support on port 8976.
+     * 2. Starts or reuses local loopback server with IPv4 + IPv6 dual-stack support on port 8976.
      * 3. Runs loopback self-check ping (/health) to confirm port is listening.
      * 4. Prepares PKCE parameters and opens browser via Custom Tabs or external browser.
      */
@@ -207,17 +219,11 @@ object CloudflareOAuthManager {
         authScope.launch {
             _authState.value = ServerAuthState.StartingServer
 
-            // Step 1: Clean up any prior socket
-            stopServerInternal()
-
-            // Step 2: Bind local dual-stack server socket
+            // Step 1: Bind or reuse local dual-stack server socket
             val socketBound = startLocalServer()
             if (!socketBound) {
-                // If binding failed, verify if it was already responding on port 8976
                 val isAlreadyOurServer = probeHealthCheck()
-                if (isAlreadyOurServer) {
-                    // Our server is already healthy, continue
-                } else {
+                if (!isAlreadyOurServer) {
                     _authState.value = ServerAuthState.Error(
                         "Порт $CALLBACK_PORT занят другим приложением. Освободите порт или перезапустите устройство.",
                         isPortBusy = true
@@ -227,15 +233,15 @@ object CloudflareOAuthManager {
                 }
             }
 
-            // Step 3: Health check verification
+            // Step 2: Health check verification (allowing up to 1.2s to confirm responsiveness)
             _authState.value = ServerAuthState.VerifyingHealth
             var isHealthy = false
-            for (attempt in 1..8) {
-                delay(150)
+            for (attempt in 1..10) {
                 if (probeHealthCheck()) {
                     isHealthy = true
                     break
                 }
+                delay(120)
             }
 
             if (!isHealthy) {
@@ -247,16 +253,23 @@ object CloudflareOAuthManager {
                 return@launch
             }
 
-            // Step 4: Prepare OAuth session parameters
+            // Step 3: Prepare fresh OAuth session parameters
             val (authUrl, verifier, state) = buildAuthorizationData()
             activeAuthUrl = authUrl
             activeCodeVerifier = verifier
             activeExpectedState = state
 
+            try {
+                context.applicationContext.getSharedPreferences("cf_oauth_session", Context.MODE_PRIVATE).edit()
+                    .putString("code_verifier", verifier)
+                    .putString("expected_state", state)
+                    .apply()
+            } catch (_: Exception) {}
+
             val portalUrl = "http://localhost:$CALLBACK_PORT/"
             _authState.value = ServerAuthState.ServerReady(portalUrl)
 
-            // Step 5: Launch browser (Custom Tabs with external fallback)
+            // Step 4: Launch browser (Custom Tabs with external fallback)
             val launched = launchAuthInBrowser(context, authUrl)
             if (launched) {
                 _authState.value = ServerAuthState.WaitingCallback(portalUrl, authUrl)
@@ -268,62 +281,74 @@ object CloudflareOAuthManager {
     }
 
     /**
-     * Binds ServerSocket with SO_REUSEADDR and dual-stack loopback acceptance.
-     * Tries wildcard bind first (covers IPv4 127.0.0.1 and IPv6 ::1), falling back to explicit IPv4 127.0.0.1.
+     * Binds ServerSocket with SO_REUSEADDR and dual-stack loopback acceptance (IPv4 127.0.0.1 + IPv6 ::1).
+     * If the server is already listening and passes health check, reuses existing sockets without disruption.
+     * Includes exponential backoff retries if port is temporarily in OS TIME_WAIT state.
      */
-    private fun startLocalServer(): Boolean {
-        // Attempt 1: Wildcard dual-stack bind
-        try {
-            val server = ServerSocket().apply {
-                reuseAddress = true
-                bind(InetSocketAddress(CALLBACK_PORT), 50)
-                soTimeout = 0 // Infinite accept timeout; controlled via coroutine cancellation
-            }
-            activeServerSocket = server
-
-            serverJob = authScope.launch {
-                while (isActive && !server.isClosed) {
-                    val client = try {
-                        server.accept()
-                    } catch (_: Exception) {
-                        break
-                    }
-                    launch {
-                        handleClientConnection(client)
-                    }
-                }
-            }
-            return true
-        } catch (e: Exception) {
-            AppLogger.w("CloudflareOAuth", "Wildcard bind on port $CALLBACK_PORT failed (${e.message}), trying explicit IPv4 127.0.0.1")
+    private suspend fun startLocalServer(): Boolean = withContext(Dispatchers.IO) {
+        if (isServerListening() && probeHealthCheck()) {
+            AppLogger.i("CloudflareOAuth", "Local server is already running and healthy on port $CALLBACK_PORT, reusing socket")
+            return@withContext true
         }
 
-        // Attempt 2: Explicit IPv4 loopback bind
-        return try {
-            val server = ServerSocket().apply {
-                reuseAddress = true
-                bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), CALLBACK_PORT), 50)
-                soTimeout = 0
-            }
-            activeServerSocket = server
+        stopServerInternal()
 
-            serverJob = authScope.launch {
-                while (isActive && !server.isClosed) {
-                    val client = try {
-                        server.accept()
-                    } catch (_: Exception) {
-                        break
+        var attempts = 0
+        while (attempts < 4) {
+            attempts++
+            val boundSockets = mutableListOf<ServerSocket>()
+            try {
+                // 1. Explicit IPv4 loopback bind
+                val ipv4Server = ServerSocket().apply {
+                    reuseAddress = true
+                    bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), CALLBACK_PORT), 50)
+                    soTimeout = 0
+                }
+                boundSockets.add(ipv4Server)
+
+                // 2. Explicit IPv6 loopback bind (covers ::1 when browsers resolve localhost via IPv6)
+                try {
+                    val ipv6Server = ServerSocket().apply {
+                        reuseAddress = true
+                        bind(InetSocketAddress(InetAddress.getByName("::1"), CALLBACK_PORT), 50)
+                        soTimeout = 0
                     }
-                    launch {
-                        handleClientConnection(client)
+                    boundSockets.add(ipv6Server)
+                } catch (e: Exception) {
+                    AppLogger.d("CloudflareOAuth", "IPv6 loopback bind bypassed (${e.message}), IPv4 active")
+                }
+
+                synchronized(this@CloudflareOAuthManager) {
+                    activeServerSockets.clear()
+                    activeServerSockets.addAll(boundSockets)
+                }
+
+                serverJob = authScope.launch {
+                    boundSockets.forEach { socket ->
+                        launch {
+                            while (isActive && !socket.isClosed) {
+                                val client = try {
+                                    socket.accept()
+                                } catch (_: Exception) {
+                                    break
+                                }
+                                launch {
+                                    handleClientConnection(client)
+                                }
+                            }
+                        }
                     }
                 }
+                return@withContext true
+            } catch (e: Exception) {
+                boundSockets.forEach { try { it.close() } catch (_: Exception) {} }
+                AppLogger.w("CloudflareOAuth", "Bind attempt $attempts/4 on port $CALLBACK_PORT failed (${e.message})")
+                if (attempts < 4) {
+                    delay(150L * attempts)
+                }
             }
-            true
-        } catch (e: Exception) {
-            AppLogger.e("CloudflareOAuth", "Failed to bind 127.0.0.1:$CALLBACK_PORT: ${e.message}")
-            false
         }
+        return@withContext false
     }
 
     /**
@@ -341,7 +366,17 @@ object CloudflareOAuthManager {
                 return@withContext
             }
 
-            val reader = BufferedReader(InputStreamReader(client.getInputStream(), Charsets.UTF_8))
+            val rawIn = client.getInputStream()
+            val pushbackIn = java.io.PushbackInputStream(rawIn, 1)
+            val firstByte = pushbackIn.read()
+            if (firstByte == 0x16) {
+                AppLogger.w("CloudflareOAuth", "Browser attempted TLS/HTTPS connection on port $CALLBACK_PORT (HTTPS-First mode detected)")
+                return@withContext
+            }
+            if (firstByte != -1) {
+                pushbackIn.unread(firstByte)
+            }
+            val reader = BufferedReader(InputStreamReader(pushbackIn, Charsets.UTF_8))
             val requestLine = reader.readLine() ?: return@withContext
 
             // Drain headers
@@ -363,6 +398,16 @@ object CloudflareOAuthManager {
 
                 path == "/favicon.ico" -> {
                     sendHttpResponse(client, 204, "No Content", "image/x-icon", "")
+                }
+
+                path == "/retry" -> {
+                    val (newAuthUrl, newVerifier, newState) = buildAuthorizationData()
+                    activeAuthUrl = newAuthUrl
+                    activeCodeVerifier = newVerifier
+                    activeExpectedState = newState
+                    val portalUrl = "http://localhost:$CALLBACK_PORT/"
+                    _authState.value = ServerAuthState.WaitingCallback(portalUrl, newAuthUrl)
+                    sendHttpRedirect(client, newAuthUrl)
                 }
 
                 path == "/" || path.startsWith("/?") -> {
@@ -408,11 +453,21 @@ object CloudflareOAuthManager {
         val expectedState = activeExpectedState
         val verifier = activeCodeVerifier
 
-        // Error check from Cloudflare
+        // Error check from Cloudflare (including consent cancellation)
         if (!errorParam.isNullOrBlank() || authCode.isNullOrBlank()) {
-            val errText = errorDescription ?: errorParam ?: "Неизвестная ошибка авторизации Cloudflare"
-            _authState.value = ServerAuthState.Error("Cloudflare: $errText")
-            val html = createErrorHtml(errText)
+            val isConsentDenied = errorParam == "access_denied" ||
+                errorDescription?.contains("denied the consent request", ignoreCase = true) == true ||
+                errorDescription?.contains("access_denied", ignoreCase = true) == true
+
+            val friendlyMessage = if (isConsentDenied) {
+                "Авторизация отменена в Cloudflare (запрос разрешений отклонен). Выберите ваш аккаунт Cloudflare и нажмите «Allow» («Разрешить»)."
+            } else {
+                val raw = errorDescription ?: errorParam ?: "Неизвестная ошибка авторизации Cloudflare"
+                "Cloudflare: $raw"
+            }
+
+            _authState.value = ServerAuthState.Error(friendlyMessage)
+            val html = createErrorHtml(friendlyMessage, isConsentDenied = isConsentDenied)
             sendHttpResponse(client, 400, "Bad Request", "text/html; charset=utf-8", html)
             return
         }
@@ -421,7 +476,7 @@ object CloudflareOAuthManager {
         if (expectedState != null && returnedState != expectedState) {
             val errText = "Ошибка валидации state (CSRF проверка не пройдена)"
             _authState.value = ServerAuthState.Error(errText)
-            val html = createErrorHtml(errText)
+            val html = createErrorHtml(errText, isConsentDenied = false)
             sendHttpResponse(client, 400, "Bad Request", "text/html; charset=utf-8", html)
             return
         }
@@ -442,7 +497,7 @@ object CloudflareOAuthManager {
             }
             is OAuthResult.Error -> {
                 _authState.value = ServerAuthState.Error(exchangeResult.message)
-                val html = createErrorHtml(exchangeResult.message)
+                val html = createErrorHtml(exchangeResult.message, isConsentDenied = false)
                 sendHttpResponse(client, 500, "Internal Server Error", "text/html; charset=utf-8", html)
             }
             OAuthResult.Cancelled -> {
@@ -471,6 +526,18 @@ object CloudflareOAuthManager {
         if (bytes.isNotEmpty()) {
             writer.write(body)
         }
+        writer.flush()
+    }
+
+    /**
+     * Sends HTTP 302 redirect.
+     */
+    private fun sendHttpRedirect(client: Socket, targetUrl: String) {
+        val writer = OutputStreamWriter(client.getOutputStream(), Charsets.UTF_8)
+        writer.write("HTTP/1.1 302 Found\r\n")
+        writer.write("Location: $targetUrl\r\n")
+        writer.write("Connection: close\r\n")
+        writer.write("Content-Length: 0\r\n\r\n")
         writer.flush()
     }
 
@@ -511,8 +578,13 @@ object CloudflareOAuthManager {
         try {
             serverJob?.cancel()
             serverJob = null
-            activeServerSocket?.close()
-            activeServerSocket = null
+            synchronized(this) {
+                activeServerSockets.forEach { socket ->
+                    try { socket.close() } catch (_: Exception) {}
+                }
+                activeServerSockets.clear()
+            }
+
         } catch (_: Exception) {}
     }
 
@@ -545,6 +617,81 @@ object CloudflareOAuthManager {
         }
 
         OAuthResult.Error("Время ожидания авторизации истекло. Повторите попытку.")
+    }
+
+    /**
+     * Fallback processor for OAuth callback URL when localhost is inaccessible due to
+     * Private DNS, HTTPS-First mode, or Android network policy.
+     * Extracts 'code' and 'state', exchanges for tokens, and finalizes auth.
+     */
+    fun processCallbackUrl(rawUrl: String): Boolean {
+        val trimmed = rawUrl.trim()
+        if (!trimmed.contains("code=")) return false
+
+        val queryString = when {
+            trimmed.contains("?") -> trimmed.substringAfter("?")
+            trimmed.contains("#") -> trimmed.substringAfter("#")
+            else -> trimmed
+        }
+
+        val queryParams = queryString.split("&").mapNotNull { pair ->
+            val idx = pair.indexOf("=")
+            if (idx != -1) {
+                val key = try { java.net.URLDecoder.decode(pair.substring(0, idx), "UTF-8") } catch (_: Exception) { pair.substring(0, idx) }
+                val value = try { java.net.URLDecoder.decode(pair.substring(idx + 1), "UTF-8") } catch (_: Exception) { pair.substring(idx + 1) }
+                key to value
+            } else null
+        }.toMap()
+
+        val authCode = queryParams["code"]
+        val returnedState = queryParams["state"]
+        val errorParam = queryParams["error"]
+        val errorDescription = queryParams["error_description"]
+
+        if (!errorParam.isNullOrBlank() || authCode.isNullOrBlank()) {
+            val isConsentDenied = errorParam == "access_denied" ||
+                errorDescription?.contains("denied", ignoreCase = true) == true
+            val msg = if (isConsentDenied) {
+                "Авторизация отменена в Cloudflare (запрос отклонен)."
+            } else {
+                "Cloudflare: ${errorDescription ?: errorParam}"
+            }
+            _authState.value = ServerAuthState.Error(msg)
+            return false
+        }
+
+        val expectedState = activeExpectedState
+            ?: currentAppContext?.getSharedPreferences("cf_oauth_session", Context.MODE_PRIVATE)?.getString("expected_state", null)
+        if (expectedState != null && returnedState != null && returnedState != expectedState) {
+            _authState.value = ServerAuthState.Error("Ошибка валидации state (CSRF проверка не пройдена)")
+            return false
+        }
+
+        val verifier = activeCodeVerifier
+            ?: currentAppContext?.getSharedPreferences("cf_oauth_session", Context.MODE_PRIVATE)?.getString("code_verifier", null)
+        if (verifier == null) {
+            _authState.value = ServerAuthState.Error("Утерян верификатор PKCE сессии")
+            return false
+        }
+
+        authScope.launch {
+            _authState.value = ServerAuthState.ExchangingTokens
+            val exchangeResult = exchangeCodeForTokens(authCode, verifier)
+            when (exchangeResult) {
+                is OAuthResult.Success -> {
+                    _authState.value = ServerAuthState.Success(exchangeResult.tokens)
+                    stopServerInternal()
+                    releaseWakeLock()
+                }
+                is OAuthResult.Error -> {
+                    _authState.value = ServerAuthState.Error(exchangeResult.message)
+                }
+                OAuthResult.Cancelled -> {
+                    _authState.value = ServerAuthState.Idle
+                }
+            }
+        }
+        return true
     }
 
     /**
@@ -1226,14 +1373,22 @@ object CloudflareOAuthManager {
         </html>
     """.trimIndent()
 
-    private fun createErrorHtml(errorMessage: String): String = """
+    private fun createErrorHtml(errorMessage: String, isConsentDenied: Boolean = false): String {
+        val title = if (isConsentDenied) "Авторизация отменена" else "Ошибка подключения"
+        val badgeTag = if (isConsentDenied) "Запрос отклонен" else "Сбой авторизации"
+        val retryBtnText = if (isConsentDenied) "Попробовать снова" else "Повторить попытку"
+        val consentHint = if (isConsentDenied) {
+            """<p style="margin-top: 10px; font-size: 12px; color: #94A3B8; line-height: 1.4;">Для создания воркера выберите аккаунт Cloudflare и нажмите кнопку «Allow» («Разрешить»).</p>"""
+        } else ""
+
+        return """
         <!DOCTYPE html>
         <html lang="ru">
         <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
             <meta name="theme-color" content="#000000">
-            <title>Mirrly TG Proxy — Ошибка авторизации</title>
+            <title>Mirrly TG Proxy — $title</title>
             <style>
                 :root {
                     --bg-amoled: #000000;
@@ -1384,14 +1539,17 @@ object CloudflareOAuthManager {
 
                 <div class="tag">
                     <span class="tag-dot"></span>
-                    <span>Сбой авторизации</span>
+                    <span>$badgeTag</span>
                 </div>
 
-                <h1>Ошибка подключения</h1>
-                <div class="desc">$errorMessage</div>
+                <h1>$title</h1>
+                <div class="desc">
+                    $errorMessage
+                    $consentHint
+                </div>
 
                 <div class="actions">
-                    <a href="/" class="btn-retry">Повторить попытку</a>
+                    <a href="/retry" class="btn-retry">$retryBtnText</a>
                     <button class="btn-retry" onclick="returnToApp()" style="color: var(--text-secondary);">Вернуться в приложение</button>
                 </div>
             </div>
@@ -1409,4 +1567,42 @@ object CloudflareOAuthManager {
         </body>
         </html>
     """.trimIndent()
+    }
+
+    /**
+     * Finalizes OAuth session: fetches account ID and subdomain, saves session into preferences,
+     * and stops active loopback listener.
+     */
+    suspend fun finalizeSuccessfulAuth(tokens: CloudflareOAuthTokens, prefs: PreferencesManager): Boolean {
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val accRes = CloudflareApiClient.getAccounts(tokens.accessToken, prefs)
+                val firstAcc = accRes.getOrNull()?.firstOrNull()
+                val accId = firstAcc?.id ?: ""
+                val accLabel = firstAcc?.name ?: "Мой аккаунт"
+
+                var foundSubdomain = ""
+                if (accId.isNotEmpty()) {
+                    val subRes = CloudflareApiClient.getSubdomain(tokens.accessToken, accId, prefs)
+                    foundSubdomain = subRes.getOrNull() ?: ""
+                }
+
+                prefs.saveCloudflareSession(
+                    accessToken = tokens.accessToken,
+                    refreshToken = tokens.refreshToken,
+                    accountId = accId,
+                    accountName = accLabel,
+                    subdomain = foundSubdomain
+                )
+                try {
+                    currentAppContext?.getSharedPreferences("cf_oauth_session", Context.MODE_PRIVATE)?.edit()?.clear()?.apply()
+                } catch (_: Exception) {}
+                cancelActiveListener()
+                true
+            } catch (e: Exception) {
+                AppLogger.e("CloudflareOAuth", "finalizeSuccessfulAuth error: ${e.message}")
+                false
+            }
+        }
+    }
 }

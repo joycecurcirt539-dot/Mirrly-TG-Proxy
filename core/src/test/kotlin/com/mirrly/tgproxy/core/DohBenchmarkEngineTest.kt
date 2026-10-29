@@ -34,11 +34,22 @@ class DohBenchmarkEngineTest {
         assertTrue(DohBenchmarkEngine.isTelegramIp("149.154.175.100")) // DC3
         assertTrue(DohBenchmarkEngine.isTelegramIp("149.154.167.91"))  // DC4
         assertTrue(DohBenchmarkEngine.isTelegramIp("91.108.56.130"))   // DC5
+        assertTrue(DohBenchmarkEngine.isTelegramIp("91.108.0.1"))       // DC5 / 91.108.0.0/16
+        assertTrue(DohBenchmarkEngine.isTelegramIp("91.108.24.50"))     // DC5 / 91.108.0.0/16
         assertTrue(DohBenchmarkEngine.isTelegramIp("91.105.192.100"))  // DC203
+        assertTrue(DohBenchmarkEngine.isTelegramIp("185.76.151.10"))    // 185.76.151.0/24
 
         // Valid Telegram IPv6 prefixes
         assertTrue(DohBenchmarkEngine.isTelegramIp("2001:b28:f23d:f001::a"))
         assertTrue(DohBenchmarkEngine.isTelegramIp("2001:67c:4e8:f002::4"))
+        assertTrue(DohBenchmarkEngine.isTelegramIp("2001:b28:f23e:1::1"))
+        assertTrue(DohBenchmarkEngine.isTelegramIp("2a0a:f281::1"))
+        assertTrue(DohBenchmarkEngine.isTelegramIp("2a0a:f287::1"))
+
+        // Synthesized NAT64 addresses wrapping Telegram IPs
+        assertTrue(DohBenchmarkEngine.isTelegramIp("64:ff9b::91.108.56.130"))
+        assertTrue(DohBenchmarkEngine.isTelegramIp("64:ff9b::5b6c:3882")) // 91.108.56.130 in hex
+        assertFalse(DohBenchmarkEngine.isTelegramIp("64:ff9b::8.8.8.8"))
 
         // Non-Telegram public IPs
         assertFalse(DohBenchmarkEngine.isTelegramIp("8.8.8.8"))
@@ -234,5 +245,15 @@ class DohBenchmarkEngineTest {
         val report = DohBenchmarkEngine.analyzeAndRecommend(mockResults)
         assertTrue(report.recommendedProviderIds.isEmpty())
         assertTrue(report.summaryText.contains("unreachable or blocked"))
+    }
+
+    @Test
+    fun testAdaptiveProbeTimeoutRanges() {
+        val cellularTimeout = DohBenchmarkEngine.getAdaptiveProbeTimeoutMs(isCellular = true)
+        val wifiTimeout = DohBenchmarkEngine.getAdaptiveProbeTimeoutMs(isCellular = false)
+
+        assertTrue(cellularTimeout in DohBenchmarkEngine.MIN_PROBE_TIMEOUT_MS..DohBenchmarkEngine.MAX_PROBE_TIMEOUT_MS)
+        assertTrue(wifiTimeout in DohBenchmarkEngine.MIN_PROBE_TIMEOUT_MS..DohBenchmarkEngine.MAX_PROBE_TIMEOUT_MS)
+        assertTrue(cellularTimeout > wifiTimeout, "Cellular networks should have a more tolerant timeout than Wi-Fi")
     }
 }

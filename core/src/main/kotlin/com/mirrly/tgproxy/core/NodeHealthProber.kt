@@ -199,11 +199,11 @@ object NodeHealthProber {
         val port = target.port
         val startTime = System.currentTimeMillis()
 
-        // 1. Резолвинг DNS
+        // 1. Резолвинг DNS (без DoH)
         val addresses = try {
-            val resolved = DohResolver.resolveSync(host, DnsScope.BOOTSTRAP)
-            if (resolved.isNotEmpty()) {
-                resolved
+            val d = host.lowercase()
+            if (d.endsWith(".workers.dev") || d.endsWith(".pages.dev") || d.endsWith(".cloudflare.com")) {
+                listOf(InetAddress.getByName("172.67.153.159"), InetAddress.getByName("104.21.234.180"))
             } else {
                 InetAddress.getAllByName(host).toList()
             }
@@ -216,9 +216,8 @@ object NodeHealthProber {
             return ProbeMetric(NodeProbeStatus.DNS_FAILED, null, "Не найден IP адрес (dns_failed)")
         }
 
-        val cachedEntry = DohResolver.getFromCache(host)
-        val isFallbackIp = cachedEntry?.resolverSource == "Cloudflare-Anycast-Fallback" ||
-                (DohResolver.isCloudflareTargetDomain(host) && addresses.all { DohResolver.CF_ANYCAST_FALLBACK_IPS.contains(it) })
+        val d = host.lowercase()
+        val isFallbackIp = d.endsWith(".workers.dev") || d.endsWith(".pages.dev") || d.endsWith(".cloudflare.com")
 
         val targetIp = addresses.first()
         var rawSocket: Socket? = null
@@ -301,7 +300,6 @@ object NodeHealthProber {
         } catch (e: Exception) {
             val msg = e.message?.lowercase() ?: ""
             if (isFallbackIp) {
-                DohResolver.recordFallbackIpFailure()
                 ProbeMetric(NodeProbeStatus.FALLBACK_IP_FAILED, null, "Сбой Anycast Fallback IP: ${e.message ?: "Сбой соединения"}")
             } else if (msg.contains("network is unreachable") || msg.contains("enetunreach") || msg.contains("eafnosupport") || msg.contains("address family not supported")) {
                 ProbeMetric(NodeProbeStatus.UNSUPPORTED_STAGE, null, "Семейство адресов не поддерживается сетью: ${e.message}")
@@ -401,7 +399,7 @@ object NodeHealthProber {
             }
         }
 
-        val domain = vlessDomain?.trim()?.ifEmpty { null } ?: VlessPresetsRepository.getDefaultPreset().domain
+        val domain = vlessDomain?.trim()?.ifEmpty { null } ?: "free-vless.pages.dev"
         val path = vlessPath?.trim()?.ifEmpty { "/vless-ws?ed=2048" } ?: "/vless-ws?ed=2048"
         val uuid = vlessUuid?.trim()?.ifEmpty { "d342d11e-d424-4583-b36e-524ab1f0afa4" } ?: "d342d11e-d424-4583-b36e-524ab1f0afa4"
 
@@ -504,6 +502,7 @@ object NodeHealthProber {
 
         return try {
             socket = Socket()
+            VpnSocketProtector.protect(socket)
             socket.tcpNoDelay = true
             socket.soTimeout = timeoutMs
             socket.connect(InetSocketAddress("127.0.0.1", socksPort), 1500)

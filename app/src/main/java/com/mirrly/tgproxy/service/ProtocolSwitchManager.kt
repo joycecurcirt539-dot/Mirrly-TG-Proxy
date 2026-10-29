@@ -25,6 +25,7 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import com.mirrly.tgproxy.MirrlyApplication
+import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.ProxyMode
 import kotlinx.coroutines.CoroutineScope
@@ -124,14 +125,9 @@ object ProtocolSwitchManager {
 
                     // PHASE 2: 1-SECOND CALM DARK PAUSE & THEME ACCENT MORPH
                     // Switch mode and persist config during the dark pause
-                    if (newTarget == ProxyMode.SOCKS5 && !app.config.hasSocks5Auth) {
-                        val (u, p) = com.mirrly.tgproxy.core.ProxyConfig.generateRandomSocks5Credentials()
-                        app.config.socks5Username = u
-                        app.config.socks5Password = p
-                        com.mirrly.tgproxy.core.NativeProxy.setSocks5Auth(u, p)
-                    }
+
                     app.config.proxyModeName = newTarget.name
-                    app.config.customCfDomain = app.prefsManager.getActiveWorker().domain
+                    app.config.customCfDomain = app.prefsManager.getActiveWorker(mode = newTarget).domain
                     _targetMode.value = newTarget
                     withContext(Dispatchers.IO) {
                         app.prefsManager.saveConfig(app.config)
@@ -142,32 +138,39 @@ object ProtocolSwitchManager {
                     delay(1000)
 
                     // PHASE 3: RECONNECTING / POWER UP ON NEW PROTOCOL
-                    _switchPhase.value = SwitchPhase.RECONNECTING
-                    AppLogger.i(TAG, "Step 3: Starting proxy service on protocol ${newTarget.name}...")
-
-                    val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
-                        action = ProxyForegroundService.ACTION_START
-                    }
-                    try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            context.startForegroundService(serviceIntent)
-                        } else {
-                            context.startService(serviceIntent)
+                    if (newTarget == com.mirrly.tgproxy.core.ProxyMode.SOCKS5 && app.config.getEffectiveCfDomain().isBlank()) {
+                        AppLogger.w(TAG, "Cannot start SOCKS5 after protocol switch: no user worker configured")
+                        withContext(Dispatchers.Main) {
+                            android.widget.Toast.makeText(context, context.getString(R.string.socks5_no_worker_error), android.widget.Toast.LENGTH_LONG).show()
                         }
-                    } catch (e: Exception) {
-                        AppLogger.e(TAG, "Failed to start proxy service: ${e.message}")
-                    }
+                    } else {
+                        _switchPhase.value = SwitchPhase.RECONNECTING
+                        AppLogger.i(TAG, "Step 3: Starting proxy service on protocol ${newTarget.name}...")
 
-                    // Wait until server is verified running
-                    val waitStart = System.currentTimeMillis()
-                    while (!server.isRunning && (System.currentTimeMillis() - waitStart < 2500L)) {
-                        delay(40)
+                        val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
+                            action = ProxyForegroundService.ACTION_START
+                        }
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                context.startForegroundService(serviceIntent)
+                            } else {
+                                context.startService(serviceIntent)
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.e(TAG, "Failed to start proxy service: ${e.message}")
+                        }
+
+                        // Wait until server is verified running
+                        val waitStart = System.currentTimeMillis()
+                        while (!server.isRunning && (System.currentTimeMillis() - waitStart < 2500L)) {
+                            delay(40)
+                        }
                     }
                     delay(100)
                 } else {
                     // ── SCENARIO B: PROXY WAS DISCONNECTED (Immediate Pill Slide & Accent Update) ──
                     app.config.proxyModeName = newTarget.name
-                    app.config.customCfDomain = app.prefsManager.getActiveWorker().domain
+                    app.config.customCfDomain = app.prefsManager.getActiveWorker(mode = newTarget).domain
                     _targetMode.value = newTarget
                     withContext(Dispatchers.IO) {
                         app.prefsManager.saveConfig(app.config)

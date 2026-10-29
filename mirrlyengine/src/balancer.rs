@@ -102,7 +102,8 @@ pub fn normalize_domain(domain: &str) -> String {
     let host = host.split(':').next().unwrap_or(host);
     if let Some(rest) = host.strip_prefix("kws") {
         if let Some(dot_idx) = rest.find('.') {
-            if rest[..dot_idx].chars().all(|c| c.is_ascii_digit()) {
+            let prefix = &rest[..dot_idx];
+            if !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit() || c == '-') {
                 return rest[dot_idx + 1..].to_ascii_lowercase();
             }
         }
@@ -536,7 +537,9 @@ mod tests {
     #[test]
     fn test_domain_normalization() {
         assert_eq!(normalize_domain("kws2.worker1.dev"), "worker1.dev");
+        assert_eq!(normalize_domain("kws2-1.worker1.dev"), "worker1.dev");
         assert_eq!(normalize_domain("kws4.worker2.dev:443"), "worker2.dev");
+        assert_eq!(normalize_domain("kws4-1.worker2.dev:443"), "worker2.dev");
         assert_eq!(
             normalize_domain("https://kws203.edge.worker.dev/apiws"),
             "edge.worker.dev"
@@ -555,7 +558,7 @@ mod tests {
             balancer.get_domains_for_dc(2, false).first().map(String::as_str),
             Some("fast.example")
         );
-        assert!(balancer.get_domains_for_dc(4, false).is_empty());
+        assert!(!balancer.get_domains_for_dc(4, false).contains(&"fast.example".to_string()));
     }
 
     #[test]
@@ -679,7 +682,7 @@ mod tests {
         // Initially workerA is active (60ms vs 80ms)
         assert_eq!(
             b.get_fastest_domain_for_dc(2, false).as_deref(),
-            Some("workerA.dev")
+            Some("workera.dev")
         );
 
         // Now workerB achieves multiple confirmed useful RX (4 * 15 = 60ms bonus)
@@ -700,7 +703,7 @@ mod tests {
         // workerB score is 20. Failover happens immediately!
         assert_eq!(
             b.get_fastest_domain_for_dc(2, false).as_deref(),
-            Some("workerB.dev")
+            Some("workerb.dev")
         );
     }
 

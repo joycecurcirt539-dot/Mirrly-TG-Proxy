@@ -104,37 +104,54 @@ data class WarpProfile(
     val isOfflineCached: Boolean = false,
     val isWgValid: Boolean = false,
     val isMasqueValid: Boolean = false,
+    val isBundledSeed: Boolean = false,
+    val awgRawConfig: String = "",
     val apiEndpoint: String = "",
     val userEndpointOverride: String? = null,
     val masqueApiEndpoint: String = "",
     val masqueUserOverride: String? = null,
     val measuredWgEndpoint: String? = null,
-    val measuredMasqueEndpoint: String? = null
+    val measuredMasqueEndpoint: String? = null,
+    val dnsServers: String = ""
 ) {
+    fun isBootstrap(): Boolean =
+        !isBundledSeed && (
+            accountId.isBlank() ||
+            token.isBlank() ||
+            accountId == "mirrly-warp-bootstrap-id" ||
+            token == "mirrly-bootstrap-token" ||
+            privateKeyBase64 == "7NMyJemtPW8/EKQsBxAHjfhsPVOiNZfpG0VERGergeY="
+        )
+
     fun isUsable(): Boolean {
-        val notBootstrap = accountId.isNotBlank() &&
+        val notBootstrap = (accountId.isNotBlank() &&
             token.isNotBlank() &&
             accountId != "mirrly-warp-bootstrap-id" &&
-            token != "mirrly-bootstrap-token"
+            token != "mirrly-bootstrap-token") || isBundledSeed
         val hasKeys = privateKeyBase64.isNotBlank() && publicKeyBase64.isNotBlank()
         val hasNetwork = clientIpv4.isNotBlank() && effectivePeerEndpoint.isNotBlank()
-        return notBootstrap && hasKeys && hasNetwork && (isRegistered || isOfflineCached)
+        return (notBootstrap || isOfflineCached || isBundledSeed) && hasKeys && hasNetwork && (isRegistered || isOfflineCached || isBundledSeed)
     }
 
     fun requireUsable(): WarpProfile {
         require(isUsable()) {
-            "WarpProfile is unusable or unverified: accountId=$accountId, isRegistered=$isRegistered, isOfflineCached=$isOfflineCached"
+            "WarpProfile is unusable or unverified: accountId=$accountId, isRegistered=$isRegistered, isOfflineCached=$isOfflineCached, isBundledSeed=$isBundledSeed"
         }
         return this
     }
 
     val effectivePeerEndpoint: String
-        get() = when {
-            !userEndpointOverride.isNullOrBlank() -> userEndpointOverride
-            !measuredWgEndpoint.isNullOrBlank() -> measuredWgEndpoint
-            apiEndpoint.isNotBlank() -> apiEndpoint
-            peerEndpoint.isNotBlank() -> peerEndpoint
-            else -> "162.159.193.10:1701"
+        get() {
+            val candidate = when {
+                !userEndpointOverride.isNullOrBlank() -> userEndpointOverride
+                !measuredWgEndpoint.isNullOrBlank() -> measuredWgEndpoint
+                !apiEndpoint.isNullOrBlank() -> apiEndpoint
+                peerEndpoint.isNotBlank() -> peerEndpoint
+                else -> "188.114.96.1:8095"
+            }
+            val (ip, port) = WarpEndpointScanner.parseEndpoint(candidate)
+            val safePort = if (port <= 0 || port == 2408) 8095 else port
+            return "$ip:$safePort"
         }
 
     val effectiveMasqueToken: String
@@ -144,14 +161,18 @@ data class WarpProfile(
         get() = masqueAccountId.ifBlank { accountId }
 
     val effectiveMasquePeerEndpoint: String
-        get() = when {
-            !masqueUserOverride.isNullOrBlank() -> masqueUserOverride
-            !measuredMasqueEndpoint.isNullOrBlank() -> measuredMasqueEndpoint
-            masqueApiEndpoint.isNotBlank() -> masqueApiEndpoint
-            masquePeerEndpoint.isNotBlank() -> masquePeerEndpoint
-            !userEndpointOverride.isNullOrBlank() -> userEndpointOverride
-            apiEndpoint.isNotBlank() -> apiEndpoint
-            else -> peerEndpoint
+        get() {
+            val candidate = when {
+                !masqueUserOverride.isNullOrBlank() -> masqueUserOverride
+                !measuredMasqueEndpoint.isNullOrBlank() -> measuredMasqueEndpoint
+                masqueApiEndpoint.isNotBlank() -> masqueApiEndpoint
+                masquePeerEndpoint.isNotBlank() -> masquePeerEndpoint
+                !userEndpointOverride.isNullOrBlank() -> userEndpointOverride
+                else -> effectivePeerEndpoint
+            }
+            val (ip, port) = WarpEndpointScanner.parseEndpoint(candidate)
+            val safePort = if (port <= 0 || port == 2408) 8443 else port
+            return "$ip:$safePort"
         }
 
     val effectiveMasquePeerPublicKey: String
@@ -240,6 +261,9 @@ data class WarpAccountInfo(
 object WarpAccountManager {
     private const val TAG = "WarpAccountManager"
     const val REGISTRATION_WORKER_DOMAIN = "warp-reg.rbmkyuw.workers.dev"
+
+    @Volatile
+    var isRegisterViaWorker: Boolean = true
     private const val API_BASE_V3371 = "https://api.cloudflareclient.com/v0a3371"
     private const val API_BASE_V4471 = "https://api.cloudflareclient.com/v0a4471"
     private const val USER_AGENT = "WARP for Android"
@@ -296,19 +320,19 @@ object WarpAccountManager {
         OkHttpClient.Builder()
             .socketFactory(TlsFragmentingSocketFactory())
             .dns(WarpCloudflareDns)
-            .connectTimeout(500, TimeUnit.MILLISECONDS)
-            .readTimeout(1000, TimeUnit.MILLISECONDS)
-            .writeTimeout(1000, TimeUnit.MILLISECONDS)
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .writeTimeout(8, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
             .build()
     }
 
     private val workerClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(8, TimeUnit.SECONDS)
-            .writeTimeout(8, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(false)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build()
     }
 
@@ -411,16 +435,32 @@ object WarpAccountManager {
         }
     }
 
+    fun extractRawP256PublicKey(publicKey: java.security.PublicKey): ByteArray {
+        if (publicKey is java.security.interfaces.ECPublicKey) {
+            val w = publicKey.w
+            val xBytes = w.affineX.toByteArray()
+            val yBytes = w.affineY.toByteArray()
+            val raw = ByteArray(65)
+            raw[0] = 0x04
+            val xTrimmed = if (xBytes.size > 32 && xBytes[0] == 0.toByte()) xBytes.copyOfRange(1, xBytes.size) else xBytes
+            val yTrimmed = if (yBytes.size > 32 && yBytes[0] == 0.toByte()) yBytes.copyOfRange(1, yBytes.size) else yBytes
+            System.arraycopy(xTrimmed, 0, raw, 1 + (32 - xTrimmed.size), xTrimmed.size)
+            System.arraycopy(yTrimmed, 0, raw, 33 + (32 - yTrimmed.size), yTrimmed.size)
+            return raw
+        }
+        throw IllegalArgumentException("Expected java.security.interfaces.ECPublicKey")
+    }
+
     fun generateMasqueKeyPairAndCert(): Triple<String, String, String> {
         val kpg = KeyPairGenerator.getInstance("EC")
         kpg.initialize(ECGenParameterSpec("secp256r1"))
         val keyPair = kpg.generateKeyPair()
-        val spkiBytes = keyPair.public.encoded
+        val rawPointBytes = extractRawP256PublicKey(keyPair.public)
         val pkcs8Bytes = keyPair.private.encoded
         val certDer = buildSelfSignedCert(keyPair)
         return Triple(
             Base64.getEncoder().encodeToString(pkcs8Bytes),
-            Base64.getEncoder().encodeToString(spkiBytes),
+            Base64.getEncoder().encodeToString(rawPointBytes),
             Base64.getEncoder().encodeToString(certDer)
         )
     }
@@ -497,7 +537,6 @@ object WarpAccountManager {
 
         val effectiveWorker = workerDomain?.let { WorkerDomainNormalizer.sanitizeDomain(it) }?.ifEmpty { null }
             ?: REGISTRATION_WORKER_DOMAIN
-        val isExplicitCustomWorker = !workerDomain.isNullOrBlank() && workerDomain != REGISTRATION_WORKER_DOMAIN
 
         val bodyJson = JSONObject().apply {
             put("license", cleanKey)
@@ -507,7 +546,7 @@ object WarpAccountManager {
         var responseJson: JSONObject? = null
         var lastError: Exception? = null
 
-        // 1. Worker Relay (выделенный регистрационный воркер)
+        // 1. Приоритетный опрос через Worker Relay (обход ТСПУ в РФ)
         if (!effectiveWorker.isNullOrBlank()) {
             try {
                 val req = Request.Builder()
@@ -538,16 +577,16 @@ object WarpAccountManager {
             }
         }
 
-        // 2. Попытка через WarpObfuscatedHttpClient (прямое подключение с обходом SNI-блокировок)
-        if (responseJson == null && !isExplicitCustomWorker && lastError !is IllegalStateException) {
+        // 2. Резервное прямое обфусцированное подключение через WarpObfuscatedHttpClient
+        if (responseJson == null && lastError !is IllegalStateException) {
             try {
                 val obfResp = WarpObfuscatedHttpClient.execute(
                     method = "PUT",
                     path = "/v0a4471/reg/$accountId/account",
                     bodyJson = bodyJson,
                     authToken = token,
-                    timeoutMs = 1500,
-                    maxCandidates = 2
+                    timeoutMs = 5000,
+                    maxCandidates = 4
                 )
                 if (obfResp.statusCode in 200..299 && obfResp.body.isNotBlank()) {
                     responseJson = JSONObject(obfResp.body)
@@ -565,7 +604,7 @@ object WarpAccountManager {
             }
         }
 
-        // 3. Прямой OkHttp запрос
+        // 3. Резервный прямой OkHttp запрос
         if (responseJson == null && lastError !is IllegalStateException) {
             try {
                 val req = Request.Builder()
@@ -645,11 +684,10 @@ object WarpAccountManager {
 
         val effectiveWorker = workerDomain?.let { WorkerDomainNormalizer.sanitizeDomain(it) }?.ifEmpty { null }
             ?: REGISTRATION_WORKER_DOMAIN
-        val isExplicitCustomWorker = !workerDomain.isNullOrBlank() && workerDomain != REGISTRATION_WORKER_DOMAIN
         var responseJson: JSONObject? = null
         var lastError: Exception? = null
 
-        // 1. Worker Relay (выделенный регистрационный воркер)
+        // 1. Приоритетный опрос через Worker Relay (обход ТСПУ в РФ)
         if (!effectiveWorker.isNullOrBlank()) {
             try {
                 val req = Request.Builder()
@@ -671,15 +709,15 @@ object WarpAccountManager {
             }
         }
 
-        // 2. Прямой обфусцированный GET с нарезкой SNI
-        if (responseJson == null && !isExplicitCustomWorker) {
+        // 2. Резервный прямой обфусцированный GET с нарезкой ClientHello
+        if (responseJson == null) {
             try {
                 val obfResp = WarpObfuscatedHttpClient.execute(
                     method = "GET",
                     path = "/v0a4471/reg/$accountId/account",
                     authToken = token,
-                    timeoutMs = 1500,
-                    maxCandidates = 2
+                    timeoutMs = 5000,
+                    maxCandidates = 4
                 )
                 if (obfResp.statusCode in 200..299 && obfResp.body.isNotBlank()) {
                     responseJson = JSONObject(obfResp.body)
@@ -689,8 +727,8 @@ object WarpAccountManager {
             }
         }
 
-        // 3. Прямой GET
-        if (responseJson == null && !isExplicitCustomWorker) {
+        // 3. Резервный прямой GET к api.cloudflareclient.com
+        if (responseJson == null) {
             try {
                 val req = Request.Builder()
                     .url("$API_BASE_V4471/reg/$accountId/account")
@@ -754,17 +792,23 @@ object WarpAccountManager {
     ): ApiCallResult {
         val mediaType = "application/json; charset=UTF-8".toMediaType()
         var lastError: Exception? = null
-        var activeOperaEndpoint = cachedOperaEndpoint
 
         val effectiveWorker = workerDomain?.let { WorkerDomainNormalizer.sanitizeDomain(it) }?.ifEmpty { null }
-            ?: REGISTRATION_WORKER_DOMAIN
+            ?: (if (isRegisterViaWorker) REGISTRATION_WORKER_DOMAIN else null)
         val isExplicitCustomWorker = !workerDomain.isNullOrBlank() && workerDomain != REGISTRATION_WORKER_DOMAIN
 
-        // 1. Worker (выделенный регистрационный воркер для обхода блокировок api.cloudflareclient.com)
-        if (!effectiveWorker.isNullOrBlank()) {
+        // Нормализация пути: удаление префиксов версий API во избежание двойного пути /warp-api/v0a4471/reg
+        val cleanPath = path
+            .removePrefix("/v0a4471")
+            .removePrefix("/v0a5641")
+            .removePrefix("/v0a3371")
+            .let { if (!it.startsWith("/")) "/$it" else it }
+
+        // 1. Приоритетный вызов через Cloudflare Worker Relay (безотказный канал в РФ)
+        if (!effectiveWorker.isNullOrBlank() && (isExplicitCustomWorker || isRegisterViaWorker)) {
             try {
                 val reqBuilder = Request.Builder()
-                    .url("https://$effectiveWorker/warp-api$path")
+                    .url("https://$effectiveWorker/warp-api$cleanPath")
                     .header("Accept", "application/json")
                     .header("Accept-Encoding", "identity")
                     .header("User-Agent", USER_AGENT)
@@ -782,82 +826,55 @@ object WarpAccountManager {
                     val body = resp.body?.string()
                     if (resp.isSuccessful && !body.isNullOrBlank()) {
                         val parsed = try { JSONObject(body) } catch (_: Exception) { null }
-                        if (parsed != null) return ApiCallResult(parsed, activeOperaEndpoint, null)
+                        if (parsed != null) return ApiCallResult(parsed, null, null)
                     } else if (!body.isNullOrBlank()) {
                         val parsed = try { JSONObject(body) } catch (_: Exception) { null }
                         val errors = parsed?.optJSONArray("errors")
-                        if (errors != null && errors.length() > 0) {
+                        if (resp.code == 429 || body.contains("1015") || body.contains("Rate limited") || resp.code in 500..599) {
+                            AppLogger.w(TAG, "Worker Relay ($effectiveWorker) перегружен или заблокирован (HTTP ${resp.code}). Каскадный переход к прямому каналу.")
+                            lastError = java.io.IOException("Worker HTTP ${resp.code} rate limited: $body")
+                        } else if (errors != null && errors.length() > 0) {
                             val msg = errors.getJSONObject(0).optString("message", "Ошибка API Cloudflare")
                             lastError = IllegalStateException(msg)
+                        } else {
+                            lastError = IllegalStateException("HTTP ${resp.code}: $body")
                         }
                     }
                 }
             } catch (e: Exception) {
+                AppLogger.w(TAG, "Ошибка вызова через Worker Relay ($effectiveWorker): ${e.message}")
                 lastError = e
             }
             if (isExplicitCustomWorker) {
-                return ApiCallResult(null, activeOperaEndpoint, lastError)
+                return ApiCallResult(null, null, lastError)
             }
         }
 
-        // 2. Прямой обфусцированный зонд Cloudflare API (нарезка SNI для обхода ТСПУ)
-        try {
-            val obfResp = WarpObfuscatedHttpClient.execute(
-                method = method,
-                path = path,
-                bodyJson = bodyJson,
-                authToken = authToken,
-                timeoutMs = timeoutMs,
-                maxCandidates = 1
-            )
-            if ((obfResp.statusCode in 200..299) && obfResp.body.isNotBlank()) {
-                val parsed = try { JSONObject(obfResp.body) } catch (_: Exception) { null }
-                if (parsed != null) return ApiCallResult(parsed, activeOperaEndpoint, null)
-            }
-        } catch (e: Exception) {
-            lastError = e
-        }
-
-        // 3. Прямой OkHttp запрос
-        try {
-            val reqBuilder = Request.Builder()
-                .url("$effectiveApiBase$path")
-                .header("Accept", "application/json")
-                .header("Accept-Encoding", "identity")
-                .header("User-Agent", USER_AGENT)
-                .header("CF-Client-Version", CLIENT_VERSION)
-            if (!authToken.isNullOrBlank()) {
-                reqBuilder.header("Authorization", "Bearer $authToken")
-            }
-            when (method.uppercase()) {
-                "POST" -> reqBuilder.post((bodyJson ?: "").toRequestBody(mediaType))
-                "PATCH" -> reqBuilder.patch((bodyJson ?: "").toRequestBody(mediaType))
-                "PUT" -> reqBuilder.put((bodyJson ?: "").toRequestBody(mediaType))
-                else -> reqBuilder.get()
-            }
-            httpClient.newCall(reqBuilder.build()).execute().use { resp ->
-                val body = resp.body?.string()
-                if (resp.isSuccessful && !body.isNullOrBlank()) {
-                    val parsed = try { JSONObject(body) } catch (_: Exception) { null }
-                    if (parsed != null) return ApiCallResult(parsed, activeOperaEndpoint, null)
-                }
-            }
-        } catch (e: Exception) {
-            lastError = e
-        }
-
-        // 4. Opera VPN шлюз при сбое прямого зонда
-        val nodesToTry = if (!activeOperaEndpoint.isNullOrBlank()) {
-            listOf(OperaVpnRepository.NODES.firstOrNull { it.endpoint == activeOperaEndpoint } ?: OperaVpnRepository.NODES[0])
-        } else {
-            OperaVpnRepository.NODES
-        }
-
-        for (opNode in nodesToTry) {
+        // 2. Резервный прямой обфусцированный зонд Cloudflare API (нарезка ClientHello для Anycast IP)
+        if (lastError !is IllegalStateException) {
             try {
-                val opClient = getOperaProxyClient(opNode.endpoint)
+                val obfResp = WarpObfuscatedHttpClient.execute(
+                    method = method,
+                    path = "/v0a4471$cleanPath",
+                    bodyJson = bodyJson,
+                    authToken = authToken,
+                    timeoutMs = timeoutMs.coerceAtMost(3000),
+                    maxCandidates = 2
+                )
+                if ((obfResp.statusCode in 200..299) && obfResp.body.isNotBlank()) {
+                    val parsed = try { JSONObject(obfResp.body) } catch (_: Exception) { null }
+                    if (parsed != null) return ApiCallResult(parsed, null, null)
+                }
+            } catch (e: Exception) {
+                if (lastError == null) lastError = e
+            }
+        }
+
+        // 3. Резервный прямой OkHttp запрос к api.cloudflareclient.com
+        if (lastError !is IllegalStateException) {
+            try {
                 val reqBuilder = Request.Builder()
-                    .url("$effectiveApiBase$path")
+                    .url("$effectiveApiBase$cleanPath")
                     .header("Accept", "application/json")
                     .header("Accept-Encoding", "identity")
                     .header("User-Agent", USER_AGENT)
@@ -871,21 +888,19 @@ object WarpAccountManager {
                     "PUT" -> reqBuilder.put((bodyJson ?: "").toRequestBody(mediaType))
                     else -> reqBuilder.get()
                 }
-                opClient.newCall(reqBuilder.build()).execute().use { resp ->
+                httpClient.newCall(reqBuilder.build()).execute().use { resp ->
                     val body = resp.body?.string()
                     if (resp.isSuccessful && !body.isNullOrBlank()) {
                         val parsed = try { JSONObject(body) } catch (_: Exception) { null }
-                        if (parsed != null) {
-                            return ApiCallResult(parsed, opNode.endpoint, null)
-                        }
+                        if (parsed != null) return ApiCallResult(parsed, null, null)
                     }
                 }
             } catch (e: Exception) {
-                lastError = e
+                if (lastError == null) lastError = e
             }
         }
 
-        return ApiCallResult(null, activeOperaEndpoint, lastError)
+        return ApiCallResult(null, null, lastError)
     }
 
     /**
@@ -972,6 +987,12 @@ object WarpAccountManager {
             AppLogger.i(TAG, "Запуск раздельной регистрации WARP (WireGuard + MASQUE)...")
             onProgress?.invoke(WarpRegistrationStep(1, 4, "Генерация ключей WireGuard", "Генерация пары Curve25519 (X25519) и серийного номера Android..."))
             val (wgPriv, wgPub) = generateWireGuardKeyPair()
+            val (p256Priv, p256Pub, clientCert) = try {
+                generateMasqueKeyPairAndCert()
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Ошибка генерации ключей MASQUE P-256: ${e.message}")
+                Triple("", "", "")
+            }
             val wgSerialHex = randomSerialHex()
             val tosTimestamp = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS+00:00").withZone(ZoneOffset.UTC).format(Instant.now())
             onProgress?.invoke(WarpRegistrationStep(1, 4, "Регистрация WireGuard", "Серийный номер: $wgSerialHex. Подготовка запроса POST /reg..."))
@@ -983,7 +1004,7 @@ object WarpAccountManager {
             }
 
             val cleanWorkerDomain = workerDomain?.let { WorkerDomainNormalizer.sanitizeDomain(it) }?.ifEmpty { null }
-                ?: REGISTRATION_WORKER_DOMAIN
+                ?: (if (isRegisterViaWorker) REGISTRATION_WORKER_DOMAIN else null)
             var activeOperaEndpoint: String? = null
 
             // 1. Регистрация устройства WireGuard (Curve25519)
@@ -1002,7 +1023,7 @@ object WarpAccountManager {
             val token = regJson?.optString("token", "") ?: ""
 
             if (regJson == null || accountId.isBlank() || token.isBlank()) {
-                if (existingProfile != null && existingProfile.isRegistered && existingProfile.isUsable()) {
+                if (existingProfile != null && existingProfile.isRegistered && existingProfile.isUsable() && !existingProfile.isBootstrap()) {
                     onProgress?.invoke(
                         WarpRegistrationStep(
                             4,
@@ -1044,7 +1065,7 @@ object WarpAccountManager {
             val clientIpv6 = addressesObj?.optString("v6", "") ?: ""
             var rawApiEndpoint = existingProfile?.apiEndpoint ?: ""
             val userOverride = existingProfile?.userEndpointOverride
-            var peerEndpoint = userOverride ?: "162.159.193.10:1701"
+            var peerEndpoint = userOverride ?: "188.114.96.1:500"
             var peerPublicKey = ""
             val peersArr = configObj?.optJSONArray("peers")
             if (peersArr != null && peersArr.length() > 0) {
@@ -1052,12 +1073,13 @@ object WarpAccountManager {
                 peerPublicKey = p0?.optString("public_key", "") ?: ""
                 val apiEp = p0?.optJSONObject("endpoint")?.optString("v4", "") ?: ""
                 if (apiEp.isNotBlank()) {
-                    rawApiEndpoint = apiEp
+                    val host = if (apiEp.contains(":")) apiEp.substringBefore(':') else apiEp
+                    val portStr = if (apiEp.contains(":")) apiEp.substringAfter(':') else ""
+                    val parsedPort = portStr.toIntOrNull() ?: 500
+                    val safePort = if (parsedPort <= 0 || parsedPort == 2408) 500 else parsedPort
+                    rawApiEndpoint = "$host:$safePort"
                     if (userOverride.isNullOrBlank()) {
-                        val host = apiEp.substringBefore(':')
-                        val port = apiEp.substringAfter(':', "1701")
-                        // В РФ порты 2408 и 500 подпадают под жесткий дроп ТСПУ, переключаем на 1701
-                        peerEndpoint = if (port == "2408" || port == "500") "$host:1701" else apiEp
+                        peerEndpoint = "$host:$safePort"
                     }
                 }
             }
@@ -1088,17 +1110,100 @@ object WarpAccountManager {
 
             ensureActive()
 
-            val masqueAccountId = accountId
-            val masqueToken = token
-            val masqueClientIpv4 = clientIpv4
-            val masqueClientIpv6 = clientIpv6
+            var masqueAccountId = accountId
+            var masqueToken = token
+            var masqueClientIpv4 = clientIpv4
+            var masqueClientIpv6 = clientIpv6
             val masqueUserOverride = existingProfile?.masqueUserOverride
-            val rawMasqueApiEndpoint = existingProfile?.masqueApiEndpoint ?: ""
-            val masquePeerEndpoint = masqueUserOverride ?: existingProfile?.masquePeerEndpoint?.ifBlank { null } ?: peerEndpoint
-            val masquePeerPublicKey = peerPublicKey
-            val isMasqueActivated = isWgActivated
-            val isMasqueValid = true
-            val clientCert = ""
+            var rawMasqueApiEndpoint = rawApiEndpoint
+            var masqueHost = peerEndpoint.substringBefore(':')
+            val masqueSafePort = if (peerEndpoint.contains(":")) {
+                val p = peerEndpoint.substringAfter(':').toIntOrNull() ?: 8095
+                if (p <= 0 || p == 2408 || p == 500 || p == 1701 || p == 4500) 8095 else p
+            } else 8095
+            var masquePeerEndpoint = masqueUserOverride ?: "$masqueHost:$masqueSafePort"
+            var masquePeerPublicKey = peerPublicKey
+            var isMasqueActivated = isWgActivated
+            var isMasqueValid = p256Priv.isNotBlank() && p256Pub.isNotBlank()
+
+            // 2b. Подлинная сетевая регистрация устройства MASQUE в Anycast (NIST P-256 / secp256r1)
+            if (isMasqueValid) {
+                try {
+                    onProgress?.invoke(WarpRegistrationStep(2, 4, "Регистрация MASQUE", "Регистрация профиля P-256 (HTTP/3) в сети Cloudflare..."))
+                    val masqueSerialHex = randomSerialHex()
+                    val masqueRegBody = JSONObject().apply {
+                        put("key", p256Pub)
+                        put("install_id", "")
+                        put("fcm_token", "")
+                        put("tos", tosTimestamp)
+                        put("model", "Android")
+                        put("serial_number", masqueSerialHex)
+                        put("os_version", "")
+                        put("key_type", "secp256r1")
+                        put("tunnel_type", "masque")
+                        put("locale", "ru_RU")
+                    }
+                    val masqueRes = executeApiCall(
+                        method = "POST",
+                        path = "/v0a5641/reg",
+                        bodyJson = masqueRegBody.toString(),
+                        authToken = null,
+                        effectiveApiBase = API_BASE_V4471,
+                        workerDomain = cleanWorkerDomain,
+                        cachedOperaEndpoint = activeOperaEndpoint
+                    )
+                    val mJson = masqueRes.json
+                    val mId = mJson?.optString("id", "") ?: ""
+                    val mToken = mJson?.optString("token", "") ?: ""
+                    if (mId.isNotBlank() && mToken.isNotBlank()) {
+                        masqueAccountId = mId
+                        masqueToken = mToken
+                        val mConfig = mJson?.optJSONObject("config")
+                        val mAddresses = mConfig?.optJSONObject("interface")?.optJSONObject("addresses")
+                        val mIpv4 = mAddresses?.optString("v4", "") ?: ""
+                        val mIpv6 = mAddresses?.optString("v6", "") ?: ""
+                        if (mIpv4.isNotBlank()) masqueClientIpv4 = mIpv4
+                        if (mIpv6.isNotBlank()) masqueClientIpv6 = mIpv6
+
+                        val mPeers = mConfig?.optJSONArray("peers")
+                        if (mPeers != null && mPeers.length() > 0) {
+                            val p0 = mPeers.optJSONObject(0)
+                            val mPeerKey = p0?.optString("public_key", "") ?: ""
+                            if (mPeerKey.isNotBlank()) masquePeerPublicKey = mPeerKey
+                            val mApiEp = p0?.optJSONObject("endpoint")?.optString("v4", "") ?: ""
+                            if (mApiEp.isNotBlank()) {
+                                val host = if (mApiEp.contains(":")) mApiEp.substringBefore(':') else mApiEp
+                                rawMasqueApiEndpoint = "$host:8095"
+                                if (masqueUserOverride.isNullOrBlank()) {
+                                    masquePeerEndpoint = "$host:8095"
+                                }
+                            }
+                        }
+
+                        // Активация режима WARP для устройства MASQUE (warp_enabled: true)
+                        val mActRes = executeApiCall(
+                            method = "PATCH",
+                            path = "/v0a5641/reg/$masqueAccountId",
+                            bodyJson = JSONObject().apply { put("warp_enabled", true) }.toString(),
+                            authToken = masqueToken,
+                            effectiveApiBase = API_BASE_V4471,
+                            workerDomain = cleanWorkerDomain,
+                            cachedOperaEndpoint = activeOperaEndpoint
+                        )
+                        if (mActRes.json != null) {
+                            isMasqueActivated = mActRes.json.optBoolean("warp_enabled", true)
+                        } else {
+                            isMasqueActivated = true
+                        }
+                        isMasqueValid = true
+                        AppLogger.i(TAG, "MASQUE identity успешно зарегистрирована и активирована в Cloudflare: id=$masqueAccountId")
+                    } else {
+                        AppLogger.w(TAG, "Сетевая регистрация MASQUE вернула пустой ответ, используются локальные параметры: ${masqueRes.error?.message}")
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Не удалось завершить сетевую регистрацию MASQUE: ${e.message}")
+                }
+            }
 
             // 3. Привязка лицензии WARP+
             var activeEntitlement = WarpEntitlement.fromType(accountType, activeIsWarpPlus)
@@ -1120,6 +1225,20 @@ object WarpAccountManager {
                     activeIsWarpPlus = info.isWarpPlus
                     activeEntitlement = info.entitlement
                     AppLogger.i(TAG, "Лицензия WARP+ успешно привязана к WireGuard ($accountId)")
+
+                    if (masqueAccountId != accountId && masqueToken.isNotBlank()) {
+                        try {
+                            attachLicenseKey(
+                                accountId = masqueAccountId,
+                                token = masqueToken,
+                                licenseKey = effectiveLicenseKey,
+                                workerDomain = cleanWorkerDomain
+                            )
+                            AppLogger.i(TAG, "Лицензия WARP+ успешно привязана к MASQUE ($masqueAccountId)")
+                        } catch (e: Exception) {
+                            AppLogger.w(TAG, "Не удалось привязать лицензию к MASQUE ($masqueAccountId): ${e.message}")
+                        }
+                    }
                 }
             }
 
@@ -1138,8 +1257,8 @@ object WarpAccountManager {
                 peerPublicKey = peerPublicKey,
                 privateKeyBase64 = wgPriv,
                 publicKeyBase64 = wgPub,
-                p256PrivateKeyBase64 = "",
-                p256PublicKeyBase64 = "",
+                p256PrivateKeyBase64 = p256Priv,
+                p256PublicKeyBase64 = p256Pub,
                 clientCertBase64 = clientCert,
                 isWarpPlus = activeIsWarpPlus,
                 isWarpEnabled = isActivated,

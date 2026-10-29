@@ -237,6 +237,21 @@ object HumanLogTranslator {
                 val target = msg.substringAfter("Назначение:").trim()
                 if (target.isNotEmpty()) "SOCKS5: Запрос соединения с $target" else "SOCKS5: Запрос нового TCP-подключения"
             }
+            msg.contains("CF Happy Eyeballs connected", ignoreCase = true) -> {
+                val ip = msg.substringAfter("->", "").trim()
+                if (ip.isNotEmpty()) "Cloudflare WSS: Соединение установлено ($ip)" else "Cloudflare WSS: Соединение установлено"
+            }
+            msg.contains("SOCKS5 session ended:", ignoreCase = true) -> {
+                val details = msg.substringAfter("SOCKS5 session ended:", "").trim()
+                "Сессия SOCKS5 завершена ($details)"
+            }
+            msg.contains("TLS ClientHello split applied", ignoreCase = true) -> {
+                "Обход ТСПУ: Пакет TLS ClientHello фрагментирован"
+            }
+            msg.contains("SOCKS5 routing to Cloudflare Worker", ignoreCase = true) -> {
+                val dc = Regex("""DC\d+(?:\s*\(media\))?""").find(msg)?.value ?: "DC"
+                "SOCKS5: Маршрутизация в $dc через Cloudflare Worker"
+            }
 
             // Cloudflare Tunnel & Settings
             msg.contains("кэш-директорию Cloudflare", ignoreCase = true) ||

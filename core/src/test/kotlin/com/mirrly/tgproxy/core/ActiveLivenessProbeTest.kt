@@ -16,8 +16,7 @@ class ActiveLivenessProbeTest {
     fun testCascadeStageCycling() {
         assertEquals(CascadeStage.STAGE_1_SCANNED_WARP, CascadeStage.STAGE_0_IPV6_WARP.next())
         assertEquals(CascadeStage.STAGE_2_MASQUE_HTTP3, CascadeStage.STAGE_1_SCANNED_WARP.next())
-        assertEquals(CascadeStage.STAGE_3_VLESS_PRESET, CascadeStage.STAGE_2_MASQUE_HTTP3.next())
-        assertEquals(CascadeStage.STAGE_0_IPV6_WARP, CascadeStage.STAGE_3_VLESS_PRESET.next())
+        assertEquals(CascadeStage.STAGE_0_IPV6_WARP, CascadeStage.STAGE_2_MASQUE_HTTP3.next())
     }
 
     @Test

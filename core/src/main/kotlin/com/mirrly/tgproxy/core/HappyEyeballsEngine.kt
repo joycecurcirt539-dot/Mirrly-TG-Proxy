@@ -126,6 +126,28 @@ object HappyEyeballsEngine {
     private val ipHighestStage = ConcurrentHashMap<String, EstablishmentStage>()
 
     private val ipv6OnlyNetwork = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val configuredIpFamilyPreference = java.util.concurrent.atomic.AtomicReference(IpFamilyPreference.DUAL_STACK)
+    private val configuredAttemptDelayMs = AtomicLong(DEFAULT_ATTEMPT_DELAY_MS)
+
+    fun setIpFamilyPreference(pref: IpFamilyPreference) {
+        val old = configuredIpFamilyPreference.getAndSet(pref)
+        if (old != pref) {
+            invalidateInFlight()
+            AppLogger.d(TAG, "IP family preference updated: $old -> $pref")
+        }
+    }
+
+    fun getIpFamilyPreference(): IpFamilyPreference = configuredIpFamilyPreference.get()
+
+    fun setAttemptDelayMs(delayMs: Long) {
+        val clamped = delayMs.coerceIn(50L, 1000L)
+        val old = configuredAttemptDelayMs.getAndSet(clamped)
+        if (old != clamped) {
+            AppLogger.d(TAG, "Happy Eyeballs attempt delay updated: ${old}ms -> ${clamped}ms")
+        }
+    }
+
+    fun getAttemptDelayMs(): Long = configuredAttemptDelayMs.get()
 
     fun setIpv6OnlyNetwork(isIpv6Only: Boolean) {
         val old = ipv6OnlyNetwork.getAndSet(isIpv6Only)
@@ -314,8 +336,18 @@ object HappyEyeballsEngine {
             rttA.compareTo(rttB)
         }
 
+        val pref = getIpFamilyPreference()
         val v6 = addresses.filter { it is java.net.Inet6Address }.sortedWith(comparator)
         val v4 = addresses.filter { it !is java.net.Inet6Address }.sortedWith(comparator)
+
+        if (pref == IpFamilyPreference.IPV4_ONLY) {
+            // Strictly prefer IPv4. Only fallback to v6 if v4 is totally unavailable (e.g. pure IPv6-only network)
+            return if (v4.isNotEmpty()) v4 else v6
+        }
+
+        if (pref == IpFamilyPreference.IPV6_FIRST) {
+            return if (v6.isNotEmpty()) v6 + v4 else v4
+        }
 
         if (v6.isEmpty()) return v4
         if (v4.isEmpty()) return v6
@@ -331,14 +363,8 @@ object HappyEyeballsEngine {
             return v4 + v6
         }
 
-        // 3. Стандартная dual-stack сеть по RFC 8305: чередование (interleaving) IPv6 и IPv4, начиная с IPv6
-        val result = ArrayList<InetAddress>(addresses.size)
-        val maxLen = maxOf(v6.size, v4.size)
-        for (i in 0 until maxLen) {
-            if (i < v6.size) result.add(v6[i])
-            if (i < v4.size) result.add(v4[i])
-        }
-        return result
+        // 3. Стандартная dual-stack сеть: адреса IPv4 идут первыми для исключения черных дыр Anycast IPv6 (ТСПУ)
+        return v4 + v6
     }
 
     /**
@@ -397,7 +423,7 @@ object HappyEyeballsEngine {
         hostname: String = "",
         addresses: List<InetAddress>,
         port: Int = 443,
-        attemptDelayMs: Long = DEFAULT_ATTEMPT_DELAY_MS,
+        attemptDelayMs: Long = getAttemptDelayMs(),
         timeoutMs: Long = DEFAULT_CONNECT_TIMEOUT_MS,
         tlsSni: String? = null,
         requireFullEstablishment: Boolean = false
@@ -514,7 +540,7 @@ object HappyEyeballsEngine {
     suspend fun raceConnect(
         addresses: List<InetAddress>,
         port: Int = 443,
-        attemptDelayMs: Long = DEFAULT_ATTEMPT_DELAY_MS,
+        attemptDelayMs: Long = getAttemptDelayMs(),
         timeoutMs: Long = DEFAULT_CONNECT_TIMEOUT_MS
     ): HappyEyeballsResult? = raceConnect(
         hostname = "",
@@ -542,6 +568,7 @@ object HappyEyeballsEngine {
         requireFullEstablishment: Boolean
     ): EstablishmentProbeOutcome? {
         val socket = Socket()
+        VpnSocketProtector.protect(socket)
         var sslSocket: SSLSocket? = null
         return try {
             socket.tcpNoDelay = true
@@ -611,6 +638,8 @@ object HappyEyeballsEngine {
             familyFailures.clear()
             ipHighestStage.clear()
             ipv6OnlyNetwork.set(false)
+            configuredIpFamilyPreference.set(IpFamilyPreference.DUAL_STACK)
+            configuredAttemptDelayMs.set(DEFAULT_ATTEMPT_DELAY_MS)
             lastLoggedWinningIp = null
         }
         AppLogger.i(TAG, "Рейтинг Anycast IP и метрики маршрутов очищены")

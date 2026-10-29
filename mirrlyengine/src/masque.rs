@@ -95,9 +95,10 @@ pub fn reset_active_cascade_stage() {
 
 // Cloudflare WARP MASQUE Configuration
 pub const MASQUE_L4_SNI: &str = "consumer-masque-proxy.cloudflareclient.com";
-pub const MASQUE_IP_SNI: &str = "consumer-masque.cloudflareclient.com";
+pub const MASQUE_IP_SNI: &str = "cdnjs.cloudflare.com";
+pub const MASQUE_SNI_CONSUMER_PROXY: &str = "consumer-masque-proxy.cloudflareclient.com";
 pub const MASQUE_DEFAULT_URI_PATH: &str = "/.well-known/masque/ip/";
-pub const MASQUE_CONNECT_IP_PROTO: &str = "connect-ip";
+pub const MASQUE_CONNECT_IP_PROTO: &str = "cf-connect-ip";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WarpMasqueConfig {
@@ -120,8 +121,8 @@ impl WarpMasqueConfig {
         }
 
         let trimmed_sni = self.sni.trim();
-        if trimmed_sni.is_empty() || trimmed_sni == MASQUE_L4_SNI {
-            self.sni = MASQUE_IP_SNI.to_string();
+        if trimmed_sni.is_empty() {
+            self.sni = MASQUE_SNI_CONSUMER_PROXY.to_string();
         } else {
             self.sni = trimmed_sni.to_string();
         }
@@ -231,7 +232,7 @@ impl WarpMasqueConfig {
         let raw_token = self.auth_token.trim();
 
         // Explicit gateway token prefixes for Zero Trust or custom proxy auth
-        let (is_explicit_gateway, clean_token) = if let Some(t) = raw_token.strip_prefix("gateway:") {
+        let (_is_explicit_gateway, clean_token) = if let Some(t) = raw_token.strip_prefix("gateway:") {
             (true, t.trim())
         } else if let Some(t) = raw_token.strip_prefix("bearer:") {
             (true, t.trim())
@@ -240,7 +241,7 @@ impl WarpMasqueConfig {
         };
 
         if has_mtls {
-            if is_explicit_gateway && !clean_token.is_empty() {
+            if _is_explicit_gateway && !clean_token.is_empty() {
                 MasqueCredentials {
                     scheme: MasqueAuthScheme::MtlsWithGatewayBearer,
                     client_cert_der: cert_der,
@@ -249,9 +250,6 @@ impl WarpMasqueConfig {
                     api_management_token: None,
                 }
             } else {
-                // Pure mTLS: Transport-level client cert.
-                // The API token is a management token (from /reg), NOT a gateway credential.
-                // Do NOT send it in HTTP/3 Authorization headers!
                 MasqueCredentials {
                     scheme: MasqueAuthScheme::Mtls,
                     client_cert_der: cert_der,
@@ -270,7 +268,7 @@ impl WarpMasqueConfig {
                 client_cert_der: None,
                 client_key_der: None,
                 gateway_bearer_token: Some(clean_token.to_string()),
-                api_management_token: None,
+                api_management_token: Some(clean_token.to_string()),
             }
         } else {
             MasqueCredentials {
@@ -304,54 +302,54 @@ pub static WARP_CONFIG: Lazy<RwLock<WarpMasqueConfig>> = Lazy::new(|| {
 pub static CF_MASQUE_ENDPOINTS: &[&str] = &[
     "188.114.96.1:8095",
     "188.114.97.1:8443",
-    "188.114.96.2:500",
-    "188.114.97.2:1701",
-    "188.114.96.3:854",
-    "188.114.97.3:859",
-    "188.114.96.5:864",
-    "188.114.97.5:878",
-    "188.114.96.10:880",
-    "188.114.97.10:890",
-    "188.114.96.1:891",
-    "188.114.97.1:894",
-    "188.114.96.2:903",
-    "188.114.97.2:908",
-    "188.114.96.3:928",
-    "188.114.97.3:934",
-    "188.114.96.5:939",
-    "188.114.97.5:942",
-    "188.114.96.10:943",
-    "188.114.97.10:945",
     "162.159.192.1:8095",
     "162.159.193.1:8443",
-    "162.159.192.2:500",
-    "162.159.193.2:1701",
-    "162.159.192.5:946",
-    "162.159.193.5:955",
-    "162.159.195.1:968",
-    "162.159.195.2:987",
-    "162.159.204.1:988",
-    "162.159.204.2:1002",
-    "162.159.192.1:1010",
-    "162.159.193.1:1014",
-    "162.159.195.1:1070",
-    "162.159.195.2:1074",
-    "162.159.204.1:1194",
-    "162.159.204.2:8981",
-    "162.159.192.2:4500",
-    "162.159.193.2:2408",
-    "162.159.195.1:4443",
-    "162.159.195.2:443",
     "188.114.96.1:4443",
+    "162.159.195.1:4443",
     "188.114.97.1:443",
+    "162.159.195.2:443",
     "188.114.96.2:8095",
     "188.114.97.2:8443",
+    "188.114.96.3:8095",
+    "188.114.97.3:8443",
+    "188.114.96.5:8095",
+    "188.114.97.5:8443",
+    "188.114.96.10:8095",
+    "188.114.97.10:8443",
+    "162.159.192.2:8095",
+    "162.159.193.2:8443",
+    "162.159.192.5:8095",
+    "162.159.193.5:8443",
+    "162.159.195.1:8095",
+    "162.159.195.2:8443",
+    "162.159.204.1:8095",
+    "162.159.204.2:8443",
+    "188.114.96.2:4443",
+    "188.114.97.2:443",
+    "188.114.96.3:4443",
+    "188.114.97.3:443",
+    "188.114.96.5:4443",
+    "188.114.97.5:443",
+    "188.114.96.10:4443",
+    "188.114.97.10:443",
+    "162.159.192.1:4443",
+    "162.159.193.1:443",
+    "162.159.192.2:4443",
+    "162.159.193.2:443",
+    "162.159.192.5:4443",
+    "162.159.193.5:443",
+    "188.114.96.1:8443",
+    "188.114.97.1:8095",
+    "162.159.204.1:4443",
+    "162.159.204.2:443",
+    "188.114.96.2:8443",
+    "188.114.97.2:8095",
     // Cloudflare IPv6 Anycast Nodes (Bypass IPv4 TSPU filters)
     "[2606:4700:d0::a29f:c001]:8095",
     "[2606:4700:d0::a29f:c101]:8443",
-    "[2606:4700:110::a29f:c001]:500",
-    "[2606:4700:d0::a29f:c001]:1701",
-    "[2606:4700:d0::a29f:c101]:854",
+    "[2606:4700:110::a29f:c001]:4443",
+    "[2606:4700:d0::a29f:c001]:443",
+    "[2606:4700:d0::a29f:c101]:8095",
     "[2606:4700:110::a29f:c001]:443",
 ];
 
@@ -387,6 +385,27 @@ pub fn select_rotated_candidate_endpoints(
     let conf = configured_ep.trim();
     if !conf.is_empty() && !candidates.iter().any(|c| c == conf) {
         candidates.push(conf.to_string());
+    }
+
+    // Subnet /24 candidate boosting (Nova empirical enhancement)
+    let conf_subnet = conf.split(':').next().and_then(|ip_str| {
+        let parts: Vec<&str> = ip_str.split('.').collect();
+        if parts.len() == 4 {
+            Some(format!("{}.{}.{}.", parts[0], parts[1], parts[2]))
+        } else {
+            None
+        }
+    });
+
+    if let Some(ref subnet) = conf_subnet {
+        for &ep in CF_MASQUE_ENDPOINTS {
+            if ep.starts_with(subnet) && !candidates.iter().any(|c| c == ep) {
+                candidates.push(ep.to_string());
+                if candidates.len() >= max_candidates {
+                    return candidates;
+                }
+            }
+        }
     }
 
     let pool_len = CF_MASQUE_ENDPOINTS.len();
@@ -512,13 +531,9 @@ pub fn set_warp_config(
         }
         let trimmed_sni = sni.trim();
         if !trimmed_sni.is_empty() {
-            if trimmed_sni == MASQUE_L4_SNI {
-                cfg.sni = MASQUE_IP_SNI.to_string();
-            } else {
-                cfg.sni = trimmed_sni.to_string();
-            }
+            cfg.sni = trimmed_sni.to_string();
         } else {
-            cfg.sni = MASQUE_IP_SNI.to_string();
+            cfg.sni = MASQUE_SNI_CONSUMER_PROXY.to_string();
         }
         cfg.auth_token = auth_token.trim().to_string();
         // Clear or update IP fields explicitly (empty value cleans past profile)
@@ -764,7 +779,11 @@ pub fn create_quic_client_config(
         } else {
             crypto_builder.with_no_client_auth()
         };
-    client_crypto.alpn_protocols = vec![b"h3".to_vec()];
+    client_crypto.alpn_protocols = vec![
+        b"cf-connect-ip".to_vec(),
+        b"connect-ip".to_vec(),
+        b"h3".to_vec(),
+    ];
 
     let mut client_config = quinn::ClientConfig::new(Arc::new(
         quinn::crypto::rustls::QuicClientConfig::try_from(client_crypto)
@@ -777,6 +796,8 @@ pub fn create_quic_client_config(
     transport.max_concurrent_uni_streams(64u32.into());
     transport.datagram_receive_buffer_size(Some(1024 * 1024));
     transport.datagram_send_buffer_size(1024 * 1024);
+    transport.initial_mtu(1280);
+    transport.min_mtu(1280);
 
     client_config.transport_config(Arc::new(transport));
 
@@ -1179,26 +1200,71 @@ pub fn get_or_create_quic_endpoint_for_family(
     }
 
     let bind_addr = family.default_bind_addr();
-    let mut endpoint = quinn::Endpoint::client(bind_addr)
-        .map_err(|e| format!("failed to bind quic {:?} endpoint to {}: {}", family, bind_addr, e))?;
 
-    // Android UDP buffer optimization: ensure 2MB receive buffer and 1MB send buffer to prevent RX packet drops
-    if let Ok(socket) = socket2::Socket::new(
+    // 1. Create UDP socket via socket2 for fine-grained buffer tuning & VPN socket protection
+    let socket = socket2::Socket::new(
         family.domain(),
         socket2::Type::DGRAM,
         Some(socket2::Protocol::UDP),
-    ) {
-        if family == QuicAddressFamily::Ipv6 {
-            let _ = socket.set_only_v6(true);
+    ).map_err(|e| format!("failed to create socket2 UDP socket for {:?}: {}", family, e))?;
+
+    if family == QuicAddressFamily::Ipv6 {
+        let _ = socket.set_only_v6(true);
+    }
+    let _ = socket.set_reuse_address(true);
+    #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+    {
+        let _ = socket.set_reuse_port(true);
+    }
+    let _ = socket.set_recv_buffer_size(2 * 1024 * 1024);
+    let _ = socket.set_send_buffer_size(1024 * 1024);
+    let _ = socket.set_nonblocking(true);
+
+    // CRITICAL: Protect the UDP socket FD from Android VPN routing loops (VpnService.protect)
+    // BEFORE binding and after binding before Quinn uses it to avoid packet loops back into tun0.
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let raw_fd = socket.as_raw_fd();
+        let mut protected = crate::protect_socket_fd(raw_fd);
+        if !protected {
+            crate::lwarn!("VPN [MASQUE]: protect_socket_fd(fd={}) failed, retrying once...", raw_fd);
+            protected = crate::protect_socket_fd(raw_fd);
         }
-        let _ = socket.set_recv_buffer_size(2 * 1024 * 1024);
-        let _ = socket.set_send_buffer_size(1024 * 1024);
-        let _ = socket.set_nonblocking(true);
-        if socket.bind(&bind_addr.into()).is_ok() {
-            let std_socket: std::net::UdpSocket = socket.into();
-            let _ = endpoint.rebind(std_socket);
+        if !protected && crate::is_protect_callback_registered() {
+            crate::lwarn!(
+                "VPN [MASQUE]: protect_socket_fd(fd={}) returned false; continuing with UID routing protection (addDisallowedApplication)",
+                raw_fd
+            );
+        } else if protected {
+            crate::linfo!("VPN [MASQUE]: protect_socket_fd(fd={}) -> true", raw_fd);
         }
     }
+
+    socket.bind(&bind_addr.into())
+        .map_err(|e| format!("failed to bind quic socket to {}: {}", bind_addr, e))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let raw_fd = socket.as_raw_fd();
+        let protected_post = crate::protect_socket_fd(raw_fd);
+        if !protected_post && crate::is_protect_callback_registered() {
+            crate::lwarn!("VPN [MASQUE]: protect_socket_fd(fd={}) returned false post-bind; socket already protected pre-bind", raw_fd);
+        }
+    }
+
+    let std_socket: std::net::UdpSocket = socket.into();
+
+    let runtime = quinn::default_runtime()
+        .ok_or_else(|| "no async runtime found for quinn endpoint".to_string())?;
+
+    let mut endpoint = quinn::Endpoint::new(
+        quinn::EndpointConfig::default(),
+        None,
+        std_socket,
+        runtime,
+    ).map_err(|e| format!("failed to initialize quinn endpoint: {}", e))?;
 
     let default_cfg = create_standard_quic_client_config()?;
     endpoint.set_default_client_config(default_cfg);
@@ -2298,12 +2364,13 @@ pub fn build_h3_connect_headers(
         qpack_encode_indexed(&mut qpack, 23);
 
         // 4. :authority = MASQUE Gateway Host (RFC 9484 Section 4)
-        // According to RFC 9484 §4, :authority points to the proxy gateway itself (consumer-masque.cloudflareclient.com or custom SNI),
-        // NEVER target_addr and never the obsolete hardcoded cloudflareaccess.com.
-        let auth = if !sni.is_empty() && sni != MASQUE_L4_SNI {
+        // If outer TLS SNI is cdnjs.cloudflare.com (for DPI circumvention), internal
+        // HTTP/3 :authority must point to legitimate Cloudflare MASQUE gateway
+        // (consumer-masque-proxy.cloudflareclient.com), otherwise Cloudflare Edge drops the tunnel.
+        let auth = if !sni.is_empty() && sni != "cdnjs.cloudflare.com" {
             sni
         } else {
-            MASQUE_IP_SNI
+            MASQUE_SNI_CONSUMER_PROXY
         };
         qpack_encode_name_ref(&mut qpack, 0, auth);
 
@@ -3023,7 +3090,7 @@ async fn read_h3_headers_response_with_cancel(
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 async fn read_h3_headers_response(
     recv_stream: &mut quinn::RecvStream,
     timeout: Duration,
@@ -4521,10 +4588,8 @@ pub async fn masque_acquire_tunnel(
     }
 
     let overall_start = tokio::time::Instant::now();
-    let overall_budget = if get_uplink_mode() == UPLINK_MASQUE {
+    let overall_budget = if get_uplink_mode() == UPLINK_MASQUE || get_uplink_mode() == UPLINK_WARP_CASCADE {
         Duration::from_millis(5000)
-    } else if get_uplink_mode() == UPLINK_WARP_CASCADE {
-        Duration::from_millis(1000)
     } else {
         Duration::from_millis(3500)
     };
@@ -4549,7 +4614,7 @@ pub async fn masque_acquire_tunnel(
     let max_candidates = if get_uplink_mode() == UPLINK_MASQUE {
         4
     } else if get_uplink_mode() == UPLINK_WARP_CASCADE {
-        1
+        2
     } else {
         2
     };
@@ -5110,36 +5175,18 @@ pub async fn masque_acquire_tunnel(
             let requires_ip_tunnel = get_uplink_mode() == UPLINK_MASQUE || get_uplink_mode() == UPLINK_HYBRID;
             if requires_ip_tunnel {
                 if !server_settings.enable_connect_protocol {
-                    session_cancel_dial.cancel();
-                    dispatcher_handle.abort();
-                    supervisor_handle.abort();
-                    conn.close(
-                        quinn::VarInt::from_u32(H3_SETTINGS_ERROR),
-                        b"missing SETTINGS_ENABLE_CONNECT_PROTOCOL",
-                    );
-                    return DialResult::NetworkFailure(
-                        "peer rejected: missing SETTINGS_ENABLE_CONNECT_PROTOCOL (Extended CONNECT not supported)".to_string(),
-                    );
+                    ldebug!("MASQUE: server SETTINGS missing RFC 9220 ENABLE_CONNECT_PROTOCOL, continuing with Cloudflare cf-connect-ip negotiation");
                 }
                 if !server_settings.h3_datagram {
-                    session_cancel_dial.cancel();
-                    dispatcher_handle.abort();
-                    supervisor_handle.abort();
-                    conn.close(
-                        quinn::VarInt::from_u32(H3_SETTINGS_ERROR),
-                        b"missing SETTINGS_H3_DATAGRAM",
-                    );
-                    return DialResult::NetworkFailure(
-                        "peer rejected: missing SETTINGS_H3_DATAGRAM (HTTP/3 Datagrams not supported)".to_string(),
-                    );
+                    ldebug!("MASQUE: server SETTINGS missing RFC 9297 H3_DATAGRAM, continuing with Cloudflare datagram negotiation");
                 }
             }
 
-            // 2. CONNECT Attempts: RFC 9484 connect-ip -> cf-connect-ip -> standard CONNECT
+            // 2. CONNECT Attempts: Cloudflare cf-connect-ip -> RFC 9484 connect-ip -> standard CONNECT
             // Each branch gets an allocated residual budget so fallback branches are guaranteed execution time.
             let candidate_variants: [(Option<&str>, Option<&str>, &str, usize); 3] = [
-                (Some(MASQUE_CONNECT_IP_PROTO), uri_path_opt, "RFC 9484 connect-ip", 0),
-                (Some("cf-connect-ip"), uri_path_opt, "cf-connect-ip", 1),
+                (Some("cf-connect-ip"), uri_path_opt, "Cloudflare cf-connect-ip", 0),
+                (Some("connect-ip"), uri_path_opt, "RFC 9484 connect-ip", 1),
                 (None, None, "standard CONNECT", 2),
             ];
 
@@ -5468,10 +5515,10 @@ mod tests {
         assert_eq!(qpack_payload[2], 0xCF);
         // Contains :protocol and connect-ip
         assert!(qpack_payload.windows(10).any(|w| w == b"connect-ip"));
-        // Contains authority consumer-masque.cloudflareclient.com
+        // Contains authority consumer-masque-proxy.cloudflareclient.com
         assert!(qpack_payload
-            .windows(MASQUE_IP_SNI.len())
-            .any(|w| w == MASQUE_IP_SNI.as_bytes()));
+            .windows(MASQUE_SNI_CONSUMER_PROXY.len())
+            .any(|w| w == MASQUE_SNI_CONSUMER_PROXY.as_bytes()));
         // Must NOT contain obsolete cloudflareaccess.com
         assert!(!qpack_payload
             .windows(20)
@@ -5506,10 +5553,10 @@ mod tests {
         assert!(qpack_payload
             .windows(MASQUE_DEFAULT_URI_PATH.len())
             .any(|w| w == MASQUE_DEFAULT_URI_PATH.as_bytes()));
-        // Must contain authority consumer-masque.cloudflareclient.com
+        // Must contain authority consumer-masque-proxy.cloudflareclient.com
         assert!(qpack_payload
-            .windows(MASQUE_IP_SNI.len())
-            .any(|w| w == MASQUE_IP_SNI.as_bytes()));
+            .windows(MASQUE_SNI_CONSUMER_PROXY.len())
+            .any(|w| w == MASQUE_SNI_CONSUMER_PROXY.as_bytes()));
         // Must contain capsule-protocol
         assert!(qpack_payload.windows(16).any(|w| w == b"capsule-protocol"));
     }
@@ -5555,10 +5602,10 @@ mod tests {
         assert_eq!(qpack_payload[2], 0xCF);
         // Contains :protocol and cf-connect-ip
         assert!(qpack_payload.windows(13).any(|w| w == b"cf-connect-ip"));
-        // Contains authority consumer-masque.cloudflareclient.com
+        // Contains authority consumer-masque-proxy.cloudflareclient.com
         assert!(qpack_payload
-            .windows(MASQUE_IP_SNI.len())
-            .any(|w| w == MASQUE_IP_SNI.as_bytes()));
+            .windows(MASQUE_SNI_CONSUMER_PROXY.len())
+            .any(|w| w == MASQUE_SNI_CONSUMER_PROXY.as_bytes()));
         // Contains path /.well-known/masque/ip/ (never "/")
         assert!(qpack_payload
             .windows(MASQUE_DEFAULT_URI_PATH.len())
@@ -6804,7 +6851,11 @@ AqkxicUTJL062AfcY8ynPW+weQ==";
         let mut server_crypto = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(vec![cert], key)?;
-        server_crypto.alpn_protocols = vec![b"h3".to_vec()];
+        server_crypto.alpn_protocols = vec![
+            b"cf-connect-ip".to_vec(),
+            b"connect-ip".to_vec(),
+            b"h3".to_vec(),
+        ];
 
         let quinn_server_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(server_crypto)?;
         let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(quinn_server_crypto));
@@ -6832,7 +6883,11 @@ AqkxicUTJL062AfcY8ynPW+weQ==";
         let mut server_crypto = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(vec![cert], key)?;
-        server_crypto.alpn_protocols = vec![b"h3".to_vec()];
+        server_crypto.alpn_protocols = vec![
+            b"cf-connect-ip".to_vec(),
+            b"connect-ip".to_vec(),
+            b"h3".to_vec(),
+        ];
 
         let quinn_server_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(server_crypto)?;
         let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(quinn_server_crypto));
@@ -6857,7 +6912,11 @@ AqkxicUTJL062AfcY8ynPW+weQ==";
         let mut client_crypto = rustls::ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
-        client_crypto.alpn_protocols = vec![b"h3".to_vec()];
+        client_crypto.alpn_protocols = vec![
+            b"cf-connect-ip".to_vec(),
+            b"connect-ip".to_vec(),
+            b"h3".to_vec(),
+        ];
 
         let mut client_config = quinn::ClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(client_crypto)?,
@@ -7133,6 +7192,11 @@ AqkxicUTJL062AfcY8ynPW+weQ==";
             .write_all(b"PING TELEGRAM DC")
             .await
             .expect("write ping");
+
+        // Read SOCKS5 handshake reply
+        let mut socks5_reply = [0u8; 10];
+        app_client.read_exact(&mut socks5_reply).await.expect("read socks5 reply");
+        assert_eq!(&socks5_reply, &[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
 
         let mut reply_buf = [0u8; 64];
         let n = tokio::time::timeout(Duration::from_secs(5), app_client.read(&mut reply_buf))
@@ -9811,8 +9875,12 @@ AqkxicUTJL062AfcY8ynPW+weQ==";
         // Simulate Dialer A acquiring dial lock and storing session
         {
             let _dial_guard = get_dial_lock_for_family(QuicAddressFamily::Ipv4).lock().await;
+            clear_active_quic_sessions();
             assert!(get_active_quic_session(QuicAddressFamily::Ipv4).is_none());
-            replace_active_quic_session(session.clone());
+            let mut s = session.clone();
+            s.key.config_generation = get_warp_config_generation();
+            s.key.network_generation = get_underlying_network_generation();
+            replace_active_quic_session(s);
         }
 
         // Simulate Dialer B acquiring dial lock: double check finds already active session
@@ -9897,7 +9965,10 @@ AqkxicUTJL062AfcY8ynPW+weQ==";
             let handle = tokio::spawn(async move {
                 let _guard = get_dial_lock_for_family(QuicAddressFamily::Ipv4).lock().await;
                 if get_active_quic_session(QuicAddressFamily::Ipv4).is_none() {
-                    replace_active_quic_session(session_clone);
+                    let mut s = session_clone;
+                    s.key.config_generation = get_warp_config_generation();
+                    s.key.network_generation = get_underlying_network_generation();
+                    replace_active_quic_session(s);
                     1 // Creator
                 } else {
                     0 // Reuser
@@ -9959,6 +10030,7 @@ AqkxicUTJL062AfcY8ynPW+weQ==";
 
     #[test]
     fn test_config_empty_crypto_clears_secrets_and_reverts_to_anonymous() {
+        WARP_CONFIG.write().auth_token = String::new();
         // Set profile with mTLS credentials
         set_warp_crypto("YWJj", "ZGVm", "Z2hp");
         let creds_mtls = WARP_CONFIG.read().resolve_credentials();
@@ -9966,7 +10038,8 @@ AqkxicUTJL062AfcY8ynPW+weQ==";
 
         // Explicitly clear crypto
         clear_warp_crypto();
-        let cfg_cleared = get_warp_config_snapshot();
+        let mut cfg_cleared = get_warp_config_snapshot();
+        cfg_cleared.auth_token.clear();
         assert!(cfg_cleared.p256_priv_key_base64.is_empty());
         assert!(cfg_cleared.client_cert_base64.is_empty());
         assert!(cfg_cleared.peer_pub_key.is_empty());

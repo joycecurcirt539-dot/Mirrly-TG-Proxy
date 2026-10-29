@@ -4,15 +4,23 @@ import com.mirrly.tgproxy.R
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.core.ProxyMode
+import com.mirrly.tgproxy.core.WarpKeystoreEncryption
 import com.mirrly.tgproxy.core.WorkerProfile
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import java.util.UUID
 
 class PreferencesManager(private val context: Context) {
@@ -27,8 +35,15 @@ class PreferencesManager(private val context: Context) {
 
     private val _isWsRandomizationEnabledFlow = MutableStateFlow(isWsRandomizationEnabled())
     val isWsRandomizationEnabledFlow: StateFlow<Boolean> = _isWsRandomizationEnabledFlow.asStateFlow()
+
     private val _isTlsRecordPaddingEnabledFlow = MutableStateFlow(isTlsRecordPaddingEnabled())
     val isTlsRecordPaddingEnabledFlow: StateFlow<Boolean> = _isTlsRecordPaddingEnabledFlow.asStateFlow()
+
+    private val _isTlsClientHelloSplitEnabledFlow = MutableStateFlow(isTlsClientHelloSplitEnabled())
+    val isTlsClientHelloSplitEnabledFlow: StateFlow<Boolean> = _isTlsClientHelloSplitEnabledFlow.asStateFlow()
+
+    private val _useWorkerMtprotoFlow = MutableStateFlow(prefs.getBoolean("use_worker_mtproto", false))
+    val useWorkerMtprotoFlow: StateFlow<Boolean> = _useWorkerMtprotoFlow.asStateFlow()
 
     private val _isSocks5Flow = MutableStateFlow(loadConfig().isSocks5Mode)
     val isSocks5Flow: StateFlow<Boolean> = _isSocks5Flow.asStateFlow()
@@ -38,6 +53,12 @@ class PreferencesManager(private val context: Context) {
 
     private val _activeWorkerIdFlow = MutableStateFlow(getActiveWorkerId())
     val activeWorkerIdFlow: StateFlow<String> = _activeWorkerIdFlow.asStateFlow()
+
+    private val _activeWorkerIdMtprotoFlow = MutableStateFlow(getActiveWorkerId(ProxyMode.MTPROTO))
+    val activeWorkerIdMtprotoFlow: StateFlow<String> = _activeWorkerIdMtprotoFlow.asStateFlow()
+
+    private val _activeWorkerIdSocks5Flow = MutableStateFlow(getActiveWorkerId(ProxyMode.SOCKS5))
+    val activeWorkerIdSocks5Flow: StateFlow<String> = _activeWorkerIdSocks5Flow.asStateFlow()
 
     private val _uplinkModeFlow = MutableStateFlow(loadConfig().uplinkMode)
     val uplinkModeFlow: StateFlow<com.mirrly.tgproxy.core.UplinkMode> = _uplinkModeFlow.asStateFlow()
@@ -51,7 +72,7 @@ class PreferencesManager(private val context: Context) {
     private val _advancedSettingsEnabledFlow = MutableStateFlow(isAdvancedSettingsEnabled())
     val advancedSettingsEnabledFlow: StateFlow<Boolean> = _advancedSettingsEnabledFlow.asStateFlow()
 
-    private val _vpnMtuFlow = MutableStateFlow(prefs.getInt("vpn_mtu", 1420))
+    private val _vpnMtuFlow = MutableStateFlow(1280)
     val vpnMtuFlow: StateFlow<Int> = _vpnMtuFlow.asStateFlow()
 
     private val _vpnBlockQuicFlow = MutableStateFlow(prefs.getBoolean("vpn_block_quic", true))
@@ -69,6 +90,108 @@ class PreferencesManager(private val context: Context) {
     private val _vpnSplitTunnelPackagesFlow = MutableStateFlow(prefs.getStringSet("vpn_split_tunnel_packages", emptySet()) ?: emptySet())
     val vpnSplitTunnelPackagesFlow: StateFlow<Set<String>> = _vpnSplitTunnelPackagesFlow.asStateFlow()
 
+    private val _vpnDnsModeFlow = MutableStateFlow(
+        runCatching {
+            val raw = prefs.getString("vpn_dns_mode", com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS.name) ?: com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS.name
+            if (raw == "XBOX_DNS") com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS
+            else com.mirrly.tgproxy.core.VpnDnsMode.valueOf(raw)
+        }.getOrDefault(com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS)
+    )
+    val vpnDnsModeFlow: StateFlow<com.mirrly.tgproxy.core.VpnDnsMode> = _vpnDnsModeFlow.asStateFlow()
+
+    private val _vpnCustomDnsIpsFlow = MutableStateFlow(prefs.getString("vpn_custom_dns_ips", "") ?: "")
+    val vpnCustomDnsIpsFlow: StateFlow<String> = _vpnCustomDnsIpsFlow.asStateFlow()
+
+    private val _vpnAutoProfileEnabledFlow = MutableStateFlow(prefs.getBoolean("vpn_auto_profile_enabled", true))
+    val vpnAutoProfileEnabledFlow: StateFlow<Boolean> = _vpnAutoProfileEnabledFlow.asStateFlow()
+
+    // ── AI Chat & Neural Engine Settings Flows ──
+    private val _aiProviderFlow = MutableStateFlow(getAiProvider())
+    val aiProviderFlow: StateFlow<String> = _aiProviderFlow.asStateFlow()
+
+    private val _aiEndpointFlow = MutableStateFlow(getAiEndpoint())
+    val aiEndpointFlow: StateFlow<String> = _aiEndpointFlow.asStateFlow()
+
+    private val _aiModelFlow = MutableStateFlow(getAiModel())
+    val aiModelFlow: StateFlow<String> = _aiModelFlow.asStateFlow()
+
+    private val _aiApiKeyFlow = MutableStateFlow(getAiApiKey())
+    val aiApiKeyFlow: StateFlow<String> = _aiApiKeyFlow.asStateFlow()
+
+    private val _aiReasoningEnabledFlow = MutableStateFlow(isAiReasoningEnabled())
+    val aiReasoningEnabledFlow: StateFlow<Boolean> = _aiReasoningEnabledFlow.asStateFlow()
+
+    private val _aiStreamingEnabledFlow = MutableStateFlow(isAiStreamingEnabled())
+    val aiStreamingEnabledFlow: StateFlow<Boolean> = _aiStreamingEnabledFlow.asStateFlow()
+
+    private val _aiOnlyResponseFlow = MutableStateFlow(isAiOnlyResponse())
+    val aiOnlyResponseFlow: StateFlow<Boolean> = _aiOnlyResponseFlow.asStateFlow()
+
+    private val _aiQuoteResponseFlow = MutableStateFlow(isAiQuoteResponse())
+    val aiQuoteResponseFlow: StateFlow<Boolean> = _aiQuoteResponseFlow.asStateFlow()
+
+    private val _aiTemperatureFlow = MutableStateFlow(getAiTemperature())
+    val aiTemperatureFlow: StateFlow<Float> = _aiTemperatureFlow.asStateFlow()
+
+    private val _forceMobileModeFlow = MutableStateFlow(isForceMobileModeEnabled())
+    val forceMobileModeFlow: StateFlow<Boolean> = _forceMobileModeFlow.asStateFlow()
+
+    private val _dialThrottlingFlow = MutableStateFlow(isDialThrottlingEnabled())
+    val dialThrottlingFlow: StateFlow<Boolean> = _dialThrottlingFlow.asStateFlow()
+
+    // ── Custom Wallpaper Engine ─────────────────────────────────────────────
+    /** Absolute path of the sandboxed wallpaper file, or null for the default AMOLED background. */
+    private val _customBackgroundUriFlow = MutableStateFlow(resolveStoredWallpaperPath())
+    val customBackgroundUriFlow: StateFlow<String?> = _customBackgroundUriFlow.asStateFlow()
+
+    /** Bumped on every successful import: the file name is constant, so image caches key on this. */
+    private val _customBackgroundRevisionFlow = MutableStateFlow(prefs.getLong(KEY_WALLPAPER_REVISION, 0L))
+    val customBackgroundRevisionFlow: StateFlow<Long> = _customBackgroundRevisionFlow.asStateFlow()
+
+    /** Media type: [WALLPAPER_TYPE_IMAGE] or [WALLPAPER_TYPE_VIDEO]. */
+    private val _customBackgroundTypeFlow = MutableStateFlow(
+        prefs.getString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_IMAGE) ?: WALLPAPER_TYPE_IMAGE
+    )
+    val customBackgroundTypeFlow: StateFlow<String> = _customBackgroundTypeFlow.asStateFlow()
+
+    /** Video power saver toggle: caps decoding frame rate and auto-pauses in Android battery saver. */
+    private val _customBackgroundVideoPowerSaveFlow = MutableStateFlow(
+        prefs.getBoolean(KEY_WALLPAPER_VIDEO_POWER_SAVE, true)
+    )
+    val customBackgroundVideoPowerSaveFlow: StateFlow<Boolean> = _customBackgroundVideoPowerSaveFlow.asStateFlow()
+
+    /** Cached video metadata (resolution, duration, size) for the active video wallpaper. */
+    private val _customBackgroundVideoMetadataFlow = MutableStateFlow<WallpaperProcessor.VideoMetadata?>(
+        resolveStoredVideoMetadata()
+    )
+    val customBackgroundVideoMetadataFlow: StateFlow<WallpaperProcessor.VideoMetadata?> = _customBackgroundVideoMetadataFlow.asStateFlow()
+
+    /** Blur radius in dp, range [WALLPAPER_BLUR_MIN]..[WALLPAPER_BLUR_MAX]. */
+    private val _customBackgroundBlurFlow = MutableStateFlow(
+        prefs.getFloat(KEY_WALLPAPER_BLUR, WALLPAPER_BLUR_DEFAULT).coerceIn(WALLPAPER_BLUR_MIN, WALLPAPER_BLUR_MAX)
+    )
+    val customBackgroundBlurFlow: StateFlow<Float> = _customBackgroundBlurFlow.asStateFlow()
+
+    /** Black overlay alpha, range [WALLPAPER_DIM_MIN]..[WALLPAPER_DIM_MAX]; keeps text contrast. */
+    private val _customBackgroundDimFlow = MutableStateFlow(
+        prefs.getFloat(KEY_WALLPAPER_DIM, WALLPAPER_DIM_DEFAULT).coerceIn(WALLPAPER_DIM_MIN, WALLPAPER_DIM_MAX)
+    )
+    val customBackgroundDimFlow: StateFlow<Float> = _customBackgroundDimFlow.asStateFlow()
+
+    /** Whether the particle layer is rendered on top of the custom wallpaper. */
+    private val _customBackgroundParticlesFlow = MutableStateFlow(prefs.getBoolean(KEY_WALLPAPER_PARTICLES, true))
+    val customBackgroundParticlesFlow: StateFlow<Boolean> = _customBackgroundParticlesFlow.asStateFlow()
+
+    /** Active preset ID if the current background corresponds to a preset (or null if ad-hoc custom file). */
+    private val _customBackgroundActivePresetIdFlow = MutableStateFlow<String?>(
+        prefs.getString(KEY_WALLPAPER_ACTIVE_PRESET_ID, null)
+    )
+    val customBackgroundActivePresetIdFlow: StateFlow<String?> = _customBackgroundActivePresetIdFlow.asStateFlow()
+
+    /** User-saved custom presets list. */
+    private val _customBackgroundUserPresetsFlow = MutableStateFlow<List<WallpaperPreset>>(emptyList())
+    val customBackgroundUserPresetsFlow: StateFlow<List<WallpaperPreset>> = _customBackgroundUserPresetsFlow.asStateFlow()
+
     private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
         if (key == "disable_animations_particles") {
             _animationsDisabledFlow.value = sharedPreferences.getBoolean(key, false)
@@ -82,6 +205,9 @@ class PreferencesManager(private val context: Context) {
         if (key == KEY_TLS_RECORD_PADDING_ENABLED) {
             _isTlsRecordPaddingEnabledFlow.value = sharedPreferences.getBoolean(key, true)
         }
+        if (key == KEY_TLS_CLIENT_HELLO_SPLIT_ENABLED) {
+            _isTlsClientHelloSplitEnabledFlow.value = sharedPreferences.getBoolean(key, true)
+        }
         if (key == "proxy_mode" || key == "socks5_enabled") {
             val modeName = sharedPreferences.getString("proxy_mode", ProxyMode.MTPROTO.name)
             val isSocks5 = modeName == ProxyMode.SOCKS5.name || sharedPreferences.getBoolean("socks5_enabled", false)
@@ -91,13 +217,19 @@ class PreferencesManager(private val context: Context) {
         if (key == "active_worker_id") {
             _activeWorkerIdFlow.value = sharedPreferences.getString(key, "") ?: ""
         }
+        if (key == KEY_ACTIVE_WORKER_ID_MTPROTO) {
+            _activeWorkerIdMtprotoFlow.value = sharedPreferences.getString(key, "") ?: ""
+        }
+        if (key == KEY_ACTIVE_WORKER_ID_SOCKS5) {
+            _activeWorkerIdSocks5Flow.value = sharedPreferences.getString(key, "") ?: ""
+        }
         if (key == "uplink_mode") {
             _uplinkModeFlow.value = com.mirrly.tgproxy.core.UplinkMode.WORKER
         }
         if (key == "vpn_uplink_mode") {
-            val modeName = sharedPreferences.getString(key, com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE.name) ?: com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE.name
-            val mode = try { com.mirrly.tgproxy.core.UplinkMode.valueOf(modeName) } catch (_: Exception) { com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE }
-            _vpnUplinkModeFlow.value = if (mode == com.mirrly.tgproxy.core.UplinkMode.WORKER) com.mirrly.tgproxy.core.UplinkMode.WARP_CASCADE else mode
+            val modeName = sharedPreferences.getString(key, com.mirrly.tgproxy.core.UplinkMode.AWG.name) ?: com.mirrly.tgproxy.core.UplinkMode.AWG.name
+            val mode = try { com.mirrly.tgproxy.core.UplinkMode.valueOf(modeName) } catch (_: Exception) { com.mirrly.tgproxy.core.UplinkMode.AWG }
+            _vpnUplinkModeFlow.value = if (mode == com.mirrly.tgproxy.core.UplinkMode.WORKER) com.mirrly.tgproxy.core.UplinkMode.AWG else mode
         }
         if (key == "app_language") {
             _appLanguageFlow.value = sharedPreferences.getString(key, "system") ?: "system"
@@ -123,10 +255,29 @@ class PreferencesManager(private val context: Context) {
         if (key == "vpn_split_tunnel_packages") {
             _vpnSplitTunnelPackagesFlow.value = sharedPreferences.getStringSet(key, emptySet()) ?: emptySet()
         }
+        if (key == "vpn_dns_mode") {
+            val modeName = sharedPreferences.getString(key, com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS.name) ?: com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS.name
+            _vpnDnsModeFlow.value = if (modeName == "XBOX_DNS") com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS
+            else runCatching { com.mirrly.tgproxy.core.VpnDnsMode.valueOf(modeName) }.getOrDefault(com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS)
+        }
+        if (key == "vpn_custom_dns_ips") {
+            _vpnCustomDnsIpsFlow.value = sharedPreferences.getString(key, "") ?: ""
+        }
+        if (key == "vpn_auto_profile_enabled") {
+            _vpnAutoProfileEnabledFlow.value = sharedPreferences.getBoolean(key, true)
+        }
+        if (key == "force_mobile_mode_enabled") {
+            _forceMobileModeFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+        if (key == "dial_throttling_enabled") {
+            _dialThrottlingFlow.value = sharedPreferences.getBoolean(key, false)
+        }
     }
 
     init {
         prefs.registerOnSharedPreferenceChangeListener(preferenceChangeListener)
+        _customBackgroundUserPresetsFlow.value = getUserPresets()
+        ensureDefaultWallpaperInitialized()
     }
 
     fun loadConfig(): ProxyConfig {
@@ -134,18 +285,17 @@ class PreferencesManager(private val context: Context) {
         val defaults = ProxyConfig()
         val bindHost = prefs.getString("bind_host", defaults.bindHost) ?: defaults.bindHost
         val bindPort = prefs.getInt("bind_port", defaults.bindPort)
-        val savedSecret = secretPrefs.getString("secret_hex", null) ?: prefs.getString("secret_hex", null)
+        val savedSecretRaw = secretPrefs.getString("secret_hex", null) ?: prefs.getString("secret_hex", null)
+        val savedSecret = savedSecretRaw?.let { WarpKeystoreEncryption.decrypt(it) }
         val secretHex = if (savedSecret.isNullOrBlank() || savedSecret == "dd00000000000000000000000000000000") {
             val generatedSecret = ProxyConfig.generateRandomSecret()
-            secretPrefs.edit().putString("secret_hex", generatedSecret).commit()
+            secretPrefs.edit().putString("secret_hex", WarpKeystoreEncryption.encrypt(generatedSecret)).commit()
             if (prefs.contains("secret_hex")) {
                 prefs.edit().remove("secret_hex").commit()
             }
             generatedSecret
         } else {
-            if (!secretPrefs.contains("secret_hex")) {
-                secretPrefs.edit().putString("secret_hex", savedSecret).commit()
-            }
+            secretPrefs.edit().putString("secret_hex", WarpKeystoreEncryption.encrypt(savedSecret)).commit()
             if (prefs.contains("secret_hex")) {
                 prefs.edit().remove("secret_hex").commit()
             }
@@ -160,7 +310,8 @@ class PreferencesManager(private val context: Context) {
             else ProxyMode.MTPROTO.name
         }
         val cfEnabled = prefs.getBoolean("cf_proxy_enabled", defaults.cfProxyEnabled)
-        val activeWorker = getActiveWorker()
+        val currentMode = try { ProxyMode.valueOf(proxyModeName) } catch (_: Exception) { ProxyMode.MTPROTO }
+        val activeWorker = getActiveWorker(currentMode)
         val savedCustomDomain = prefs.getString("custom_cf_domain", null)
         val customDomain = if (!activeWorker.isDeveloperWorker) {
             activeWorker.domain
@@ -177,55 +328,106 @@ class PreferencesManager(private val context: Context) {
         }
         val autostart = prefs.getBoolean("autostart_on_boot", defaults.autostartOnBoot)
         val speedPresetName = com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
-        val tcpNoDelayModeName = com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO.name
-        val tcpNoDelay = true
-        val bufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
+        val savedTcpNoDelayMode = prefs.getString("tcp_nodelay_mode", null)
+        val nagleEnabled = when (savedTcpNoDelayMode?.uppercase()) {
+            "DISABLED", "ON" -> false
+            else -> true
+        }
+        val tcpNoDelay = !nagleEnabled
+        val tcpNoDelayModeName = if (nagleEnabled) com.mirrly.tgproxy.core.NagleMode.ENABLED.name else com.mirrly.tgproxy.core.NagleMode.DISABLED.name
+        val savedBufferSizeBytes = prefs.getInt("buffer_size_bytes", defaults.bufferSizeBytes)
+        val bufferMigrationDone = prefs.getBoolean("socket_buffer_autotune_migrated_v3", false)
+        val bufferSizeBytes = if (!bufferMigrationDone && (savedBufferSizeBytes == 262144 || savedBufferSizeBytes == 131072) &&
+            speedPresetName == com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
+        ) 0 else savedBufferSizeBytes
+        if (!bufferMigrationDone) {
+            prefs.edit()
+                .putInt("buffer_size_bytes", bufferSizeBytes)
+                .putBoolean("socket_buffer_autotune_migrated_v3", true)
+                .apply()
+        }
         val happyEyeballsDelayMs = prefs.getLong("happy_eyeballs_delay_ms", defaults.happyEyeballsDelayMs)
         val ipFamilyPreferenceName = prefs.getString("ip_family_preference", defaults.ipFamilyPreferenceName) ?: defaults.ipFamilyPreferenceName
         val webSocketKeepAliveSeconds = prefs.getInt("socket_keep_alive_seconds", defaults.webSocketKeepAliveSeconds)
         val socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
         val socks5Username = prefs.getString("socks5_username", defaults.socks5Username) ?: defaults.socks5Username
-        val socks5Password = secretPrefs.getString("socks5_password", null) ?: prefs.getString("socks5_password", defaults.socks5Password) ?: defaults.socks5Password
+        val socks5PasswordRaw = secretPrefs.getString("socks5_password", null) ?: prefs.getString("socks5_password", defaults.socks5Password) ?: defaults.socks5Password
+        val socks5Password = WarpKeystoreEncryption.decrypt(socks5PasswordRaw)
         val useDefaultWorkerSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
+        val socks5OptimisticResponse = prefs.getBoolean("socks5_optimistic_response", defaults.socks5OptimisticResponse)
+        val targetTelegramPort = prefs.getInt("target_telegram_port", defaults.targetTelegramPort)
+        val useWorkerMtproto = prefs.getBoolean("use_worker_mtproto", defaults.useWorkerMtproto)
 
-        val isEchEnabled = prefs.getBoolean(KEY_ECH_ENABLED, defaults.isEchEnabled)
-        val isWsRandomizationEnabled = prefs.getBoolean(KEY_WS_RANDOMIZATION_ENABLED, defaults.isWsRandomizationEnabled)
         val isTlsRecordPaddingEnabled = prefs.getBoolean(KEY_TLS_RECORD_PADDING_ENABLED, defaults.isTlsRecordPaddingEnabled)
-        val isBatteryGuardEnabled = prefs.getBoolean("is_battery_guard_enabled", defaults.isBatteryGuardEnabled)
+        val isTlsClientHelloSplitEnabled = prefs.getBoolean(KEY_TLS_CLIENT_HELLO_SPLIT_ENABLED, defaults.isTlsClientHelloSplitEnabled)
+        val qosMigrationDone = prefs.getBoolean("qos_default_disabled_migrated_v2", false)
+        val isBatteryGuardEnabled = if (!qosMigrationDone) {
+            false
+        } else {
+            prefs.getBoolean("is_battery_guard_enabled", defaults.isBatteryGuardEnabled)
+        }
         val batteryGuardThreshold = prefs.getInt("battery_guard_threshold", defaults.batteryGuardThreshold)
-        val batteryGuardStopOnPowerSave = prefs.getBoolean("battery_guard_stop_on_powersave", defaults.batteryGuardStopOnPowerSave)
-        val isAdaptiveQoSEnabled = prefs.getBoolean("is_adaptive_qos_enabled", defaults.isAdaptiveQoSEnabled)
-        val savedDohProviders = prefs.getStringSet("enabled_doh_providers", null)
-        val enabledDohProviderIds = savedDohProviders ?: com.mirrly.tgproxy.core.DohResolver.DEFAULT_ENABLED_PROVIDER_IDS
+        val batteryGuardStopOnPowerSave = if (!qosMigrationDone) {
+            false
+        } else {
+            prefs.getBoolean("battery_guard_stop_on_powersave", defaults.batteryGuardStopOnPowerSave)
+        }
+        val isAdaptiveQoSEnabled = if (!qosMigrationDone) {
+            false
+        } else {
+            prefs.getBoolean("is_adaptive_qos_enabled", defaults.isAdaptiveQoSEnabled)
+        }
+        val isDialThrottlingEnabled = prefs.getBoolean("dial_throttling_enabled", defaults.isDialThrottlingEnabled)
+        if (!qosMigrationDone) {
+            prefs.edit()
+                .putBoolean("is_battery_guard_enabled", isBatteryGuardEnabled)
+                .putBoolean("battery_guard_stop_on_powersave", batteryGuardStopOnPowerSave)
+                .putBoolean("is_adaptive_qos_enabled", isAdaptiveQoSEnabled)
+                .putBoolean("qos_default_disabled_migrated_v2", true)
+                .apply()
+        }
+        val enabledDohProviderIds = emptySet<String>()
 
         val uplinkModeName = com.mirrly.tgproxy.core.UplinkMode.WORKER.name
-        val vpnUplinkModeName = prefs.getString("vpn_uplink_mode", defaults.vpnUplinkModeName) ?: defaults.vpnUplinkModeName
+        var vpnUplinkModeName = prefs.getString("vpn_uplink_mode", defaults.vpnUplinkModeName) ?: defaults.vpnUplinkModeName
+        if (vpnUplinkModeName != com.mirrly.tgproxy.core.UplinkMode.MASQUE.name && vpnUplinkModeName != com.mirrly.tgproxy.core.UplinkMode.AWG.name) {
+            vpnUplinkModeName = com.mirrly.tgproxy.core.UplinkMode.AWG.name
+        }
         val vpnMtu = prefs.getInt("vpn_mtu", defaults.vpnMtu)
         val vpnBlockQuic = prefs.getBoolean("vpn_block_quic", defaults.vpnBlockQuic)
         val vpnBlockIpv6Leaks = prefs.getBoolean("vpn_block_ipv6_leaks", defaults.vpnBlockIpv6Leaks)
+        val vpnDnsModeName = prefs.getString("vpn_dns_mode", defaults.vpnDnsModeName) ?: defaults.vpnDnsModeName
+        val vpnCustomDnsIps = prefs.getString("vpn_custom_dns_ips", defaults.vpnCustomDnsIps) ?: defaults.vpnCustomDnsIps
         val warpAccountId = prefs.getString("warp_account_id", defaults.warpAccountId) ?: defaults.warpAccountId
-        val warpToken = secretPrefs.getString("warp_token", null) ?: prefs.getString("warp_token", defaults.warpToken) ?: defaults.warpToken
-        val warpLicenseKey = secretPrefs.getString("warp_license_key", null) ?: prefs.getString("warp_license_key", defaults.warpLicenseKey) ?: defaults.warpLicenseKey
+        val warpTokenRaw = secretPrefs.getString("warp_token", null) ?: prefs.getString("warp_token", defaults.warpToken) ?: defaults.warpToken
+        val warpToken = WarpKeystoreEncryption.decrypt(warpTokenRaw)
+        val warpLicenseKeyRaw = secretPrefs.getString("warp_license_key", null) ?: prefs.getString("warp_license_key", defaults.warpLicenseKey) ?: defaults.warpLicenseKey
+        val warpLicenseKey = WarpKeystoreEncryption.decrypt(warpLicenseKeyRaw)
         val warpClientIpv4 = prefs.getString("warp_client_ipv4", defaults.warpClientIpv4) ?: defaults.warpClientIpv4
         val warpClientIpv6 = prefs.getString("warp_client_ipv6", defaults.warpClientIpv6) ?: defaults.warpClientIpv6
         val warpPeerEndpoint = prefs.getString("warp_peer_endpoint", defaults.warpPeerEndpoint) ?: defaults.warpPeerEndpoint
         val warpPeerPublicKey = prefs.getString("warp_peer_public_key", defaults.warpPeerPublicKey) ?: defaults.warpPeerPublicKey
-        val warpPrivateKey = secretPrefs.getString("warp_private_key", null) ?: prefs.getString("warp_private_key", defaults.warpPrivateKey) ?: defaults.warpPrivateKey
+        val warpPrivateKeyRaw = secretPrefs.getString("warp_private_key", null) ?: prefs.getString("warp_private_key", defaults.warpPrivateKey) ?: defaults.warpPrivateKey
+        val warpPrivateKey = WarpKeystoreEncryption.decrypt(warpPrivateKeyRaw)
         val warpPublicKey = prefs.getString("warp_public_key", defaults.warpPublicKey) ?: defaults.warpPublicKey
-        val warpP256PrivateKey = secretPrefs.getString("warp_p256_private_key", defaults.warpP256PrivateKey) ?: defaults.warpP256PrivateKey
+        val warpP256PrivateKeyRaw = secretPrefs.getString("warp_p256_private_key", defaults.warpP256PrivateKey) ?: defaults.warpP256PrivateKey
+        val warpP256PrivateKey = WarpKeystoreEncryption.decrypt(warpP256PrivateKeyRaw)
         val warpP256PublicKey = prefs.getString("warp_p256_public_key", defaults.warpP256PublicKey) ?: defaults.warpP256PublicKey
         val warpClientCert = prefs.getString("warp_client_cert", defaults.warpClientCert) ?: defaults.warpClientCert
         val warpMasqueAccountId = prefs.getString("warp_masque_account_id", defaults.warpMasqueAccountId) ?: defaults.warpMasqueAccountId
-        val warpMasqueToken = secretPrefs.getString("warp_masque_token", null) ?: prefs.getString("warp_masque_token", defaults.warpMasqueToken) ?: defaults.warpMasqueToken
+        val warpMasqueTokenRaw = secretPrefs.getString("warp_masque_token", null) ?: prefs.getString("warp_masque_token", defaults.warpMasqueToken) ?: defaults.warpMasqueToken
+        val warpMasqueToken = WarpKeystoreEncryption.decrypt(warpMasqueTokenRaw)
         val warpMasquePeerEndpoint = prefs.getString("warp_masque_peer_endpoint", defaults.warpMasquePeerEndpoint) ?: defaults.warpMasquePeerEndpoint
         val warpMasquePeerPublicKey = prefs.getString("warp_masque_peer_public_key", defaults.warpMasquePeerPublicKey) ?: defaults.warpMasquePeerPublicKey
         val warpMasqueClientIpv4 = prefs.getString("warp_masque_client_ipv4", defaults.warpMasqueClientIpv4) ?: defaults.warpMasqueClientIpv4
         val warpMasqueClientIpv6 = prefs.getString("warp_masque_client_ipv6", defaults.warpMasqueClientIpv6) ?: defaults.warpMasqueClientIpv6
         val isWgValid = prefs.getBoolean("is_wg_valid", defaults.isWgValid)
         val isMasqueValid = prefs.getBoolean("is_masque_valid", defaults.isMasqueValid)
+        val warpMasqueSni = prefs.getString("warp_masque_sni", defaults.warpMasqueSni)?.takeIf { it.isNotBlank() } ?: defaults.warpMasqueSni
         val isWarpPlus = prefs.getBoolean("is_warp_plus", defaults.isWarpPlus)
         val isWarpAccountActive = prefs.getBoolean("is_warp_account_active", defaults.isWarpAccountActive)
-        val vlessUuid = secretPrefs.getString("vless_uuid", null) ?: prefs.getString("vless_uuid", defaults.vlessUuid) ?: defaults.vlessUuid
+        val vlessUuidRaw = secretPrefs.getString("vless_uuid", null) ?: prefs.getString("vless_uuid", defaults.vlessUuid) ?: defaults.vlessUuid
+        val vlessUuid = WarpKeystoreEncryption.decrypt(vlessUuidRaw)
         val vlessPath = prefs.getString("vless_path", defaults.vlessPath) ?: defaults.vlessPath
         val vlessDomain = prefs.getString("vless_domain", defaults.vlessDomain) ?: defaults.vlessDomain
         val vlessPresetId = prefs.getString("vless_preset_id", defaults.vlessPresetId) ?: defaults.vlessPresetId
@@ -242,10 +444,11 @@ class PreferencesManager(private val context: Context) {
         val vlessTlsSni = prefs.getString("vless_tls_sni", defaults.vlessTlsSni) ?: defaults.vlessTlsSni
         val vlessHostHeader = prefs.getString("vless_host_header", defaults.vlessHostHeader) ?: defaults.vlessHostHeader
         val useOperaVpnForVless = prefs.getBoolean("use_opera_vpn_for_vless", defaults.useOperaVpnForVless)
-        val useOperaVpnForWarp = prefs.getBoolean("use_opera_vpn_for_warp", defaults.useOperaVpnForWarp)
+        val useOperaVpnForWarp = false
         val operaVpnEndpoint = prefs.getString("opera_vpn_endpoint", defaults.operaVpnEndpoint) ?: defaults.operaVpnEndpoint
         val operaVpnNodeId = prefs.getString("opera_vpn_node_id", defaults.operaVpnNodeId) ?: defaults.operaVpnNodeId
         val warpWorkerDomain = prefs.getString("warp_worker_domain", defaults.warpWorkerDomain) ?: defaults.warpWorkerDomain
+        val isRegisterWarpViaWorker = prefs.getBoolean("is_register_warp_via_worker", defaults.isRegisterWarpViaWorker)
         val awgStrategyName = prefs.getString("awg_strategy_name", defaults.awgStrategyName) ?: defaults.awgStrategyName
         val awgCustomIni = prefs.getString("awg_custom_ini", defaults.awgCustomIni) ?: defaults.awgCustomIni
 
@@ -255,9 +458,8 @@ class PreferencesManager(private val context: Context) {
             secretHex = secretHex,
             cfProxyEnabled = cfEnabled,
             customCfDomain = customDomain,
-            isEchEnabled = isEchEnabled,
             isTlsRecordPaddingEnabled = isTlsRecordPaddingEnabled,
-            isWsRandomizationEnabled = isWsRandomizationEnabled,
+            isTlsClientHelloSplitEnabled = isTlsClientHelloSplitEnabled,
             mtprotoStandbyPerActiveSlotValue = poolSize,
             autostartOnBoot = autostart,
             speedPresetName = speedPresetName,
@@ -270,11 +472,15 @@ class PreferencesManager(private val context: Context) {
             socks5Port = socks5Port,
             socks5Username = socks5Username,
             socks5Password = socks5Password,
+            socks5OptimisticResponse = socks5OptimisticResponse,
+            targetTelegramPort = targetTelegramPort,
             useDefaultWorkerSocks5 = useDefaultWorkerSocks5,
+            useWorkerMtproto = useWorkerMtproto,
             isBatteryGuardEnabled = isBatteryGuardEnabled,
             batteryGuardThreshold = batteryGuardThreshold,
             batteryGuardStopOnPowerSave = batteryGuardStopOnPowerSave,
             isAdaptiveQoSEnabled = isAdaptiveQoSEnabled,
+            isDialThrottlingEnabled = isDialThrottlingEnabled,
             proxyModeName = proxyModeName,
             enabledDohProviderIds = enabledDohProviderIds,
             uplinkModeName = uplinkModeName,
@@ -304,6 +510,7 @@ class PreferencesManager(private val context: Context) {
             warpMasqueClientIpv6 = warpMasqueClientIpv6,
             isWgValid = isWgValid,
             isMasqueValid = isMasqueValid,
+            warpMasqueSni = warpMasqueSni,
             vlessUuid = vlessUuid,
             vlessPath = vlessPath,
             vlessDomain = vlessDomain,
@@ -325,8 +532,11 @@ class PreferencesManager(private val context: Context) {
             operaVpnEndpoint = operaVpnEndpoint,
             operaVpnNodeId = operaVpnNodeId,
             warpWorkerDomain = warpWorkerDomain,
+            isRegisterWarpViaWorker = isRegisterWarpViaWorker,
             awgStrategyName = awgStrategyName,
-            awgCustomIni = awgCustomIni
+            awgCustomIni = awgCustomIni,
+            vpnDnsModeName = vpnDnsModeName,
+            vpnCustomDnsIps = vpnCustomDnsIps
         )
     }
 
@@ -343,7 +553,8 @@ class PreferencesManager(private val context: Context) {
         val secretToSave = if (config.secretHex.isNotBlank() && config.secretHex != "dd00000000000000000000000000000000") {
             config.secretHex
         } else {
-            val existing = secretPrefs.getString("secret_hex", null) ?: prefs.getString("secret_hex", null)
+            val existingRaw = secretPrefs.getString("secret_hex", null) ?: prefs.getString("secret_hex", null)
+            val existing = existingRaw?.let { WarpKeystoreEncryption.decrypt(it) }
             if (!existing.isNullOrBlank() && existing != "dd00000000000000000000000000000000") {
                 existing
             } else {
@@ -353,14 +564,14 @@ class PreferencesManager(private val context: Context) {
         }
         config.secretHex = secretToSave
         secretPrefs.edit()
-            .putString("secret_hex", secretToSave)
-            .putString("warp_token", config.warpToken)
-            .putString("warp_private_key", config.warpPrivateKey)
-            .putString("warp_p256_private_key", config.warpP256PrivateKey)
-            .putString("warp_masque_token", config.warpMasqueToken)
-            .putString("vless_uuid", config.vlessUuid)
-            .putString("socks5_password", config.socks5Password)
-            .putString("warp_license_key", config.warpLicenseKey)
+            .putString("secret_hex", WarpKeystoreEncryption.encrypt(secretToSave))
+            .putString("warp_token", WarpKeystoreEncryption.encrypt(config.warpToken))
+            .putString("warp_private_key", WarpKeystoreEncryption.encrypt(config.warpPrivateKey))
+            .putString("warp_p256_private_key", WarpKeystoreEncryption.encrypt(config.warpP256PrivateKey))
+            .putString("warp_masque_token", WarpKeystoreEncryption.encrypt(config.warpMasqueToken))
+            .putString("vless_uuid", WarpKeystoreEncryption.encrypt(config.vlessUuid))
+            .putString("socks5_password", WarpKeystoreEncryption.encrypt(config.socks5Password))
+            .putString("warp_license_key", WarpKeystoreEncryption.encrypt(config.warpLicenseKey))
             .apply()
 
         prefs.edit()
@@ -383,16 +594,21 @@ class PreferencesManager(private val context: Context) {
             .putString("tcp_nodelay_mode", config.tcpNoDelayModeName)
             .putBoolean("tcp_nodelay", config.tcpNoDelay)
             .putInt("buffer_size_bytes", config.bufferSizeBytes)
+            .putBoolean(KEY_SOCKET_BUFFER_AUTOTUNE_MIGRATED, true)
             .putLong("happy_eyeballs_delay_ms", config.happyEyeballsDelayMs)
             .putString("ip_family_preference", config.ipFamilyPreferenceName)
             .putInt("socket_keep_alive_seconds", config.webSocketKeepAliveSeconds)
             .putInt("socks5_port", config.socks5Port)
             .putString("socks5_username", config.socks5Username)
+            .putBoolean("socks5_optimistic_response", config.socks5OptimisticResponse)
+            .putInt("target_telegram_port", config.targetTelegramPort)
             .putBoolean("use_default_worker_socks5", config.useDefaultWorkerSocks5)
+            .putBoolean("use_worker_mtproto", config.useWorkerMtproto)
             .putBoolean("is_battery_guard_enabled", config.isBatteryGuardEnabled)
             .putInt("battery_guard_threshold", config.batteryGuardThreshold)
             .putBoolean("battery_guard_stop_on_powersave", config.batteryGuardStopOnPowerSave)
             .putBoolean("is_adaptive_qos_enabled", config.isAdaptiveQoSEnabled)
+            .putBoolean("dial_throttling_enabled", config.isDialThrottlingEnabled)
             .putString("proxy_mode", config.proxyModeName)
             .putStringSet("enabled_doh_providers", config.enabledDohProviderIds)
             .putString("uplink_mode", config.uplinkModeName)
@@ -409,6 +625,7 @@ class PreferencesManager(private val context: Context) {
             .putString("warp_masque_peer_public_key", config.warpMasquePeerPublicKey)
             .putString("warp_masque_client_ipv4", config.warpMasqueClientIpv4)
             .putString("warp_masque_client_ipv6", config.warpMasqueClientIpv6)
+            .putString("warp_masque_sni", config.warpMasqueSni)
             .putBoolean("is_wg_valid", config.isWgValid)
             .putBoolean("is_masque_valid", config.isMasqueValid)
             .putBoolean("is_warp_plus", config.isWarpPlus)
@@ -433,12 +650,15 @@ class PreferencesManager(private val context: Context) {
             .putString("opera_vpn_endpoint", config.operaVpnEndpoint)
             .putString("opera_vpn_node_id", config.operaVpnNodeId)
             .putString("warp_worker_domain", config.warpWorkerDomain)
+            .putBoolean("is_register_warp_via_worker", config.isRegisterWarpViaWorker)
             .putString("awg_strategy_name", config.awgStrategyName)
             .putString("awg_custom_ini", config.awgCustomIni)
             .putString("vpn_uplink_mode", config.vpnUplinkModeName)
             .putInt("vpn_mtu", config.vpnMtu)
             .putBoolean("vpn_block_quic", config.vpnBlockQuic)
             .putBoolean("vpn_block_ipv6_leaks", config.vpnBlockIpv6Leaks)
+            .putString("vpn_dns_mode", config.vpnDnsModeName)
+            .putString("vpn_custom_dns_ips", config.vpnCustomDnsIps)
             .apply()
 
         _isSocks5Flow.value = config.isSocks5Mode
@@ -462,16 +682,33 @@ class PreferencesManager(private val context: Context) {
         _isSocks5Flow.value = mode == ProxyMode.SOCKS5
     }
 
+    fun setSocks5OptimisticResponse(enabled: Boolean) {
+        prefs.edit().putBoolean("socks5_optimistic_response", enabled).apply()
+        com.mirrly.tgproxy.core.NativeProxy.setSocks5Optimistic(enabled)
+    }
+
+    fun isSocks5OptimisticResponse(): Boolean {
+        return prefs.getBoolean("socks5_optimistic_response", true)
+    }
+
+    fun setTargetTelegramPort(port: Int) {
+        prefs.edit().putInt("target_telegram_port", port).apply()
+    }
+
+    fun getTargetTelegramPort(): Int {
+        return prefs.getInt("target_telegram_port", 443)
+    }
+
     fun saveWarpProfile(profile: com.mirrly.tgproxy.core.WarpProfile) {
         // commit() вместо apply() — блокирующая запись гарантирует сохранение warp_token на диск
         // до возврата из функции. Это предотвращает бесконечный цикл регистрации при убийстве процесса,
         // когда apply() не успевает завершить асинхронную запись до смерти процесса.
         secretPrefs.edit()
-            .putString("warp_token", profile.token)
-            .putString("warp_license_key", profile.licenseKey)
-            .putString("warp_private_key", profile.privateKeyBase64)
-            .putString("warp_p256_private_key", profile.p256PrivateKeyBase64)
-            .putString("warp_masque_token", profile.masqueToken)
+            .putString("warp_token", WarpKeystoreEncryption.encrypt(profile.token))
+            .putString("warp_license_key", WarpKeystoreEncryption.encrypt(profile.licenseKey))
+            .putString("warp_private_key", WarpKeystoreEncryption.encrypt(profile.privateKeyBase64))
+            .putString("warp_p256_private_key", WarpKeystoreEncryption.encrypt(profile.p256PrivateKeyBase64))
+            .putString("warp_masque_token", WarpKeystoreEncryption.encrypt(profile.masqueToken))
             .commit()
 
         prefs.edit()
@@ -512,19 +749,24 @@ class PreferencesManager(private val context: Context) {
     fun getWarpProfile(): com.mirrly.tgproxy.core.WarpProfile? {
         val accountId = prefs.getString("warp_account_id", null) ?: return null
         if (accountId.isBlank()) return null
-        val token = secretPrefs.getString("warp_token", null) ?: return null
-        val licenseKey = secretPrefs.getString("warp_license_key", null) ?: prefs.getString("warp_license_key", "") ?: ""
+        val tokenRaw = secretPrefs.getString("warp_token", null) ?: return null
+        val token = WarpKeystoreEncryption.decrypt(tokenRaw)
+        val licenseKeyRaw = secretPrefs.getString("warp_license_key", null) ?: prefs.getString("warp_license_key", "") ?: ""
+        val licenseKey = WarpKeystoreEncryption.decrypt(licenseKeyRaw)
         val clientIpv4 = prefs.getString("warp_client_ipv4", "172.16.0.2") ?: "172.16.0.2"
         val clientIpv6 = prefs.getString("warp_client_ipv6", "") ?: ""
         val peerEndpoint = prefs.getString("warp_peer_endpoint", "188.114.96.1:500") ?: "188.114.96.1:500"
         val peerPublicKey = prefs.getString("warp_peer_public_key", "") ?: ""
-        val privateKey = secretPrefs.getString("warp_private_key", "") ?: ""
+        val privateKeyRaw = secretPrefs.getString("warp_private_key", "") ?: ""
+        val privateKey = WarpKeystoreEncryption.decrypt(privateKeyRaw)
         val publicKey = prefs.getString("warp_public_key", "") ?: ""
-        val p256PrivateKey = secretPrefs.getString("warp_p256_private_key", "") ?: ""
+        val p256PrivateKeyRaw = secretPrefs.getString("warp_p256_private_key", "") ?: ""
+        val p256PrivateKey = WarpKeystoreEncryption.decrypt(p256PrivateKeyRaw)
         val p256PublicKey = prefs.getString("warp_p256_public_key", "") ?: ""
         val clientCert = prefs.getString("warp_client_cert", "") ?: ""
         val masqueAccountId = prefs.getString("warp_masque_account_id", "") ?: ""
-        val masqueToken = secretPrefs.getString("warp_masque_token", "") ?: ""
+        val masqueTokenRaw = secretPrefs.getString("warp_masque_token", "") ?: ""
+        val masqueToken = WarpKeystoreEncryption.decrypt(masqueTokenRaw)
         val masquePeerEndpoint = prefs.getString("warp_masque_peer_endpoint", "") ?: ""
         val masquePeerPublicKey = prefs.getString("warp_masque_peer_public_key", "") ?: ""
         val masqueClientIpv4 = prefs.getString("warp_masque_client_ipv4", "") ?: ""
@@ -605,115 +847,34 @@ class PreferencesManager(private val context: Context) {
 
     fun getVpnUplinkMode(): com.mirrly.tgproxy.core.UplinkMode = _vpnUplinkModeFlow.value
 
-    fun getVlessUuid(): String {
-        return secretPrefs.getString("vless_uuid", null) ?: prefs.getString("vless_uuid", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessUuid
+    fun setVpnDnsMode(mode: com.mirrly.tgproxy.core.VpnDnsMode) {
+        prefs.edit().putString("vpn_dns_mode", mode.name).apply()
+        _vpnDnsModeFlow.value = mode
     }
 
-    fun setVlessUuid(uuid: String) {
-        secretPrefs.edit().putString("vless_uuid", uuid).apply()
-        prefs.edit().remove("vless_uuid").apply()
+    fun getVpnDnsMode(): com.mirrly.tgproxy.core.VpnDnsMode = _vpnDnsModeFlow.value
+
+    fun setVpnCustomDnsIps(ips: String) {
+        val trimmed = ips.trim()
+        prefs.edit().putString("vpn_custom_dns_ips", trimmed).apply()
+        _vpnCustomDnsIpsFlow.value = trimmed
     }
 
-    fun getVlessPath(): String {
-        return prefs.getString("vless_path", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessPath
+    fun getVpnCustomDnsIps(): String = _vpnCustomDnsIpsFlow.value
+
+    fun isWarpRegisterViaWorker(): Boolean {
+        return prefs.getBoolean("is_register_warp_via_worker", true)
     }
 
-    fun setVlessPath(path: String) {
-        prefs.edit().putString("vless_path", path).apply()
+    fun setWarpRegisterViaWorker(enabled: Boolean) {
+        prefs.edit().putBoolean("is_register_warp_via_worker", enabled).apply()
+        com.mirrly.tgproxy.core.WarpAccountManager.isRegisterViaWorker = enabled
     }
 
-    fun getVlessDomain(): String {
-        return prefs.getString("vless_domain", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessDomain
-    }
-
-    fun setVlessDomain(domain: String) {
-        prefs.edit().putString("vless_domain", domain).apply()
-    }
-
-    fun getVlessPresetId(): String {
-        return prefs.getString("vless_preset_id", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessPresetId
-    }
-
-    fun setVlessPresetId(id: String) {
-        prefs.edit().putString("vless_preset_id", id).apply()
-    }
-
-    fun getVlessSecurity(): String = prefs.getString("vless_security", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessSecurity
-    fun setVlessSecurity(security: String) { prefs.edit().putString("vless_security", security).apply() }
-
-    fun getVlessPublicKey(): String = prefs.getString("vless_public_key", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessPublicKey
-    fun setVlessPublicKey(pk: String) { prefs.edit().putString("vless_public_key", pk).apply() }
-
-    fun getVlessShortId(): String = prefs.getString("vless_short_id", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessShortId
-    fun setVlessShortId(sid: String) { prefs.edit().putString("vless_short_id", sid).apply() }
-
-    fun getVlessFingerprint(): String = prefs.getString("vless_fingerprint", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessFingerprint
-    fun setVlessFingerprint(fp: String) { prefs.edit().putString("vless_fingerprint", fp).apply() }
-
-    fun getVlessSpiderX(): String = prefs.getString("vless_spider_x", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessSpiderX
-    fun setVlessSpiderX(spx: String) { prefs.edit().putString("vless_spider_x", spx).apply() }
-
-    fun getVlessTransport(): String = prefs.getString("vless_transport", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessTransport
-    fun setVlessTransport(transport: String) { prefs.edit().putString("vless_transport", transport).apply() }
-
-    fun getVlessFlow(): String = prefs.getString("vless_flow", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessFlow
-    fun setVlessFlow(flow: String) { prefs.edit().putString("vless_flow", flow).apply() }
-
-    fun getVlessHeaderType(): String = prefs.getString("vless_header_type", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessHeaderType
-    fun setVlessHeaderType(headerType: String) { prefs.edit().putString("vless_header_type", headerType).apply() }
-
-    fun getVlessServerAddress(): String = prefs.getString("vless_server_address", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessServerAddress
-    fun setVlessServerAddress(addr: String) { prefs.edit().putString("vless_server_address", addr).apply() }
-
-    fun getVlessServerPort(): Int = prefs.getInt("vless_server_port", com.mirrly.tgproxy.core.ProxyConfig().vlessServerPort)
-    fun setVlessServerPort(port: Int) { prefs.edit().putInt("vless_server_port", port).apply() }
-
-    fun getVlessTlsSni(): String = prefs.getString("vless_tls_sni", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessTlsSni
-    fun setVlessTlsSni(sni: String) { prefs.edit().putString("vless_tls_sni", sni).apply() }
-
-    fun getVlessHostHeader(): String = prefs.getString("vless_host_header", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessHostHeader
-    fun setVlessHostHeader(host: String) { prefs.edit().putString("vless_host_header", host).apply() }
-
-    fun isUseOperaVpnForVless(): Boolean {
-        return prefs.getBoolean("use_opera_vpn_for_vless", false)
-    }
-
-    fun setUseOperaVpnForVless(enabled: Boolean) {
-        prefs.edit().putBoolean("use_opera_vpn_for_vless", enabled).apply()
-    }
-
-    fun isUseOperaVpnForWarp(): Boolean {
-        return prefs.getBoolean("use_opera_vpn_for_warp", false)
-    }
-
-    fun setUseOperaVpnForWarp(enabled: Boolean) {
-        prefs.edit().putBoolean("use_opera_vpn_for_warp", enabled).apply()
-    }
-
-    fun getOperaVpnNodeId(): String {
-        return prefs.getString("opera_vpn_node_id", null) ?: com.mirrly.tgproxy.core.OperaVpnRepository.getDefaultNode().id
-    }
-
-    fun setOperaVpnNodeId(nodeId: String) {
-        prefs.edit().putString("opera_vpn_node_id", nodeId).apply()
-    }
-
-    fun getOperaVpnEndpoint(): String {
-        return prefs.getString("opera_vpn_endpoint", null) ?: com.mirrly.tgproxy.core.OperaVpnRepository.getDefaultNode().endpoint
-    }
-
-    fun setOperaVpnEndpoint(endpoint: String) {
-        prefs.edit().putString("opera_vpn_endpoint", endpoint).apply()
-    }
-
-    fun getEnabledDohProviderIds(): Set<String> {
-        return prefs.getStringSet("enabled_doh_providers", null) ?: com.mirrly.tgproxy.core.DohResolver.DEFAULT_ENABLED_PROVIDER_IDS
-    }
+    fun getEnabledDohProviderIds(): Set<String> = emptySet()
 
     fun setEnabledDohProviderIds(ids: Set<String>) {
-        val sanitized = if (ids.isEmpty()) com.mirrly.tgproxy.core.DohResolver.DEFAULT_ENABLED_PROVIDER_IDS else ids
-        prefs.edit().putStringSet("enabled_doh_providers", sanitized).apply()
-        com.mirrly.tgproxy.core.DohResolver.setActiveProviders(sanitized)
+        // No-op: DoH is removed from MTProto and SOCKS5 pipelines
     }
 
 
@@ -752,13 +913,548 @@ class PreferencesManager(private val context: Context) {
         prefs.edit().putBoolean("auto_failover_enabled", enabled).apply()
     }
 
+    // ── Custom Wallpaper Engine ─────────────────────────────────────────────
+
+    private val wallpaperMutex = kotlinx.coroutines.sync.Mutex()
+
+    private fun wallpaperFile(): File = context.filesDir.resolve(WALLPAPER_FILE_NAME)
+    private fun wallpaperVideoFile(): File = context.filesDir.resolve(WALLPAPER_VIDEO_FILE_NAME)
+    private fun wallpaperVideoPreviewFile(): File = context.filesDir.resolve(WALLPAPER_VIDEO_PREVIEW_NAME)
+
+    fun getWallpaperPreviewFile(): File? {
+        val type = _customBackgroundTypeFlow.value
+        return if (type == WALLPAPER_TYPE_VIDEO) {
+            val f = wallpaperVideoPreviewFile()
+            if (f.isFile && f.length() > 0L) f else null
+        } else {
+            val f = wallpaperFile()
+            if (f.isFile && f.length() > 0L) f else null
+        }
+    }
+
+    private fun resolveStoredWallpaperPath(): String? {
+        if (!prefs.getBoolean(KEY_WALLPAPER_ENABLED, false)) return null
+        val type = prefs.getString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_IMAGE) ?: WALLPAPER_TYPE_IMAGE
+        val file = if (type == WALLPAPER_TYPE_VIDEO) wallpaperVideoFile() else wallpaperFile()
+        return if (file.isFile && file.length() > 0L) file.absolutePath else null
+    }
+
+    private fun resolveStoredVideoMetadata(): WallpaperProcessor.VideoMetadata? {
+        if (!prefs.getBoolean(KEY_WALLPAPER_ENABLED, false)) return null
+        val type = prefs.getString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_IMAGE)
+        if (type != WALLPAPER_TYPE_VIDEO) return null
+        val videoFile = wallpaperVideoFile()
+        if (!videoFile.isFile || videoFile.length() == 0L) return null
+        val width = prefs.getInt(KEY_WALLPAPER_VIDEO_WIDTH, 1080)
+        val height = prefs.getInt(KEY_WALLPAPER_VIDEO_HEIGHT, 1920)
+        val duration = prefs.getInt(KEY_WALLPAPER_VIDEO_DURATION, 1)
+        val size = prefs.getLong(KEY_WALLPAPER_VIDEO_SIZE, videoFile.length())
+        return WallpaperProcessor.VideoMetadata(
+            width = width,
+            height = height,
+            durationSec = duration,
+            fileSizeBytes = size,
+            mimeType = "video/mp4"
+        )
+    }
+
+    /**
+     * Copies the picked image into `filesDir/custom_wallpaper.jpg` (never stores the raw
+     * `content://` URI: its read grant expires after reboot). Decoding is subsampled and
+     * EXIF-normalized on [Dispatchers.IO]; the previous wallpaper stays active until the new
+     * file is fully written, then the swap is a single atomic rename.
+     */
+    suspend fun setCustomWallpaper(uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
+        wallpaperMutex.lock()
+        val tmp = context.filesDir.resolve("$WALLPAPER_FILE_NAME.tmp")
+        try {
+            val (w, h) = WallpaperProcessor.importToFile(context.contentResolver, uri, tmp)
+            val target = wallpaperFile()
+            if (!tmp.renameTo(target)) {
+                tmp.copyTo(target, overwrite = true)
+                tmp.delete()
+            }
+            // Remove previous video files if any
+            try { wallpaperVideoFile().delete() } catch (_: Throwable) {}
+            try { wallpaperVideoPreviewFile().delete() } catch (_: Throwable) {}
+
+            val revision = System.currentTimeMillis()
+            prefs.edit()
+                .putBoolean(KEY_WALLPAPER_ENABLED, true)
+                .putLong(KEY_WALLPAPER_REVISION, revision)
+                .putString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_IMAGE)
+                .remove(KEY_WALLPAPER_ACTIVE_PRESET_ID)
+                .apply()
+            _customBackgroundActivePresetIdFlow.value = null
+            _customBackgroundRevisionFlow.value = revision
+            _customBackgroundTypeFlow.value = WALLPAPER_TYPE_IMAGE
+            _customBackgroundVideoMetadataFlow.value = null
+            _customBackgroundUriFlow.value = target.absolutePath
+            AppLogger.i("Wallpaper", "Custom wallpaper stored: ${w}x$h, ${target.length() / 1024} KB")
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            tmp.delete()
+            throw e
+        } catch (e: Throwable) {
+            tmp.delete()
+            AppLogger.e("Wallpaper", "Wallpaper import failed: ${e.message}", e)
+            Result.failure(e)
+        } finally {
+            wallpaperMutex.unlock()
+        }
+    }
+
+    /**
+     * Copies the picked video into `filesDir/custom_wallpaper.mp4` and extracts its first-frame
+     * preview into `filesDir/custom_wallpaper_video_preview.jpg`.
+     */
+    suspend fun setCustomVideoWallpaper(uri: Uri): Result<WallpaperProcessor.VideoMetadata> = withContext(Dispatchers.IO) {
+        wallpaperMutex.lock()
+        val tmpVideo = context.filesDir.resolve("$WALLPAPER_VIDEO_FILE_NAME.tmp")
+        val tmpPreview = context.filesDir.resolve("$WALLPAPER_VIDEO_PREVIEW_NAME.tmp")
+        try {
+            val meta = WallpaperProcessor.importVideoToFile(context.contentResolver, uri, tmpVideo, tmpPreview)
+            val targetVideo = wallpaperVideoFile()
+            val targetPreview = wallpaperVideoPreviewFile()
+            if (!tmpVideo.renameTo(targetVideo)) {
+                tmpVideo.copyTo(targetVideo, overwrite = true)
+                tmpVideo.delete()
+            }
+            if (tmpPreview.exists()) {
+                if (!tmpPreview.renameTo(targetPreview)) {
+                    tmpPreview.copyTo(targetPreview, overwrite = true)
+                    tmpPreview.delete()
+                }
+            }
+            // Remove previous image file if any
+            try { wallpaperFile().delete() } catch (_: Throwable) {}
+
+            val revision = System.currentTimeMillis()
+            prefs.edit()
+                .putBoolean(KEY_WALLPAPER_ENABLED, true)
+                .putLong(KEY_WALLPAPER_REVISION, revision)
+                .putString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_VIDEO)
+                .remove(KEY_WALLPAPER_ACTIVE_PRESET_ID)
+                .putInt(KEY_WALLPAPER_VIDEO_WIDTH, meta.width)
+                .putInt(KEY_WALLPAPER_VIDEO_HEIGHT, meta.height)
+                .putInt(KEY_WALLPAPER_VIDEO_DURATION, meta.durationSec)
+                .putLong(KEY_WALLPAPER_VIDEO_SIZE, meta.fileSizeBytes)
+                .apply()
+            _customBackgroundActivePresetIdFlow.value = null
+            _customBackgroundRevisionFlow.value = revision
+            _customBackgroundTypeFlow.value = WALLPAPER_TYPE_VIDEO
+            _customBackgroundVideoMetadataFlow.value = meta
+            _customBackgroundUriFlow.value = targetVideo.absolutePath
+            AppLogger.i("Wallpaper", "Custom video wallpaper stored: ${meta.width}x${meta.height}, ${meta.durationSec}s, ${meta.fileSizeBytes / 1024} KB")
+            Result.success(meta)
+        } catch (e: CancellationException) {
+            tmpVideo.delete()
+            tmpPreview.delete()
+            throw e
+        } catch (e: Throwable) {
+            tmpVideo.delete()
+            tmpPreview.delete()
+            AppLogger.e("Wallpaper", "Video wallpaper import failed: ${e.message}", e)
+            Result.failure(e)
+        } finally {
+            wallpaperMutex.unlock()
+        }
+    }
+
+    /**
+     * Universal wallpaper import: auto-detects whether [uri] is a video or image.
+     * If the initial guess fails, gracefully tries the alternate format before returning an error.
+     */
+    suspend fun setCustomMediaWallpaper(uri: Uri): Result<String> = withContext(Dispatchers.IO) {
+        val looksLikeVideo = WallpaperProcessor.isVideoUri(context.contentResolver, uri)
+        if (looksLikeVideo) {
+            val videoResult = setCustomVideoWallpaper(uri)
+            if (videoResult.isSuccess) {
+                return@withContext Result.success(WALLPAPER_TYPE_VIDEO)
+            }
+            // Fallback: try image in case video probe was a false positive
+            val imgResult = setCustomWallpaper(uri)
+            if (imgResult.isSuccess) {
+                return@withContext Result.success(WALLPAPER_TYPE_IMAGE)
+            }
+            Result.failure(videoResult.exceptionOrNull() ?: IOException("Failed to load video or image"))
+        } else {
+            val imgResult = setCustomWallpaper(uri)
+            if (imgResult.isSuccess) {
+                return@withContext Result.success(WALLPAPER_TYPE_IMAGE)
+            }
+            // Fallback: try video in case image decoder rejected a valid video stream
+            val videoResult = setCustomVideoWallpaper(uri)
+            if (videoResult.isSuccess) {
+                return@withContext Result.success(WALLPAPER_TYPE_VIDEO)
+            }
+            Result.failure(imgResult.exceptionOrNull() ?: IOException("Failed to load image or video"))
+        }
+    }
+
+    /** Deletes the sandboxed files and returns to the AMOLED background (orbs come back). */
+    fun clearCustomWallpaper() {
+        try {
+            wallpaperFile().delete()
+            wallpaperVideoFile().delete()
+            wallpaperVideoPreviewFile().delete()
+        } catch (e: Exception) {
+            AppLogger.w("Wallpaper", "Wallpaper delete failed: ${e.message}")
+        }
+        prefs.edit()
+            .putBoolean(KEY_WALLPAPER_ENABLED, false)
+            .remove(KEY_WALLPAPER_REVISION)
+            .remove(KEY_WALLPAPER_TYPE)
+            .remove(KEY_WALLPAPER_ACTIVE_PRESET_ID)
+            .apply()
+        _customBackgroundActivePresetIdFlow.value = null
+        _customBackgroundTypeFlow.value = WALLPAPER_TYPE_IMAGE
+        _customBackgroundVideoMetadataFlow.value = null
+        _customBackgroundUriFlow.value = null
+    }
+
+    /** @param persist false while a slider is dragged (live preview), true on release. */
+    fun setWallpaperBlur(radiusDp: Float, persist: Boolean = true) {
+        val value = radiusDp.coerceIn(WALLPAPER_BLUR_MIN, WALLPAPER_BLUR_MAX)
+        _customBackgroundBlurFlow.value = value
+        if (persist) prefs.edit().putFloat(KEY_WALLPAPER_BLUR, value).apply()
+    }
+
+    /** @param persist false while a slider is dragged (live preview), true on release. */
+    fun setWallpaperDim(dimFactor: Float, persist: Boolean = true) {
+        val value = dimFactor.coerceIn(WALLPAPER_DIM_MIN, WALLPAPER_DIM_MAX)
+        _customBackgroundDimFlow.value = value
+        if (persist) prefs.edit().putFloat(KEY_WALLPAPER_DIM, value).apply()
+    }
+
+    fun setWallpaperParticlesEnabled(enabled: Boolean) {
+        _customBackgroundParticlesFlow.value = enabled
+        prefs.edit().putBoolean(KEY_WALLPAPER_PARTICLES, enabled).apply()
+    }
+
+    fun setWallpaperVideoPowerSave(enabled: Boolean) {
+        _customBackgroundVideoPowerSaveFlow.value = enabled
+        prefs.edit().putBoolean(KEY_WALLPAPER_VIDEO_POWER_SAVE, enabled).apply()
+    }
+
+    // ── Wallpaper Presets Engine ─────────────────────────────────────────────
+
+    fun ensureDefaultWallpaperInitialized() {
+        val alreadyInitialized = prefs.getBoolean(KEY_WALLPAPER_DEFAULT_SPACE_TOILET_INIT, false)
+        if (!alreadyInitialized) {
+            try {
+                val targetVideo = wallpaperVideoFile()
+                val targetPreview = wallpaperVideoPreviewFile()
+                val assetVideoName = "wallpapers/space_toilet.mp4"
+                val assetPreviewName = "wallpapers/space_toilet_preview.jpg"
+
+                context.assets.open(assetVideoName).use { input ->
+                    FileOutputStream(targetVideo).use { output ->
+                        input.copyTo(output)
+                        output.fd.sync()
+                    }
+                }
+                context.assets.open(assetPreviewName).use { input ->
+                    FileOutputStream(targetPreview).use { output ->
+                        input.copyTo(output)
+                        output.fd.sync()
+                    }
+                }
+
+                val revision = System.currentTimeMillis()
+                prefs.edit()
+                    .putBoolean(KEY_WALLPAPER_DEFAULT_SPACE_TOILET_INIT, true)
+                    .putBoolean(KEY_WALLPAPER_ENABLED, true)
+                    .putLong(KEY_WALLPAPER_REVISION, revision)
+                    .putString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_VIDEO)
+                    .putString(KEY_WALLPAPER_ACTIVE_PRESET_ID, WallpaperPreset.PRESET_ID_SPACE_TOILET)
+                    .putFloat(KEY_WALLPAPER_BLUR, 0f)
+                    .putFloat(KEY_WALLPAPER_DIM, 0.50f)
+                    .putInt(KEY_WALLPAPER_VIDEO_WIDTH, 1080)
+                    .putInt(KEY_WALLPAPER_VIDEO_HEIGHT, 1920)
+                    .putInt(KEY_WALLPAPER_VIDEO_DURATION, 10)
+                    .putLong(KEY_WALLPAPER_VIDEO_SIZE, targetVideo.length())
+                    .apply()
+
+                _customBackgroundRevisionFlow.value = revision
+                _customBackgroundTypeFlow.value = WALLPAPER_TYPE_VIDEO
+                _customBackgroundUriFlow.value = targetVideo.absolutePath
+                _customBackgroundActivePresetIdFlow.value = WallpaperPreset.PRESET_ID_SPACE_TOILET
+                _customBackgroundBlurFlow.value = 0f
+                _customBackgroundDimFlow.value = 0.50f
+                _customBackgroundVideoMetadataFlow.value = resolveStoredVideoMetadata()
+
+                AppLogger.i("Wallpaper", "Default Space Toilet wallpaper initialized successfully.")
+            } catch (e: Throwable) {
+                AppLogger.w("Wallpaper", "Failed to initialize default space toilet wallpaper: ${e.message}")
+            }
+        }
+    }
+
+    suspend fun applyPreset(preset: WallpaperPreset): Result<Unit> = withContext(Dispatchers.IO) {
+        wallpaperMutex.lock()
+        try {
+            val revision = System.currentTimeMillis()
+            if (preset.isBuiltIn) {
+                if (preset.type == WALLPAPER_TYPE_VIDEO) {
+                    val targetVideo = wallpaperVideoFile()
+                    val targetPreview = wallpaperVideoPreviewFile()
+                    val assetVideo = preset.assetPath ?: "wallpapers/space_toilet.mp4"
+
+                    context.assets.open(assetVideo).use { input ->
+                        FileOutputStream(targetVideo).use { output ->
+                            input.copyTo(output)
+                            output.fd.sync()
+                        }
+                    }
+                    try {
+                        context.assets.open("wallpapers/space_toilet_preview.jpg").use { input ->
+                            FileOutputStream(targetPreview).use { output ->
+                                input.copyTo(output)
+                                output.fd.sync()
+                            }
+                        }
+                    } catch (_: Throwable) {}
+
+                    try { wallpaperFile().delete() } catch (_: Throwable) {}
+
+                    prefs.edit()
+                        .putBoolean(KEY_WALLPAPER_ENABLED, true)
+                        .putLong(KEY_WALLPAPER_REVISION, revision)
+                        .putString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_VIDEO)
+                        .putString(KEY_WALLPAPER_ACTIVE_PRESET_ID, preset.id)
+                        .putFloat(KEY_WALLPAPER_BLUR, preset.blurDp)
+                        .putFloat(KEY_WALLPAPER_DIM, preset.dimFactor)
+                        .putInt(KEY_WALLPAPER_VIDEO_WIDTH, 1080)
+                        .putInt(KEY_WALLPAPER_VIDEO_HEIGHT, 1920)
+                        .putInt(KEY_WALLPAPER_VIDEO_DURATION, 10)
+                        .putLong(KEY_WALLPAPER_VIDEO_SIZE, targetVideo.length())
+                        .apply()
+
+                    _customBackgroundRevisionFlow.value = revision
+                    _customBackgroundTypeFlow.value = WALLPAPER_TYPE_VIDEO
+                    _customBackgroundActivePresetIdFlow.value = preset.id
+                    _customBackgroundBlurFlow.value = preset.blurDp
+                    _customBackgroundDimFlow.value = preset.dimFactor
+                    _customBackgroundUriFlow.value = targetVideo.absolutePath
+                    _customBackgroundVideoMetadataFlow.value = resolveStoredVideoMetadata()
+                } else {
+                    val targetImage = wallpaperFile()
+                    val assetImage = preset.assetPath ?: return@withContext Result.failure(IOException("Missing asset image"))
+                    context.assets.open(assetImage).use { input ->
+                        FileOutputStream(targetImage).use { output ->
+                            input.copyTo(output)
+                            output.fd.sync()
+                        }
+                    }
+                    try { wallpaperVideoFile().delete() } catch (_: Throwable) {}
+                    try { wallpaperVideoPreviewFile().delete() } catch (_: Throwable) {}
+
+                    prefs.edit()
+                        .putBoolean(KEY_WALLPAPER_ENABLED, true)
+                        .putLong(KEY_WALLPAPER_REVISION, revision)
+                        .putString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_IMAGE)
+                        .putString(KEY_WALLPAPER_ACTIVE_PRESET_ID, preset.id)
+                        .putFloat(KEY_WALLPAPER_BLUR, preset.blurDp)
+                        .putFloat(KEY_WALLPAPER_DIM, preset.dimFactor)
+                        .remove(KEY_WALLPAPER_VIDEO_WIDTH)
+                        .remove(KEY_WALLPAPER_VIDEO_HEIGHT)
+                        .remove(KEY_WALLPAPER_VIDEO_DURATION)
+                        .remove(KEY_WALLPAPER_VIDEO_SIZE)
+                        .apply()
+
+                    _customBackgroundRevisionFlow.value = revision
+                    _customBackgroundTypeFlow.value = WALLPAPER_TYPE_IMAGE
+                    _customBackgroundActivePresetIdFlow.value = preset.id
+                    _customBackgroundBlurFlow.value = preset.blurDp
+                    _customBackgroundDimFlow.value = preset.dimFactor
+                    _customBackgroundUriFlow.value = targetImage.absolutePath
+                    _customBackgroundVideoMetadataFlow.value = null
+                }
+            } else {
+                val srcFile = preset.filePath?.let { File(it) }
+                if (srcFile == null || !srcFile.exists()) {
+                    return@withContext Result.failure(IOException("Preset file not found"))
+                }
+                if (preset.type == WALLPAPER_TYPE_VIDEO) {
+                    val targetVideo = wallpaperVideoFile()
+                    val targetPreview = wallpaperVideoPreviewFile()
+                    srcFile.copyTo(targetVideo, overwrite = true)
+                    preset.previewFilePath?.let { File(it) }?.takeIf { it.exists() }?.copyTo(targetPreview, overwrite = true)
+                    try { wallpaperFile().delete() } catch (_: Throwable) {}
+
+                    prefs.edit()
+                        .putBoolean(KEY_WALLPAPER_ENABLED, true)
+                        .putLong(KEY_WALLPAPER_REVISION, revision)
+                        .putString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_VIDEO)
+                        .putString(KEY_WALLPAPER_ACTIVE_PRESET_ID, preset.id)
+                        .putFloat(KEY_WALLPAPER_BLUR, preset.blurDp)
+                        .putFloat(KEY_WALLPAPER_DIM, preset.dimFactor)
+                        .apply()
+
+                    _customBackgroundRevisionFlow.value = revision
+                    _customBackgroundTypeFlow.value = WALLPAPER_TYPE_VIDEO
+                    _customBackgroundActivePresetIdFlow.value = preset.id
+                    _customBackgroundBlurFlow.value = preset.blurDp
+                    _customBackgroundDimFlow.value = preset.dimFactor
+                    _customBackgroundUriFlow.value = targetVideo.absolutePath
+                    _customBackgroundVideoMetadataFlow.value = resolveStoredVideoMetadata()
+                } else {
+                    val targetImage = wallpaperFile()
+                    srcFile.copyTo(targetImage, overwrite = true)
+                    try { wallpaperVideoFile().delete() } catch (_: Throwable) {}
+                    try { wallpaperVideoPreviewFile().delete() } catch (_: Throwable) {}
+
+                    prefs.edit()
+                        .putBoolean(KEY_WALLPAPER_ENABLED, true)
+                        .putLong(KEY_WALLPAPER_REVISION, revision)
+                        .putString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_IMAGE)
+                        .putString(KEY_WALLPAPER_ACTIVE_PRESET_ID, preset.id)
+                        .putFloat(KEY_WALLPAPER_BLUR, preset.blurDp)
+                        .putFloat(KEY_WALLPAPER_DIM, preset.dimFactor)
+                        .apply()
+
+                    _customBackgroundRevisionFlow.value = revision
+                    _customBackgroundTypeFlow.value = WALLPAPER_TYPE_IMAGE
+                    _customBackgroundActivePresetIdFlow.value = preset.id
+                    _customBackgroundBlurFlow.value = preset.blurDp
+                    _customBackgroundDimFlow.value = preset.dimFactor
+                    _customBackgroundUriFlow.value = targetImage.absolutePath
+                    _customBackgroundVideoMetadataFlow.value = null
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Throwable) {
+            AppLogger.e("Wallpaper", "Apply preset failed: ${e.message}", e)
+            Result.failure(e)
+        } finally {
+            wallpaperMutex.unlock()
+        }
+    }
+
+    suspend fun saveCurrentAsUserPreset(title: String): Result<WallpaperPreset> = withContext(Dispatchers.IO) {
+        val currentType = _customBackgroundTypeFlow.value
+        val isVideo = currentType == WALLPAPER_TYPE_VIDEO
+        val srcFile = if (isVideo) wallpaperVideoFile() else wallpaperFile()
+        if (!srcFile.exists() || srcFile.length() == 0L) {
+            return@withContext Result.failure(IOException("No active wallpaper to save as preset"))
+        }
+
+        val presetsDir = context.filesDir.resolve("wallpaper_presets").apply { mkdirs() }
+        val presetId = "custom_${System.currentTimeMillis()}"
+        val ext = if (isVideo) "mp4" else "jpg"
+        val savedFile = presetsDir.resolve("$presetId.$ext")
+        srcFile.copyTo(savedFile, overwrite = true)
+
+        var savedPreviewFile: File? = null
+        if (isVideo) {
+            val previewSrc = wallpaperVideoPreviewFile()
+            if (previewSrc.exists()) {
+                val pf = presetsDir.resolve("${presetId}_preview.jpg")
+                previewSrc.copyTo(pf, overwrite = true)
+                savedPreviewFile = pf
+            }
+        }
+
+        val preset = WallpaperPreset(
+            id = presetId,
+            title = title.trim().ifEmpty { "Мой пресет" },
+            type = currentType,
+            filePath = savedFile.absolutePath,
+            previewFilePath = savedPreviewFile?.absolutePath ?: savedFile.absolutePath,
+            blurDp = _customBackgroundBlurFlow.value,
+            dimFactor = _customBackgroundDimFlow.value,
+            isBuiltIn = false,
+            createdAt = System.currentTimeMillis()
+        )
+
+        val list = getUserPresets().toMutableList()
+        list.add(0, preset)
+        saveUserPresetsList(list)
+        _customBackgroundUserPresetsFlow.value = list
+        _customBackgroundActivePresetIdFlow.value = presetId
+        prefs.edit().putString(KEY_WALLPAPER_ACTIVE_PRESET_ID, presetId).apply()
+
+        Result.success(preset)
+    }
+
+    fun deleteUserPreset(presetId: String) {
+        val list = getUserPresets().toMutableList()
+        val removed = list.find { it.id == presetId }
+        if (removed != null) {
+            list.remove(removed)
+            saveUserPresetsList(list)
+            _customBackgroundUserPresetsFlow.value = list
+            removed.filePath?.let { File(it).delete() }
+            removed.previewFilePath?.let { File(it).delete() }
+            if (_customBackgroundActivePresetIdFlow.value == presetId) {
+                _customBackgroundActivePresetIdFlow.value = null
+                prefs.edit().remove(KEY_WALLPAPER_ACTIVE_PRESET_ID).apply()
+            }
+        }
+    }
+
+    fun getUserPresets(): List<WallpaperPreset> {
+        val jsonStr = prefs.getString(KEY_WALLPAPER_USER_PRESETS, null) ?: return emptyList()
+        return try {
+            val array = JSONArray(jsonStr)
+            val result = mutableListOf<WallpaperPreset>()
+            for (i in 0 until array.length()) {
+                result.add(WallpaperPreset.fromJson(array.getJSONObject(i)))
+            }
+            result
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun saveUserPresetsList(list: List<WallpaperPreset>) {
+        val array = JSONArray()
+        for (item in list) {
+            array.put(item.toJson())
+        }
+        prefs.edit().putString(KEY_WALLPAPER_USER_PRESETS, array.toString()).apply()
+    }
+
     // ── Worker Profiles Management ──────────────────────────────────────────
 
     companion object {
         const val KEY_ECH_ENABLED = "ech_enabled"
         const val KEY_WS_RANDOMIZATION_ENABLED = "ws_randomization_enabled"
         const val KEY_TLS_RECORD_PADDING_ENABLED = "tls_record_padding_enabled"
-        val DEFAULT_DEV_WORKERS: List<WorkerProfile> = emptyList()
+        const val KEY_TLS_CLIENT_HELLO_SPLIT_ENABLED = "tls_client_hello_split_enabled"
+        const val KEY_ACTIVE_WORKER_ID_SOCKS5 = "active_worker_id_socks5"
+        const val KEY_ACTIVE_WORKER_ID_MTPROTO = "active_worker_id_mtproto"
+        const val KEY_USER_PRIMARY_WORKER_ID_SOCKS5 = "user_primary_worker_id_socks5"
+        const val KEY_USER_PRIMARY_WORKER_ID_MTPROTO = "user_primary_worker_id_mtproto"
+        private const val KEY_SOCKET_BUFFER_AUTOTUNE_MIGRATED = "socket_buffer_autotune_migrated_v1"
+
+        // Custom Wallpaper Engine
+        const val WALLPAPER_FILE_NAME = "custom_wallpaper.jpg"
+        const val WALLPAPER_VIDEO_FILE_NAME = "custom_wallpaper.mp4"
+        const val WALLPAPER_VIDEO_PREVIEW_NAME = "custom_wallpaper_video_preview.jpg"
+        const val WALLPAPER_BLUR_MIN = 0f
+        const val WALLPAPER_BLUR_MAX = 25f
+        const val WALLPAPER_BLUR_DEFAULT = 12f
+        const val WALLPAPER_DIM_MIN = 0.10f
+        const val WALLPAPER_DIM_MAX = 0.85f
+        const val WALLPAPER_DIM_DEFAULT = 0.45f
+        const val WALLPAPER_TYPE_IMAGE = "image"
+        const val WALLPAPER_TYPE_VIDEO = "video"
+        const val KEY_WALLPAPER_ACTIVE_PRESET_ID = "custom_wallpaper_active_preset_id"
+        const val KEY_WALLPAPER_USER_PRESETS = "custom_wallpaper_user_presets"
+        private const val KEY_WALLPAPER_DEFAULT_SPACE_TOILET_INIT = "wallpaper_default_space_toilet_v2"
+        private const val KEY_WALLPAPER_ENABLED = "custom_wallpaper_enabled"
+        private const val KEY_WALLPAPER_REVISION = "custom_wallpaper_revision"
+        private const val KEY_WALLPAPER_TYPE = "custom_wallpaper_type"
+        private const val KEY_WALLPAPER_BLUR = "custom_wallpaper_blur_dp"
+        private const val KEY_WALLPAPER_DIM = "custom_wallpaper_dim"
+        private const val KEY_WALLPAPER_PARTICLES = "custom_wallpaper_particles"
+        private const val KEY_WALLPAPER_VIDEO_POWER_SAVE = "custom_wallpaper_video_power_save"
+        private const val KEY_WALLPAPER_VIDEO_WIDTH = "custom_wallpaper_video_width"
+        private const val KEY_WALLPAPER_VIDEO_HEIGHT = "custom_wallpaper_video_height"
+        private const val KEY_WALLPAPER_VIDEO_DURATION = "custom_wallpaper_video_duration"
+        private const val KEY_WALLPAPER_VIDEO_SIZE = "custom_wallpaper_video_size"
 
         /**
          * Создает диагностический отчет для службы поддержки, строго исключая
@@ -808,9 +1504,7 @@ class PreferencesManager(private val context: Context) {
         }
     }
 
-    fun getDeveloperWorkers(): List<WorkerProfile> {
-        return DEFAULT_DEV_WORKERS
-    }
+    fun getDeveloperWorkers(): List<WorkerProfile> = emptyList()
 
     fun getCustomWorkers(): List<WorkerProfile> {
         val jsonStr = prefs.getString("custom_workers_json", null) ?: return emptyList()
@@ -863,7 +1557,7 @@ class PreferencesManager(private val context: Context) {
         }
 
         val current = getCustomWorkers().toMutableList()
-        val allExisting = current + DEFAULT_DEV_WORKERS
+        val allExisting = current
         if (allExisting.any { it.domain.equals(cleanDomain, ignoreCase = true) }) {
             return Result.failure(IllegalStateException(context.getString(R.string.pref_worker_err_already_exists)))
         }
@@ -895,30 +1589,67 @@ class PreferencesManager(private val context: Context) {
     fun deleteCustomWorker(id: String) {
         val current = getCustomWorkers().filter { it.id != id }
         saveCustomWorkers(current)
-        if (getActiveWorkerId() == id) {
-            val nextWorker = current.firstOrNull()
-            setActiveWorkerId(nextWorker?.id ?: "", fromUserAction = true)
+        val nextWorker = current.firstOrNull()
+        if (getActiveWorkerId(ProxyMode.MTPROTO) == id) {
+            setActiveWorkerId(nextWorker?.id ?: "", mode = ProxyMode.MTPROTO, fromUserAction = true)
         }
-        if (getUserPrimaryWorkerId() == id) {
-            val nextWorker = current.firstOrNull()
-            setUserPrimaryWorkerId(nextWorker?.id ?: "")
+        if (getActiveWorkerId(ProxyMode.SOCKS5) == id) {
+            setActiveWorkerId(nextWorker?.id ?: "", mode = ProxyMode.SOCKS5, fromUserAction = true)
+        }
+        if (getUserPrimaryWorkerId(ProxyMode.MTPROTO) == id) {
+            setUserPrimaryWorkerId(nextWorker?.id ?: "", mode = ProxyMode.MTPROTO)
+        }
+        if (getUserPrimaryWorkerId(ProxyMode.SOCKS5) == id) {
+            setUserPrimaryWorkerId(nextWorker?.id ?: "", mode = ProxyMode.SOCKS5)
         }
     }
 
-    fun getUserPrimaryWorkerId(): String {
-        val saved = prefs.getString("user_primary_worker_id", null)
+    fun getEffectiveProxyMode(): ProxyMode {
+        val modeName = prefs.getString("proxy_mode", ProxyMode.MTPROTO.name) ?: ProxyMode.MTPROTO.name
+        return try {
+            ProxyMode.valueOf(modeName)
+        } catch (_: Exception) {
+            ProxyMode.MTPROTO
+        }
+    }
+
+    fun getUserPrimaryWorkerId(): String = getUserPrimaryWorkerId(getEffectiveProxyMode())
+
+    fun getUserPrimaryWorkerId(mode: ProxyMode): String {
+        val primaryKey = when (mode) {
+            ProxyMode.MTPROTO -> KEY_USER_PRIMARY_WORKER_ID_MTPROTO
+            ProxyMode.SOCKS5 -> KEY_USER_PRIMARY_WORKER_ID_SOCKS5
+        }
+        val saved = prefs.getString(primaryKey, null)
+            ?: prefs.getString("user_primary_worker_id", null)
         if (!saved.isNullOrBlank()) return saved
-        val active = getActiveWorkerId()
-        prefs.edit().putString("user_primary_worker_id", active).apply()
+        val active = getActiveWorkerId(mode)
+        prefs.edit().putString(primaryKey, active).apply()
         return active
     }
 
-    fun setUserPrimaryWorkerId(id: String) {
-        prefs.edit().putString("user_primary_worker_id", id).apply()
+    fun setUserPrimaryWorkerId(id: String) = setUserPrimaryWorkerId(id, getEffectiveProxyMode())
+
+    fun setUserPrimaryWorkerId(id: String, mode: ProxyMode) {
+        val primaryKey = when (mode) {
+            ProxyMode.MTPROTO -> KEY_USER_PRIMARY_WORKER_ID_MTPROTO
+            ProxyMode.SOCKS5 -> KEY_USER_PRIMARY_WORKER_ID_SOCKS5
+        }
+        prefs.edit()
+            .putString(primaryKey, id)
+            .putString("user_primary_worker_id", id)
+            .apply()
     }
 
-    fun getActiveWorkerId(): String {
-        val saved = prefs.getString("active_worker_id", "") ?: ""
+    fun getActiveWorkerId(): String = getActiveWorkerId(getEffectiveProxyMode())
+
+    fun getActiveWorkerId(mode: ProxyMode): String {
+        val key = when (mode) {
+            ProxyMode.MTPROTO -> KEY_ACTIVE_WORKER_ID_MTPROTO
+            ProxyMode.SOCKS5 -> KEY_ACTIVE_WORKER_ID_SOCKS5
+        }
+        val saved = prefs.getString(key, null)
+            ?: prefs.getString("active_worker_id", "") ?: ""
         val custom = getCustomWorkers()
         if (saved.isNotEmpty() && custom.any { it.id == saved }) {
             return saved
@@ -927,29 +1658,67 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun setActiveWorkerId(id: String, fromUserAction: Boolean = true) {
-        prefs.edit().putString("active_worker_id", id).apply()
+        setActiveWorkerId(id, getEffectiveProxyMode(), fromUserAction)
+    }
+
+    fun setActiveWorkerId(id: String, mode: ProxyMode, fromUserAction: Boolean = true) {
+        val key = when (mode) {
+            ProxyMode.MTPROTO -> KEY_ACTIVE_WORKER_ID_MTPROTO
+            ProxyMode.SOCKS5 -> KEY_ACTIVE_WORKER_ID_SOCKS5
+        }
+        val primaryKey = when (mode) {
+            ProxyMode.MTPROTO -> KEY_USER_PRIMARY_WORKER_ID_MTPROTO
+            ProxyMode.SOCKS5 -> KEY_USER_PRIMARY_WORKER_ID_SOCKS5
+        }
+        prefs.edit()
+            .putString(key, id)
+            .putString("active_worker_id", id)
+            .apply()
         if (fromUserAction) {
-            prefs.edit().putString("user_primary_worker_id", id).apply()
+            prefs.edit()
+                .putString(primaryKey, id)
+                .putString("user_primary_worker_id", id)
+                .apply()
             try {
                 PredictivePreWarmManager.clearHotReserve()
             } catch (_: Exception) {}
         }
+        if (mode == ProxyMode.MTPROTO) {
+            _activeWorkerIdMtprotoFlow.value = id
+        } else {
+            _activeWorkerIdSocks5Flow.value = id
+        }
         _activeWorkerIdFlow.value = id
-        val worker = getActiveWorker(id)
+        val worker = getActiveWorker(mode = mode, activeId = id)
 
         try {
             val app = com.mirrly.tgproxy.MirrlyApplication.instance
-            app.config.customCfDomain = worker.domain
-            app.config.useDefaultWorkerSocks5 = worker.isDeveloperWorker
-            saveConfig(app.config)
-            if (app.proxyServer.isRunning && app.config.isSocks5Mode) {
-                app.proxyServer.onWorkerChanged(worker.domain)
+            val runningMode = app.config.proxyMode
+            if (runningMode == mode) {
+                app.config.customCfDomain = worker.domain
+                app.config.useDefaultWorkerSocks5 = worker.isDeveloperWorker
+                saveConfig(app.config)
+                val shouldHotSwap = app.proxyServer.isRunning && (
+                    app.config.isSocks5Mode || (runningMode == ProxyMode.MTPROTO && app.config.useWorkerMtproto)
+                )
+                if (shouldHotSwap) {
+                    app.proxyServer.onWorkerChanged(worker.domain)
+                }
+            } else {
+                val currentConfig = loadConfig()
+                if (currentConfig.proxyMode == mode) {
+                    currentConfig.customCfDomain = worker.domain
+                    currentConfig.useDefaultWorkerSocks5 = worker.isDeveloperWorker
+                    saveConfig(currentConfig)
+                }
             }
         } catch (_: Exception) {
             val config = loadConfig()
-            config.customCfDomain = worker.domain
-            config.useDefaultWorkerSocks5 = worker.isDeveloperWorker
-            saveConfig(config)
+            if (config.proxyMode == mode) {
+                config.customCfDomain = worker.domain
+                config.useDefaultWorkerSocks5 = worker.isDeveloperWorker
+                saveConfig(config)
+            }
         }
 
         try {
@@ -958,19 +1727,29 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun restoreUserPrimaryWorkerIfNeeded() {
-        val primaryId = prefs.getString("user_primary_worker_id", null) ?: return
-        val currentActive = getActiveWorkerId()
+        restoreUserPrimaryWorkerIfNeeded(getEffectiveProxyMode())
+    }
+
+    fun restoreUserPrimaryWorkerIfNeeded(mode: ProxyMode) {
+        val primaryId = getUserPrimaryWorkerId(mode)
+        val currentActive = getActiveWorkerId(mode)
         if (currentActive != primaryId) {
             val allRelayWorkers = getCustomWorkers()
             val primaryWorker = allRelayWorkers.find { it.id == primaryId }
             if (primaryWorker != null) {
-                AppLogger.i("PreferencesManager", "Restoring user primary worker '${primaryWorker.name}' ($primaryId)")
-                setActiveWorkerId(primaryId, fromUserAction = false)
+                AppLogger.i("PreferencesManager", "Restoring user primary worker '${primaryWorker.name}' ($primaryId) for $mode")
+                setActiveWorkerId(primaryId, mode = mode, fromUserAction = false)
             }
         }
     }
 
-    fun getActiveWorker(activeId: String = getActiveWorkerId()): WorkerProfile {
+    fun getActiveWorker(): WorkerProfile = getActiveWorker(getEffectiveProxyMode())
+
+    fun getActiveWorker(mode: ProxyMode): WorkerProfile = getActiveWorker(mode, getActiveWorkerId(mode))
+
+    fun getActiveWorker(activeId: String): WorkerProfile = getActiveWorker(getEffectiveProxyMode(), activeId)
+
+    fun getActiveWorker(mode: ProxyMode, activeId: String): WorkerProfile {
         val relayWorkers = getCustomWorkers()
         return relayWorkers.find { it.id == activeId }
             ?: relayWorkers.firstOrNull()
@@ -1074,6 +1853,14 @@ class PreferencesManager(private val context: Context) {
         prefs.edit().putBoolean("has_seen_onboarding", seen).apply()
     }
 
+    fun hasSeenVpnOnboarding(): Boolean {
+        return prefs.getBoolean("has_seen_vpn_onboarding", false)
+    }
+
+    fun setHasSeenVpnOnboarding(seen: Boolean = true) {
+        prefs.edit().putBoolean("has_seen_vpn_onboarding", seen).apply()
+    }
+
     fun getAppLanguage(): String {
         return prefs.getString("app_language", "system") ?: "system"
     }
@@ -1107,7 +1894,7 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun getIpFamilyPreference(): String {
-        return prefs.getString("ip_family_preference", "DUAL_STACK") ?: "DUAL_STACK"
+        return prefs.getString("ip_family_preference", "IPV4_ONLY") ?: "IPV4_ONLY"
     }
 
     fun setIpFamilyPreference(pref: String) {
@@ -1115,7 +1902,7 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun getSocketKeepAliveSeconds(): Int {
-        return prefs.getInt("socket_keep_alive_seconds", 30)
+        return prefs.getInt("socket_keep_alive_seconds", 60)
     }
 
     fun setSocketKeepAliveSeconds(seconds: Int) {
@@ -1124,27 +1911,29 @@ class PreferencesManager(private val context: Context) {
 
     fun resetAdvancedSettingsToDefaults(config: ProxyConfig) {
         setHappyEyeballsDelayMs(200L)
-        setIpFamilyPreference("DUAL_STACK")
-        setSocketKeepAliveSeconds(30)
+        setIpFamilyPreference("IPV4_ONLY")
+        setSocketKeepAliveSeconds(60)
         config.speedPresetName = com.mirrly.tgproxy.core.SpeedPreset.AUTO.name
         config.applyPreset(com.mirrly.tgproxy.core.SpeedPreset.AUTO)
-        config.tcpNoDelayModeName = com.mirrly.tgproxy.core.TcpNoDelayMode.AUTO.name
-        config.tcpNoDelay = true
-        config.bufferSizeBytes = 262144
+        config.tcpNoDelayModeName = com.mirrly.tgproxy.core.NagleMode.ENABLED.name
+        config.tcpNoDelay = false
+        config.bufferSizeBytes = 0
         config.happyEyeballsDelayMs = 200L
-        config.ipFamilyPreferenceName = com.mirrly.tgproxy.core.IpFamilyPreference.DUAL_STACK.name
-        config.webSocketKeepAliveSeconds = 30
+        config.ipFamilyPreferenceName = com.mirrly.tgproxy.core.IpFamilyPreference.IPV4_ONLY.name
+        config.webSocketKeepAliveSeconds = 60
         config.warpUserEndpointOverride = ""
     }
 
     // ── Cloudflare Account & Deploy Session ───────────────────────────────────
 
     fun getCloudflareToken(): String? {
-        return secretPrefs.getString("cf_access_token", null)?.takeIf { it.isNotBlank() }
+        val raw = secretPrefs.getString("cf_access_token", null)?.takeIf { it.isNotBlank() } ?: return null
+        return WarpKeystoreEncryption.decrypt(raw).takeIf { it.isNotBlank() }
     }
 
     fun getCloudflareRefreshToken(): String? {
-        return secretPrefs.getString("cf_refresh_token", null)?.takeIf { it.isNotBlank() }
+        val raw = secretPrefs.getString("cf_refresh_token", null)?.takeIf { it.isNotBlank() } ?: return null
+        return WarpKeystoreEncryption.decrypt(raw).takeIf { it.isNotBlank() }
     }
 
     fun isCloudflareAuthorized(): Boolean {
@@ -1175,8 +1964,8 @@ class PreferencesManager(private val context: Context) {
         subdomain: String?
     ) {
         secretPrefs.edit()
-            .putString("cf_access_token", accessToken)
-            .putString("cf_refresh_token", refreshToken ?: "")
+            .putString("cf_access_token", WarpKeystoreEncryption.encrypt(accessToken))
+            .putString("cf_refresh_token", WarpKeystoreEncryption.encrypt(refreshToken ?: ""))
             .apply()
 
         prefs.edit()
@@ -1187,9 +1976,9 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun updateCloudflareAccessToken(accessToken: String, refreshToken: String? = null) {
-        val editor = secretPrefs.edit().putString("cf_access_token", accessToken)
+        val editor = secretPrefs.edit().putString("cf_access_token", WarpKeystoreEncryption.encrypt(accessToken))
         if (!refreshToken.isNullOrBlank()) {
-            editor.putString("cf_refresh_token", refreshToken)
+            editor.putString("cf_refresh_token", WarpKeystoreEncryption.encrypt(refreshToken))
         }
         editor.apply()
     }
@@ -1205,6 +1994,29 @@ class PreferencesManager(private val context: Context) {
             .remove("cf_account_name")
             .remove("cf_subdomain")
             .apply()
+    }
+
+    /**
+     * Checks if a worker profile belongs to the currently authorized Cloudflare account.
+     * Manual third-party/stranger workers or developer pool workers are NOT owned by the user.
+     */
+    fun isWorkerOwnedByCurrentUser(worker: WorkerProfile): Boolean {
+        if (worker.isDeveloperWorker) return false
+        if (!isCloudflareAuthorized()) return false
+        if (worker.isCloudflarePersonal) return true
+        val subdomain = getCloudflareSubdomain()
+        if (!subdomain.isNullOrBlank() && worker.domain.contains(".$subdomain.workers.dev", ignoreCase = true)) {
+            return true
+        }
+        return false
+    }
+
+    fun isSocks5OnboardingCompleted(): Boolean {
+        return prefs.getBoolean("socks5_onboarding_completed", false)
+    }
+
+    fun setSocks5OnboardingCompleted(completed: Boolean) {
+        prefs.edit().putBoolean("socks5_onboarding_completed", completed).apply()
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1234,10 +2046,11 @@ class PreferencesManager(private val context: Context) {
         prefs.edit().putStringSet("vpn_split_tunnel_packages", packages).apply()
     }
 
-    fun getVpnMtu(): Int = prefs.getInt("vpn_mtu", 1420)
+    fun getVpnMtu(): Int = 1280
 
     fun setVpnMtu(mtu: Int) {
-        prefs.edit().putInt("vpn_mtu", mtu).apply()
+        // Fixed: MTU is permanently 1280 for stability
+        prefs.edit().putInt("vpn_mtu", 1280).apply()
     }
 
     fun getVpnBlockQuic(): Boolean = prefs.getBoolean("vpn_block_quic", true)
@@ -1252,6 +2065,13 @@ class PreferencesManager(private val context: Context) {
         prefs.edit().putBoolean("vpn_block_ipv6_leaks", blocked).apply()
     }
 
+    fun isVpnAutoProfileEnabled(): Boolean = prefs.getBoolean("vpn_auto_profile_enabled", true)
+
+    fun setVpnAutoProfileEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("vpn_auto_profile_enabled", enabled).apply()
+        _vpnAutoProfileEnabledFlow.value = enabled
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Redacted Diagnostic Bundle (Task N20)
     // ──────────────────────────────────────────────────────────────────────────
@@ -1260,6 +2080,8 @@ class PreferencesManager(private val context: Context) {
      * приватные ключи, токены, пароли и полные чувствительные URL (Task N20).
      */
     fun getRedactedDiagnosticReport(config: ProxyConfig): String = Companion.getRedactedDiagnosticReport(config)
+
+
     fun isEchEnabled(): Boolean = prefs.getBoolean(KEY_ECH_ENABLED, false)
 
     fun setEchEnabled(enabled: Boolean) {
@@ -1274,11 +2096,179 @@ class PreferencesManager(private val context: Context) {
         _isWsRandomizationEnabledFlow.value = enabled
     }
 
+    fun getVlessUuid(): String {
+        return prefs.getString("vless_uuid", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessUuid
+    }
+
+    fun setVlessUuid(uuid: String) {
+        prefs.edit().putString("vless_uuid", uuid).apply()
+    }
+
     fun isTlsRecordPaddingEnabled(): Boolean = prefs.getBoolean(KEY_TLS_RECORD_PADDING_ENABLED, true)
 
     fun setTlsRecordPaddingEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_TLS_RECORD_PADDING_ENABLED, enabled).apply()
         _isTlsRecordPaddingEnabledFlow.value = enabled
+        try {
+            val app = context.applicationContext as? com.mirrly.tgproxy.MirrlyApplication
+            app?.config?.isTlsRecordPaddingEnabled = enabled
+            app?.proxyServer?.applyTlsRecordPaddingEnabled(enabled)
+        } catch (_: Exception) {}
     }
 
+    fun isTlsClientHelloSplitEnabled(): Boolean = prefs.getBoolean(KEY_TLS_CLIENT_HELLO_SPLIT_ENABLED, true)
+
+    fun setTlsClientHelloSplitEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_TLS_CLIENT_HELLO_SPLIT_ENABLED, enabled).apply()
+        _isTlsClientHelloSplitEnabledFlow.value = enabled
+        try {
+            val app = context.applicationContext as? com.mirrly.tgproxy.MirrlyApplication
+            app?.config?.isTlsClientHelloSplitEnabled = enabled
+            app?.proxyServer?.applyTlsClientHelloSplitEnabled(enabled)
+        } catch (_: Exception) {}
+    }
+
+    fun isUseWorkerMtproto(): Boolean = prefs.getBoolean("use_worker_mtproto", false)
+
+    fun setUseWorkerMtproto(enabled: Boolean) {
+        prefs.edit().putBoolean("use_worker_mtproto", enabled).apply()
+        _useWorkerMtprotoFlow.value = enabled
+        try {
+            val app = context.applicationContext as? com.mirrly.tgproxy.MirrlyApplication
+            app?.config?.useWorkerMtproto = enabled
+            app?.proxyServer?.applyUseWorkerMtproto(enabled)
+        } catch (_: Exception) {}
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // External Donation Warning Skip Preference
+    // ──────────────────────────────────────────────────────────────────────────
+    fun isSkipDonateWarning(): Boolean = prefs.getBoolean("skip_donate_warning", false)
+
+    fun setSkipDonateWarning(skip: Boolean) {
+        prefs.edit().putBoolean("skip_donate_warning", skip).apply()
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Mirrly AI Chat & Neural Engine Settings
+    // ──────────────────────────────────────────────────────────────────────────
+    fun getAiProvider(): String = prefs.getString("ai_provider", "Gemini") ?: "Gemini"
+    fun setAiProvider(provider: String) {
+        prefs.edit().putString("ai_provider", provider).apply()
+        _aiProviderFlow.value = provider
+    }
+
+    fun getAiEndpoint(): String = prefs.getString("ai_endpoint", "https://generativelanguage.googleapis.com/v1beta") ?: "https://generativelanguage.googleapis.com/v1beta"
+    fun setAiEndpoint(endpoint: String) {
+        prefs.edit().putString("ai_endpoint", endpoint).apply()
+        _aiEndpointFlow.value = endpoint
+    }
+
+    fun getAiModel(): String {
+        val model = prefs.getString("ai_model", "gemini-3.6-flash") ?: "gemini-3.6-flash"
+        return if (model.startsWith("gemini-2.0") || model == "gemini-3.8-flash" || model.isEmpty()) {
+            prefs.edit().putString("ai_model", "gemini-3.6-flash").apply()
+            "gemini-3.6-flash"
+        } else {
+            model
+        }
+    }
+    fun setAiModel(model: String) {
+        prefs.edit().putString("ai_model", model).apply()
+        try {
+            _aiModelFlow.value = model
+        } catch (_: Exception) {}
+    }
+
+    fun getAiApiKey(): String {
+        val encrypted = secretPrefs.getString("ai_api_key", null) ?: prefs.getString("ai_api_key", null)
+        return if (!encrypted.isNullOrBlank()) {
+            try {
+                WarpKeystoreEncryption.decrypt(encrypted)
+            } catch (_: Exception) {
+                encrypted
+            }
+        } else {
+            ""
+        }
+    }
+
+    fun setAiApiKey(apiKey: String) {
+        val trimmed = apiKey.trim()
+        val toStore = if (trimmed.isNotEmpty()) {
+            try {
+                WarpKeystoreEncryption.encrypt(trimmed)
+            } catch (_: Exception) {
+                trimmed
+            }
+        } else {
+            ""
+        }
+        secretPrefs.edit().putString("ai_api_key", toStore).apply()
+        _aiApiKeyFlow.value = trimmed
+    }
+
+    fun isAiReasoningEnabled(): Boolean = prefs.getBoolean("ai_reasoning_enabled", true)
+    fun setAiReasoningEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("ai_reasoning_enabled", enabled).apply()
+        _aiReasoningEnabledFlow.value = enabled
+    }
+
+    fun isAiStreamingEnabled(): Boolean = prefs.getBoolean("ai_streaming_enabled", true)
+    fun setAiStreamingEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("ai_streaming_enabled", enabled).apply()
+        _aiStreamingEnabledFlow.value = enabled
+    }
+
+    fun isAiOnlyResponse(): Boolean = prefs.getBoolean("ai_only_response", false)
+    fun setAiOnlyResponse(onlyResponse: Boolean) {
+        prefs.edit().putBoolean("ai_only_response", onlyResponse).apply()
+        _aiOnlyResponseFlow.value = onlyResponse
+    }
+
+    fun isAiQuoteResponse(): Boolean = prefs.getBoolean("ai_quote_response", true)
+    fun setAiQuoteResponse(quoteResponse: Boolean) {
+        prefs.edit().putBoolean("ai_quote_response", quoteResponse).apply()
+        _aiQuoteResponseFlow.value = quoteResponse
+    }
+
+    fun getAiTemperature(): Float = prefs.getFloat("ai_temperature", 0.7f)
+    fun setAiTemperature(temperature: Float) {
+        val clamped = temperature.coerceIn(0.0f, 2.0f)
+        prefs.edit().putFloat("ai_temperature", clamped).apply()
+        _aiTemperatureFlow.value = clamped
+    }
+
+    fun getAiSystemPromptMode(): String = prefs.getString("ai_system_prompt_mode", "DIAGNOSTIC") ?: "DIAGNOSTIC"
+    fun setAiSystemPromptMode(mode: String) {
+        prefs.edit().putString("ai_system_prompt_mode", mode).apply()
+    }
+
+    fun getAiCustomSystemPrompt(): String = prefs.getString("ai_custom_system_prompt", "") ?: ""
+    fun setAiCustomSystemPrompt(prompt: String) {
+        prefs.edit().putString("ai_custom_system_prompt", prompt).apply()
+    }
+
+    fun isAiUseSocks5(): Boolean = prefs.getBoolean("ai_use_socks5", false)
+    fun setAiUseSocks5(use: Boolean) {
+        prefs.edit().putBoolean("ai_use_socks5", use).apply()
+    }
+
+    fun isProxyActive(): Boolean = prefs.getBoolean("proxy_service_active", false)
+    fun setProxyActive(active: Boolean) {
+        prefs.edit().putBoolean("proxy_service_active", active).apply()
+    }
+
+    fun isForceMobileModeEnabled(): Boolean = prefs.getBoolean("force_mobile_mode_enabled", false)
+    fun setForceMobileModeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("force_mobile_mode_enabled", enabled).apply()
+        _forceMobileModeFlow.value = enabled
+    }
+
+    fun isDialThrottlingEnabled(): Boolean = prefs.getBoolean("dial_throttling_enabled", false)
+    fun setDialThrottlingEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("dial_throttling_enabled", enabled).apply()
+        _dialThrottlingFlow.value = enabled
+        com.mirrly.tgproxy.core.NativeProxy.setDialThrottlingEnabled(enabled)
+    }
 }

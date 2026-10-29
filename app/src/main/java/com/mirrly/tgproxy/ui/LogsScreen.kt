@@ -55,7 +55,9 @@ private val LogTagShape = RoundedCornerShape(4.dp)
 private val FilterChipShape = RoundedCornerShape(10.dp)
 private val SearchFieldShape = RoundedCornerShape(12.dp)
 
+private val DebugCardBorder = BorderStroke(0.6.dp, Color(0xFF64B5F6).copy(alpha = 0.35f))
 private val InfoCardBorder = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.07f))
+private val DebugAccentColor = Color(0xFF64B5F6)
 private val WarnCardBorder = BorderStroke(0.6.dp, Color(0xFFF59E0B).copy(alpha = 0.35f))
 private val ErrorCardBorder = BorderStroke(0.6.dp, Color(0xFFEF4444).copy(alpha = 0.45f))
 private val TagBadgeBorder = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.09f))
@@ -122,6 +124,7 @@ fun LogsScreen(
     // observes that same snapshot instead of copying and replaying it locally.
     val rawLogs by AppLogger.logsFlow.collectAsState()
     val totalCount = rawLogs.size
+    val debugCount = remember(rawLogs) { rawLogs.count { it.level == LogLevel.DEBUG } }
     val infoCount = remember(rawLogs) { rawLogs.count { it.level == LogLevel.INFO } }
     val warnCount = remember(rawLogs) { rawLogs.count { it.level == LogLevel.WARN } }
     val errorCount = remember(rawLogs) { rawLogs.count { it.level == LogLevel.ERROR } }
@@ -438,6 +441,17 @@ fun LogsScreen(
                         }
                     )
                     SegmentedFilterChip(
+                        title = stringResource(R.string.logs_filter_debug),
+                        count = debugCount,
+                        isSelected = selectedLevel == LogLevel.DEBUG,
+                        activeColor = DebugAccentColor,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            selectedLevel = if (selectedLevel == LogLevel.DEBUG) null else LogLevel.DEBUG
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    )
+                    SegmentedFilterChip(
                         title = stringResource(R.string.logs_filter_info),
                         count = infoCount,
                         isSelected = selectedLevel == LogLevel.INFO,
@@ -588,12 +602,14 @@ private fun GlassLogCard(
     modifier: Modifier = Modifier
 ) {
     val levelColor = when (entry.level) {
+        LogLevel.DEBUG -> DebugAccentColor
         LogLevel.INFO -> ActiveGreenLed
         LogLevel.WARN -> WarnAccentColor
         LogLevel.ERROR -> ErrorAccentColor
     }
 
     val cardBorder = when (entry.level) {
+        LogLevel.DEBUG -> DebugCardBorder
         LogLevel.INFO -> InfoCardBorder
         LogLevel.WARN -> WarnCardBorder
         LogLevel.ERROR -> ErrorCardBorder
