@@ -310,6 +310,8 @@ pub async fn ping_tcp_host(host: &str, port: u16, timeout_ms: u64) -> (bool, i64
             }
         };
 
+        let _ = sock.set_nonblocking(true);
+
         #[cfg(unix)]
         {
             use std::os::unix::io::AsRawFd;
@@ -319,70 +321,32 @@ pub async fn ping_tcp_host(host: &str, port: u16, timeout_ms: u64) -> (bool, i64
 
         let t0 = Instant::now();
         let target_addr = SocketAddr::new(ip, port);
-        let connect_res = sock.connect(&target_addr.into());
-        let is_connected = match connect_res {
-            Ok(()) => true,
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                let std_stream: std::net::TcpStream = sock.into();
-                match tokio::net::TcpStream::from_std(std_stream) {
-                    Ok(stream) => {
-                        match tokio::time::timeout(Duration::from_millis(timeout_ms), stream.writable()).await {
-                            Ok(Ok(())) => match stream.take_error() {
-                                Ok(None) => true,
-                                Ok(Some(err)) => {
-                                    last_err = err.to_string();
-                                    false
-                                }
-                                Err(err) => {
-                                    last_err = err.to_string();
-                                    false
-                                }
-                            },
-                            _ => {
-                                last_err = "Connection timeout".to_string();
-                                false
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        last_err = err.to_string();
-                        false
-                    }
-                }
-            }
-            Err(e) => {
-                let is_in_progress = e.raw_os_error() == Some(115); // EINPROGRESS
-                if is_in_progress {
-                    let std_stream: std::net::TcpStream = sock.into();
-                    match tokio::net::TcpStream::from_std(std_stream) {
-                        Ok(stream) => {
-                            match tokio::time::timeout(Duration::from_millis(timeout_ms), stream.writable()).await {
-                                Ok(Ok(())) => match stream.take_error() {
-                                    Ok(None) => true,
-                                    Ok(Some(err)) => {
-                                        last_err = err.to_string();
-                                        false
-                                    }
-                                    Err(err) => {
-                                        last_err = err.to_string();
-                                        false
-                                    }
-                                },
-                                _ => {
-                                    last_err = "Connection timeout".to_string();
-                                    false
-                                }
-                            }
+        let _ = sock.connect(&target_addr.into());
+
+        let std_stream: std::net::TcpStream = sock.into();
+        let is_connected = match tokio::net::TcpStream::from_std(std_stream) {
+            Ok(stream) => {
+                match tokio::time::timeout(Duration::from_millis(timeout_ms), stream.writable()).await {
+                    Ok(Ok(())) => match stream.take_error() {
+                        Ok(None) => true,
+                        Ok(Some(err)) => {
+                            last_err = err.to_string();
+                            false
                         }
                         Err(err) => {
                             last_err = err.to_string();
                             false
                         }
+                    },
+                    _ => {
+                        last_err = "Connection timeout".to_string();
+                        false
                     }
-                } else {
-                    last_err = e.to_string();
-                    false
                 }
+            }
+            Err(err) => {
+                last_err = err.to_string();
+                false
             }
         };
 

@@ -42,11 +42,6 @@ interface ProxyLibrary : Library {
     fun SetTcpNoDelay(enabled: Int)
     fun SetCfProxyCacheDir(cacheDir: String)
     fun SetCfProxyConfig(enabled: Int, userDomain: String)
-    fun SetEchEnabled(enabled: Int)
-    fun IsEchEnabled(): Int
-    fun SetCustomEchConfig(base64Config: String): Int
-    fun SetWsRandomizationEnabled(enabled: Int)
-    fun IsWsRandomizationEnabled(): Int
     fun SetTlsRecordPaddingEnabled(enabled: Int)
     fun IsTlsRecordPaddingEnabled(): Int
     fun SetTlsClientHelloSplitEnabled(enabled: Int)
@@ -81,39 +76,6 @@ interface ProxyLibrary : Library {
     fun ClearWarpStickyProfile()
     fun RecordWarpStickySuccess()
     fun RecordWarpStickyTimeout(): Boolean
-    fun SetVlessConfig(uuid: String, path: String, domain: String)
-    fun SetVlessNetworkConfig(
-        uuid: String,
-        path: String,
-        domain: String,
-        serverAddress: String,
-        serverPort: Int,
-        tlsSni: String,
-        hostHeader: String
-    )
-    fun SetVlessExtendedConfig(
-        uuid: String,
-        path: String,
-        domain: String,
-        serverAddress: String,
-        serverPort: Int,
-        tlsSni: String,
-        hostHeader: String,
-        transport: String,
-        security: String,
-        publicKey: String,
-        shortId: String,
-        fingerprint: String,
-        spiderX: String,
-        flow: String,
-        headerType: String
-    )
-    fun SetVlessConfigJson(json: String): Int
-    fun GetVlessConfigJson(): Pointer?
-    fun SetVlessFallbackPool(domains: String)
-    fun SetVlessFallbackProfilesJson(json: String): Int
-    fun GetVlessStatus(): Pointer?
-    fun SetOperaVpnConfig(vlessEnabled: Int, warpEnabled: Int, endpoint: String)
     fun GetSecretWithPrefix(): Pointer?
     fun GetStats(): Pointer?
     fun SetAwgConfig(ini: String): Int
@@ -138,7 +100,6 @@ interface ProxyLibrary : Library {
     fun WarmupWsPool()
     fun OnScreenWakeup()
     fun SetTrustPolicy(isPrivateNode: Int, allowPublicRelayFallback: Int, allowOperaDirectExit: Int, allowOperaTransportHop: Int)
-    fun GetStageTimelineJson(): Pointer?
     fun GetUsefulRxSliJson(): Pointer?
     fun GetDialBudgetStatsJson(): Pointer?
     fun GetDomainBalancerStatusJson(): Pointer?
@@ -148,16 +109,6 @@ interface ProxyLibrary : Library {
     fun StopVpn(): Int
     fun GetVpnStatusJson(): Pointer?
     fun SetVpnUplinkMode(mode: Int): Int
-    fun SetProtonConfig(
-        serverIp: String,
-        serverPort: Int,
-        peerPubKey: String,
-        privateKey: String,
-        clientIp: String,
-        dnsIp: String,
-        nodeName: String
-    ): Int
-    fun SetOperaVpnEndpoint(endpoint: String): Int
     fun SetProtectSocketCallback(cb: ProtectCallback?): Unit
     fun ResolveDns(domain: String, scope: Int): Pointer?
     fun ClearDnsCache()
@@ -350,23 +301,13 @@ object NativeProxy {
         dnsIp: String = "10.2.0.1",
         nodeName: String = "Proton Node"
     ): Int {
-        return try {
-            ProxyLibrary.INSTANCE.SetProtonConfig(
-                serverIp, serverPort, peerPubKey, privateKey, clientIp, dnsIp, nodeName
-            )
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [SetProtonConfig]: ${t.message}", t)
-            -1
-        }
+        // Proton VPN integration removed in favor of WireGuard/AmneziaWG
+        return -1
     }
 
     fun setOperaVpnEndpoint(endpoint: String): Int {
-        return try {
-            ProxyLibrary.INSTANCE.SetOperaVpnEndpoint(endpoint)
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [SetOperaVpnEndpoint]: ${t.message}", t)
-            -1
-        }
+        // Opera VPN relay removed in favor of Cloudflare Worker WSS
+        return -1
     }
 
     fun startProxy(host: String, port: Int, dcIps: String, secret: String, verbose: Int): Int {
@@ -621,45 +562,16 @@ object NativeProxy {
     }
 
     fun setVlessConfigJson(json: String): Boolean {
-        return try {
-            val code = ProxyLibrary.INSTANCE.SetVlessConfigJson(json)
-            code == 0
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [SetVlessConfigJson]: ${t.message}", t)
-            false
-        }
+        // VLESS removed in v2.1.0 in favor of Cloudflare Worker WSS & WireGuard/AmneziaWG
+        return false
     }
 
     fun getVlessConfigJson(): String? {
-        return try {
-            val ptr = ProxyLibrary.INSTANCE.GetVlessConfigJson() ?: return null
-            try {
-                ptr.getString(0, "UTF-8")
-            } finally {
-                ProxyLibrary.INSTANCE.FreeString(ptr)
-            }
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [GetVlessConfigJson]: ${t.message}", t)
-            null
-        }
+        return null
     }
 
     fun setVlessConfig(uuid: String, path: String, domain: String = "") {
-        // Попытка применить через JSON без затирания остальных параметров
-        try {
-            val json = JSONObject().apply {
-                if (uuid.isNotBlank()) put("uuid", uuid)
-                if (path.isNotBlank()) put("path", path)
-                if (domain.isNotBlank()) put("domain", domain)
-            }.toString()
-            if (setVlessConfigJson(json)) return
-        } catch (_: Throwable) {}
-
-        try {
-            ProxyLibrary.INSTANCE.SetVlessConfig(uuid, path, domain)
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [setVlessConfig]: ${t.message}", t)
-        }
+        // VLESS removed in v2.1.0
     }
 
     fun setVlessExtendedConfig(
@@ -679,70 +591,7 @@ object NativeProxy {
         flow: String = "",
         headerType: String = ""
     ) {
-        // 1. Предпочтительный путь: полный JSON FFI (SetVlessConfigJson)
-        try {
-            val json = JSONObject().apply {
-                if (uuid.isNotBlank()) put("uuid", uuid)
-                if (path.isNotBlank()) put("path", path)
-                if (domain.isNotBlank()) put("domain", domain)
-                if (serverAddress.isNotBlank()) put("server_address", serverAddress)
-                if (serverPort > 0) put("server_port", serverPort)
-                if (tlsSni.isNotBlank()) put("tls_sni", tlsSni)
-                if (hostHeader.isNotBlank()) put("host_header", hostHeader)
-                if (transport.isNotBlank()) put("transport", transport)
-                if (security.isNotBlank()) put("security", security)
-                if (publicKey.isNotBlank()) put("public_key", publicKey)
-                if (shortId.isNotBlank()) put("short_id", shortId)
-                if (fingerprint.isNotBlank()) put("fingerprint", fingerprint)
-                if (spiderX.isNotBlank()) put("spider_x", spiderX)
-                if (flow.isNotBlank()) put("flow", flow)
-                if (headerType.isNotBlank()) put("header_type", headerType)
-            }.toString()
-
-            if (setVlessConfigJson(json)) {
-                return
-            }
-        } catch (t: Throwable) {
-            AppLogger.w("NativeProxy", "SetVlessConfigJson недоступен, переход к прямому FFI: ${t.message}")
-        }
-
-        // 2. Фоллбек: прямой FFI SetVlessExtendedConfig (15 параметров)
-        try {
-            ProxyLibrary.INSTANCE.SetVlessExtendedConfig(
-                uuid,
-                path,
-                domain,
-                serverAddress,
-                serverPort,
-                tlsSni,
-                hostHeader,
-                transport,
-                security,
-                publicKey,
-                shortId,
-                fingerprint,
-                spiderX,
-                flow,
-                headerType
-            )
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [setVlessExtendedConfig]: ${t.message}", t)
-            try {
-                ProxyLibrary.INSTANCE.SetVlessNetworkConfig(
-                    uuid,
-                    path,
-                    domain,
-                    serverAddress,
-                    serverPort,
-                    tlsSni,
-                    hostHeader
-                )
-            } catch (_: Throwable) {
-                try {
-                    ProxyLibrary.INSTANCE.SetVlessConfig(uuid, path, domain)
-                } catch (_: Throwable) {}
-            }
-        }
+        // VLESS removed in v2.1.0
     }
 
     fun setVlessNetworkConfig(
@@ -754,15 +603,7 @@ object NativeProxy {
         tlsSni: String = "",
         hostHeader: String = ""
     ) {
-        setVlessExtendedConfig(
-            uuid = uuid,
-            path = path,
-            domain = domain,
-            serverAddress = serverAddress,
-            serverPort = serverPort,
-            tlsSni = tlsSni,
-            hostHeader = hostHeader
-        )
+        // VLESS removed in v2.1.0
     }
 
     fun setWarpConfig(
@@ -910,51 +751,20 @@ object NativeProxy {
     }
 
     fun getVlessStatus(): String? {
-        if (!isStarted) return null
-        return try {
-            val ptr = ProxyLibrary.INSTANCE.GetVlessStatus() ?: return null
-            val res = ptr.getString(0)
-            ProxyLibrary.INSTANCE.FreeString(ptr)
-            res
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [getVlessStatus]: ${t.message}", t)
-            null
-        }
+        return null
     }
 
     fun setVlessFallbackPool(domainsCsv: String) {
-        try {
-            ProxyLibrary.INSTANCE.SetVlessFallbackPool(domainsCsv)
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [setVlessFallbackPool]: ${t.message}", t)
-        }
+        // VLESS removed in v2.1.0
     }
 
     fun setVlessFallbackProfilesJson(json: String): Boolean {
-        return try {
-            val code = ProxyLibrary.INSTANCE.SetVlessFallbackProfilesJson(json)
-            code >= 0
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [SetVlessFallbackProfilesJson]: ${t.message}", t)
-            try {
-                ProxyLibrary.INSTANCE.SetVlessFallbackPool(json)
-                true
-            } catch (_: Throwable) {
-                false
-            }
-        }
+        // VLESS removed in v2.1.0
+        return false
     }
 
     fun setOperaVpnConfig(vlessEnabled: Boolean, warpEnabled: Boolean, endpoint: String) {
-        try {
-            ProxyLibrary.INSTANCE.SetOperaVpnConfig(
-                if (vlessEnabled) 1 else 0,
-                if (warpEnabled) 1 else 0,
-                endpoint
-            )
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "Сбой вызова FFI [setOperaVpnConfig]: ${t.message}", t)
-        }
+        // Opera VPN removed in v2.1.0
     }
 
     fun getSecretWithPrefix(): String? {
@@ -1158,16 +968,7 @@ object NativeProxy {
     }
 
     fun getStageTimelineJson(): String? {
-        return try {
-            val ptr = ProxyLibrary.INSTANCE.GetStageTimelineJson() ?: return null
-            try {
-                ptr.getString(0, "UTF-8")
-            } finally {
-                ProxyLibrary.INSTANCE.FreeString(ptr)
-            }
-        } catch (t: Throwable) {
-            null
-        }
+        return null
     }
 
     fun getUsefulRxSliJson(): String? {
@@ -1272,46 +1073,23 @@ object NativeProxy {
     }
 
     fun setEchEnabled(enabled: Boolean) {
-        try {
-            ProxyLibrary.INSTANCE.SetEchEnabled(if (enabled) 1 else 0)
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "FFI call failed [SetEchEnabled]: ${t.message}", t)
-        }
+        // ECH handled at transport layer
     }
 
     fun isEchEnabled(): Boolean {
-        return try {
-            ProxyLibrary.INSTANCE.IsEchEnabled() != 0
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "FFI call failed [IsEchEnabled]: ${t.message}", t)
-            true
-        }
+        return false
     }
 
     fun setCustomEchConfig(base64: String): Boolean {
-        return try {
-            ProxyLibrary.INSTANCE.SetCustomEchConfig(base64) == 0
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "FFI call failed [SetCustomEchConfig]: ${t.message}", t)
-            false
-        }
+        return false
     }
 
     fun setWsRandomizationEnabled(enabled: Boolean) {
-        try {
-            ProxyLibrary.INSTANCE.SetWsRandomizationEnabled(if (enabled) 1 else 0)
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "FFI call failed [SetWsRandomizationEnabled]: ${t.message}", t)
-        }
+        // WS randomization handled at transport layer
     }
 
     fun isWsRandomizationEnabled(): Boolean {
-        return try {
-            ProxyLibrary.INSTANCE.IsWsRandomizationEnabled() != 0
-        } catch (t: Throwable) {
-            AppLogger.e("NativeProxy", "FFI call failed [IsWsRandomizationEnabled]: ${t.message}", t)
-            true
-        }
+        return false
     }
 
     fun setTlsRecordPaddingEnabled(enabled: Boolean) {

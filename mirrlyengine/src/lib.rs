@@ -21,10 +21,12 @@ pub mod tls_observability;
 pub mod vpn;
 pub mod ws;
 
+pub use cfproxy::ProtoScope;
+
 use config::*;
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::Mutex;
-use proxy::{parse_cidr_pool, run_proxy, WsPool};
+use proxy::{run_proxy, WsPool};
 use socks5::run_socks5_server;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
@@ -160,7 +162,7 @@ pub unsafe extern "C" fn StartProxy(
 
     let host = cstr_to_string(c_host);
     let go_port = port as u16;
-    let dc_ips_str = cstr_to_string(c_dc_ips);
+    let _dc_ips_str = cstr_to_string(c_dc_ips);
     let secret_str = cstr_to_string(c_secret);
     let is_verbose = verbose != 0;
 
@@ -179,7 +181,7 @@ pub unsafe extern "C" fn StartProxy(
 
     cfproxy::init_cfproxy_domains();
 
-    let dc_opt_map: HashMap<i32, String> = parse_cidr_pool(&dc_ips_str);
+    let dc_opt_map: HashMap<i32, String> = HashMap::new();
     *DC_OPT.write() = dc_opt_map.clone();
 
     let rt = runtime();
@@ -272,6 +274,7 @@ pub unsafe extern "C" fn StartSocks5Proxy(
     *LAST_SOCKS5_WORKER.write() = String::new();
     node_independence::NODE_INDEPENDENCE_TRACKER.write().reset();
     tls_observability::TLS_TRACKER.write().reset();
+    supervisor::ROUTE_SUPERVISOR.set_intent(crate::masque::UPLINK_WORKER, 1, false);
 
     let rt = runtime();
     let cancel_tasks = CancellationToken::new();
@@ -496,19 +499,6 @@ pub(crate) fn reset_network_sockets_for_reason(reason: &str) {
     recovery::reset();
     vpn::notify_vpn_reconnect();
     reset_network_sockets_for_reason_locked(guard.as_ref(), reason);
-}
-
-#[allow(dead_code)]
-pub(crate) fn reset_network_sockets_for_reason_if_current(
-    expected: generation_guard::GenerationStamp,
-    reason: &str,
-) -> bool {
-    let cell = state_cell();
-    let guard = cell.lock();
-    generation_guard::invalidate_profile_if_current(expected, || {
-        reset_network_sockets_for_reason_locked(guard.as_ref(), reason);
-    })
-    .is_some()
 }
 
 pub(crate) fn reset_network_routing_for_reason_if_current(
@@ -840,7 +830,7 @@ pub unsafe extern "C" fn SetCfProxyCacheDir(c_cache_dir: *const c_char) {
 #[no_mangle]
 pub unsafe extern "C" fn SetCfProxyConfig(enabled: c_int, c_user_domain: *const c_char) {
     let user_domain = cstr_to_string(c_user_domain);
-    let is_cdn = user_domain.trim().is_empty() && (enabled != 0);
+    let _is_cdn = user_domain.trim().is_empty() && (enabled != 0);
     generation_guard::change_config(|| {
         CFPROXY_ENABLED.store(enabled != 0, Ordering::Relaxed);
         *LAST_SOCKS5_WORKER.write() = String::new();
@@ -855,7 +845,7 @@ pub unsafe extern "C" fn SetCfProxyConfig(enabled: c_int, c_user_domain: *const 
         let rt = runtime();
         rt.spawn(async move {
             pool.reset().await;
-            if is_cdn {
+            if enabled != 0 {
                 pool.prewarm(&dc_opt).await;
             }
         });
@@ -921,18 +911,9 @@ pub unsafe extern "C" fn PromoteCfproxyDomainForDc(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn SetWorkerProtocol(c_domain: *const c_char, proto_ver: c_int) {
-    let domain = cstr_to_string(c_domain);
-    if domain.is_empty() {
-        return;
-    }
-    let proto = match proto_ver {
-        1 => socks5::WorkerProtocol::V1Legacy,
-        2 => socks5::WorkerProtocol::V2Ack,
-        3 => socks5::WorkerProtocol::ApiWs,
-        _ => socks5::WorkerProtocol::Auto,
-    };
-    socks5::mark_worker_protocol(&domain, proto);
+pub unsafe extern "C" fn SetWorkerProtocol(_c_domain: *const c_char, _proto_ver: c_int) {
+    // Protocol is unified to modern WSS relay (/apiws); proto_ver subnegotiation is deprecated.
+    // Retained for backward FFI binary compatibility with JNA bindings.
 }
 
 #[no_mangle]
@@ -1287,174 +1268,6 @@ pub extern "C" fn SetTrustPolicy(
         allow_opera_direct_exit != 0,
         allow_opera_transport_hop != 0,
     ));
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn StartAwgSocks5Proxy(
-    c_host: *const c_char,
-    port: c_int,
-    verbose: c_int,
-) -> c_int {
-    init_crypto_and_panic_hook();
-
-    let cell = state_cell();
-    let mut guard = cell.lock();
-
-    if guard.is_some() {
-        return -1;
-    }
-
-    let host = cstr_to_string(c_host);
-    let go_port = port as u16;
-    let is_verbose = verbose != 0;
-
-    init_logging(is_verbose);
-    cfproxy::clear_doh_cache();
-    recovery::reset();
-    balancer::BALANCER.write().reset_ranking();
-    node_independence::NODE_INDEPENDENCE_TRACKER.write().reset();
-    tls_observability::TLS_TRACKER.write().reset();
-
-    let rt = runtime();
-    let cancel_tasks = CancellationToken::new();
-    let cancel_sessions = Arc::new(parking_lot::RwLock::new(cancel_tasks.child_token()));
-
-    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
-
-    let host_task = host.clone();
-    let cancel_root = cancel_tasks.clone();
-    let cancel_sessions_task = cancel_sessions.clone();
-
-    let handle = rt.spawn(async move {
-        let addr = format!("{}:{}", host_task, go_port);
-        match bind_reuse_tcp(&addr) {
-            Ok(listener) => {
-                let _ = tx.send(Ok(()));
-                linfo!("AWG-SOCKS5 proxy listening on {}", addr);
-                loop {
-                    tokio::select! {
-                        _ = cancel_root.cancelled() => break,
-                        accept = listener.accept() => {
-                            match accept {
-                                Ok((mut client, peer)) => {
-                                    let cancel = cancel_sessions_task.read().child_token();
-                                    tokio::spawn(async move {
-                                        let target_addr = match awg_socks5_handshake(&mut client).await {
-                                            Ok(t) => t,
-                                            Err(e) => {
-                                                crate::ldebug!("AWG SOCKS5 handshake failed from {}: {}", peer, e);
-                                                return;
-                                            }
-                                        };
-                                        match awg::awg_acquire_tunnel(&target_addr, &cancel).await {
-                                            Some(tunnel) => {
-                                                if let Err(e) = tunnel.run_smoltcp_bridge(client, cancel).await {
-                                                    crate::ldebug!("AWG smoltcp bridge ended for {}: {}", target_addr, e);
-                                                }
-                                                tunnel.close().await;
-                                            }
-                                            None => {
-                                                crate::lwarn!("AWG: could not establish tunnel to {}", target_addr);
-                                            }
-                                        }
-                                    });
-                                }
-                                Err(_) => continue,
-                            }
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                let _ = tx.send(Err(format!("listen AWG-SOCKS5 on {}: {}", addr, e)));
-            }
-        }
-    });
-
-    match rx.recv() {
-        Ok(Ok(())) => {}
-        _ => {
-            handle.abort();
-            return -3;
-        }
-    }
-
-    *guard = Some(ProxyState {
-        pool: None,
-        handle,
-        cancel_tasks,
-        cancel_sessions,
-    });
-
-    0
-}
-
-/// Minimal SOCKS5 server-side handshake: reads CONNECT request, replies with success,
-/// returns the requested target address as "host:port".
-async fn awg_socks5_handshake(stream: &mut tokio::net::TcpStream) -> Result<String, String> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    let mut buf = [0u8; 512];
-
-    // Phase 1: client greeting  [VER=5, NMETHODS, METHODS...]
-    let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
-    if n < 2 || buf[0] != 5 {
-        return Err("not a SOCKS5 greeting".to_string());
-    }
-    // Reply: no auth required
-    stream
-        .write_all(&[0x05, 0x00])
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Phase 2: CONNECT request  [VER=5, CMD=1, RSV=0, ATYP, ...]
-    let n = stream.read(&mut buf).await.map_err(|e| e.to_string())?;
-    if n < 7 || buf[0] != 5 || buf[1] != 1 {
-        return Err("not a SOCKS5 CONNECT".to_string());
-    }
-
-    let atyp = buf[3];
-    let target = match atyp {
-        0x01 => {
-            // IPv4
-            if n < 10 {
-                return Err("SOCKS5 IPv4 request too short".to_string());
-            }
-            let ip = std::net::Ipv4Addr::new(buf[4], buf[5], buf[6], buf[7]);
-            let port = u16::from_be_bytes([buf[8], buf[9]]);
-            format!("{}:{}", ip, port)
-        }
-        0x03 => {
-            // Domain
-            let domain_len = buf[4] as usize;
-            if n < 5 + domain_len + 2 {
-                return Err("SOCKS5 domain request too short".to_string());
-            }
-            let domain = std::str::from_utf8(&buf[5..5 + domain_len]).map_err(|e| e.to_string())?;
-            let port = u16::from_be_bytes([buf[5 + domain_len], buf[5 + domain_len + 1]]);
-            format!("{}:{}", domain, port)
-        }
-        0x04 => {
-            // IPv6
-            if n < 22 {
-                return Err("SOCKS5 IPv6 request too short".to_string());
-            }
-            let mut ip6 = [0u8; 16];
-            ip6.copy_from_slice(&buf[4..20]);
-            let ip = std::net::Ipv6Addr::from(ip6);
-            let port = u16::from_be_bytes([buf[20], buf[21]]);
-            format!("[{}]:{}", ip, port)
-        }
-        _ => return Err(format!("unsupported SOCKS5 ATYP={}", atyp)),
-    };
-
-    // Reply: success (BND.ADDR = 0.0.0.0:0)
-    stream
-        .write_all(&[0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(target)
 }
 
 #[no_mangle]

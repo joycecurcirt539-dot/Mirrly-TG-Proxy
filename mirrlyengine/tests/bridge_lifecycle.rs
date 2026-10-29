@@ -23,8 +23,6 @@ async fn bridge(
         server,
         upstream,
         vec![],
-        None,
-        false,
         cancel,
     ));
     (client, peer, task)
@@ -237,8 +235,10 @@ async fn websocket_half_close_drains_before_peer_close() {
     let (mut peer, _) = listener.accept().await.unwrap();
     let task = tokio::spawn(bridge_socks5_ws(
         local,
-        RawWebSocket::from_plain_stream_for_heartbeat_test(remote),
+        std::sync::Arc::new(RawWebSocket::from_plain_stream_for_heartbeat_test(remote)),
+        2,
         false,
+        "149.154.167.51",
         CancellationToken::new(),
     ));
     client.shutdown().await.unwrap();

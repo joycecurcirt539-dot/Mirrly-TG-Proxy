@@ -31,8 +31,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
+    private val serverLock = Mutex()
     private var speedJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -152,22 +155,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     val speedTestEngine = TunnelSpeedTestEngine()
 
-    val activeLivenessProbe = ActiveLivenessProbe(
-        isSocks5ModeProvider = { config.isSocks5Mode },
-        socks5PortProvider = { config.socks5Port },
-        socks5AuthProvider = { Pair(config.socks5Username, config.socks5Password) },
-        trafficThroughputProvider = { stats.downloadSpeedBps }, // Only count verified incoming RX throughput, not outgoing TX
-        onCascadeTriggered = { oldStage, newStage, reason ->
-            handleCascadeTransition(oldStage, newStage, reason)
-        }
-    ).apply {
-        onProbeCompleted = { res ->
-            stats.lastActiveProbeRttMs = res.rttMs
-            stats.isProbeAlive = res.isAlive
-            stats.activeCascadeStage = currentStage.title
-        }
-    }
-
     val currentPingMs: Long
         get() = pingEngine.smoothedPingMs
 
@@ -180,9 +167,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     val connectionQuality: ConnectionQuality
         get() = pingEngine.quality
 
-    @Volatile
-    var isVpnServer: Boolean = false
-        private set
+    val isVpnServer: Boolean = false
 
     @Volatile
     var currentEffectiveTcpNoDelay: Boolean = true
@@ -193,52 +178,29 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     val uptimeSeconds: Long
         get() = if (isRunning && startTimeMs > 0L) (System.currentTimeMillis() - startTimeMs) / 1000L else 0L
 
-    @Synchronized
-    fun start(cacheDir: File? = null): Boolean {
-        if (isRunning) return true
-        isVpnServer = false
+    suspend fun start(cacheDir: File? = null): Boolean = serverLock.withLock {
+        if (isRunning) return@withLock true
         // Автономные режимы SOCKS5 и MTProto строго используют Cloudflare Worker (WSS)
         config.uplinkModeName = UplinkMode.WORKER.name
-        return performStart(cacheDir)
+        performStart(cacheDir)
     }
 
-    @Synchronized
-    fun startForVpn(baseConfig: ProxyConfig, cacheDir: File? = null): Boolean {
-        isVpnServer = true
-        if (isRunning) {
-            // Если уже запущен в SOCKS5 с нужным режимом туннеля VPN — не перезапускаем
-            if (config.isSocks5Mode && config.vpnUplinkMode == baseConfig.vpnUplinkMode) {
-                AppLogger.i("LocalProxyServer", "SOCKS5 сервер уже запущен для VPN с режимом ${config.vpnUplinkMode}")
-                return true
-            }
-            AppLogger.i("LocalProxyServer", "Перезапуск SOCKS5 сервера для VPN с режимом ${baseConfig.vpnUplinkMode}...")
-            stop()
-        }
+    fun startBlocking(cacheDir: File? = null): Boolean = kotlinx.coroutines.runBlocking {
+        start(cacheDir)
+    }
 
-
-        // Обновляем параметры текущего экземпляра config под требования VPN
+    suspend fun startForVpn(baseConfig: ProxyConfig, cacheDir: File? = null): Boolean = serverLock.withLock {
+        if (isRunning) return@withLock true
         config.proxyModeName = ProxyMode.SOCKS5.name
-        config.vpnUplinkMode = baseConfig.vpnUplinkMode
-        config.vpnMtu = baseConfig.vpnMtu
-        config.vpnBlockQuic = baseConfig.vpnBlockQuic
-        config.vpnBlockIpv6Leaks = baseConfig.vpnBlockIpv6Leaks
-        config.socks5Port = baseConfig.socks5Port
-        config.socks5Username = baseConfig.socks5Username
-        config.socks5Password = baseConfig.socks5Password
-        config.customCfDomain = baseConfig.customCfDomain
-        config.vlessDomain = baseConfig.vlessDomain
-        config.vlessUuid = baseConfig.vlessUuid
-        config.vlessPath = baseConfig.vlessPath
-        config.useOperaVpnForVless = baseConfig.useOperaVpnForVless
-        config.useOperaVpnForWarp = baseConfig.useOperaVpnForWarp
-        config.operaVpnNodeId = baseConfig.operaVpnNodeId
-        config.awgStrategyName = baseConfig.awgStrategyName
-        config.awgCustomIni = baseConfig.awgCustomIni
-
-        return performStart(cacheDir)
+        config.uplinkModeName = UplinkMode.WORKER.name
+        performStart(cacheDir)
     }
 
-    private fun performStart(cacheDir: File?): Boolean {
+    fun startForVpnBlocking(baseConfig: ProxyConfig, cacheDir: File? = null): Boolean = kotlinx.coroutines.runBlocking {
+        startForVpn(baseConfig, cacheDir)
+    }
+
+    private suspend fun performStart(cacheDir: File?): Boolean {
         stats.resetBaseline()
 
         // Engineering settings are part of the connection contract: commit them
@@ -324,7 +286,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 if (code == -1) {
                     NativeProxy.stopProxy()
                 }
-                Thread.sleep(attempt * 120L)
+                delay(attempt * 80L)
             }
 
             if (code == 0) {
@@ -361,7 +323,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 if (code == -1) {
                     NativeProxy.stopProxy()
                 }
-                Thread.sleep(attempt * 120L)
+                delay(attempt * 80L)
             }
 
             if (code == 0) {
@@ -452,34 +414,17 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         pingEngine.start()
         adaptiveHeartbeatEngine.start()
 
-        activeLivenessProbe.isEnabled = false
-        activeLivenessProbe.timeoutMs = config.livenessProbeTimeoutMs
-        activeLivenessProbe.failoverThreshold = config.livenessProbeFailoverThreshold
-        if (isVpnServer) {
-            val initialStage = when {
-                config.isVpnMasqueUplink -> {
-                    val (ip, _) = WarpEndpointScanner.parseEndpoint(config.warpPeerEndpoint)
-                    if (ip.contains(":")) CascadeStage.STAGE_0_IPV6_WARP
-                    else CascadeStage.STAGE_1_SCANNED_WARP
-                }
-                else -> CascadeStage.STAGE_1_SCANNED_WARP
-            }
-            activeLivenessProbe.setInitialStage(initialStage)
-            stats.activeCascadeStage = initialStage.title
-        } else {
-            stats.activeCascadeStage = when (config.proxyMode) {
-                ProxyMode.SOCKS5 -> "Cloudflare Worker WSS"
-                ProxyMode.MTPROTO -> if (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) "Cloudflare Worker" else "Flowseal Anycast CDN"
-            }
-            stats.activeEffectiveRoute = when (config.proxyMode) {
-                ProxyMode.SOCKS5 -> config.getEffectiveCfDomain().ifBlank { "Cloudflare Worker" }
-                ProxyMode.MTPROTO -> if (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) config.getEffectiveCfDomain() else "Flowseal Anycast CDN"
-            }
+        stats.activeCascadeStage = when (config.proxyMode) {
+            ProxyMode.SOCKS5 -> "Cloudflare Worker WSS"
+            ProxyMode.MTPROTO -> if (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) "Cloudflare Worker" else "Flowseal Anycast CDN"
+        }
+        stats.activeEffectiveRoute = when (config.proxyMode) {
+            ProxyMode.SOCKS5 -> config.getEffectiveCfDomain().ifBlank { "Cloudflare Worker" }
+            ProxyMode.MTPROTO -> if (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) config.getEffectiveCfDomain() else "Flowseal Anycast CDN"
         }
         return true
     }
 
-    @Synchronized
     fun stop() {
         if (!isRunning && !isNativeRunning) return
         performStop()
@@ -492,7 +437,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         speedJob = null
         pingEngine.stop()
         adaptiveHeartbeatEngine.stop()
-        activeLivenessProbe.stop()
         isNativeRunning = false
         _warmPoolStatus.value = null
         autoConsecutiveHighTicks = 0
@@ -506,18 +450,22 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         }
     }
 
-    @Synchronized
-    fun restart(cacheDir: File? = null): Boolean {
+    suspend fun restart(cacheDir: File? = null): Boolean = serverLock.withLock {
         val wasRunning = isRunning
         val savedStart = startTimeMs
         if (wasRunning) {
-            stop()
+            performStop()
+            delay(120L)
         }
-        val ok = start(cacheDir)
+        val ok = performStart(cacheDir)
         if (wasRunning && ok && savedStart > 0L) {
             startTimeMs = savedStart
         }
-        return ok
+        ok
+    }
+
+    fun restartBlocking(cacheDir: File? = null): Boolean = kotlinx.coroutines.runBlocking {
+        restart(cacheDir)
     }
 
     private var autoConsecutiveHighTicks = 0
@@ -605,7 +553,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 AppLogger.i("LocalProxyServer", "Пул сокетов обновлён динамически: $clamped")
             } catch (t: Throwable) {
                 AppLogger.w("LocalProxyServer", "setPoolSize() не удался (${t.message}), перезапуск прокси...")
-                if (isRunning) restart(cacheDir)
+                if (isRunning) scope.launch { restart(cacheDir) }
             }
         }
     }
@@ -847,7 +795,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         effectiveNetworkProfile = effectiveNetworkProfile.withRuntime(screenOn, powerSaveMode)
         pingEngine.isScreenOn = screenOn
         adaptiveHeartbeatEngine.isScreenOn = screenOn
-        activeLivenessProbe.isScreenOn = screenOn
         if (isNativeRunning) {
             try {
                 NativeProxy.setNetworkProfileJson(effectiveNetworkProfile.toJsonString())
@@ -925,7 +872,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         // The caller schedules the probe after updating the network generation.
         // Leaving dormancy through the legacy setter would reset all connections.
         pingEngine.setDormant(false, probeImmediately = false)
-        activeLivenessProbe.isDormant = false
     }
 
     fun getEffectiveMtprotoStandby(isMobile: Boolean = false): Int = config.getEffectiveMtprotoStandby(isMobile)
@@ -1038,13 +984,11 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     fun setNetworkInterface(isMobile: Boolean, isScreenOn: Boolean = true) {
         adaptiveHeartbeatEngine.isMobileNetwork = isMobile
         adaptiveHeartbeatEngine.isScreenOn = isScreenOn
-        activeLivenessProbe.isScreenOn = isScreenOn
         pingEngine.isScreenOn = isScreenOn
     }
 
     fun setNetworkDormancy(isDormant: Boolean) {
         pingEngine.setDormant(isDormant)
-        activeLivenessProbe.isDormant = isDormant
         if (isDormant) {
             currentProfileGeneration.incrementAndGet()
             AppLogger.i("LocalProxyServer", "Вход в спящий режим ожидания сети (Deep Dormancy / Offline). Сброс сокетов и пауза фоновых опросов.")
@@ -1107,42 +1051,6 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
     fun getTelegramUrl(): String = when (config.proxyMode) {
         ProxyMode.SOCKS5 -> getTelegramSocks5Url()
         ProxyMode.MTPROTO -> getTelegramProxyUrl()
-    }
-
-    private fun handleCascadeTransition(oldStage: CascadeStage, newStage: CascadeStage, reason: String) {
-        if (!isVpnServer) {
-            AppLogger.w("LocalProxyServer", "Каскадный переход проигнорирован: сервер работает в автономном режиме прокси")
-            return
-        }
-        stats.activeCascadeStage = newStage.title
-        AppLogger.w("LocalProxyServer", "Каскадный переход аплинка VPN: [${oldStage.title}] -> [${newStage.title}]. Причина: $reason")
-
-        when (newStage) {
-            CascadeStage.STAGE_0_IPV6_WARP -> {
-                val ipv6 = WarpEndpointScanner.CLEAN_IPV6_POOL.firstOrNull() ?: "2606:4700:d0::a29f:c001"
-                applyWarpEndpoint("[$ipv6]:8095")
-                applyVpnUplinkMode(UplinkMode.MASQUE)
-            }
-            CascadeStage.STAGE_1_SCANNED_WARP -> {
-                scope.launch(Dispatchers.IO) {
-                    val best = WarpEndpointScanner.findBestEndpoint(
-                        useFragmentation = true,
-                        maxCandidatesToProbe = 16,
-                        timeoutMs = 600
-                    )
-                    if (best != null) {
-                        applyWarpEndpoint(best.endpoint)
-                    } else {
-                        applyWarpEndpoint("188.114.96.1:8095")
-                    }
-                    applyVpnUplinkMode(UplinkMode.MASQUE)
-                }
-            }
-            CascadeStage.STAGE_2_MASQUE_HTTP3 -> {
-                applyWarpEndpoint("188.114.96.1:443")
-                applyVpnUplinkMode(UplinkMode.MASQUE)
-            }
-        }
     }
 
     /**

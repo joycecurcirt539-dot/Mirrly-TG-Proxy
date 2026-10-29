@@ -485,13 +485,28 @@ class ProxyForegroundService : Service() {
                 val app = MirrlyApplication.instance
                 val server = app.proxyServer
                 if (server.isRunning && !isStopping) {
-                    val alive = server.isPortResponding(timeoutMs = 750)
+                    // 1. Пассивный контроль: при наличии активного трафика сокет гарантированно жив
+                    val hasActiveTraffic = (server.stats.downloadSpeedBps + server.stats.uploadSpeedBps) > 256L
+                    if (hasActiveTraffic) {
+                        consecutiveLivenessFailures = 0
+                        continue
+                    }
+
+                    // 2. Безсокетовый FFI-контроль: проверка жизни Tokio runtime в нативном движке без паразитных TCP сессий
+                    val isNativeAlive = com.mirrly.tgproxy.core.NativeProxy.isStarted && (com.mirrly.tgproxy.core.NativeProxy.getStats() != null)
+                    if (isNativeAlive) {
+                        consecutiveLivenessFailures = 0
+                        continue
+                    }
+
+                    // 3. Fallback: только при сбое FFI выполняем loopback TCP-проверку
+                    val alive = server.isPortResponding(timeoutMs = 1200)
                     if (alive) {
                         consecutiveLivenessFailures = 0
                     } else {
                         consecutiveLivenessFailures++
-                        AppLogger.w(TAG, "Liveness probe failed ($consecutiveLivenessFailures/2) for local listener port")
-                        if (consecutiveLivenessFailures >= 2) {
+                        AppLogger.w(TAG, "Liveness probe failed ($consecutiveLivenessFailures/3) for local listener port")
+                        if (consecutiveLivenessFailures >= 3) {
                             AppLogger.e(TAG, "Local listener port is not responding. Performing auto-healing restart...")
                             consecutiveLivenessFailures = 0
                             try {

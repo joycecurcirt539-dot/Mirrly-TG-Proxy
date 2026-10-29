@@ -20,8 +20,8 @@ fn transport_matrix_and_pin() {
         (999, None),
         (UPLINK_MASQUE, Some(RouteKind::Masque)),
         (UPLINK_AWG, Some(RouteKind::Awg)),
-        (UPLINK_VLESS, Some(RouteKind::VlessDirect)),
-        (UPLINK_HYBRID, Some(RouteKind::VlessDirect)),
+        (UPLINK_VLESS, None),
+        (UPLINK_HYBRID, None),
         (UPLINK_WARP_CASCADE, Some(RouteKind::Masque)),
     ] {
         sup.set_intent(mode, 1, true);
@@ -42,7 +42,7 @@ fn transport_matrix_and_pin() {
 async fn stale_and_cancelled_pins_never_acquire() {
     let _guard = TEST_LOCK.lock().unwrap();
     let sup = RouteSupervisor::new();
-    sup.set_intent(UPLINK_VLESS, 1, false);
+    sup.set_intent(UPLINK_AWG, 1, false);
     let pin = sup.pin_udp_route().unwrap();
     let cancel = CancellationToken::new();
     cancel.cancel();
@@ -72,7 +72,7 @@ async fn start_association(
     let root = cancel.clone();
     let sessions = Arc::new(parking_lot::RwLock::new(cancel.clone()));
     let task = tokio::spawn(async move {
-        run_socks5_server("127.0.0.1".into(), addr.port(), root, sessions, listener, None)
+        run_socks5_server("127.0.0.1".into(), addr.port(), root, sessions, listener)
             .await
             .unwrap();
     });
@@ -204,53 +204,6 @@ fn source_endpoint_is_pinned() {
     assert!(pin
         .validate_and_pin_sender("192.0.2.1:5001".parse().unwrap())
         .is_err());
-}
-
-#[tokio::test]
-async fn vless_targets_use_pinned_profile_without_fallback() {
-    let _guard = TEST_LOCK.lock().unwrap();
-    use mirrlyengine::vless::VLESS_CONFIG;
-    let original = VLESS_CONFIG.read().clone();
-    let primary = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let other = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let mut cfg = original.clone();
-    cfg.server_address = "127.0.0.1".into();
-    cfg.domain = "127.0.0.1".into();
-    cfg.server_port = primary.local_addr().unwrap().port();
-    cfg.transport = "tcp".into();
-    cfg.security = "none".into();
-    cfg.public_key.clear();
-    cfg.flow.clear();
-    cfg.uuid = [7; 16];
-    *VLESS_CONFIG.write() = cfg.clone();
-    let sup = RouteSupervisor::new();
-    sup.set_intent(UPLINK_VLESS, 1, false);
-    let pin = sup.pin_udp_route().unwrap();
-    cfg.server_port = other.local_addr().unwrap().port();
-    cfg.uuid = [8; 16];
-    *VLESS_CONFIG.write() = cfg;
-    for target in ["192.0.2.1:53", "192.0.2.2:443"] {
-        let uplink = sup
-            .acquire_socks5_udp_uplink(&pin, target, &CancellationToken::new())
-            .await;
-        assert!(uplink.is_some());
-        let (mut socket, _) = primary.accept().await.unwrap();
-        let mut header = [0; 19];
-        socket.read_exact(&mut header).await.unwrap();
-        assert_eq!(&header[1..17], &[7; 16]);
-        assert_eq!(header[18], 2, "VLESS UDP command");
-    }
-    drop(primary);
-    assert!(sup
-        .acquire_socks5_udp_uplink(&pin, "192.0.2.3:53", &CancellationToken::new())
-        .await
-        .is_none());
-    assert!(
-        tokio::time::timeout(Duration::from_millis(50), other.accept())
-            .await
-            .is_err()
-    );
-    *VLESS_CONFIG.write() = original;
 }
 
 #[test]

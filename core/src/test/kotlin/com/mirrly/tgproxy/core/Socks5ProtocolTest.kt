@@ -82,7 +82,7 @@ class Socks5ProtocolTest {
         assertFalse(server.isRunning)
 
         // On plain JVM without JNI native lib, start returns false safely
-        val ok = server.start()
+        val ok = server.startBlocking()
         assertFalse(server.isNativeRunning)
 
         server.stop()

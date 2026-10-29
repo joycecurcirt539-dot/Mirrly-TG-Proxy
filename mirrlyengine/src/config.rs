@@ -639,6 +639,8 @@ pub struct Stats {
     pub vpn_bytes_down: AtomicI64,
     pub vpn_packets_up: AtomicI64,
     pub vpn_packets_down: AtomicI64,
+    pub mtproto_429_cooldown_hits: AtomicI64,
+    pub socks5_429_cooldown_hits: AtomicI64,
 }
 
 pub static STATS: Lazy<Stats> = Lazy::new(Stats::default);
@@ -720,6 +722,14 @@ impl Stats {
         if err > 0 {
             parts.push(format!("ош:{}", err));
         }
+        let cf429_mt = self.mtproto_429_cooldown_hits.load(Ordering::Relaxed);
+        if cf429_mt > 0 {
+            parts.push(format!("cf429_mt:{}", cf429_mt));
+        }
+        let cf429_s5 = self.socks5_429_cooldown_hits.load(Ordering::Relaxed);
+        if cf429_s5 > 0 {
+            parts.push(format!("cf429_s5:{}", cf429_s5));
+        }
         parts.push(format!(
             "↑{} ↓{}",
             human_bytes(self.bytes_up.load(Ordering::Relaxed)),
@@ -748,6 +758,8 @@ impl Stats {
         self.bytes_down.store(0, Ordering::Relaxed);
         self.pool_hits.store(0, Ordering::Relaxed);
         self.pool_misses.store(0, Ordering::Relaxed);
+        self.mtproto_429_cooldown_hits.store(0, Ordering::Relaxed);
+        self.socks5_429_cooldown_hits.store(0, Ordering::Relaxed);
     }
 }
 

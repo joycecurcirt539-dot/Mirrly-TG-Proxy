@@ -856,7 +856,7 @@ impl RawWebSocket {
         }
     }
 
-    #[cfg(feature = "heartbeat-test-utils")]
+    #[cfg(any(test, feature = "heartbeat-test-utils"))]
     #[doc(hidden)]
     pub fn from_plain_stream_for_heartbeat_test(stream: TcpStream) -> Self {
         let (read_half, write_half) = tokio::io::split(WsStream::Plain(stream));
@@ -880,7 +880,7 @@ impl RawWebSocket {
         }
     }
 
-    #[cfg(feature = "heartbeat-test-utils")]
+    #[cfg(any(test, feature = "heartbeat-test-utils"))]
     #[doc(hidden)]
     pub async fn run_heartbeat_for_test(
         &self,
@@ -2672,95 +2672,6 @@ pub async fn connect_one_ws(ip: &str, domains: &[String]) -> Option<RawWebSocket
     None
 }
 
-pub async fn connect_via_http_proxy(
-    proxy_endpoint: &str,
-    target_host: &str,
-    target_port: u16,
-    timeout: Duration,
-) -> Result<TcpStream, WsError> {
-    let target_proxy = if proxy_endpoint.contains(':') {
-        proxy_endpoint.to_string()
-    } else {
-        format!("{}:443", proxy_endpoint)
-    };
-
-    let proxy_addrs: Vec<SocketAddr> = match tokio::net::lookup_host(&target_proxy).await {
-        Ok(iter) => iter.collect(),
-        Err(e) => return Err(WsError::Io(e)),
-    };
-    if proxy_addrs.is_empty() {
-        return Err(WsError::Other(format!("no address resolved for proxy {}", target_proxy)));
-    }
-    let (mut stream, _) = happy_eyeballs_tcp_connect(&proxy_addrs, timeout).await?;
-
-    let connect_req = format!(
-        "CONNECT {}:{} HTTP/1.1\r\n\
-         Host: {}:{}\r\n\
-         Proxy-Connection: Keep-Alive\r\n\
-         User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n\r\n",
-        target_host, target_port, target_host, target_port
-    );
-
-    match tokio::time::timeout(timeout, stream.write_all(connect_req.as_bytes())).await {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => return Err(WsError::Io(e)),
-        Err(_) => return Err(WsError::Timeout),
-    }
-
-    let mut header_buf = Vec::with_capacity(512);
-    let mut byte = [0u8; 1];
-    let read_res = tokio::time::timeout(timeout, async {
-        loop {
-            let n = stream.read(&mut byte).await?;
-            if n == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    "proxy closed connection during CONNECT",
-                ));
-            }
-            header_buf.push(byte[0]);
-            if header_buf.ends_with(b"\r\n\r\n") || header_buf.ends_with(b"\n\n") {
-                break;
-            }
-            if header_buf.len() > 8192 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "proxy response headers too large",
-                ));
-            }
-        }
-        Ok::<(), std::io::Error>(())
-    })
-    .await;
-
-    match read_res {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => return Err(WsError::Io(e)),
-        Err(_) => return Err(WsError::Timeout),
-    }
-
-    let resp_str = String::from_utf8_lossy(&header_buf);
-    let first_line = resp_str.lines().next().unwrap_or_default();
-    if !first_line.contains("200") {
-        return Err(WsError::Other(format!(
-            "proxy rejected CONNECT: {}",
-            first_line
-        )));
-    }
-
-    Ok(stream)
-}
-
-pub async fn ws_connect_via_opera_proxy(
-    proxy_endpoint: &str,
-    domain: &str,
-    path: &str,
-    timeout: Duration,
-) -> Result<RawWebSocket, WsError> {
-    let stream = connect_via_http_proxy(proxy_endpoint, domain, 443, timeout).await?;
-    ws_handshake_over_stream(stream, proxy_endpoint, domain, path, timeout).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3005,8 +2916,9 @@ mod tests {
         let mut split = TlsClientHelloSplitStream::new(client, 0, Duration::ZERO);
 
         let fake_client_hello = vec![0x16, 0x03, 0x01, 0x00, 0x05, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE];
+        let payload = fake_client_hello.clone();
         let write_task = tokio::spawn(async move {
-            split.write_all(&fake_client_hello).await.unwrap();
+            split.write_all(&payload).await.unwrap();
             split.flush().await.unwrap();
         });
 

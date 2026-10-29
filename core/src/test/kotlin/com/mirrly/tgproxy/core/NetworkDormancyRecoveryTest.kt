@@ -11,12 +11,10 @@ class NetworkDormancyRecoveryTest {
         val server = LocalProxyServer()
         server.setNetworkDormancy(true)
         assertTrue(server.pingEngine.isDormant)
-        assertTrue(server.activeLivenessProbe.isDormant)
         val generation = server.currentProfileGeneration.get()
 
         server.resumeNetworkMonitoring()
         assertFalse(server.pingEngine.isDormant)
-        assertFalse(server.activeLivenessProbe.isDormant)
         assertEquals(generation, server.currentProfileGeneration.get())
 
         server.resumeNetworkMonitoring()

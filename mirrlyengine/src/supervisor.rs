@@ -1,4 +1,3 @@
-use crate::socks5::{socks5_acquire_cf_ws, SocksUplink};
 use crate::{linfo, lwarn};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -456,16 +455,7 @@ impl RouteSupervisor {
         self.active_stage.load(Ordering::Relaxed)
     }
 
-    pub async fn acquire_socks5_uplink(
-        &self,
-        target_addr: &str,
-        cancel_token: &CancellationToken,
-    ) -> Option<SocksUplink> {
-        self.transition_to(RouteKind::Worker, "worker_selected");
-        socks5_acquire_cf_ws(target_addr, cancel_token)
-            .await
-            .map(SocksUplink::Ws)
-    }
+
 
     /// Pin the effective UDP transport once, before SOCKS success. Worker/Opera/direct
     /// have no negotiated UDP capability and must receive REP=command-not-supported.
@@ -475,20 +465,14 @@ impl RouteSupervisor {
         let route = match intent.mode {
             crate::masque::UPLINK_MASQUE => RouteKind::Masque,
             crate::masque::UPLINK_AWG => RouteKind::Awg,
-            crate::masque::UPLINK_VLESS => match self.get_active_route() {
-                RouteKind::VlessOperaHop => RouteKind::VlessOperaHop,
-                _ => RouteKind::VlessDirect,
-            },
             crate::masque::UPLINK_WARP_CASCADE => match self.get_active_route() {
                 RouteKind::Masque => RouteKind::Masque,
                 RouteKind::Awg => RouteKind::Awg,
                 _ => return None,
             },
             crate::masque::UPLINK_HYBRID => match self.get_active_route() {
-                route @ (RouteKind::Masque
-                | RouteKind::Awg
-                | RouteKind::VlessDirect
-                | RouteKind::VlessOperaHop) => route,
+                RouteKind::Masque => RouteKind::Masque,
+                RouteKind::Awg => RouteKind::Awg,
                 _ => return None,
             },
             _ => return None,
@@ -524,10 +508,13 @@ impl RouteSupervisor {
         let result = tokio::select! {
             biased;
             _ = cancel_token.cancelled() => return None,
-            result = tokio::time::timeout(Duration::from_secs(10), async {
+            result = tokio::time::timeout(Duration::from_secs(3), async {
                 match pin.route {
-                    RouteKind::Masque | RouteKind::Awg => {
+                    RouteKind::Awg => {
                         crate::awg::awg_acquire_tunnel(target_addr, cancel_token).await.map(SocksUdpUplink::Awg)
+                    }
+                    RouteKind::Masque => {
+                        crate::masque::masque_acquire_tunnel(target_addr, cancel_token).await.map(SocksUdpUplink::Masque)
                     }
                     _ => None,
                 }
@@ -659,10 +646,10 @@ mod tests {
         assert!(sup.supports_udp());
 
         sup.set_intent(crate::masque::UPLINK_VLESS, 1, false);
-        assert!(sup.supports_udp());
+        assert!(!sup.supports_udp());
 
         sup.set_intent(crate::masque::UPLINK_HYBRID, 1, true);
-        assert!(sup.supports_udp());
+        assert!(!sup.supports_udp());
 
         sup.set_intent(crate::masque::UPLINK_WORKER, 1, false);
         assert!(!sup.supports_udp());

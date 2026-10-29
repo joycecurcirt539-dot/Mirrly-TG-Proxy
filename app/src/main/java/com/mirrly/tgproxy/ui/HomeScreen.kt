@@ -1695,7 +1695,7 @@ fun HomeScreen(
                                     .height(if (isCompactHeight) 38.dp else 44.dp)
                             )
 
-                            if (warmPoolStatus != null && warmPoolStatus.target_total > 0 &&
+                            if (isSocks5 && warmPoolStatus != null && warmPoolStatus.target_total > 0 &&
                                 (currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING)
                             ) {
                                 Spacer(modifier = Modifier.height(4.dp))

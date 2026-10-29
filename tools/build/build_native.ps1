@@ -183,6 +183,7 @@ foreach ($t in $targets) {
     # Post-process with NDK llvm-strip to ensure zero leftover debug/comment symbols
     $stripTool = "$ndkBin\llvm-strip.exe"
     if (Test-Path $stripTool) {
+        Start-Sleep -Milliseconds 250
         Write-Host "Running llvm-strip on $dst..."
         & $stripTool --strip-all "$dst"
         & $stripTool --strip-debug "$dst"

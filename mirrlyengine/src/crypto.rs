@@ -1,4 +1,4 @@
-use aes::cipher::{KeyIvInit, StreamCipher};
+use aes::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 use byteorder::{ByteOrder, LittleEndian};
 
 type Aes256Ctr = ctr::Ctr64BE<aes::Aes256>;
@@ -31,22 +31,48 @@ impl TrackedStream {
         self.processed += data.len() as u64;
     }
 
+    pub fn processed(&self) -> u64 {
+        self.processed
+    }
+
     pub fn clone_state(&self) -> TrackedStream {
         let mut clone_stream =
             Aes256Ctr::new(self.key.as_slice().into(), self.iv.as_slice().into());
-        let mut dummy = [0u8; 16384];
-        let mut rem = self.processed;
-        while rem > 0 {
-            let n = if rem > 16384 { 16384 } else { rem as usize };
-            clone_stream.apply_keystream(&mut dummy[..n]);
-            rem -= n as u64;
+
+        if self.processed == 0 {
+            // Newly initialized stream is already at offset 0.
+        } else if self.processed <= 64 {
+            // Fast-path for MTProto handshake (processed <= 64 bytes):
+            // Use a compact 64-byte stack buffer without loops or dynamic allocations.
+            let mut dummy = [0u8; 64];
+            clone_stream.apply_keystream(&mut dummy[..self.processed as usize]);
+        } else {
+            // General case: seek directly using AES-CTR block offset positioning (O(1)).
+            // Ctr64BE supports byte-level positioning via StreamCipherSeek.
+            if clone_stream.try_seek(self.processed).is_err() {
+                // Defensive fallback in case try_seek fails or overflows counter:
+                let mut dummy = [0u8; 1024];
+                let mut rem = self.processed;
+                while rem > 0 {
+                    let n = rem.min(1024) as usize;
+                    clone_stream.apply_keystream(&mut dummy[..n]);
+                    rem -= n as u64;
+                }
+            }
         }
+
         TrackedStream {
             key: self.key.clone(),
             iv: self.iv.clone(),
             processed: self.processed,
             stream: clone_stream,
         }
+    }
+}
+
+impl Clone for TrackedStream {
+    fn clone(&self) -> Self {
+        self.clone_state()
     }
 }
 
@@ -232,6 +258,116 @@ pub fn xor_mask_in_place(data: &mut [u8], mask: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_tracked_stream_clone_state_handshake_size() {
+        let key = [0x5Au8; 32];
+        let iv = [0x7Eu8; 16];
+
+        for &handshake_len in &[0usize, 1, 16, 32, 48, 64] {
+            let mut original = TrackedStream::new(&key, &iv);
+            let mut handshake_data = vec![0xA5u8; handshake_len];
+            original.xor(&mut handshake_data);
+            assert_eq!(original.processed(), handshake_len as u64);
+
+            let mut cloned = original.clone_state();
+            assert_eq!(cloned.processed(), original.processed());
+
+            // Next 512 bytes must be encrypted identically by original and cloned
+            let payload = (0..512).map(|i| (i % 255) as u8).collect::<Vec<u8>>();
+            let mut payload_orig = payload.clone();
+            let mut payload_cloned = payload.clone();
+
+            original.xor(&mut payload_orig);
+            cloned.xor(&mut payload_cloned);
+
+            assert_eq!(payload_orig, payload_cloned, "Mismatch after handshake_len {}", handshake_len);
+            assert_eq!(original.processed(), (handshake_len + 512) as u64);
+            assert_eq!(cloned.processed(), (handshake_len + 512) as u64);
+        }
+    }
+
+    #[test]
+    fn test_tracked_stream_clone_state_large_stream_seek() {
+        let key = [0x12u8; 32];
+        let iv = [0x34u8; 16];
+
+        // Test transitions past 64 bytes into seek territory (including 1 MB)
+        for &pre_processed in &[65usize, 128, 512, 1024, 16384, 65536, 1_000_000] {
+            let mut original = TrackedStream::new(&key, &iv);
+            let mut pre_buf = vec![0x3Cu8; pre_processed];
+            original.xor(&mut pre_buf);
+            assert_eq!(original.processed(), pre_processed as u64);
+
+            let mut cloned = original.clone_state();
+            assert_eq!(cloned.processed(), pre_processed as u64);
+
+            let test_chunk = (0..2048).map(|i| (i * 7 % 251) as u8).collect::<Vec<u8>>();
+            let mut chunk_orig = test_chunk.clone();
+            let mut chunk_cloned = test_chunk.clone();
+
+            original.xor(&mut chunk_orig);
+            cloned.xor(&mut chunk_cloned);
+
+            assert_eq!(chunk_orig, chunk_cloned, "Mismatch at pre_processed {}", pre_processed);
+        }
+    }
+
+    #[test]
+    fn test_tracked_stream_clone_state_unaligned_offsets() {
+        let key = [0xFEu8; 32];
+        let iv = [0xDCu8; 16];
+
+        // Offsets across 16-byte AES block boundaries
+        for &offset in &[1usize, 7, 15, 17, 31, 33, 63, 65, 71, 127, 129, 999] {
+            let mut original = TrackedStream::new(&key, &iv);
+            let mut unaligned_data = vec![0x77u8; offset];
+            original.xor(&mut unaligned_data);
+
+            let mut cloned = original.clone_state();
+            assert_eq!(cloned.processed(), offset as u64);
+
+            let mut tail_orig = [0x11u8; 100];
+            let mut tail_cloned = [0x11u8; 100];
+
+            original.xor(&mut tail_orig);
+            cloned.xor(&mut tail_cloned);
+
+            assert_eq!(tail_orig, tail_cloned, "Mismatch at unaligned offset {}", offset);
+        }
+    }
+
+    #[test]
+    fn test_tracked_stream_decryption_roundtrip_after_clone() {
+        let key = [0xABu8; 32];
+        let iv = [0xCDu8; 16];
+
+        // 1. Encryptor transmits 64-byte handshake + 256-byte MTProto payload
+        let mut encryptor = TrackedStream::new(&key, &iv);
+        let original_handshake = vec![0x16u8; 64];
+        let original_payload = (0..256).map(|i| (i % 256) as u8).collect::<Vec<u8>>();
+
+        let mut cipher_handshake = original_handshake.clone();
+        let mut cipher_payload = original_payload.clone();
+        encryptor.xor(&mut cipher_handshake);
+        encryptor.xor(&mut cipher_payload);
+
+        // 2. Decryptor processes 64-byte handshake
+        let mut decryptor = TrackedStream::new(&key, &iv);
+        let mut dec_handshake = cipher_handshake.clone();
+        decryptor.xor(&mut dec_handshake);
+        assert_eq!(dec_handshake, original_handshake);
+        assert_eq!(decryptor.processed(), 64);
+
+        // 3. Clone decryptor state at boundary (as done in dispatch_mtproto_uplink)
+        let mut cloned_decryptor = decryptor.clone(); // tests Clone trait
+        assert_eq!(cloned_decryptor.processed(), 64);
+
+        // 4. Cloned decryptor continues decrypting MTProto payload
+        let mut dec_payload = cipher_payload.clone();
+        cloned_decryptor.xor(&mut dec_payload);
+        assert_eq!(dec_payload, original_payload);
+    }
 
     #[test]
     fn test_msg_splitter_abridged_reassembly() {

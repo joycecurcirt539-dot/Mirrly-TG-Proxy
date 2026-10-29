@@ -4,14 +4,37 @@ use crate::ws::*;
 use crate::{ldebug, linfo, lwarn};
 use byteorder::{ByteOrder, LittleEndian};
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use sha2::Digest;
+use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
+
+#[inline]
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+#[inline]
+fn constant_time_auth_verify(user_in: &[u8], user_exp: &[u8], pass_in: &[u8], pass_exp: &[u8]) -> bool {
+    let u_hash_in = sha2::Sha256::digest(user_in);
+    let u_hash_exp = sha2::Sha256::digest(user_exp);
+    let p_hash_in = sha2::Sha256::digest(pass_in);
+    let p_hash_exp = sha2::Sha256::digest(pass_exp);
+
+    constant_time_eq(&u_hash_in, &u_hash_exp) & constant_time_eq(&p_hash_in, &p_hash_exp)
+}
 
 async fn read_exact_bounded(
     client: &mut TcpStream,
@@ -111,23 +134,18 @@ async fn handle_socks5_client(
 
     // 1. Handshake: Auth methods (RFC 1928 / RFC 1929)
     let mut header = [0u8; 2];
-    let auth_res = tokio::select! {
-        _ = cancel.cancelled() => return,
-        res = tokio::time::timeout(Duration::from_secs(5), client.read_exact(&mut header)) => res,
-    };
-    if auth_res.is_err() || auth_res.unwrap().is_err() {
+    if !read_exact_bounded(&mut client, &mut header, &cancel, Duration::from_secs(5)).await {
         return;
     }
     if header[0] != 0x05 {
         return;
     }
     let num_methods = header[1] as usize;
+    if num_methods == 0 || num_methods > 255 {
+        return;
+    }
     let mut methods = vec![0u8; num_methods];
-    let read_m_res = tokio::select! {
-        _ = cancel.cancelled() => return,
-        res = client.read_exact(&mut methods) => res,
-    };
-    if read_m_res.is_err() {
+    if !read_exact_bounded(&mut client, &mut methods, &cancel, Duration::from_secs(5)).await {
         return;
     }
 
@@ -157,11 +175,7 @@ async fn handle_socks5_client(
         }
 
         let mut auth_ver_ulen = [0u8; 2];
-        let auth_sub_res = tokio::select! {
-            _ = cancel.cancelled() => return,
-            res = tokio::time::timeout(Duration::from_secs(5), client.read_exact(&mut auth_ver_ulen)) => res,
-        };
-        if auth_sub_res.is_err() || auth_sub_res.unwrap().is_err() {
+        if !read_exact_bounded(&mut client, &mut auth_ver_ulen, &cancel, Duration::from_secs(5)).await {
             return;
         }
         if auth_ver_ulen[0] != 0x01 {
@@ -184,15 +198,12 @@ async fn handle_socks5_client(
             return;
         }
 
-        let given_user = String::from_utf8_lossy(&uname_buf);
-        let given_pass = String::from_utf8_lossy(&pass_buf);
-
-        if given_user == expected_user && given_pass == expected_pass {
+        if constant_time_auth_verify(&uname_buf, expected_user.as_bytes(), &pass_buf, expected_pass.as_bytes()) {
             if client.write_all(&[0x01, 0x00]).await.is_err() {
                 return;
             }
         } else {
-            lwarn!("SOCKS5 auth rejected: username '{}' mismatch", given_user);
+            lwarn!("SOCKS5 auth rejected: credentials mismatch");
             let _ = client.write_all(&[0x01, 0xFF]).await;
             return;
         }
@@ -206,7 +217,7 @@ async fn handle_socks5_client(
                 return;
             }
             let mut auth_ver_ulen = [0u8; 2];
-            if client.read_exact(&mut auth_ver_ulen).await.is_err() {
+            if !read_exact_bounded(&mut client, &mut auth_ver_ulen, &cancel, Duration::from_secs(5)).await {
                 return;
             }
             let ulen = auth_ver_ulen[1] as usize;
@@ -228,11 +239,7 @@ async fn handle_socks5_client(
 
     // 2. Request details
     let mut req_hdr = [0u8; 4];
-    let req_res = tokio::select! {
-        _ = cancel.cancelled() => return,
-        res = client.read_exact(&mut req_hdr) => res,
-    };
-    if req_res.is_err() {
+    if !read_exact_bounded(&mut client, &mut req_hdr, &cancel, Duration::from_secs(5)).await {
         return;
     }
     if req_hdr[0] != 0x05 {
@@ -240,6 +247,13 @@ async fn handle_socks5_client(
     }
     if req_hdr[1] == 0x03 {
         // CMD 0x03 = UDP ASSOCIATE (RFC 1928, used by VoIP calls)
+        if !crate::supervisor::ROUTE_SUPERVISOR.supports_udp() {
+            lwarn!("SOCKS5 UDP ASSOCIATE rejected early: active route does not support UDP relay (prompting Telegram VoIP TCP TURN fallback)");
+            let _ = client
+                .write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                .await;
+            return;
+        }
         handle_socks5_udp_associate(client, req_hdr[3], cancel).await;
         return;
     }
@@ -254,41 +268,25 @@ async fn handle_socks5_client(
     let target_host = match req_hdr[3] {
         0x01 => {
             let mut ip = [0u8; 4];
-            let read_ip_res = tokio::select! {
-                _ = cancel.cancelled() => return,
-                res = client.read_exact(&mut ip) => res,
-            };
-            if read_ip_res.is_err() {
+            if !read_exact_bounded(&mut client, &mut ip, &cancel, Duration::from_secs(5)).await {
                 return;
             }
             Ipv4Addr::from(ip).to_string()
         }
         0x03 => {
             let mut len = [0u8; 1];
-            let read_len_res = tokio::select! {
-                _ = cancel.cancelled() => return,
-                res = client.read_exact(&mut len) => res,
-            };
-            if read_len_res.is_err() {
+            if !read_exact_bounded(&mut client, &mut len, &cancel, Duration::from_secs(5)).await {
                 return;
             }
             let mut domain = vec![0u8; len[0] as usize];
-            let read_dom_res = tokio::select! {
-                _ = cancel.cancelled() => return,
-                res = client.read_exact(&mut domain) => res,
-            };
-            if read_dom_res.is_err() {
+            if !read_exact_bounded(&mut client, &mut domain, &cancel, Duration::from_secs(5)).await {
                 return;
             }
             String::from_utf8_lossy(&domain).to_string()
         }
         0x04 => {
             let mut ip = [0u8; 16];
-            let read_ip6_res = tokio::select! {
-                _ = cancel.cancelled() => return,
-                res = client.read_exact(&mut ip) => res,
-            };
-            if read_ip6_res.is_err() {
+            if !read_exact_bounded(&mut client, &mut ip, &cancel, Duration::from_secs(5)).await {
                 return;
             }
             Ipv6Addr::from(ip).to_string()
@@ -302,11 +300,7 @@ async fn handle_socks5_client(
     };
 
     let mut port_buf = [0u8; 2];
-    let read_port_res = tokio::select! {
-        _ = cancel.cancelled() => return,
-        res = client.read_exact(&mut port_buf) => res,
-    };
-    if read_port_res.is_err() {
+    if !read_exact_bounded(&mut client, &mut port_buf, &cancel, Duration::from_secs(5)).await {
         return;
     }
     let target_port = u16::from_be_bytes(port_buf);
@@ -320,9 +314,20 @@ async fn handle_socks5_client(
 
     // -- Non-Telegram Host: Direct TCP passthrough --
     if !is_tg {
+        if !auth_required {
+            lwarn!(
+                "SOCKS5 rejected unauthenticated non-Telegram passthrough to {}",
+                target_addr
+            );
+            let _ = client
+                .write_all(&[0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                .await;
+            return;
+        }
+
         ldebug!("SOCKS5 passthrough for non-Telegram target {}", target_addr);
         let dial_res = dial_direct_tcp(&target_addr, Duration::from_millis(3000)).await;
-        let mut remote = match dial_res {
+        let remote = match dial_res {
             Some(stream) => {
                 set_sock_opts(&stream);
                 stream
@@ -338,10 +343,7 @@ async fn handle_socks5_client(
             return;
         }
 
-        let _ = tokio::select! {
-            _ = cancel.cancelled() => Ok((0, 0)),
-            res = tokio::io::copy_bidirectional(&mut client, &mut remote) => res,
-        };
+        bridge_socks5_stream(client, remote, vec![], cancel).await;
         return;
     }
 
@@ -444,7 +446,7 @@ async fn handle_socks5_client(
             STATS.connections_cfproxy.fetch_add(1, Ordering::Relaxed);
             STATS.connections_ws.fetch_add(1, Ordering::Relaxed);
             crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(true, None);
-            bridge_socks5_ws_arc(client, Arc::new(ws), dc, is_media, &worker_dst, cancel).await;
+            bridge_socks5_ws(client, Arc::new(ws), dc, is_media, &worker_dst, cancel).await;
             return;
         }
         lwarn!(
@@ -465,54 +467,8 @@ async fn handle_socks5_client(
     );
 }
 
-#[allow(dead_code)]
-pub enum SocksUplink {
-    Ws(RawWebSocket),
-    Masque(crate::masque::MasqueTunnel),
-    Awg(crate::awg::AwgTunnel),
-    Tcp(tokio::net::TcpStream),
-}
 
-#[allow(dead_code)]
-async fn socks5_acquire_uplink(
-    target_addr: &str,
-    cancel_token: &CancellationToken,
-) -> Option<SocksUplink> {
-    crate::supervisor::ROUTE_SUPERVISOR
-        .acquire_socks5_uplink(target_addr, cancel_token)
-        .await
-}
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum WorkerProtocol {
-    Auto,
-    ApiWs,
-    V1Legacy,
-    V2Ack,
-}
-
-const WORKER_PROTO_CACHE_TTL: Duration = Duration::from_secs(10 * 60);
-static WORKER_PROTO_CACHE: Lazy<
-    parking_lot::RwLock<HashMap<String, (WorkerProtocol, Instant)>>,
-> = Lazy::new(|| parking_lot::RwLock::new(HashMap::new()));
-
-pub fn get_worker_protocol(worker: &str) -> WorkerProtocol {
-    let key = crate::cfproxy::canonical_cfproxy_cooldown_key(worker);
-    let cache = WORKER_PROTO_CACHE.read();
-    match cache.get(&key).copied() {
-        Some((protocol, marked_at)) if marked_at.elapsed() < WORKER_PROTO_CACHE_TTL => protocol,
-        _ => WorkerProtocol::Auto,
-    }
-}
-
-pub fn mark_worker_protocol(worker: &str, proto: WorkerProtocol) {
-    let key = crate::cfproxy::canonical_cfproxy_cooldown_key(worker);
-    if !key.is_empty() {
-        WORKER_PROTO_CACHE
-            .write()
-            .insert(key, (proto, Instant::now()));
-    }
-}
 
 pub fn is_telegram_host(host: &str) -> bool {
     let trimmed = host.trim().trim_matches(['[', ']']).to_ascii_lowercase();
@@ -647,32 +603,91 @@ pub fn patch_init_dc(data: &[u8], dc: i32) -> Vec<u8> {
     patched
 }
 
-#[derive(Debug)]
-#[allow(dead_code)]
-pub(crate) enum WorkerConnectError {
-    Canceled,
-    Cooldown429(String),
-    ConnectionFailed(String),
-    AckTimeoutOrInvalid(String),
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Socks5WarmKey {
     pub dc: i32,
     pub is_media: bool,
 }
 
-struct Socks5WarmEntry {
-    ws: RawWebSocket,
-    domain: String,
-    created: Instant,
+pub struct Socks5WarmEntry {
+    pub ws: RawWebSocket,
+    pub domain: String,
+    pub created: Instant,
 }
 
-static SOCKS5_WARM_POOL: Lazy<tokio::sync::Mutex<HashMap<Socks5WarmKey, Vec<Socks5WarmEntry>>>> =
-    Lazy::new(|| tokio::sync::Mutex::new(HashMap::new()));
+pub struct Socks5Slot {
+    queue: parking_lot::Mutex<VecDeque<Socks5WarmEntry>>,
+    in_flight: AtomicUsize,
+}
 
-static SOCKS5_WARM_IN_FLIGHT: Lazy<tokio::sync::Mutex<HashMap<Socks5WarmKey, usize>>> =
-    Lazy::new(|| tokio::sync::Mutex::new(HashMap::new()));
+impl Socks5Slot {
+    pub fn new() -> Self {
+        Self {
+            queue: parking_lot::Mutex::new(VecDeque::new()),
+            in_flight: AtomicUsize::new(0),
+        }
+    }
+
+    /// Instant non-blocking pop (<1 us). If empty, returns None immediately without waiting.
+    pub fn try_pop_fresh(&self, user_domain: &str, max_age: Duration) -> Option<RawWebSocket> {
+        let mut q = self.queue.lock();
+        while let Some(entry) = q.pop_front() {
+            if entry.created.elapsed() < max_age && entry.domain == user_domain {
+                return Some(entry.ws);
+            } else {
+                tokio::spawn(async move {
+                    let _ = entry.ws.close().await;
+                });
+            }
+        }
+        None
+    }
+
+    pub fn push_if_below(&self, entry: Socks5WarmEntry, target: usize) -> Result<(), Socks5WarmEntry> {
+        let mut q = self.queue.lock();
+        if q.len() < target {
+            q.push_back(entry);
+            Ok(())
+        } else {
+            Err(entry)
+        }
+    }
+
+    pub fn ready_count(&self) -> usize {
+        self.queue.lock().len()
+    }
+
+    pub fn in_flight_count(&self) -> usize {
+        self.in_flight.load(Ordering::Relaxed)
+    }
+
+    pub fn drain_all(&self) -> Vec<Socks5WarmEntry> {
+        let mut q = self.queue.lock();
+        self.in_flight.store(0, Ordering::Relaxed);
+        q.drain(..).collect()
+    }
+}
+
+static SOCKS5_WARM_SLOTS: Lazy<parking_lot::RwLock<HashMap<Socks5WarmKey, Arc<Socks5Slot>>>> =
+    Lazy::new(|| {
+        let mut m = HashMap::new();
+        m.insert(Socks5WarmKey { dc: 2, is_media: false }, Arc::new(Socks5Slot::new()));
+        m.insert(Socks5WarmKey { dc: 2, is_media: true }, Arc::new(Socks5Slot::new()));
+        m.insert(Socks5WarmKey { dc: 4, is_media: true }, Arc::new(Socks5Slot::new()));
+        m.insert(Socks5WarmKey { dc: 1, is_media: false }, Arc::new(Socks5Slot::new()));
+        parking_lot::RwLock::new(m)
+    });
+
+pub fn get_warm_slot(key: Socks5WarmKey) -> Arc<Socks5Slot> {
+    {
+        let r = SOCKS5_WARM_SLOTS.read();
+        if let Some(slot) = r.get(&key) {
+            return slot.clone();
+        }
+    }
+    let mut w = SOCKS5_WARM_SLOTS.write();
+    w.entry(key).or_insert_with(|| Arc::new(Socks5Slot::new())).clone()
+}
 
 pub fn target_warm_capacity(key: Socks5WarmKey) -> usize {
     let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
@@ -680,9 +695,9 @@ pub fn target_warm_capacity(key: Socks5WarmKey) -> usize {
         // DC2 chat: default MTProto gateway for messages, ping and notifications
         (2, false) => if is_mobile { 2 } else { 3 },
         // DC2 media: personal voice notes, video notes (circles), personal chat media
-        (2, true) => if is_mobile { 2 } else { 4 },
-        // DC4 media: public channels, large files, videos (2 on mobile to avoid cellular TX congestion)
-        (4, true) => if is_mobile { 2 } else { 4 },
+        (2, true) => if is_mobile { 3 } else { 4 },
+        // DC4 media: public channels, large files, videos
+        (4, true) => if is_mobile { 3 } else { 4 },
         // DC1 chat: login, bot sessions
         (1, false) => 1,
         // Other DCs (e.g. DC5, DC3) or non-media DC4: keep 1 standby
@@ -696,19 +711,18 @@ pub fn trigger_warm_socks5_refill(user_domain: String, dc: i32, is_media: bool, 
     }
     let key = Socks5WarmKey { dc, is_media };
     let target = target_warm_capacity(key);
+    let slot = get_warm_slot(key);
 
     tokio::spawn(async move {
-        // Atomic batch deficit calculation: reserve all missing slots at once
+        // Atomic batch deficit calculation under slot-level sync lock (<1 us)
         let needed = {
-            let pool = SOCKS5_WARM_POOL.lock().await;
-            let current = pool.get(&key).map(|v| v.len()).unwrap_or(0);
-            let mut inflight = SOCKS5_WARM_IN_FLIGHT.lock().await;
-            let current_inf = inflight.entry(key).or_insert(0);
-            if current + *current_inf >= target {
+            let current = slot.ready_count();
+            let inflight = slot.in_flight.load(Ordering::Relaxed);
+            if current + inflight >= target {
                 0
             } else {
-                let n = target - (current + *current_inf);
-                *current_inf += n;
+                let n = target - (current + inflight);
+                slot.in_flight.fetch_add(n, Ordering::Relaxed);
                 n
             }
         };
@@ -721,24 +735,17 @@ pub fn trigger_warm_socks5_refill(user_domain: String, dc: i32, is_media: bool, 
         for _ in 0..needed {
             let user_domain = user_domain.clone();
             let cancel = cancel.clone();
+            let slot = slot.clone();
             tokio::spawn(async move {
-                struct InFlightGuard {
-                    key: Socks5WarmKey,
+                struct SlotInFlightGuard {
+                    slot: Arc<Socks5Slot>,
                 }
-                impl Drop for InFlightGuard {
+                impl Drop for SlotInFlightGuard {
                     fn drop(&mut self) {
-                        let k = self.key;
-                        tokio::spawn(async move {
-                            let mut inflight = SOCKS5_WARM_IN_FLIGHT.lock().await;
-                            if let Some(count) = inflight.get_mut(&k) {
-                                if *count > 0 {
-                                    *count -= 1;
-                                }
-                            }
-                        });
+                        self.slot.in_flight.fetch_sub(1, Ordering::Relaxed);
                     }
                 }
-                let _guard = InFlightGuard { key };
+                let _guard = SlotInFlightGuard { slot: slot.clone() };
 
                 let worker_dst = canonical_ipv4_for_dc(dc);
                 let sid = format!("{:016x}", rand::random::<u64>());
@@ -760,24 +767,24 @@ pub fn trigger_warm_socks5_refill(user_domain: String, dc: i32, is_media: bool, 
                 .await;
 
                 if let Some(ws) = ws_opt {
-                    let mut pool = SOCKS5_WARM_POOL.lock().await;
-                    let entries = pool.entry(key).or_insert_with(Vec::new);
-                    if entries.len() < target {
+                    if let Err(entry) = slot.push_if_below(
+                        Socks5WarmEntry {
+                            ws,
+                            domain: user_domain,
+                            created: Instant::now(),
+                        },
+                        target,
+                    ) {
+                        tokio::spawn(async move {
+                            let _ = entry.ws.close().await;
+                        });
+                    } else {
                         ldebug!(
                             "SOCKS5 warm pool: buffered standby socket for DC{}{} (pool size: {})",
                             dc,
                             if is_media { "m" } else { "" },
-                            entries.len() + 1
+                            slot.ready_count()
                         );
-                        entries.push(Socks5WarmEntry {
-                            ws,
-                            domain: user_domain,
-                            created: Instant::now(),
-                        });
-                    } else {
-                        tokio::spawn(async move {
-                            let _ = ws.close().await;
-                        });
                     }
                 }
             });
@@ -819,16 +826,17 @@ pub fn trigger_warm_socks5_pool_prime(user_domain: String, cancel: CancellationT
 
 pub fn clear_socks5_warm_pool() {
     tokio::spawn(async move {
-        let mut pool = SOCKS5_WARM_POOL.lock().await;
-        for (_, entries) in pool.drain() {
-            for entry in entries {
+        let slots: Vec<Arc<Socks5Slot>> = {
+            let r = SOCKS5_WARM_SLOTS.read();
+            r.values().cloned().collect()
+        };
+        for slot in slots {
+            for entry in slot.drain_all() {
                 tokio::spawn(async move {
                     let _ = entry.ws.close().await;
                 });
             }
         }
-        let mut inflight = SOCKS5_WARM_IN_FLIGHT.lock().await;
-        inflight.clear();
     });
 }
 
@@ -846,24 +854,21 @@ pub struct Socks5WarmPoolStatus {
 }
 
 pub fn get_socks5_warm_pool_status() -> Socks5WarmPoolStatus {
-    let pool_guard = SOCKS5_WARM_POOL.try_lock();
-    let inflight_guard = SOCKS5_WARM_IN_FLIGHT.try_lock();
+    let slot_dc2_chat = get_warm_slot(Socks5WarmKey { dc: 2, is_media: false });
+    let slot_dc2_media = get_warm_slot(Socks5WarmKey { dc: 2, is_media: true });
+    let slot_dc4_media = get_warm_slot(Socks5WarmKey { dc: 4, is_media: true });
+    let _slot_dc1_chat = get_warm_slot(Socks5WarmKey { dc: 1, is_media: false });
 
-    let (dc2_chat_ready, dc2_media_ready, dc4_media_ready, ready_total) = if let Ok(ref pool) = pool_guard {
-        let dc2_c = pool.get(&Socks5WarmKey { dc: 2, is_media: false }).map(|v| v.len()).unwrap_or(0);
-        let dc2_m = pool.get(&Socks5WarmKey { dc: 2, is_media: true }).map(|v| v.len()).unwrap_or(0);
-        let dc4_m = pool.get(&Socks5WarmKey { dc: 4, is_media: true }).map(|v| v.len()).unwrap_or(0);
-        let total: usize = pool.values().map(|v| v.len()).sum();
-        (dc2_c, dc2_m, dc4_m, total)
-    } else {
-        (0, 0, 0, 0)
-    };
+    let dc2_chat_ready = slot_dc2_chat.ready_count();
+    let dc2_media_ready = slot_dc2_media.ready_count();
+    let dc4_media_ready = slot_dc4_media.ready_count();
 
-    let in_flight_total = if let Ok(ref inf) = inflight_guard {
-        inf.values().sum()
-    } else {
-        0
+    let all_slots: Vec<Arc<Socks5Slot>> = {
+        let r = SOCKS5_WARM_SLOTS.read();
+        r.values().cloned().collect()
     };
+    let ready_total: usize = all_slots.iter().map(|s| s.ready_count()).sum();
+    let in_flight_total: usize = all_slots.iter().map(|s| s.in_flight_count()).sum();
 
     let dc2_chat_target = target_warm_capacity(Socks5WarmKey { dc: 2, is_media: false });
     let dc2_media_target = target_warm_capacity(Socks5WarmKey { dc: 2, is_media: true });
@@ -895,25 +900,40 @@ pub fn ensure_warm_pool_housekeeper(cancel: CancellationToken) {
                     if user_domain.is_empty() {
                         continue;
                     }
-                    let mut pool = SOCKS5_WARM_POOL.lock().await;
-                    for (key, entries) in pool.iter_mut() {
-                        let mut alive = Vec::new();
-                        while let Some(entry) = entries.pop() {
-                            if entry.ws.is_closed() {
-                                tokio::spawn(async move {
-                                    let _ = entry.ws.close().await;
-                                });
-                            } else if entry.created.elapsed() > Duration::from_secs(90) {
-                                tokio::spawn(async move {
-                                    let _ = entry.ws.close().await;
-                                });
-                            } else {
-                                alive.push(entry);
+                    let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
+                    // On cellular networks, CGNAT drops idle TCP after 15-30s.
+                    // Keep idle sockets bounded to 22s on mobile to avoid dead sockets.
+                    let max_idle = if is_mobile { Duration::from_secs(22) } else { Duration::from_secs(60) };
+
+                    let pairs: Vec<(Socks5WarmKey, Arc<Socks5Slot>)> = {
+                        let r = SOCKS5_WARM_SLOTS.read();
+                        r.iter().map(|(k, v)| (*k, v.clone())).collect()
+                    };
+
+                    for (key, slot) in pairs {
+                        let dead_entries = {
+                            let mut q = slot.queue.lock();
+                            let mut alive = VecDeque::new();
+                            let mut dead = Vec::new();
+                            while let Some(entry) = q.pop_front() {
+                                if entry.ws.is_closed() || entry.created.elapsed() > max_idle {
+                                    dead.push(entry);
+                                } else {
+                                    alive.push_back(entry);
+                                }
                             }
+                            *q = alive;
+                            dead
+                        };
+
+                        for dead in dead_entries {
+                            tokio::spawn(async move {
+                                let _ = dead.ws.close().await;
+                            });
                         }
-                        *entries = alive;
-                        let target = target_warm_capacity(*key);
-                        if entries.len() < target {
+
+                        let target = target_warm_capacity(key);
+                        if slot.ready_count() + slot.in_flight_count() < target {
                             trigger_warm_socks5_refill(user_domain.clone(), key.dc, key.is_media, cancel.clone());
                         }
                     }
@@ -932,20 +952,18 @@ pub async fn socks5_acquire_upstream_ws(
     cancel_token: &CancellationToken,
 ) -> Option<RawWebSocket> {
     let expected = crate::generation_guard::snapshot();
-    let (enabled, user_domain, domains) = {
+    let (enabled, user_domain) = {
         let cfg = CFPROXY.read();
         (
             CFPROXY_ENABLED.load(Ordering::Relaxed),
             cfg.user_domain.clone(),
-            if cfg.domains.is_empty() {
-                default_cfproxy_domains()
-            } else {
-                cfg.domains.clone()
-            },
         )
     };
 
-    if !enabled {
+    if !enabled || user_domain.is_empty() {
+        if enabled && user_domain.is_empty() {
+            lwarn!("SOCKS5 requires configured Cloudflare Worker; none configured");
+        }
         return None;
     }
 
@@ -963,276 +981,156 @@ pub async fn socks5_acquire_upstream_ws(
         )
     };
 
-    // Tier 1: User's custom Cloudflare Worker (Absolute Priority)
-    if !user_domain.is_empty() {
-        let remaining = cfproxy_429_cooldown_remaining(&user_domain);
-        if remaining == Duration::ZERO {
-            // Fast-path: Check if we have a warm pre-connected socket for target (DC, media) (0 ms acquisition)
-            let warm_key = Socks5WarmKey { dc, is_media };
-            let warm_opt = {
-                let mut pool = SOCKS5_WARM_POOL.lock().await;
-                if let Some(entries) = pool.get_mut(&warm_key) {
-                    let mut picked = None;
-                    while let Some(entry) = entries.pop() {
-                        if entry.created.elapsed() < Duration::from_secs(45) && entry.domain == user_domain {
-                            picked = Some(entry.ws);
-                            break;
-                        } else {
-                            tokio::spawn(async move {
-                                let _ = entry.ws.close().await;
-                            });
-                        }
-                    }
-                    picked
-                } else {
-                    None
-                }
-            };
-
-            if let Some(ws) = warm_opt {
-                if !init.is_empty() {
-                    if ws.send(init).await.is_ok() {
-                        ldebug!(
-                            "SOCKS5 DC{}{} acquired from warm pre-connect pool (0 ms)",
-                            dc,
-                            if is_media { "m" } else { "" }
-                        );
-                        STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
-                        trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
-                        return Some(ws);
-                    } else {
-                        let _ = ws.close().await;
-                    }
-                } else {
-                    ldebug!(
-                        "SOCKS5 DC{}{} acquired from warm pre-connect pool (0 ms)",
-                        dc,
-                        if is_media { "m" } else { "" }
-                    );
-                    STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
-                    trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
-                    return Some(ws);
-                }
-            }
-
-            ldebug!(
-                "SOCKS5 custom worker {} attempt -> DC{}{} (dst={})",
-                user_domain,
-                dc,
-                if is_media { "m" } else { "" },
-                worker_dst
-            );
-            let init_buf = init.to_vec();
-            let fp_worker = user_domain.clone();
-            let fp_path = path.clone();
-            let child_cancel = cancel_token.child_token();
-
-            let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
-            let worker_timeout = if is_mobile {
-                crate::config::adaptive_ws_connect_timeout().clamp(3.2, 4.2)
-            } else {
-                crate::config::adaptive_ws_connect_timeout().clamp(3.5, 5.0)
-            };
-            let dial_res = tokio::select! {
-                _ = cancel_token.cancelled() => return None,
-                res = cf_connect_domain_with_category(
-                    &fp_worker,
-                    &fp_path,
-                    None,
-                    worker_timeout,
-                    crate::budget::FlowCategory::UserFlow,
-                    Some(&child_cancel),
-                ) => res,
-            };
-
-            let (ws_opt, resolved_ip, err_opt) = dial_res;
-
-            if let Some(ws) = ws_opt {
-                if !init_buf.is_empty() {
-                    if let Err(e) = ws.send(&init_buf).await {
-                        let _ = ws.close().await;
-                        lwarn!("SOCKS5 custom worker first packet write failed: {:?}", e);
-                    } else {
-                        if !resolved_ip.is_empty() {
-                            ldebug!("SOCKS5 custom worker ok {} via {}", user_domain, resolved_ip);
-                        } else {
-                            ldebug!("SOCKS5 custom worker ok {}", user_domain);
-                        }
-                        clear_cfproxy_429_cooldown(&user_domain);
-                        clear_cfproxy_recovery_cooldown(&user_domain);
-                        *LAST_SOCKS5_WORKER.write() = user_domain.clone();
-                        STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
-                        trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
-                        return Some(ws);
-                    }
-                } else {
-                    if !resolved_ip.is_empty() {
-                        ldebug!("SOCKS5 custom worker ok {} via {}", user_domain, resolved_ip);
-                    } else {
-                        ldebug!("SOCKS5 custom worker ok {}", user_domain);
-                    }
-                    clear_cfproxy_429_cooldown(&user_domain);
-                    clear_cfproxy_recovery_cooldown(&user_domain);
-                    *LAST_SOCKS5_WORKER.write() = user_domain.clone();
-                    STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
-                    trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
-                    return Some(ws);
-                }
-            }
-
-            if let Some(e) = err_opt {
-                if is_http_status_error(&e, 429) {
-                    mark_cfproxy_429_cooldown(&user_domain, &e);
-                }
-                lwarn!(
-                    "SOCKS5 custom worker {} fail: {}",
-                    user_domain,
-                    e.compact()
-                );
-            }
-            // Custom worker is primary; do not fall back to legacy CDN pool
-            return None;
-        } else {
-            ldebug!(
-                "SOCKS5 custom worker {} is cooling down ({:.0}s)",
-                user_domain,
-                remaining.as_secs_f64()
-            );
-        }
-    }
-
-    // Tier 2: Anycast CDN Pool Fallback (kws{dc}.{domain}/apiws)
-    let mut candidate_targets: Vec<(String, String)> = Vec::new();
-    let diverse_ordered = crate::node_independence::NODE_INDEPENDENCE_TRACKER
-        .read()
-        .select_diverse_race_candidates(&domains, 3);
-
-    for d in &diverse_ordered {
-        let remaining = cfproxy_429_cooldown_remaining(d);
-        if remaining == Duration::ZERO {
-            let domain = format!("kws{}.{}", dc, d);
-            candidate_targets.push((domain, "/apiws".to_string()));
-        }
-    }
-
-    if candidate_targets.is_empty() {
-        lwarn!(
-            "SOCKS5 CDN fallback DC{}{}: all domains unreachable",
-            dc,
-            if is_media { "m" } else { "" }
+    let remaining = cfproxy_429_cooldown_remaining_scoped(&user_domain, ProtoScope::Socks5);
+    if remaining > Duration::ZERO {
+        ldebug!(
+            "SOCKS5 custom worker {} is cooling down ({:.0}s)",
+            user_domain,
+            remaining.as_secs_f64()
         );
         return None;
     }
 
-    let (tx, mut rx) =
-        tokio::sync::mpsc::channel::<(RawWebSocket, String)>(candidate_targets.len());
+    // Fast-path: Check if we have a warm pre-connected socket for target (DC, media) (0 ms acquisition)
+    let warm_key = Socks5WarmKey { dc, is_media };
     let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
-    let stagger_step = if is_mobile {
-        Duration::from_millis(50)
+    let max_age = if is_mobile { Duration::from_secs(22) } else { Duration::from_secs(45) };
+    let slot = get_warm_slot(warm_key);
+    let warm_opt = slot.try_pop_fresh(&user_domain, max_age);
+
+    if let Some(ws) = warm_opt {
+        if !init.is_empty() {
+            if ws.send(init).await.is_ok() {
+                ldebug!(
+                    "SOCKS5 DC{}{} acquired from warm pre-connect pool (0 ms)",
+                    dc,
+                    if is_media { "m" } else { "" }
+                );
+                STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
+                trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
+                return Some(ws);
+            } else {
+                let _ = ws.close().await;
+            }
+        } else {
+            ldebug!(
+                "SOCKS5 DC{}{} acquired from warm pre-connect pool (0 ms)",
+                dc,
+                if is_media { "m" } else { "" }
+            );
+            STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
+            trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
+            return Some(ws);
+        }
+    }
+
+    ldebug!(
+        "SOCKS5 custom worker {} attempt -> DC{}{} (dst={})",
+        user_domain,
+        dc,
+        if is_media { "m" } else { "" },
+        worker_dst
+    );
+    let init_buf = init.to_vec();
+    let fp_worker = user_domain.clone();
+    let fp_path = path.clone();
+    let child_cancel = cancel_token.child_token();
+
+    let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
+    let worker_timeout = if is_mobile {
+        crate::config::adaptive_ws_connect_timeout().clamp(3.0, 4.0)
     } else {
-        Duration::from_millis(25)
+        crate::config::adaptive_ws_connect_timeout().clamp(3.2, 4.5)
+    };
+    let dial_res = tokio::select! {
+        _ = cancel_token.cancelled() => return None,
+        res = cf_connect_domain_with_category(
+            &fp_worker,
+            &fp_path,
+            None,
+            worker_timeout,
+            crate::budget::FlowCategory::UserFlow,
+            Some(&child_cancel),
+        ) => res,
     };
 
-    let race_cancel = cancel_token.child_token();
-    let mut race_handles = Vec::with_capacity(candidate_targets.len());
+    let (mut ws_opt, mut resolved_ip, mut err_opt) = dial_res;
 
-    for (i, (dom, cdn_path)) in candidate_targets.into_iter().enumerate() {
-        let tx = tx.clone();
-        let cancel = race_cancel.clone();
-        let delay = stagger_step * (i as u32);
-        let init_buf = init.to_vec();
-
-        race_handles.push(tokio::spawn(async move {
-            tokio::select! {
-                biased;
-                _ = cancel.cancelled() => {}
-                res = async {
-                    if delay > Duration::ZERO {
-                        tokio::time::sleep(delay).await;
-                    }
-                    if cancel.is_cancelled() {
-                        return None;
-                    }
-                    let (ws_opt, _, _) = cf_connect_domain_with_category(
-                        &dom,
-                        &cdn_path,
-                        None,
-                        4.0,
-                        crate::budget::FlowCategory::UserFlow,
-                        Some(&cancel),
-                    )
-                    .await;
-                    if let Some(ws) = ws_opt {
-                        if !init_buf.is_empty() {
-                            if ws.send(&init_buf).await.is_err() {
-                                let _ = ws.close().await;
-                                return None;
-                            }
-                        }
-                        Some((ws, dom))
-                    } else {
-                        None
-                    }
-                } => {
-                    if let Some((ws, w)) = res {
-                        if !cancel.is_cancelled() {
-                            let _ = tx.send((ws, w)).await;
-                        } else {
-                            let _ = ws.close().await;
-                        }
-                    }
-                }
-            }
-        }));
-    }
-    drop(tx);
-
-    let mut winning_ws = None;
-
-    tokio::select! {
-        _ = cancel_token.cancelled() => {}
-        first = rx.recv() => {
-            if let Some((ws, winner)) = first {
-                race_cancel.cancel();
-                if crate::generation_guard::is_current(expected) {
-                    let _ = crate::generation_guard::apply_if_current(expected, || {
-                        *LAST_SOCKS5_WORKER.write() = winner.clone();
-                        clear_cfproxy_429_cooldown(&winner);
-                        clear_cfproxy_recovery_cooldown(&winner);
-                    });
-                    winning_ws = Some(ws);
-                } else {
-                    let _ = ws.close().await;
-                }
+    // Fast local retry on transient connection failure (unless 429 or cancelled)
+    if ws_opt.is_none() && !cancel_token.is_cancelled() {
+        let is_429 = err_opt.as_ref().map(|e| is_http_status_error(e, 429)).unwrap_or(false);
+        if !is_429 {
+            ldebug!("SOCKS5 custom worker {} initial dial failed; retrying once...", user_domain);
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            if !cancel_token.is_cancelled() {
+                let retry_res = cf_connect_domain_with_category(
+                    &fp_worker,
+                    &fp_path,
+                    None,
+                    2.5,
+                    crate::budget::FlowCategory::UserFlow,
+                    Some(&child_cancel),
+                ).await;
+                ws_opt = retry_res.0;
+                resolved_ip = retry_res.1;
+                err_opt = retry_res.2;
             }
         }
     }
 
-    for handle in &race_handles {
-        handle.abort();
-    }
-    while let Ok((extra_ws, _)) = rx.try_recv() {
-        let _ = extra_ws.close().await;
+    if let Some(ws) = ws_opt {
+        if !crate::generation_guard::is_current(expected) {
+            ldebug!("SOCKS5 dial completed but network generation changed; dropping stale socket");
+            let _ = ws.close().await;
+            return None;
+        }
+
+        if !init_buf.is_empty() {
+            if let Err(e) = ws.send(&init_buf).await {
+                let _ = ws.close().await;
+                lwarn!("SOCKS5 custom worker first packet write failed: {:?}", e);
+            } else {
+                if !resolved_ip.is_empty() {
+                    ldebug!("SOCKS5 custom worker ok {} via {}", user_domain, resolved_ip);
+                } else {
+                    ldebug!("SOCKS5 custom worker ok {}", user_domain);
+                }
+                clear_cfproxy_429_cooldown_scoped(&user_domain, ProtoScope::Socks5);
+                clear_cfproxy_recovery_cooldown(&user_domain);
+                *LAST_SOCKS5_WORKER.write() = user_domain.clone();
+                STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
+                trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
+                return Some(ws);
+            }
+        } else {
+            if !resolved_ip.is_empty() {
+                ldebug!("SOCKS5 custom worker ok {} via {}", user_domain, resolved_ip);
+            } else {
+                ldebug!("SOCKS5 custom worker ok {}", user_domain);
+            }
+            clear_cfproxy_429_cooldown_scoped(&user_domain, ProtoScope::Socks5);
+            clear_cfproxy_recovery_cooldown(&user_domain);
+            *LAST_SOCKS5_WORKER.write() = user_domain.clone();
+            STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
+            trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
+            return Some(ws);
+        }
     }
 
-    winning_ws
+    if let Some(e) = err_opt {
+        if is_http_status_error(&e, 429) {
+            mark_cfproxy_429_cooldown_scoped(&user_domain, ProtoScope::Socks5, &e);
+        }
+        lwarn!(
+            "SOCKS5 custom worker {} fail: {}",
+            user_domain,
+            e.compact()
+        );
+    }
+    None
 }
 
-pub(crate) async fn socks5_acquire_cf_ws(
-    target_addr: &str,
-    cancel_token: &CancellationToken,
-) -> Option<RawWebSocket> {
-    let (target_host, target_port) = if let Some(pos) = target_addr.rfind(':') {
-        let h = target_addr[..pos].trim_matches(['[', ']']);
-        let p = target_addr[pos + 1..].parse::<u16>().unwrap_or(443);
-        (h, p)
-    } else {
-        (target_addr.trim_matches(['[', ']']), 443)
-    };
-    let (dc, is_media) = lookup_telegram_dc(target_host).unwrap_or((2, false));
-    let worker_dst = canonical_ipv4_for_dc(dc);
-    socks5_acquire_upstream_ws(dc, is_media, worker_dst, target_port, &[], cancel_token).await
-}
+
 
 /// Bounded async write that strictly honors the cancellation token and applies a write deadline.
 pub async fn bounded_write<W: tokio::io::AsyncWriteExt + Unpin>(
@@ -1290,14 +1188,6 @@ pub async fn bounded_shutdown<W: tokio::io::AsyncWriteExt + Unpin>(
 }
 
 pub async fn bridge_socks5_ws(
-    client: TcpStream,
-    ws: RawWebSocket,
-    cancel_token: CancellationToken,
-) {
-    bridge_socks5_ws_arc(client, Arc::new(ws), 2, false, "149.154.167.51", cancel_token).await
-}
-
-pub async fn bridge_socks5_ws_arc(
     client: TcpStream,
     ws: Arc<RawWebSocket>,
     dc: i32,
@@ -1514,29 +1404,7 @@ pub async fn bridge_socks5_ws_arc(
     );
 }
 
-#[allow(dead_code)]
-async fn bridge_socks5_masque(
-    client: TcpStream,
-    tunnel: crate::masque::MasqueTunnel,
-    cancel_token: CancellationToken,
-) {
-    if let Err(e) = tunnel.run_smoltcp_bridge(client, cancel_token).await {
-        crate::ldebug!("MASQUE smoltcp bridge terminated: {}", e);
-    }
-    tunnel.close().await;
-}
 
-#[allow(dead_code)]
-async fn bridge_socks5_awg(
-    client: TcpStream,
-    tunnel: crate::awg::AwgTunnel,
-    cancel_token: CancellationToken,
-) {
-    if let Err(e) = tunnel.run_smoltcp_bridge(client, cancel_token).await {
-        crate::ldebug!("AWG smoltcp bridge terminated: {}", e);
-    }
-    tunnel.close().await;
-}
 
 pub async fn bridge_socks5_stream<S>(
     mut client: TcpStream,
@@ -2117,9 +1985,20 @@ async fn handle_socks5_udp_associate(
             }
         };
 
-        if let Err(e) = pin.validate_and_pin_sender(src_addr) {
-            ldebug!("SOCKS5 UDP: rejected datagram from {}: {}", src_addr, e);
+        if !pin.is_ip_authorized(src_addr.ip()) {
+            ldebug!("SOCKS5 UDP: rejected datagram from unauthorized IP {}", src_addr);
             continue;
+        }
+
+        if let Some(pinned) = pin.pinned_endpoint {
+            if pinned != src_addr {
+                ldebug!(
+                    "SOCKS5 UDP: rejected datagram from unauthorized port {} (pinned to {})",
+                    src_addr,
+                    pinned
+                );
+                continue;
+            }
         }
 
         let packet = match parse_socks5_udp_packet(&buf[..n]) {

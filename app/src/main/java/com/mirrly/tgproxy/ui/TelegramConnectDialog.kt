@@ -159,9 +159,7 @@ fun TelegramConnectDialog(
                                     if (app.config.proxyMode != com.mirrly.tgproxy.core.ProxyMode.MTPROTO) {
                                         app.config.proxyModeName = com.mirrly.tgproxy.core.ProxyMode.MTPROTO.name
                                         app.prefsManager.saveConfig(app.config)
-                                        if (app.proxyServer.isRunning) {
-                                            app.proxyServer.restart(context.cacheDir)
-                                        }
+                                        com.mirrly.tgproxy.service.ProxyForegroundService.restartIfRunning(context)
                                     }
                                     onDismiss()
                                     applyToTelegramPackages(context, mtprotoUrl)
@@ -288,9 +286,7 @@ fun TelegramConnectDialog(
                                     if (!app.config.isSocks5Mode) {
                                         app.config.proxyModeName = com.mirrly.tgproxy.core.ProxyMode.SOCKS5.name
                                         app.prefsManager.saveConfig(app.config)
-                                        if (app.proxyServer.isRunning) {
-                                            app.proxyServer.restart(context.cacheDir)
-                                        }
+                                        com.mirrly.tgproxy.service.ProxyForegroundService.restartIfRunning(context)
                                     }
                                     onDismiss()
                                     applyToTelegramPackages(context, server.getTelegramSocks5Url())

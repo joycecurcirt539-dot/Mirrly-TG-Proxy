@@ -120,7 +120,13 @@ static CFPROXY_RECOVERY_CIRCUIT: Lazy<
 > = Lazy::new(|| parking_lot::RwLock::new(std::collections::HashMap::new()));
 
 pub fn canonical_cfproxy_cooldown_key(domain: &str) -> String {
-    let normalized = normalize_cf_domain(domain);
+    let mut s = domain.trim();
+    if let Some(stripped) = s.strip_prefix("mtproto:") {
+        s = stripped.trim();
+    } else if let Some(stripped) = s.strip_prefix("socks5:") {
+        s = stripped.trim();
+    }
+    let normalized = normalize_cf_domain(s);
     if normalized.is_empty() {
         return String::new();
     }
@@ -135,9 +141,131 @@ pub fn canonical_cfproxy_cooldown_key(domain: &str) -> String {
     normalized
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProtoScope {
+    Mtproto,
+    Socks5,
+    Global,
+}
+
+impl ProtoScope {
+    pub const fn prefix(self) -> &'static str {
+        match self {
+            ProtoScope::Mtproto => "mtproto:",
+            ProtoScope::Socks5 => "socks5:",
+            ProtoScope::Global => "",
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ProtoScope::Mtproto => "mtproto",
+            ProtoScope::Socks5 => "socks5",
+            ProtoScope::Global => "global",
+        }
+    }
+}
+
+impl std::fmt::Display for ProtoScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+pub fn scoped_cfproxy_cooldown_key(domain: &str, scope: ProtoScope) -> String {
+    let canonical = canonical_cfproxy_cooldown_key(domain);
+    if canonical.is_empty() {
+        return String::new();
+    }
+    match scope {
+        ProtoScope::Global => canonical,
+        ProtoScope::Mtproto | ProtoScope::Socks5 => format!("{}{}", scope.prefix(), canonical),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Isolated statistics tracking per protocol
+// ---------------------------------------------------------------------------
+
+static MTPROTO_429_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SOCKS5_429_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static GLOBAL_429_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn cfproxy_429_hits(scope: ProtoScope) -> u64 {
+    match scope {
+        ProtoScope::Mtproto => MTPROTO_429_HITS.load(std::sync::atomic::Ordering::Relaxed),
+        ProtoScope::Socks5 => SOCKS5_429_HITS.load(std::sync::atomic::Ordering::Relaxed),
+        ProtoScope::Global => GLOBAL_429_HITS.load(std::sync::atomic::Ordering::Relaxed),
+    }
+}
+
+pub fn reset_cfproxy_429_hits(scope: ProtoScope) {
+    match scope {
+        ProtoScope::Mtproto => MTPROTO_429_HITS.store(0, std::sync::atomic::Ordering::Relaxed),
+        ProtoScope::Socks5 => SOCKS5_429_HITS.store(0, std::sync::atomic::Ordering::Relaxed),
+        ProtoScope::Global => GLOBAL_429_HITS.store(0, std::sync::atomic::Ordering::Relaxed),
+    }
+}
+
+pub fn clear_all_cfproxy_429_hits() {
+    MTPROTO_429_HITS.store(0, std::sync::atomic::Ordering::Relaxed);
+    SOCKS5_429_HITS.store(0, std::sync::atomic::Ordering::Relaxed);
+    GLOBAL_429_HITS.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn cfproxy_429_strikes_scoped(domain: &str, scope: ProtoScope) -> i32 {
+    let key = scoped_cfproxy_cooldown_key(domain, scope);
+    if key.is_empty() {
+        return 0;
+    }
+    let map = CFPROXY_429.read();
+    map.get(&key)
+        .filter(|state| state.until.map(|u| u > Instant::now()).unwrap_or(false))
+        .map(|state| state.strikes)
+        .unwrap_or(0)
+}
+
+pub fn cfproxy_429_strikes(domain: &str) -> i32 {
+    let m = cfproxy_429_strikes_scoped(domain, ProtoScope::Mtproto);
+    let s = cfproxy_429_strikes_scoped(domain, ProtoScope::Socks5);
+    let g = cfproxy_429_strikes_scoped(domain, ProtoScope::Global);
+    g.max(m).max(s)
+}
+
+pub fn cfproxy_429_active_count_scoped(scope: ProtoScope) -> usize {
+    let now = Instant::now();
+    let map = CFPROXY_429.read();
+    let prefix = scope.prefix();
+    map.iter()
+        .filter(|(k, v)| {
+            let matches_scope = match scope {
+                ProtoScope::Global => !k.starts_with("mtproto:") && !k.starts_with("socks5:"),
+                ProtoScope::Mtproto | ProtoScope::Socks5 => k.starts_with(prefix),
+            };
+            matches_scope && v.until.map(|u| u > now).unwrap_or(false)
+        })
+        .count()
+}
+
+pub fn cfproxy_429_active_count() -> usize {
+    let now = Instant::now();
+    let map = CFPROXY_429.read();
+    map.values()
+        .filter(|v| v.until.map(|u| u > now).unwrap_or(false))
+        .count()
+}
+
 pub fn clear_cfproxy_429_cooldowns() {
     CFPROXY_429.write().clear();
     CFPROXY_RECOVERY_CIRCUIT.write().clear();
+}
+
+pub fn clear_cfproxy_429_cooldown_scoped(domain: &str, scope: ProtoScope) {
+    let key = scoped_cfproxy_cooldown_key(domain, scope);
+    if key.is_empty() {
+        return;
+    }
+    CFPROXY_429.write().remove(&key);
 }
 
 pub fn clear_cfproxy_429_cooldown(domain: &str) {
@@ -145,7 +273,11 @@ pub fn clear_cfproxy_429_cooldown(domain: &str) {
     if d.is_empty() {
         return;
     }
-    CFPROXY_429.write().remove(&d);
+    let mut map = CFPROXY_429.write();
+    map.remove(&d);
+    map.remove(&format!("{}{}", ProtoScope::Mtproto.prefix(), d));
+    map.remove(&format!("{}{}", ProtoScope::Socks5.prefix(), d));
+    drop(map);
     CFPROXY_RECOVERY_CIRCUIT.write().remove(&d);
 }
 
@@ -194,14 +326,15 @@ pub fn next_cfproxy_429_cooldown_delay(prev: &Cfproxy429State, retry_after: Dura
     delay
 }
 
-pub fn mark_cfproxy_429_cooldown(domain: &str, err: &WsError) {
-    let d = canonical_cfproxy_cooldown_key(domain);
-    if d.is_empty() {
+pub fn mark_cfproxy_429_cooldown_scoped(domain: &str, scope: ProtoScope, err: &WsError) {
+    let key = scoped_cfproxy_cooldown_key(domain, scope);
+    if key.is_empty() {
         return;
     }
+    let d = canonical_cfproxy_cooldown_key(domain);
     let retry_after = retry_after_delay(err);
     let mut map = CFPROXY_429.write();
-    let prev = map.get(&d).cloned().unwrap_or_default();
+    let prev = map.get(&key).cloned().unwrap_or_default();
     let delay = next_cfproxy_429_cooldown_delay(&prev, retry_after);
     let mut strikes = prev.strikes + 1;
     let expired = prev
@@ -220,21 +353,42 @@ pub fn mark_cfproxy_429_cooldown(domain: &str, err: &WsError) {
             .unwrap_or(new_until)
     };
     map.insert(
-        d.clone(),
+        key.clone(),
         Cfproxy429State {
             until: Some(until),
             strikes,
         },
     );
     drop(map);
+
+    match scope {
+        ProtoScope::Mtproto => {
+            MTPROTO_429_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            STATS.mtproto_429_cooldown_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        ProtoScope::Socks5 => {
+            SOCKS5_429_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            STATS.socks5_429_cooldown_hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        ProtoScope::Global => {
+            GLOBAL_429_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
     ldebug!(
-        " CF cooldown {}: {:.0}s after 429",
+        " CF cooldown [{}] {}: {:.0}s after 429 (strike {})",
+        scope,
         d,
-        delay.as_secs_f64().ceil()
+        delay.as_secs_f64().ceil(),
+        strikes
     );
 }
 
-pub fn cfproxy_429_cooldown_remaining(domain: &str) -> Duration {
+pub fn mark_cfproxy_429_cooldown(domain: &str, err: &WsError) {
+    mark_cfproxy_429_cooldown_scoped(domain, ProtoScope::Global, err);
+}
+
+pub fn cfproxy_429_cooldown_remaining_scoped(domain: &str, scope: ProtoScope) -> Duration {
     let d = canonical_cfproxy_cooldown_key(domain);
     if d.is_empty() {
         return Duration::ZERO;
@@ -268,17 +422,25 @@ pub fn cfproxy_429_cooldown_remaining(domain: &str) -> Duration {
             .unwrap_or(Duration::ZERO)
     };
 
+    let key = scoped_cfproxy_cooldown_key(domain, scope);
     let mut map = CFPROXY_429.write();
-    let until = match map.get(&d).and_then(|state| state.until) {
+    let until = match map.get(&key).and_then(|state| state.until) {
         Some(until) => until,
         None => return recovery_remaining,
     };
     if until <= now {
-        map.remove(&d);
+        map.remove(&key);
         return recovery_remaining;
     }
-    // 429 is global by endpoint: if until > now, it applies globally
+    // 429 is endpoint rate-limit: if until > now, it applies to this protocol scope
     (until - now).max(recovery_remaining)
+}
+
+pub fn cfproxy_429_cooldown_remaining(domain: &str) -> Duration {
+    let g = cfproxy_429_cooldown_remaining_scoped(domain, ProtoScope::Global);
+    let m = cfproxy_429_cooldown_remaining_scoped(domain, ProtoScope::Mtproto);
+    let s = cfproxy_429_cooldown_remaining_scoped(domain, ProtoScope::Socks5);
+    g.max(m).max(s)
 }
 
 pub fn try_acquire_cfproxy_half_open_trial(domain: &str, current_net: u64) -> bool {
@@ -1212,7 +1374,7 @@ pub async fn probe_domain_latency(domain: &str, dc: i32, timeout: Duration) -> O
     if base_domain.is_empty() {
         return None;
     }
-    if cfproxy_429_cooldown_remaining(&base_domain) > Duration::ZERO {
+    if cfproxy_429_cooldown_remaining_scoped(&base_domain, ProtoScope::Mtproto) > Duration::ZERO {
         return None;
     }
     let target_host = format!("kws{}.{}", dc, base_domain);
@@ -1245,7 +1407,7 @@ pub async fn probe_domain_latency(domain: &str, dc: i32, timeout: Duration) -> O
                 .write()
                 .record_node_failure(&base_domain, None, None);
             if is_http_status_error(&e, 429) {
-                mark_cfproxy_429_cooldown(&base_domain, &e);
+                mark_cfproxy_429_cooldown_scoped(&base_domain, ProtoScope::Mtproto, &e);
             }
             None
         }

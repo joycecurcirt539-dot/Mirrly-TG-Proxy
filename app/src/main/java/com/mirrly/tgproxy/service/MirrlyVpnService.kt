@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Mirrly TG Proxy - Native MTProto & Cloudflare WebSocket Proxy for Android
  * Copyright (C) 2026 R1Xern (Mirrly Dev)
  *
@@ -760,17 +760,21 @@ class MirrlyVpnService : VpnService() {
                 tunHolder = null
             }
 
-            withContext(Dispatchers.Main) {
-                updateState(VpnInternalState.IDLE)
-                try {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "Ошибка stopForeground: ${e.message}")
-                }
-
-                stopSelf()
-                AppLogger.i(TAG, "MirrlyVpnService успешно и идемпотентно остановлена")
+            // updateState доступен из любого потока (StateFlow thread-safe).
+            // Не используем withContext(Dispatchers.Main) чтобы не упасть в CancellationException
+            // если serviceScope уже отменён в onDestroy.
+            updateState(VpnInternalState.IDLE)
+            try {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Ошибка stopForeground: ${e.message}")
             }
+            try {
+                stopSelf()
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Ошибка stopSelf: ${e.message}")
+            }
+            AppLogger.i(TAG, "MirrlyVpnService успешно и идемпотентно остановлена")
         }
     }
 
@@ -782,8 +786,18 @@ class MirrlyVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        AppLogger.i(TAG, "MirrlyVpnService: onDestroy вызван, выполняется финализация ресурсов")
         unregisterSleepWakeReceiver()
-        stopVpn()
+        // Отменяем стартовые и мониторинговые корутины.
+        // stopJob уже работает с NonCancellable — повторный stopVpn() создаёт гонку
+        // и может зависнуть в STOPPING без перехода в IDLE.
+        startJob?.cancel()
+        startJob = null
+        monitorJob?.cancel()
+        monitorJob = null
+        serviceScope.cancel()
+        // Гарантируем переход в IDLE для UI вне зависимости от незавершённых корутин
+        updateState(VpnInternalState.IDLE)
         super.onDestroy()
         AppLogger.i(TAG, "MirrlyVpnService уничтожена")
     }
