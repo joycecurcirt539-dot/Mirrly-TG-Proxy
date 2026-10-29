@@ -95,7 +95,10 @@
   * *Network Generation Guard*: باطل‌سازی خودکار سوکت‌ها و کش DNS با تغییر شبکه (وای‌فای به دیتای موبایل) برای جلوگیری از قطعی سوکت‌های معلق.
   * *Bounded Flow Control*: بافر کنترل ترافیک ۴ مگابایت در ورکر و هسته Rust با اعمال فشار معکوس (رفع خطای قطع اتصال فریم 1009 وب‌سوکت در ارسال ویدیو و فایل‌های حجیم).
   * *Smart Connect*: بررسی سلامت و پایداری ۲ تا ۳ ثانیه‌ای مسیر قبل از فعال‌سازی نهایی پروکسی.
-* **رابط کاربری و بومی‌سازی**:
+* **رابط کاربری، شخصی‌سازی و بومی‌سازی**:
+  * *بنر هشدار بازطراحی VPN*: نمایش اعلان در حالت VPN با امکان بستن موقت و دسترسی مستقیم به راهنمای تنظیم پروتکل‌ها.
+  * *والپیپرهای اختصاصی عکس و ویدیو*: پشتیبانی از تصاویر پس‌زمینه و ویدیوهای لوپ (MP4) زیر خطوط طراحی MirrlyUI (بدون پس‌زمینه کدر).
+  * *چت هوش مصنوعی محلی برای عیب‌یابی (AI Chat)*: دستیار هوشمند داخلی جهت تحلیل لاگ‌های سیستم و پارامترهای شبکه بدون ارسال اطلاعات شخصی به سرورهای خارجی.
   * *تنظیمات دو سطحی*: حالت ساده (Simple Mode) برای استفاده روزمره و حالت پیشرفته (Advanced Mode) برای تنظیم دقیق سوکت‌ها (`TCP_NODELAY`، اندازه‌های بافر و TLS).
   * *پشتیبانی کامل سه زبانه*: زبان‌های روسی، انگلیسی و فارسی به همراه امکان انتخاب زبان درون برنامه‌ای در اندروید ۱۳ به بالا (`locales_config`).
   * *ویزارد خوش‌آمدگویی (Onboarding)*: راهنمای گام‌به‌گام برای کاربران جدید در اولین اجرا.
@@ -104,7 +107,7 @@
   * *تأیید یکپارچگی کریپتوگرافیک*: اعتبارسنجی امضای دیجیتال بسته APK در لایه NDK C++‎ توسط `SignatureVerifier` و بررسی هش SHA-256 توسط `UpdateChecker`.
 
 #### ۲. در حال توسعه (In Development)
-* **سرویس VPN سیستمی**: ماژول‌های VLESS، WARP Anycast، MASQUE HTTP/3 و AmneziaWG به همراه مسیرهای آبشاری در حال پیاده‌سازی هستند.
+* **تونل سیستماتیک VPN (لایه L3) و مسیرهای آپ‌لینک VPN**: مسیریابی ترافیک کل دستگاه و پروتکل‌های VLESS و MASQUE در دست بازطراحی هستند.
 * **تست سرعت درون برنامه‌ای (`TunnelSpeedTestScreen`)**: سنجش پویای سرعت و پایداری پهنای باند تونل.
 
 ---
@@ -362,12 +365,13 @@ chmod +x tools/deploy-worker/deploy.sh
 
 ```text
 Mirrly TG Proxy/
-├── app/                  # برنامه اندروید (رابط Jetpack Compose، سرویس‌های پس‌زمینه، ماژول C++ NDK)
-│   ├── src/main/cpp/     # کتابخانه C++ بررسی امضای برنامه (native_sec.cpp, CMakeLists.txt)
-│   ├── src/main/java/    # صفحات رابط کاربری، سرویس پس‌زمینه و منطق اتصال
-│   └── src/main/res/     # منابع گرافیکی، پوسته‌ها و متون چندزبانه strings.xml (روسی، انگلیسی، فارسی)
-├── core/                 # هسته بیزینس‌لاجیک کاتلین
-│   └── src/main/kotlin/  # کلاس‌های LocalProxyServer، رابط بومی NativeProxy، موتورهای DoH و FSM و UpdateChecker
+├── app/                  # کلاینت اندروید (رابط Jetpack Compose، سرویس پیش‌زمینه و ماژول بومی C++‎)
+│   ├── src/main/assets/  # والپیپرهای پیش‌فرض سیستم (wallpapers/)
+│   ├── src/main/cpp/     # اعتبارسنجی امضای دیجیتال با C++ NDK (native_sec.cpp, CMakeLists.txt)
+│   ├── src/main/java/    # صفحات رابط کاربری (WarpGenerator، AiChat، Fame)، خوش‌آمدگویی، کانال‌ها، سرویس‌ها
+│   └── src/main/res/     # منابع، پوسته‌ها، آیکون‌های وکتور و فایل strings.xml (زبان‌های RU / EN / FA)
+├── core/                 # هسته منطق برنامه و شبکه در کاتلین
+│   └── src/main/kotlin/  # کلاس‌های LocalProxyServer، رابط بومی NativeProxy، موتورهای WarpConfigGeneratorEngine، Keystore و UpdateChecker
 ├── mirrlyengine/         # هسته قدرتمند و فوق‌سریع بومی نوشته‌شده با زبان Rust (محیط Tokio)
 │   ├── src/awg.rs        # پروتکل AmneziaWG (استتار WireGuard و بسته‌های جعلی Jc)
 │   ├── src/balancer.rs   # پیاده‌سازی Happy Eyeballs v2 (استاندارد RFC 8305) و موازنه بار Anycast
@@ -380,18 +384,18 @@ Mirrly TG Proxy/
 │   ├── src/masque.rs     # پروتکل WARP MASQUE بر بستر HTTP/3 CONNECT-UDP
 │   ├── src/network_profile.rs  # پیاده‌سازی FSM پایداری شبکه (NORMAL, DEGRADED, RECOVERING)
 │   ├── src/node_independence.rs # سیاست‌های جداسازی نودها و حفظ حریم خصوصی
+│   ├── src/prober.rs     # ارزیابی دسترسی نودها و پینگ
 │   ├── src/proxy.rs      # سرور MTProto، مدیریت کلیدهای FakeTLS و استخر WsPool
 │   ├── src/recovery.rs   # مکانیزم‌های بازیابی خودکار و تخلیه کانال
 │   ├── src/socks5.rs     # سرور SOCKS5، احراز هویت RFC 1929 و رله داده‌های TCP
 │   ├── src/supervisor.rs # مدیریت مسیرهای چندگانه آپ‌لینک
-│   ├── src/timeline.rs   # پروفایلر فازهای زمانی ایجاد تونل
 │   ├── src/tls_observability.rs # مانیتورینگ دست‌تکانی TLS
-│   ├── src/vless.rs      # پیاده‌سازی VLESS روی وب‌سوکت و Reality
+│   ├── src/vpn.rs        # رابط شبکه مجازی TUN و مسیریابی لایه L3
 │   ├── src/ws.rs         # بافر کنترل جریان داده ۴ مگابایت وب‌سوکت
 │   └── Cargo.toml        # مانیفست و وابستگی‌های کریت رستم
 ├── tools/                # ابزارهای ساخت و دیپلوی
-│   ├── build/            # اسکریپت‌های کامپایل Rust برای ۴ معماری (build_native.ps1, build_native.sh)
-│   └── deploy-worker/    # اسکریپت‌های راه‌اندازی سریع ورکر کلودفلر (deploy.bat, deploy.ps1, deploy.sh)
+│   ├── build/            # اسکریپت‌های کامپایل Rust برای ۴ معماری (build_native.ps1, build_native.sh, clean_all.ps1)
+│   └── deploy-worker/    # اسکریپت‌های راه‌اندازی سریع ورکر کلودفلر (deploy.bat, deploy.ps1, deploy.sh, worker.js)
 ├── docs/                 # مستندات تکمیلی، فایل‌های راهنما و اسکریپت مرجع کلودفلر
 └── gradle/               # تنظیمات گرادل
 ```
@@ -440,17 +444,13 @@ chmod +x tools/build/build_native.sh
 
 ## 13. تاریخچه ستاره‌های ریپازیتوری
 
-<div align="center">
-
-<a href="https://www.star-history.com/?repos=joycecurcirt539-dot%2FMirrly-TG-Proxy&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=joycecurcirt539-dot%2FMirrly-TG-Proxy&type=timeline&logscale=&releases=&legend=top-right">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=date&theme=dark&legend=top-left&sealed_token=2ZxdQVXYtszPQ2_C8iS9hYFI8zb-495pG47H9KSmQnTviNfwec-JUTZdeRmiaKkKmwYIJtF-i3x7BFk051JjPV3k1ensh6WvgBtwCmxaOybEdxs0ZFVSwdhZA0lCRQriwItHEtGZthEt_5HPt-BnP6JZcgNJkf69g2MAvm6KiC_6E8vZ1g7q8BLEmeFm" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=date&legend=top-left&sealed_token=2ZxdQVXYtszPQ2_C8iS9hYFI8zb-495pG47H9KSmQnTviNfwec-JUTZdeRmiaKkKmwYIJtF-i3x7BFk051JjPV3k1ensh6WvgBtwCmxaOybEdxs0ZFVSwdhZA0lCRQriwItHEtGZthEt_5HPt-BnP6JZcgNJkf69g2MAvm6KiC_6E8vZ1g7q8BLEmeFm" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=date&legend=top-left&sealed_token=2ZxdQVXYtszPQ2_C8iS9hYFI8zb-495pG47H9KSmQnTviNfwec-JUTZdeRmiaKkKmwYIJtF-i3x7BFk051JjPV3k1ensh6WvgBtwCmxaOybEdxs0ZFVSwdhZA0lCRQriwItHEtGZthEt_5HPt-BnP6JZcgNJkf69g2MAvm6KiC_6E8vZ1g7q8BLEmeFm" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=timeline&theme=dark&logscale&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=timeline&logscale&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=timeline&logscale&legend=top-left" />
  </picture>
 </a>
-
-</div>
 
 ---
 
@@ -478,6 +478,7 @@ chmod +x tools/build/build_native.sh
 | **`v2.0.0`** | پایداری FSM و چندزبانه | ماشین وضعیت گسسته شبکه (`NORMAL`, `DEGRADED`, `RECOVERING`)، محافظ تغییر نسل شبکه، کنترل جریان داده ۴ مگابایت، اتصال سریع Smart Connect، تنظیمات ساده و پیشرفته و پشتیبانی چندزبانه. |
 | **`v2.0.0.2`** | بهینه‌سازی مقیاس و زبان فارسی | اضافه شدن زبان فارسی، ارتقای نمودار پویایی سرعت و حلقه سنجش کیفیت، جداسازی ایمن و اعلان در حال توسعه برای سرویس VPN. |
 | **`v2.0.0.3`** | بازطراحی و پایداری | بازطراحی مینیمال AMOLED برای بخش‌های تاریخچه و لاگ‌ها، حالت شفاف المان‌های اشتراک‌گذاری ورکر، رفع مشکل توقف و فریز در اولین اجرا و انتخاب زبان در سامسونگ و هواوی، حذف لاگ‌های مکرر DNS و آزادسازی فوری پورت SOCKS5 (`SO_REUSEPORT`). |
+| **`v2.1.0`** | تولیدکننده WARP، چت هوش مصنوعی و والپیپر | بنر هشدار بازطراحی سرویس VPN، تولیدکننده داخلی پروفایل‌های WireGuard و AmneziaWG با رمزنگاری Keystore، چت هوش مصنوعی محلی برای عیب‌یابی شبکه، پشتیبانی از والپیپرهای اختصاصی عکس و ویدیو زیر خطوط MirrlyUI، حذف کتابخانه‌های بومی بی‌استفاده (کاهش ۲۱ مگابایتی حجم APK) و گسترش تالار مشاهیر به ۷۹ مشارکت‌کننده. |
 
 ---
 
@@ -515,5 +516,7 @@ chmod +x tools/build/build_native.sh
 * **[MSLight](https://github.com/MSLight)** — پیشنهاد و پیگیری ترجمه کامل رابط کاربری به زبان انگلیسی (ایشیو ۲۳).
 * **[Aseptronn](https://github.com/Aseptronn)** — پیشنهاد و پیگیری ترجمه کامل رابط کاربری به زبان فارسی (Farsi) و توسعه جامعه بین‌المللی کاربران (ایشیو ۲۳).
 * **Shon4k** — آزمون نسخه‌های پیش از انتشار و سنجش پایداری شبکه.
-* **Linar S** — ارزیابی سازگاری روی پلتفرم‌های مختلف اندروید.
+* **Linar S**, **RoarTRex**, **Ваня**, **Lucifer**, **Dalison**, **S|c**, **Антон** — ارزیابی سازگاری و پایداری شبکه روی پلتفرم‌های مختلف اندروید.
 * **Astimir Meikulov** — از همراهان فعال در جامعه تلگرامی [@WhyOkyHb](https://t.me/WhyOkyHb).
+* **ایلیا وایتسمن (Ilya Vaytsman)** — نویسنده کانال [@airfield1972](https://t.me/airfield1972) («فرودگاه رزرو») جهت توجه به پروژه و انتشار مطلب درباره Mirrly TG Proxy.
+* **اعضای جامعه کاربری** — تالار مشاهیر درون برنامه (`HallOfFameScreen`) نام **۷۹ مشارکت‌کننده** پروژه اعم از توسعه‌دهندگان، شکارچیان باگ و اعضای فعال کانال تلگرام را ثبت کرده است.

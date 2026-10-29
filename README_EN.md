@@ -95,7 +95,10 @@ The app **does not use** the system `VpnService` for routing Telegram and **does
   * *Network Generation Guard*: Epoch-based socket and DNS cache invalidation during network switches (Wi-Fi ↔ Cellular).
   * *Bounded Flow Control*: 4 MB write buffer in JS Worker and Rust core with watermark backpressure (prevents WebSocket 1009 frame errors during high-volume media transfers).
   * *Smart Connect*: 2–3 second preflight diagnostic check before establishing connections.
-* **UI & Localization**:
+* **UI, Customization & Localization**:
+  * *VPN Rework Notice*: In-app warning banner in VPN mode with dismissal state persistence and direct navigation to the protocol guide.
+  * *Custom Photo & Video Wallpapers*: Support for custom background images and looping MP4 videos underneath the MirrlyUI outline system (Zero Background).
+  * *Local Diagnostic AI Chat (`AI Chat`)*: Built-in analysis of system event logs and network parameters without sending private data to external servers.
   * *Dual-Level Settings*: Simple Mode for standard usage and Advanced Mode for socket tuning (`TCP_NODELAY`, socket buffers, TLS).
   * *Full Trilingual Support*: Complete Russian, English, and Persian (Farsi) localizations with native RTL layout support, plus per-app language selection on Android 13+ (`locales_config`).
   * *Onboarding Wizard*: Step-by-step introduction for first-time users.
@@ -105,7 +108,7 @@ The app **does not use** the system `VpnService` for routing Telegram and **does
   * *Cryptographic Integrity Verification*: Native C++ NDK signature validation (`SignatureVerifier`) and automated SHA-256 hash checks via `UpdateChecker`.
 
 #### 2. In Development
-* **System VPN and VPN uplinks**: VLESS, WARP, MASQUE, AWG, and cascade routes are under development and not ready for use.
+* **System VPN Tunnel (L3) & VPN Uplinks**: Full-device traffic routing and VLESS/MASQUE protocols are undergoing rework.
 * **In-App Speed Test (`TunnelSpeedTestScreen`)**: Built-in throughput and Telegram DC benchmark module.
 
 ---
@@ -375,11 +378,12 @@ chmod +x tools/deploy-worker/deploy.sh
 ```text
 Mirrly TG Proxy/
 ├── app/                  # Android client (Jetpack Compose UI, Foreground Service, NDK C++ native_sec.cpp)
-│   ├── src/main/cpp/     # Native C++ signature verification module (native_sec.cpp, CMakeLists.txt)
-│   ├── src/main/java/    # UI screens, onboarding, channels, background services, localization
-│   └── src/main/res/     # Resources, themes, vector drawables, strings.xml (RU / EN)
+│   ├── src/main/assets/  # Pre-installed background wallpapers (wallpapers/)
+│   ├── src/main/cpp/     # Native C++ APK signature verification (native_sec.cpp, CMakeLists.txt)
+│   ├── src/main/java/    # UI screens (WarpGenerator, AiChat, Fame), onboarding, channels, services, localization
+│   └── src/main/res/     # Resources, themes, vector drawables, strings.xml (RU / EN / FA)
 ├── core/                 # Kotlin business logic & networking core
-│   └── src/main/kotlin/  # LocalProxyServer, NativeProxy FFI, DoH, FSM, GenerationGuard, UpdateChecker
+│   └── src/main/kotlin/  # LocalProxyServer, NativeProxy FFI, WarpConfigGeneratorEngine, Keystore, UpdateChecker
 ├── mirrlyengine/         # High-performance Rust native engine (Tokio runtime)
 │   ├── src/awg.rs        # AmneziaWG protocol (WireGuard obfuscation, QUIC I1, Jc garbage packets)
 │   ├── src/balancer.rs   # Happy Eyeballs v2 (RFC 8305) & Anycast balancer
@@ -392,13 +396,13 @@ Mirrly TG Proxy/
 │   ├── src/masque.rs     # WARP MASQUE HTTP/3 CONNECT-UDP
 │   ├── src/network_profile.rs  # Discrete network FSM (NORMAL, DEGRADED, RECOVERING)
 │   ├── src/node_independence.rs # Node isolation policies
+│   ├── src/prober.rs     # Node accessibility probing and ping
 │   ├── src/proxy.rs      # MTProto server, FakeTLS ee/dd, WsPool
 │   ├── src/recovery.rs   # Connection recovery and flow draining mechanisms
 │   ├── src/socks5.rs     # SOCKS5 server, RFC 1929 subnegotiation, TCP relay
 │   ├── src/supervisor.rs # Multi-uplink route supervisor and trust policy
-│   ├── src/timeline.rs   # Tunnel startup phase timeline profiler
 │   ├── src/tls_observability.rs # TLS handshake observability
-│   ├── src/vless.rs      # VLESS over WebSocket & Reality
+│   ├── src/vpn.rs        # TUN network interface and L3 routing
 │   ├── src/ws.rs         # WebSocket bounded flow control (4 MB)
 │   └── Cargo.toml        # Rust crate manifest and dependencies
 ├── tools/                # Build and deployment utilities
@@ -452,17 +456,13 @@ Compiled APK files will be located in `app/build/outputs/apk/release/`.
 
 ## 13. Star History
 
-<div align="center">
-
-<a href="https://www.star-history.com/?repos=joycecurcirt539-dot%2FMirrly-TG-Proxy&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=joycecurcirt539-dot%2FMirrly-TG-Proxy&type=timeline&logscale=&releases=&legend=top-right">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=date&theme=dark&legend=top-left&sealed_token=2ZxdQVXYtszPQ2_C8iS9hYFI8zb-495pG47H9KSmQnTviNfwec-JUTZdeRmiaKkKmwYIJtF-i3x7BFk051JjPV3k1ensh6WvgBtwCmxaOybEdxs0ZFVSwdhZA0lCRQriwItHEtGZthEt_5HPt-BnP6JZcgNJkf69g2MAvm6KiC_6E8vZ1g7q8BLEmeFm" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=date&legend=top-left&sealed_token=2ZxdQVXYtszPQ2_C8iS9hYFI8zb-495pG47H9KSmQnTviNfwec-JUTZdeRmiaKkKmwYIJtF-i3x7BFk051JjPV3k1ensh6WvgBtwCmxaOybEdxs0ZFVSwdhZA0lCRQriwItHEtGZthEt_5HPt-BnP6JZcgNJkf69g2MAvm6KiC_6E8vZ1g7q8BLEmeFm" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=date&legend=top-left&sealed_token=2ZxdQVXYtszPQ2_C8iS9hYFI8zb-495pG47H9KSmQnTviNfwec-JUTZdeRmiaKkKmwYIJtF-i3x7BFk051JjPV3k1ensh6WvgBtwCmxaOybEdxs0ZFVSwdhZA0lCRQriwItHEtGZthEt_5HPt-BnP6JZcgNJkf69g2MAvm6KiC_6E8vZ1g7q8BLEmeFm" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=timeline&theme=dark&logscale&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=timeline&logscale&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=joycecurcirt539-dot/Mirrly-TG-Proxy&type=timeline&logscale&legend=top-left" />
  </picture>
 </a>
-
-</div>
 
 ---
 
@@ -490,6 +490,7 @@ Project started on **July 27, 2026** with the `v1.0.0` release. Key development 
 | **`v2.0.0`** | Network FSM & UI | Discrete network FSM (`NORMAL`, `DEGRADED`, `RECOVERING`), Network Generation Guard, 4 MB bounded flow control, Smart Connect preflight, settings, onboarding, safe diagnostics, and localization. VPN mode remains under development. |
 | **`v2.0.0.2`** | Localization & UI | Persian localization (Farsi) with full RTL support, dynamic font scaling in speed test quality gauge, isolation of in-development VPN screen. |
 | **`v2.0.0.3`** | Redesign & Stability | Minimalist AMOLED redesign of Session History and Logs screens, transparent cards and buttons in Share tab, elimination of first-launch and language selection freeze on Samsung One UI and Huawei EMUI/HarmonyOS, cleanup of redundant Cloudflare DNS logs, and fast SOCKS5 port recycling (`SO_REUSEPORT`). |
+| **`v2.1.0`** | WARP Generator, AI Chat & Wallpapers | Rework notice banner for system VPN, built-in WireGuard and AmneziaWG profile generator with Keystore encryption, local diagnostic AI Chat, custom photo and video wallpapers under MirrlyUI outlines, removal of unused native libraries (-21 MB APK size reduction), and expansion of the Hall of Fame to 79 contributors. |
 
 ---
 
@@ -527,5 +528,7 @@ Project started on **July 27, 2026** with the `v1.0.0` release. Key development 
 * **[MSLight](https://github.com/MSLight)** — Initiative for complete English localization of application interface (Issue #23).
 * **[Aseptronn](https://github.com/Aseptronn)** — Initiative for Persian (Farsi) localization and international community outreach (Issue #23).
 * **Shon4k** — Pre-release build testing and network stability verification.
-* **Linar S** — Cross-platform compatibility testing.
+* **Linar S**, **RoarTRex**, **Ваня**, **Lucifer**, **Dalison**, **S|c**, **Антон** — Cross-platform Android hardware testing and network stability verification.
 * **Astimir Meikulov** — Active contributor in the official Telegram community [@WhyOkyHb](https://t.me/WhyOkyHb).
+* **Ilya Vaytsman** — Author of the [@airfield1972](https://t.me/airfield1972) channel ("Alternate Airfield"), for attention to the project and publication about Mirrly TG Proxy.
+* **Community Contributors** — The in-app Hall of Fame (`HallOfFameScreen`) commemorates **79 project participants**, including contributors, bug hunters, and active Telegram community members.
