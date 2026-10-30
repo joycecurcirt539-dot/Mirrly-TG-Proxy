@@ -242,13 +242,15 @@ object WarpCloudflareDns : Dns {
     override fun lookup(hostname: String): List<InetAddress> {
         if (hostname.equals("api.cloudflareclient.com", ignoreCase = true)) {
             return listOf(
-                // Европейские чистые Anycast-узлы Cloudflare API (CDN / Edge)
+                // Пул основных Anycast-узлов Cloudflare WARP и Edge API
+                InetAddress.getByAddress("api.cloudflareclient.com", byteArrayOf(162.toByte(), 159.toByte(), 192.toByte(), 1.toByte())),
+                InetAddress.getByAddress("api.cloudflareclient.com", byteArrayOf(162.toByte(), 159.toByte(), 193.toByte(), 1.toByte())),
+                InetAddress.getByAddress("api.cloudflareclient.com", byteArrayOf(188.toByte(), 114.toByte(), 96.toByte(), 1.toByte())),
+                InetAddress.getByAddress("api.cloudflareclient.com", byteArrayOf(188.toByte(), 114.toByte(), 97.toByte(), 1.toByte())),
                 InetAddress.getByAddress("api.cloudflareclient.com", byteArrayOf(104.toByte(), 16.toByte(), 24.toByte(), 84.toByte())),
                 InetAddress.getByAddress("api.cloudflareclient.com", byteArrayOf(104.toByte(), 16.toByte(), 192.toByte(), 82.toByte())),
                 InetAddress.getByAddress("api.cloudflareclient.com", byteArrayOf(104.toByte(), 16.toByte(), 132.toByte(), 229.toByte())),
-                InetAddress.getByAddress("api.cloudflareclient.com", byteArrayOf(104.toByte(), 16.toByte(), 133.toByte(), 229.toByte())),
-                InetAddress.getByAddress("api.cloudflareclient.com", byteArrayOf(8.toByte(), 47.toByte(), 69.toByte(), 0.toByte())),
-                InetAddress.getByAddress("api.cloudflareclient.com", byteArrayOf(8.toByte(), 6.toByte(), 112.toByte(), 0.toByte()))
+                InetAddress.getByAddress("api.cloudflareclient.com", byteArrayOf(104.toByte(), 16.toByte(), 133.toByte(), 229.toByte()))
             )
         }
         return try {

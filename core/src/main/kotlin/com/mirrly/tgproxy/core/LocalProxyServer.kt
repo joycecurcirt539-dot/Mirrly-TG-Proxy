@@ -96,17 +96,22 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
     val pingEngine = PingEngine(
         targetProvider = {
+            val effectiveWorker = config.getEffectiveCfDomain()
             if (config.isSocks5Mode) {
-                config.getEffectiveCfDomain()
+                if (config.socks5UplinkMode != 1 && effectiveWorker.isNotBlank()) {
+                    effectiveWorker
+                } else {
+                    TgConstants.getWsDomains(2).firstOrNull() ?: ("kws2." + TgConstants.decodeCfDomain("virkgj.com"))
+                }
             } else {
-                if (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) {
-                    config.getEffectiveCfDomain()
+                if (config.useWorkerMtproto && effectiveWorker.isNotBlank()) {
+                    effectiveWorker
                 } else {
                     TgConstants.getWsDomains(2).firstOrNull() ?: ("kws2." + TgConstants.decodeCfDomain("virkgj.com"))
                 }
             }
         },
-        isSocks5Provider = { config.isSocks5Mode || (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) },
+        isSocks5Provider = { config.isSocks5Mode },
         onSelfHealingRequired = { failureType ->
             AppLogger.w("LocalProxyServer", "Watchdog: Зафиксирован сетевой сбой $failureType")
             when (failureType) {
@@ -251,11 +256,11 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         } else {
             // Для автономных режимов прокси (MTProto / SOCKS5):
             // MTProto: если включен useWorkerMtproto — строго через Cloudflare Worker WSS пользователя.
-            // Если выключен — через распределенную сеть Anycast SDN Flowseal (CFProxy).
-            // SOCKS5: строго Cloudflare Worker WSS.
+            // Если выключен — через распределенную сеть Anycast CDN Flowseal (CFProxy).
+            // SOCKS5: Cloudflare Worker WSS или Anycast CDN Flowseal в зависимости от socks5UplinkMode.
             val useCf = config.cfProxyEnabled
             val workerDomain = if (config.isSocks5Mode) {
-                config.getEffectiveCfDomain()
+                if (config.socks5UplinkMode == 1) "" else config.getEffectiveCfDomain()
             } else {
                 if (config.useWorkerMtproto) config.getEffectiveCfDomain() else ""
             }
@@ -271,8 +276,10 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
 
         if (config.isSocks5Mode) {
             val workerDomain = config.getEffectiveCfDomain()
-            AppLogger.i("LocalProxyServer", "Запуск нативного SOCKS5 движка на порту ${config.socks5Port} (worker=${workerDomain.ifBlank { "direct" }}, auth=${config.hasSocks5Auth}, optimistic=${config.socks5OptimisticResponse})...")
+            val uplinkTag = if (config.socks5UplinkMode == 1) "Flowseal Anycast" else "Worker (${workerDomain.ifBlank { "default" }})"
+            AppLogger.i("LocalProxyServer", "Запуск нативного SOCKS5 движка на порту ${config.socks5Port} (uplink=$uplinkTag, auth=${config.hasSocks5Auth}, optimistic=${config.socks5OptimisticResponse})...")
             NativeProxy.setSocks5Optimistic(config.socks5OptimisticResponse)
+            NativeProxy.setSocks5UplinkMode(config.socks5UplinkMode)
             var code = -1
             val maxAttempts = 4
             for (attempt in 1..maxAttempts) {
@@ -295,8 +302,9 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 if (startTimeMs == 0L) {
                     startTimeMs = System.currentTimeMillis()
                 }
-                stats.activeCascadeStage = if (workerDomain.isNotBlank()) "Cloudflare Worker WSS" else "Direct TCP"
-                stats.activeEffectiveRoute = workerDomain.ifBlank { "Direct TCP" }
+                val isSocks5Cdn = config.socks5UplinkMode == 1 || workerDomain.isBlank()
+                stats.activeCascadeStage = if (isSocks5Cdn) "Anycast CDN Flowseal" else "Cloudflare Worker WSS"
+                stats.activeEffectiveRoute = if (isSocks5Cdn) "Anycast CDN Flowseal" else workerDomain
                 AppLogger.i("LocalProxyServer", "Нативный SOCKS5 движок успешно запущен на ${config.bindHost}:${config.socks5Port}")
             } else {
                 AppLogger.e("LocalProxyServer", "Ошибка запуска нативного SOCKS5 движка после $maxAttempts попыток: код $code")
@@ -414,12 +422,13 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
         pingEngine.start()
         adaptiveHeartbeatEngine.start()
 
+        val isSocks5Cdn = config.socks5UplinkMode == 1 || config.getEffectiveCfDomain().isBlank()
         stats.activeCascadeStage = when (config.proxyMode) {
-            ProxyMode.SOCKS5 -> "Cloudflare Worker WSS"
+            ProxyMode.SOCKS5 -> if (isSocks5Cdn) "Anycast CDN Flowseal" else "Cloudflare Worker WSS"
             ProxyMode.MTPROTO -> if (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) "Cloudflare Worker" else "Flowseal Anycast CDN"
         }
         stats.activeEffectiveRoute = when (config.proxyMode) {
-            ProxyMode.SOCKS5 -> config.getEffectiveCfDomain().ifBlank { "Cloudflare Worker" }
+            ProxyMode.SOCKS5 -> if (isSocks5Cdn) "Anycast CDN Flowseal" else config.getEffectiveCfDomain()
             ProxyMode.MTPROTO -> if (config.useWorkerMtproto && config.getEffectiveCfDomain().isNotBlank()) config.getEffectiveCfDomain() else "Flowseal Anycast CDN"
         }
         return true
@@ -629,12 +638,13 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                 AppLogger.w("LocalProxyServer", "Ошибка применения нового воркера в NativeProxy: ${t.message}")
             }
         }
+        val isSocks5Cdn = config.socks5UplinkMode == 1 || domainToPass.isBlank()
         stats.activeCascadeStage = when (config.proxyMode) {
-            ProxyMode.SOCKS5 -> "Cloudflare Worker WSS"
+            ProxyMode.SOCKS5 -> if (isSocks5Cdn) "Anycast CDN Flowseal" else "Cloudflare Worker WSS"
             ProxyMode.MTPROTO -> if (config.useWorkerMtproto && domainToPass.isNotBlank()) "Cloudflare Worker" else "Flowseal Anycast CDN"
         }
         stats.activeEffectiveRoute = when (config.proxyMode) {
-            ProxyMode.SOCKS5 -> effectiveDomain.ifBlank { "Cloudflare Worker" }
+            ProxyMode.SOCKS5 -> if (isSocks5Cdn) "Anycast CDN Flowseal" else domainToPass
             ProxyMode.MTPROTO -> if (config.useWorkerMtproto && domainToPass.isNotBlank()) domainToPass else "Flowseal Anycast CDN"
         }
         measurePingAsync()

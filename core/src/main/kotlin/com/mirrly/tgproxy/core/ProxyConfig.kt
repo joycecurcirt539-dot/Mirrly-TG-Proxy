@@ -98,6 +98,7 @@ data class ProxyConfig(
     var socks5Username: String = "",
     var socks5Password: String = "",
     var socks5OptimisticResponse: Boolean = true,
+    var socks5UplinkMode: Int = 0,
     var targetTelegramPort: Int = 443,
     var useDefaultWorkerSocks5: Boolean = false,
     var useWorkerMtproto: Boolean = false,
@@ -148,7 +149,7 @@ data class ProxyConfig(
     var warpMasqueUserOverride: String = "",
     var warpMeasuredWgEndpoint: String = "",
     var warpMeasuredMasqueEndpoint: String = "",
-    var warpMasqueSni: String = "cdnjs.cloudflare.com",
+    var warpMasqueSni: String = WARP_MASQUE_SNI_CONSUMER_PROXY,
     // Параметры VLESS over WebSocket & Reality
     var vlessUuid: String = "d342d11e-d424-4583-b36e-524ab1f0afa4",
     var vlessPath: String = "/vless-ws?ed=2048",
@@ -662,18 +663,18 @@ data class ProxyConfig(
         get() = hexToBytes(rawSecret32)
 
     companion object {
-        const val WARP_MASQUE_SNI_CDNJS = "cdnjs.cloudflare.com"
         const val WARP_MASQUE_SNI_CONSUMER_PROXY = "consumer-masque-proxy.cloudflareclient.com"
         const val WARP_MASQUE_SNI_CONSUMER = "consumer-masque.cloudflareclient.com"
         const val WARP_MASQUE_SNI_ZT_PROXY = "zt-masque-proxy.cloudflareclient.com"
         const val WARP_MASQUE_SNI_ZT = "zt-masque.cloudflareclient.com"
+        const val WARP_MASQUE_SNI_CDNJS = "cdnjs.cloudflare.com"
 
         val WARP_MASQUE_LEGITIMATE_SNIS = listOf(
-            WARP_MASQUE_SNI_CDNJS,
             WARP_MASQUE_SNI_CONSUMER_PROXY,
             WARP_MASQUE_SNI_CONSUMER,
             WARP_MASQUE_SNI_ZT_PROXY,
-            WARP_MASQUE_SNI_ZT
+            WARP_MASQUE_SNI_ZT,
+            WARP_MASQUE_SNI_CDNJS
         )
 
         val CLOUDFLARE_DNS_IPV4 = listOf("1.1.1.1", "1.0.0.1")

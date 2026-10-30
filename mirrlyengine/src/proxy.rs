@@ -1072,13 +1072,27 @@ pub(crate) async fn cfproxy_acquire_ws_race(
     is_media: bool,
     cancel_token: &CancellationToken,
 ) -> Option<(Arc<RawWebSocket>, String)> {
+    cfproxy_acquire_raw_ws_race(dc, is_media, ProtoScope::Mtproto, cancel_token)
+        .await
+        .map(|(ws, dom)| (Arc::new(ws), dom))
+}
+
+pub(crate) async fn cfproxy_acquire_raw_ws_race(
+    dc: i32,
+    is_media: bool,
+    scope: ProtoScope,
+    cancel_token: &CancellationToken,
+) -> Option<(RawWebSocket, String)> {
     let expected = crate::generation_guard::snapshot();
-    let (enabled, domains) = {
+    let (enabled, mut domains) = {
         let cfg = CFPROXY.read();
         (CFPROXY_ENABLED.load(Ordering::Relaxed), cfg.domains.clone())
     };
     if !enabled {
         return None;
+    }
+    if domains.is_empty() {
+        domains = crate::cfproxy::default_cfproxy_domains();
     }
 
     let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
@@ -1090,18 +1104,23 @@ pub(crate) async fn cfproxy_acquire_ws_race(
         let ordered = crate::balancer::BALANCER
             .read()
             .get_domains_for_dc(effective_dc, is_media);
+        let candidate_list = if !ordered.is_empty() {
+            ordered
+        } else {
+            domains.clone()
+        };
         let diverse_ordered = crate::node_independence::NODE_INDEPENDENCE_TRACKER
             .read()
-            .select_diverse_race_candidates(&ordered, 4);
+            .select_diverse_race_candidates(&candidate_list, 4);
         for d in &diverse_ordered {
-            let remaining = cfproxy_429_cooldown_remaining_scoped(d, ProtoScope::Mtproto);
+            let remaining = cfproxy_429_cooldown_remaining_scoped(d, scope);
             if remaining == Duration::ZERO {
                 let domain = format!("kws{}.{}", effective_dc, d);
                 candidate_targets.push((domain, "/apiws".to_string()));
             }
         }
-        for d in &ordered {
-            if !diverse_ordered.contains(d) && cfproxy_429_cooldown_remaining_scoped(d, ProtoScope::Mtproto) == Duration::ZERO {
+        for d in &candidate_list {
+            if !diverse_ordered.contains(d) && cfproxy_429_cooldown_remaining_scoped(d, scope) == Duration::ZERO {
                 let domain = format!("kws{}.{}", effective_dc, d);
                 candidate_targets.push((domain, "/apiws".to_string()));
                 if candidate_targets.len() >= 6 {
@@ -1113,7 +1132,8 @@ pub(crate) async fn cfproxy_acquire_ws_race(
 
     if candidate_targets.is_empty() {
         lwarn!(
-            " CF fallback DC{}{}: all Anycast CDN domains unreachable",
+            "[{}] CF fallback DC{}{}: all Anycast CDN domains unreachable",
+            scope,
             dc,
             media_tag(is_media)
         );
@@ -1122,7 +1142,8 @@ pub(crate) async fn cfproxy_acquire_ws_race(
 
     let m_tag = media_tag(is_media);
     ldebug!(
-        "MTProto Happy Eyeballs Race: {} targets for DC{}{}",
+        "[{}] Happy Eyeballs Race: {} targets for DC{}{}",
+        scope,
         candidate_targets.len(),
         dc,
         m_tag
@@ -1156,25 +1177,26 @@ pub(crate) async fn cfproxy_acquire_ws_race(
                     if cancel.is_cancelled() {
                         return None;
                     }
+                    let candidate_timeout = crate::config::adaptive_ws_connect_timeout().clamp(5.0, 8.0);
                     let (ws, resolved_ip, err) = cf_connect_domain_with_category(
                         &dom,
                         &path,
                         None,
-                        3.5,
+                        candidate_timeout,
                         crate::budget::FlowCategory::UserFlow,
                         Some(&cancel),
                     ).await;
 
                     if let Some(w) = ws {
                         if cancel.is_cancelled() {
-                            ldebug!("MTProto race runner-up late 101 gracefully closing for {}", dom);
+                            ldebug!("[{}] race runner-up late 101 gracefully closing for {}", scope, dom);
                             let _ = w.close().await;
                             return None;
                         }
                         if !resolved_ip.is_empty() {
-                            ldebug!("MTProto race ok {} via {}", dom, resolved_ip);
+                            ldebug!("[{}] race ok {} via {}", scope, dom, resolved_ip);
                         } else {
-                            ldebug!("MTProto race ok {}", dom);
+                            ldebug!("[{}] race ok {}", scope, dom);
                         }
                         Some((w, dom))
                     } else {
@@ -1192,17 +1214,17 @@ pub(crate) async fn cfproxy_acquire_ws_race(
                             );
                             if crate::ws::is_cooldown_error(e) {
                                 let _ = crate::generation_guard::apply_if_current(expected, || {
-                                    mark_cfproxy_429_cooldown_scoped(&dom, ProtoScope::Mtproto, e);
+                                    mark_cfproxy_429_cooldown_scoped(&dom, scope, e);
                                 });
                             }
                             if !resolved_ip.is_empty() {
                                 log_cf_conn_error(
-                                    &format!("MTProto race fail {} via {}: {}", dom, resolved_ip, e.compact()),
+                                    &format!("[{}] race fail {} via {}: {}", scope, dom, resolved_ip, e.compact()),
                                     e,
                                 );
                             } else {
                                 log_cf_conn_error(
-                                    &format!("MTProto race fail {}: {}", dom, e.compact()),
+                                    &format!("[{}] race fail {}: {}", scope, dom, e.compact()),
                                     e,
                                 );
                             }
@@ -1224,11 +1246,11 @@ pub(crate) async fn cfproxy_acquire_ws_race(
 
     drop(tx);
 
-    let mut winning_res: Option<(Arc<RawWebSocket>, String)> = None;
+    let mut winning_res: Option<(RawWebSocket, String)> = None;
 
     tokio::select! {
         _ = cancel_token.cancelled() => {
-            ldebug!("MTProto connection race cancelled by parent");
+            ldebug!("[{}] connection race cancelled by parent", scope);
             child_cancel.cancel();
         }
         msg = rx.recv() => {
@@ -1238,7 +1260,7 @@ pub(crate) async fn cfproxy_acquire_ws_race(
                     let _ = ws.close().await;
                 } else {
                     let accepted = crate::generation_guard::apply_if_current(expected, || {
-                        clear_cfproxy_429_cooldown_scoped(&winner_domain, ProtoScope::Mtproto);
+                        clear_cfproxy_429_cooldown_scoped(&winner_domain, scope);
                         let base_domain = crate::balancer::normalize_domain(&winner_domain);
                         if let Some(ip) = ws.peer_ip() {
                             let colo = ws.colo().to_string();
@@ -1253,8 +1275,8 @@ pub(crate) async fn cfproxy_acquire_ws_race(
                         );
                     }).is_some();
                     if accepted {
-                        linfo!("MTProto endpoint selected: {}", winner_domain);
-                        winning_res = Some((Arc::new(ws), winner_domain));
+                        linfo!("[{}] endpoint selected: {}", scope, winner_domain);
+                        winning_res = Some((ws, winner_domain));
                     } else {
                         let _ = ws.close().await;
                     }
@@ -1275,7 +1297,7 @@ pub(crate) async fn cfproxy_acquire_ws_race(
 
     // Drain and gracefully close any runner-up connections that arrived in rx
     while let Ok((extra_ws, extra_dom)) = rx.try_recv() {
-        ldebug!("MTProto closing runner-up connection to {}", extra_dom);
+        ldebug!("[{}] closing runner-up connection to {}", scope, extra_dom);
         let _ = extra_ws.close().await;
     }
 

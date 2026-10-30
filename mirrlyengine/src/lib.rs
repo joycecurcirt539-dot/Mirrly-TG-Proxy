@@ -116,7 +116,7 @@ fn init_crypto_and_panic_hook() {
     });
 }
 
-fn runtime() -> &'static Runtime {
+pub(crate) fn runtime() -> &'static Runtime {
     RUNTIME.get_or_init(|| {
         init_crypto_and_panic_hook();
         tokio::runtime::Builder::new_multi_thread()
@@ -167,6 +167,7 @@ pub unsafe extern "C" fn StartProxy(
     let is_verbose = verbose != 0;
 
     init_logging(is_verbose);
+    cfproxy::init_cfproxy_domains();
     cfproxy::clear_doh_cache();
     recovery::reset();
     balancer::BALANCER.write().reset_ranking();
@@ -269,6 +270,7 @@ pub unsafe extern "C" fn StartSocks5Proxy(
     let is_verbose = verbose != 0;
 
     init_logging(is_verbose);
+    cfproxy::init_cfproxy_domains();
     cfproxy::clear_doh_cache();
     recovery::reset();
     *LAST_SOCKS5_WORKER.write() = String::new();
@@ -948,6 +950,20 @@ pub extern "C" fn IsSocks5Optimistic() -> c_int {
     } else {
         0
     }
+}
+
+#[no_mangle]
+pub extern "C" fn SetSocks5UplinkMode(mode: c_int) {
+    generation_guard::change_config(|| {
+        socks5::clear_socks5_warm_pool();
+        config::set_socks5_uplink_mode(mode);
+        crate::linfo!("SetSocks5UplinkMode: mode={}", mode);
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn GetSocks5UplinkMode() -> c_int {
+    config::get_socks5_uplink_mode()
 }
 
 #[no_mangle]

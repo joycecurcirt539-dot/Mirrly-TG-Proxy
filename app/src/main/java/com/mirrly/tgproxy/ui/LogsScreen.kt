@@ -28,6 +28,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import com.mirrly.tgproxy.MirrlyApplication
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -48,6 +51,7 @@ import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.LogEntry
 import com.mirrly.tgproxy.core.LogLevel
 import com.mirrly.tgproxy.ui.theme.*
+import com.mirrly.tgproxy.util.LogExportHelper
 
 // Static UI shapes and borders cached across compositions to eliminate scroll allocation churn
 private val LogCardShape = RoundedCornerShape(10.dp)
@@ -113,6 +117,17 @@ fun LogsScreen(
     var selectedLevel by remember { mutableStateOf<LogLevel?>(null) }
     val searchFocusRequester = remember { FocusRequester() }
 
+    // Multi-Selection state for specific log operations
+    var isSelectionMode by remember { mutableStateOf(false) }
+    val selectedLogIds = remember { mutableStateListOf<Long>() }
+
+    // Bottom Sheet visibility states
+    var showExportSheet by remember { mutableStateOf(false) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
+    var showTabExportSheet by remember { mutableStateOf(false) }
+
+
+
     // Initial entrance animation barrier
     var isInitialLoad by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
@@ -141,7 +156,7 @@ fun LogsScreen(
         lastObservedLogId = newest?.id ?: 0L
         val isAtTop = listState.firstVisibleItemIndex == 0 &&
             listState.firstVisibleItemScrollOffset <= 60
-        if (newest != null && isNewEntry && isAtTop && matchesFilter(newest, searchQuery, selectedLevel)) {
+        if (!isSelectionMode && newest != null && isNewEntry && isAtTop && matchesFilter(newest, searchQuery, selectedLevel)) {
             listState.scrollToItem(0)
         }
     }
@@ -161,9 +176,96 @@ fun LogsScreen(
 
     val activeProtoColor = ActiveGreenLed
 
+    val app = MirrlyApplication.instance
+    val isMasterLoggingEnabled by app.prefsManager.isLogsEnabledFlow.collectAsState()
+    val isDebugLevelEnabled by app.prefsManager.isLogLevelDebugFlow.collectAsState()
+    val isInfoLevelEnabled by app.prefsManager.isLogLevelInfoFlow.collectAsState()
+    val isWarnLevelEnabled by app.prefsManager.isLogLevelWarnFlow.collectAsState()
+    val isErrorLevelEnabled by app.prefsManager.isLogLevelErrorFlow.collectAsState()
+
+    val activeTabName = when (selectedLevel) {
+        LogLevel.DEBUG -> "Debug"
+        LogLevel.INFO -> "Info"
+        LogLevel.WARN -> "Warn"
+        LogLevel.ERROR -> "Error"
+        null -> stringResource(R.string.logs_filter_all)
+    }
+
+    val activeTabColor = when (selectedLevel) {
+        LogLevel.DEBUG -> DebugAccentColor
+        LogLevel.INFO -> activeProtoColor
+        LogLevel.WARN -> WarnAccentColor
+        LogLevel.ERROR -> ErrorAccentColor
+        null -> TextWhite
+    }
+
+    val isCurrentTabRecordingEnabled = when (selectedLevel) {
+        LogLevel.DEBUG -> isDebugLevelEnabled
+        LogLevel.INFO -> isInfoLevelEnabled
+        LogLevel.WARN -> isWarnLevelEnabled
+        LogLevel.ERROR -> isErrorLevelEnabled
+        null -> isMasterLoggingEnabled
+    }
+
+    val onToggleCurrentTabRecording: () -> Unit = {
+        when (selectedLevel) {
+            LogLevel.DEBUG -> {
+                val next = !isDebugLevelEnabled
+                app.prefsManager.setLogLevelEnabled(LogLevel.DEBUG, next)
+                Toast.makeText(
+                    context,
+                    context.getString(if (next) R.string.logs_tab_toast_enabled_format else R.string.logs_tab_toast_disabled_format, "Debug"),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            LogLevel.INFO -> {
+                val next = !isInfoLevelEnabled
+                app.prefsManager.setLogLevelEnabled(LogLevel.INFO, next)
+                Toast.makeText(
+                    context,
+                    context.getString(if (next) R.string.logs_tab_toast_enabled_format else R.string.logs_tab_toast_disabled_format, "Info"),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            LogLevel.WARN -> {
+                val next = !isWarnLevelEnabled
+                app.prefsManager.setLogLevelEnabled(LogLevel.WARN, next)
+                Toast.makeText(
+                    context,
+                    context.getString(if (next) R.string.logs_tab_toast_enabled_format else R.string.logs_tab_toast_disabled_format, "Warn"),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            LogLevel.ERROR -> {
+                val next = !isErrorLevelEnabled
+                app.prefsManager.setLogLevelEnabled(LogLevel.ERROR, next)
+                Toast.makeText(
+                    context,
+                    context.getString(if (next) R.string.logs_tab_toast_enabled_format else R.string.logs_tab_toast_disabled_format, "Error"),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            null -> {
+                val next = !isMasterLoggingEnabled
+                app.prefsManager.setLogsEnabled(next)
+                Toast.makeText(
+                    context,
+                    context.getString(if (next) R.string.logs_tab_toast_enabled_format else R.string.logs_tab_toast_disabled_format, context.getString(R.string.logs_filter_all)),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    val currentTabLogs = remember(rawLogs, selectedLevel) {
+        if (selectedLevel == null) rawLogs.toList()
+        else rawLogs.filter { it.level == selectedLevel }
+    }
+
     // Derived states to prevent unnecessary recompositions
     val isListEmpty by remember { derivedStateOf { displayedLogs.isEmpty() } }
     val isSearchActive by remember { derivedStateOf { isSearchVisible || searchQuery.isNotEmpty() } }
+    val isFiltered by remember { derivedStateOf { isSearchActive || selectedLevel != null } }
     val isScrolledDown by remember {
         derivedStateOf {
             listState.firstVisibleItemIndex > 1 || listState.firstVisibleItemScrollOffset > 80
@@ -181,23 +283,11 @@ fun LogsScreen(
         }
     }
 
-    val onCopyAllLogs: () -> Unit = remember(context, haptic, displayedLogs) {
-        {
-            if (displayedLogs.isEmpty()) {
-                Toast.makeText(context, context.getString(R.string.logs_no_events_to_copy), Toast.LENGTH_SHORT).show()
-            } else {
-                val text = displayedLogs.joinToString("\n") { "[${it.formattedTime}] [${it.tag}] ${it.humanMessage}" }
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Mirrly Proxy Logs", text))
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                Toast.makeText(context, context.getString(R.string.logs_all_copied), Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     val onClearLogs: () -> Unit = remember(context, haptic) {
         {
             AppLogger.clear()
+            selectedLogIds.clear()
+            isSelectionMode = false
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             Toast.makeText(context, context.getString(R.string.logs_cleared), Toast.LENGTH_SHORT).show()
         }
@@ -245,7 +335,7 @@ fun LogsScreen(
                     .adaptiveContentPadding(),
                 contentPadding = PaddingValues(
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + headerHeightDp + 6.dp,
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + if (isSelectionMode) 84.dp else 24.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
@@ -253,9 +343,27 @@ fun LogsScreen(
                     items = displayedLogs,
                     key = { _, entry -> entry.id }
                 ) { index, entry ->
+                    val isSelected = selectedLogIds.contains(entry.id)
                     GlassLogCard(
                         entry = entry,
+                        isSelectionMode = isSelectionMode,
+                        isSelected = isSelected,
+                        onToggleSelect = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            if (isSelected) {
+                                selectedLogIds.remove(entry.id)
+                            } else {
+                                selectedLogIds.add(entry.id)
+                            }
+                        },
                         onCopy = onCopyLog,
+                        onStartSelection = {
+                            isSelectionMode = true
+                            if (!selectedLogIds.contains(entry.id)) {
+                                selectedLogIds.add(entry.id)
+                            }
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
                         modifier = Modifier.logItemCascadeEntrance(
                             index = index,
                             isInitialBatch = isInitialLoad
@@ -265,7 +373,7 @@ fun LogsScreen(
             }
         }
 
-        // 2. PINNED FROSTED GLASS HEADER (Title Bar + Optional Animated Search + 4 Segmented Chips)
+        // 2. PINNED FROSTED GLASS HEADER (Title Bar + Selection State + Filter Chips)
         Box(
             modifier = Modifier
                 .adaptiveContainerWidth(600.dp)
@@ -284,89 +392,180 @@ fun LogsScreen(
                     .adaptiveContentPadding(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Top App Bar
-                TopAppBar(
-                    modifier = Modifier.staggeredEntrance(index = 0),
-                    title = {
-                        Text(
-                            text = stringResource(R.string.logs_title),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = TextWhite,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onBack()
-                        }) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_arrow_left),
-                                contentDescription = stringResource(R.string.action_back),
-                                tint = TextWhite,
-                                modifier = Modifier.size(22.dp)
+                // Top App Bar: switches between standard mode and selection mode
+                if (isSelectionMode) {
+                    TopAppBar(
+                        modifier = Modifier.staggeredEntrance(index = 0),
+                        title = {
+                            Text(
+                                text = stringResource(R.string.logs_selected_count_format, selectedLogIds.size),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp,
+                                color = TextWhite,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                        }
-                    },
-                    actions = {
-                        // Toggle Search Bar
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            if (isSearchVisible && searchQuery.isNotEmpty()) {
-                                searchQuery = ""
-                            }
-                            isSearchVisible = !isSearchVisible
-                            if (!isSearchVisible) {
-                                keyboardController?.hide()
-                            }
-                        }) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_search),
-                                contentDescription = stringResource(R.string.action_search),
-                                tint = if (isSearchActive) activeProtoColor else TextWhite,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        // Copy All Logs
-                        IconButton(onClick = onCopyAllLogs) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_copy),
-                                contentDescription = stringResource(R.string.logs_action_copy_all),
-                                tint = TextWhite,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        // Clear Logs
-                        IconButton(onClick = onClearLogs) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_trash),
-                                contentDescription = stringResource(R.string.logs_action_clear),
-                                tint = TextWhite,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        if (onOpenSettings != null) {
+                        },
+                        navigationIcon = {
                             IconButton(onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onOpenSettings()
+                                isSelectionMode = false
+                                selectedLogIds.clear()
                             }) {
                                 Icon(
-                                    painter = painterResource(id = R.drawable.ic_settings),
-                                    contentDescription = stringResource(R.string.action_settings),
+                                    painter = painterResource(id = R.drawable.ic_close),
+                                    contentDescription = stringResource(R.string.action_cancel),
                                     tint = TextWhite,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-                )
+                        },
+                        actions = {
+                            // Select all displayed logs
+                            TextButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                val allDisplayedIds = displayedLogs.map { it.id }
+                                selectedLogIds.clear()
+                                selectedLogIds.addAll(allDisplayedIds)
+                            }) {
+                                Text(
+                                    text = stringResource(R.string.logs_action_select_all),
+                                    color = activeProtoColor,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            // Deselect all
+                            TextButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                selectedLogIds.clear()
+                            }) {
+                                Text(
+                                    text = stringResource(R.string.logs_action_deselect_all),
+                                    color = TextMuted,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            // Invert selection
+                            TextButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                val currentSet = selectedLogIds.toSet()
+                                val inverted = displayedLogs.map { it.id }.filter { it !in currentSet }
+                                selectedLogIds.clear()
+                                selectedLogIds.addAll(inverted)
+                            }) {
+                                Text(
+                                    text = stringResource(R.string.logs_action_invert_selection),
+                                    color = TextWhite,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                    )
+                } else {
+                    TopAppBar(
+                        modifier = Modifier.staggeredEntrance(index = 0),
+                        title = {
+                            Text(
+                                text = stringResource(R.string.logs_title),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = TextWhite,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onBack()
+                            }) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_arrow_left),
+                                    contentDescription = stringResource(R.string.action_back),
+                                    tint = TextWhite,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        },
+                        actions = {
+                            // Toggle Search Bar
+                            IconButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (isSearchVisible && searchQuery.isNotEmpty()) {
+                                    searchQuery = ""
+                                }
+                                isSearchVisible = !isSearchVisible
+                                if (!isSearchVisible) {
+                                    keyboardController?.hide()
+                                }
+                            }) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_search),
+                                    contentDescription = stringResource(R.string.action_search),
+                                    tint = if (isSearchActive) activeProtoColor else TextWhite,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            // Enter Multi-Selection Mode
+                            IconButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                isSelectionMode = true
+                            }) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_check),
+                                    contentDescription = stringResource(R.string.logs_action_select),
+                                    tint = TextWhite,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+
+                            // Open Export Bottom Sheet
+                            IconButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showExportSheet = true
+                            }) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_export),
+                                    contentDescription = stringResource(R.string.logs_action_export),
+                                    tint = TextWhite,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            // Clear Logs
+                            IconButton(onClick = onClearLogs) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_trash),
+                                    contentDescription = stringResource(R.string.logs_action_clear),
+                                    tint = TextWhite,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            // Log Journal & Performance Settings
+                            IconButton(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showSettingsSheet = true
+                            }) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_settings),
+                                    contentDescription = stringResource(R.string.logs_settings_sheet_title),
+                                    tint = TextWhite,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                    )
+                }
 
                 // Animated Dropdown Search Bar
                 AnimatedVisibility(
@@ -485,12 +684,153 @@ fun LogsScreen(
                         }
                     )
                 }
+
+                // Section Tab Action & Control Banner ("Плашка")
+                if (!isSelectionMode) {
+                    TabLogControlBanner(
+                        tabName = activeTabName,
+                        tabColor = activeTabColor,
+                        isRecordingEnabled = isCurrentTabRecordingEnabled,
+                        onToggleRecording = onToggleCurrentTabRecording,
+                        onOpenExport = { showTabExportSheet = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .staggeredEntrance(index = 2)
+                    )
+                }
             }
         }
 
-        // Floating "Scroll to top" pill button when scrolled down
+        // 3. MULTI-SELECTION STICKY ACTION DOCK
         AnimatedVisibility(
-            visible = isScrolledDown,
+            visible = isSelectionMode,
+            enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { it },
+            exit = fadeOut(tween(150)) + slideOutVertically(tween(180)) { it },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 14.dp,
+                    start = 16.dp,
+                    end = 16.dp
+                )
+                .adaptiveContainerWidth(440.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = AmoledBackground.copy(alpha = 0.88f),
+                border = BorderStroke(1.dp, activeProtoColor.copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Copy Selected Entries Button
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(
+                            1.dp,
+                            if (selectedLogIds.isNotEmpty()) TextWhite.copy(alpha = 0.35f) else AmoledBorder
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .springPress(
+                                enabled = selectedLogIds.isNotEmpty(),
+                                onClick = {
+                                    val selectedEntries = rawLogs.filter { selectedLogIds.contains(it.id) }
+                                    val count = LogExportHelper.copyToClipboard(context, selectedEntries)
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.logs_copied_count_format, count),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    isSelectionMode = false
+                                    selectedLogIds.clear()
+                                }
+                            )
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_copy),
+                                contentDescription = null,
+                                tint = if (selectedLogIds.isNotEmpty()) TextWhite else TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.logs_action_copy_selected_format, selectedLogIds.size),
+                                color = if (selectedLogIds.isNotEmpty()) TextWhite else TextMuted,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    // Export Selected Entries to File Button
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(
+                            1.dp,
+                            if (selectedLogIds.isNotEmpty()) activeProtoColor.copy(alpha = 0.85f) else AmoledBorder
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .springPress(
+                                enabled = selectedLogIds.isNotEmpty(),
+                                onClick = {
+                                    val selectedEntries = rawLogs.filter { selectedLogIds.contains(it.id) }
+                                    val file = LogExportHelper.createLogFile(context, selectedEntries, "mirrly_logs_selected")
+                                    if (file != null) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        Toast.makeText(context, context.getString(R.string.logs_export_file_created), Toast.LENGTH_SHORT).show()
+                                        LogExportHelper.shareLogFile(context, file)
+                                        isSelectionMode = false
+                                        selectedLogIds.clear()
+                                    } else {
+                                        Toast.makeText(context, context.getString(R.string.logs_export_failed), Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_export),
+                                contentDescription = null,
+                                tint = if (selectedLogIds.isNotEmpty()) activeProtoColor else TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.logs_action_export_selected_format, selectedLogIds.size),
+                                color = if (selectedLogIds.isNotEmpty()) activeProtoColor else TextMuted,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. FLOATING "SCROLL TO TOP" PILL BUTTON (Shown when not in selection mode and scrolled down)
+        AnimatedVisibility(
+            visible = isScrolledDown && !isSelectionMode,
             enter = fadeIn(animationSpec = tween(180)) + slideInVertically(animationSpec = tween(220)) { it / 2 },
             exit = fadeOut(animationSpec = tween(150)) + slideOutVertically(animationSpec = tween(180)) { it / 2 },
             modifier = Modifier
@@ -531,12 +871,38 @@ fun LogsScreen(
             }
         }
 
-        // Delicate Cyber Particles floating over entire logs screen interface
+        // 5. CYBER PARTICLES OVERLAY
         CyberParticlesOverlay(
             modifier = Modifier.fillMaxSize(),
             particleCount = 42,
             alphaMultiplier = 0.70f
         )
+
+        // 6. BOTTOM SHEETS (Zero-Popup architecture)
+        if (showExportSheet) {
+            LogExportBottomSheet(
+                onDismissRequest = { showExportSheet = false },
+                allLogs = rawLogs,
+                displayedLogs = displayedLogs,
+                isFiltered = isFiltered,
+                onStartSelectionMode = { isSelectionMode = true }
+            )
+        }
+
+        if (showSettingsSheet) {
+            LogSettingsBottomSheet(
+                onDismissRequest = { showSettingsSheet = false }
+            )
+        }
+
+        if (showTabExportSheet) {
+            TabLogExportBottomSheet(
+                levelName = activeTabName,
+                levelColor = activeTabColor,
+                logs = currentTabLogs,
+                onDismissRequest = { showTabExportSheet = false }
+            )
+        }
     }
 }
 
@@ -596,9 +962,141 @@ private fun SegmentedFilterChip(
 }
 
 @Composable
+private fun TabLogControlBanner(
+    tabName: String,
+    tabColor: Color,
+    isRecordingEnabled: Boolean,
+    onToggleRecording: () -> Unit,
+    onOpenExport: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+
+    val borderColor by animateColorAsState(
+        targetValue = if (isRecordingEnabled) AmoledBorder else WarnAccentColor.copy(alpha = 0.65f),
+        animationSpec = tween(200),
+        label = "bannerBorder"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = AmoledBackground.copy(alpha = 0.45f),
+        border = BorderStroke(1.dp, borderColor),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (isRecordingEnabled) tabColor else WarnAccentColor)
+                )
+                Text(
+                    text = if (isRecordingEnabled) {
+                        stringResource(R.string.logs_tab_banner_recording_active)
+                    } else {
+                        stringResource(R.string.logs_tab_banner_recording_disabled)
+                    },
+                    color = if (isRecordingEnabled) TextWhite else WarnAccentColor,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Toggle Button: "Не формировать" / "Включить"
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isRecordingEnabled) Color.Transparent else tabColor.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, if (isRecordingEnabled) AmoledBorder else tabColor),
+                    modifier = Modifier
+                        .height(28.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleRecording()
+                        })
+                ) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isRecordingEnabled) {
+                                stringResource(R.string.logs_tab_banner_btn_disable)
+                            } else {
+                                stringResource(R.string.logs_tab_banner_btn_enable)
+                            },
+                            color = if (isRecordingEnabled) TextMuted else tabColor,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // Copy/Export Button
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, tabColor.copy(alpha = 0.65f)),
+                    modifier = Modifier
+                        .height(28.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onOpenExport()
+                        })
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_export),
+                            contentDescription = null,
+                            tint = tabColor,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.logs_tab_banner_btn_copy),
+                            color = TextWhite,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun GlassLogCard(
     entry: LogEntry,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
+    onToggleSelect: () -> Unit,
     onCopy: (LogEntry) -> Unit,
+    onStartSelection: (LogEntry) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val levelColor = when (entry.level) {
@@ -608,77 +1106,152 @@ private fun GlassLogCard(
         LogLevel.ERROR -> ErrorAccentColor
     }
 
-    val cardBorder = when (entry.level) {
-        LogLevel.DEBUG -> DebugCardBorder
-        LogLevel.INFO -> InfoCardBorder
-        LogLevel.WARN -> WarnCardBorder
-        LogLevel.ERROR -> ErrorCardBorder
+    val cardBorder = when {
+        isSelectionMode && isSelected -> BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.85f))
+        isSelectionMode -> BorderStroke(0.6.dp, AmoledBorder)
+        entry.level == LogLevel.DEBUG -> DebugCardBorder
+        entry.level == LogLevel.INFO -> InfoCardBorder
+        entry.level == LogLevel.WARN -> WarnCardBorder
+        entry.level == LogLevel.ERROR -> ErrorCardBorder
+        else -> InfoCardBorder
     }
+
+    val cardBackground = if (isSelectionMode && isSelected) {
+        ActiveGreenLed.copy(alpha = 0.05f)
+    } else {
+        Color.White.copy(alpha = 0.02f)
+    }
+
+    var isPressed by remember { mutableStateOf(false) }
+    val cardScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.98f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "logCardScale"
+    )
 
     Surface(
         shape = LogCardShape,
-        color = Color.White.copy(alpha = 0.02f),
+        color = cardBackground,
         border = cardBorder,
         modifier = modifier
             .fillMaxWidth()
-            .springPress(onClick = { onCopy(entry) })
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            // Header Row: Level Dot + Tag Badge & Monospace Time
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    // Level Indicator Dot
-                    Box(
-                        modifier = Modifier
-                            .size(4.5.dp)
-                            .clip(CircleShape)
-                            .background(levelColor)
-                    )
-
-                    // Tag Badge
-                    Surface(
-                        shape = LogTagShape,
-                        color = Color.Transparent,
-                        border = TagBadgeBorder
-                    ) {
-                        Text(
-                            text = entry.tag.ifBlank { "System" },
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextMuted,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                        )
+            .graphicsLayer {
+                scaleX = cardScale
+                scaleY = cardScale
+            }
+            .pointerInput(entry.id, isSelectionMode) {
+                detectTapGestures(
+                    onPress = {
+                        isPressed = true
+                        try {
+                            awaitRelease()
+                        } finally {
+                            isPressed = false
+                        }
+                    },
+                    onTap = {
+                        if (isSelectionMode) {
+                            onToggleSelect()
+                        } else {
+                            onCopy(entry)
+                        }
+                    },
+                    onLongPress = {
+                        if (!isSelectionMode) {
+                            onStartSelection(entry)
+                        } else {
+                            onToggleSelect()
+                        }
                     }
-                }
-
-                // Monospace Timestamp
-                Text(
-                    text = entry.formattedTime,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = TextMuted
                 )
             }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Selection indicator circle when multi-selection mode is active
+            if (isSelectionMode) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (isSelected) ActiveGreenLed.copy(alpha = 0.22f) else Color.Transparent,
+                    border = BorderStroke(1.dp, if (isSelected) ActiveGreenLed else AmoledBorder),
+                    modifier = Modifier.size(18.dp)
+                ) {
+                    if (isSelected) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(ActiveGreenLed)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+            }
 
-            // Main Human-Readable Message
-            Text(
-                text = entry.humanMessage,
-                color = TextWhite,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Normal,
-                lineHeight = 16.5.sp
-            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Header Row: Level Dot + Tag Badge & Monospace Time
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        // Level Indicator Dot
+                        Box(
+                            modifier = Modifier
+                                .size(4.5.dp)
+                                .clip(CircleShape)
+                                .background(levelColor)
+                        )
+
+                        // Tag Badge
+                        Surface(
+                            shape = LogTagShape,
+                            color = Color.Transparent,
+                            border = TagBadgeBorder
+                        ) {
+                            Text(
+                                text = entry.tag.ifBlank { "System" },
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextMuted,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+
+                    // Monospace Timestamp
+                    Text(
+                        text = entry.formattedTime,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextMuted
+                    )
+                }
+
+                // Main Human-Readable Message
+                Text(
+                    text = entry.humanMessage,
+                    color = TextWhite,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Normal,
+                    lineHeight = 16.5.sp
+                )
+            }
         }
     }
 }
@@ -729,5 +1302,3 @@ private fun Modifier.logItemCascadeEntrance(
         this.scaleY = scale
     }
 }
-
-

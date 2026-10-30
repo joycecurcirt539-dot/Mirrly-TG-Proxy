@@ -14,37 +14,96 @@ use tokio_util::sync::CancellationToken;
 // Domain decoding
 // ---------------------------------------------------------------------------
 
+pub static FLOWSEAL_OPEN_BASES: &[&str] = &[
+    "pclead",
+    "offshor",
+    "cakeisalie",
+    "noskomnadzor",
+    "lovetrue",
+    "sorokdva",
+    "pyatdesyatdva",
+    "kartoshka",
+    "sorokodin",
+    "pyatdesyatodin",
+    "notelega",
+    "ebally",
+    "nebally",
+    "havegreatday",
+    "pomogite",
+    "fixtelega",
+    "sadnews",
+    "onedaychamp",
+    "stopblocking",
+    "nothingthere",
+];
+
 pub fn decode_cf_domain(s: &str) -> String {
     let mut s_trim = s.trim();
     while s_trim.ends_with('.') {
         s_trim = &s_trim[..s_trim.len() - 1];
     }
-    if !s_trim.to_ascii_lowercase().ends_with(".com") {
-        return s_trim.to_string();
+    if s_trim.is_empty() {
+        return String::new();
     }
-    let suffix = ".co.uk";
-    let p = &s_trim[..s_trim.len() - 4];
-    let mut n = 0i32;
-    for c in p.chars() {
-        if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
-            n += 1;
-        }
-    }
-    let mut result: Vec<u8> = Vec::new();
-    for &c in p.as_bytes() {
-        if c >= b'a' && c <= b'z' {
-            let v = (((c - b'a') as i32 - n % 26 + 26) % 26) as u8 + b'a';
-            result.push(v);
-        } else if c >= b'A' && c <= b'Z' {
-            let v = (((c - b'A') as i32 - n % 26 + 26) % 26) as u8 + b'A';
-            result.push(v);
+
+    // Strip optional kws{dc}. or kws{dc}-{idx}. prefix if present
+    let stripped = if let Some((prefix, rest)) = s_trim.split_once('.') {
+        if prefix.starts_with("kws")
+            && prefix.len() > 3
+            && prefix[3..].chars().all(|c| c.is_ascii_digit() || c == '-')
+        {
+            rest
         } else {
-            result.push(c);
+            s_trim
+        }
+    } else {
+        s_trim
+    };
+
+    let lower = stripped.to_ascii_lowercase();
+
+    // Check if domain already matches an open Flowseal base (.co.uk, .com, or plain base)
+    let open_base = if let Some(base) = lower.strip_suffix(".co.uk") {
+        Some(base)
+    } else if let Some(base) = lower.strip_suffix(".com") {
+        Some(base)
+    } else {
+        Some(lower.as_str())
+    };
+
+    if let Some(base) = open_base {
+        if FLOWSEAL_OPEN_BASES.iter().any(|&b| b == base) {
+            return format!("{}.co.uk", base);
         }
     }
-    let mut out = String::from_utf8_lossy(&result).to_string();
-    out.push_str(suffix);
-    out
+
+    if lower.ends_with(".com") {
+        let suffix = ".co.uk";
+        let p = &stripped[..stripped.len() - 4];
+        let mut n = 0i32;
+        for c in p.chars() {
+            if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+                n += 1;
+            }
+        }
+        let mut result: Vec<u8> = Vec::new();
+        for &c in p.as_bytes() {
+            if c >= b'a' && c <= b'z' {
+                let v = (((c - b'a') as i32 - n % 26 + 26) % 26) as u8 + b'a';
+                result.push(v);
+            } else if c >= b'A' && c <= b'Z' {
+                let v = (((c - b'A') as i32 - n % 26 + 26) % 26) as u8 + b'A';
+                result.push(v);
+            } else {
+                result.push(c);
+            }
+        }
+        let mut out = String::from_utf8_lossy(&result).to_string();
+        out.push_str(suffix);
+        return out;
+    }
+
+    stripped.to_string()
 }
 
 pub fn normalize_cf_domain(s: &str) -> String {
@@ -59,6 +118,7 @@ pub fn normalize_cf_domain(s: &str) -> String {
 }
 
 pub fn parse_cfproxy_domains(body: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
     let mut domains = Vec::new();
     for line in body.lines() {
         let line = line.trim();
@@ -67,7 +127,7 @@ pub fn parse_cfproxy_domains(body: &str) -> Vec<String> {
         }
         let decoded = decode_cf_domain(line);
         let d = normalize_cf_domain(&decoded);
-        if !d.is_empty() {
+        if !d.is_empty() && seen.insert(d.clone()) {
             domains.push(d);
         }
     }
@@ -75,11 +135,12 @@ pub fn parse_cfproxy_domains(body: &str) -> Vec<String> {
 }
 
 pub fn default_cfproxy_domains() -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
     let mut domains = Vec::with_capacity(CFPROXY_ENC.len());
     for enc in CFPROXY_ENC {
         let decoded = decode_cf_domain(enc);
         let d = normalize_cf_domain(&decoded);
-        if !d.is_empty() {
+        if !d.is_empty() && seen.insert(d.clone()) {
             domains.push(d);
         }
     }
@@ -91,7 +152,8 @@ pub fn merge_cfproxy_domains(lists: &[Vec<String>]) -> Vec<String> {
     let mut merged = Vec::new();
     for list in lists {
         for raw in list {
-            let d = normalize_cf_domain(raw);
+            let decoded = decode_cf_domain(raw);
+            let d = normalize_cf_domain(&decoded);
             if d.is_empty() || seen.contains(&d) {
                 continue;
             }
@@ -650,18 +712,12 @@ pub async fn try_refresh_cfproxy_domains() -> bool {
 // ---------------------------------------------------------------------------
 
 pub const CF_ANYCAST_IPS_V4: &[&str] = &[
-    "172.67.153.159",
-    "172.67.74.152",
-    "104.21.234.180",
-    "104.16.248.249",
-    "104.16.249.249",
-    "162.159.153.4",
     "162.159.192.1",
-    "141.101.90.0",
-    "188.114.96.1",
+    "104.16.249.249",
+    "172.67.74.152",
     "188.114.97.1",
-    "188.114.96.3",
-    "188.114.97.3",
+    "104.21.234.180",
+    "188.114.96.1",
 ];
 
 pub const CF_ANYCAST_IPS_V6: &[&str] = &[
@@ -896,19 +952,7 @@ pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
         return crate::network_profile::filter_ip_family(vec![ip]);
     }
 
-    // 2. Cloudflare Edge Anycast fast-path (0 ms, zero DoH):
-    // All Cloudflare Workers (both *.workers.dev/*.pages.dev and custom domains)
-    // run on Cloudflare Anycast edge. Connecting directly to Anycast IPs
-    // bypasses DoH completely, eliminating DNS latency and TSPU censorship stalls.
-    let is_cf = crate::config::is_cloudflare_domain(domain)
-        || CFPROXY.read().user_domain.eq_ignore_ascii_case(domain)
-        || crate::config::LAST_SOCKS5_WORKER.read().eq_ignore_ascii_case(domain);
-    if is_cf {
-        let anycast = default_cf_anycast_dual_stack();
-        return crate::network_profile::filter_ip_family(anycast);
-    }
-
-    // 3. Cache hit (0 ms)
+    // 2. Cache hit (0 ms)
     let cur_gen = crate::network_profile::current_generation();
     if let Some(entry) = DOH_CACHE.read().get(domain).cloned() {
         if Instant::now() < entry.expires_at && entry.network_generation == cur_gen {
@@ -921,7 +965,7 @@ pub async fn resolve_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
         }
     }
 
-    // 4. Per-host singleflight resolution via system getaddrinfo (zero DoH)
+    // 3. Per-host singleflight resolution via system getaddrinfo
     let expected = crate::generation_guard::snapshot();
     let domain_key = format!("{}:{}:{}:{}", expected.network, expected.profile, expected.config, domain);
     let domain_task = domain.to_string();
@@ -937,33 +981,37 @@ async fn resolve_dual_stack_ips_uncached(
     domain: &str,
     expected: crate::generation_guard::GenerationStamp,
 ) -> Vec<IpAddr> {
-    if crate::config::is_cloudflare_domain(domain)
-        || CFPROXY.read().user_domain.eq_ignore_ascii_case(domain)
-        || crate::config::LAST_SOCKS5_WORKER.read().eq_ignore_ascii_case(domain)
-    {
-        let anycast = default_cf_anycast_dual_stack();
-        cache_resolved_ips_if_current(expected, domain, anycast.clone());
-        return anycast;
-    }
-
-    // Fast system DNS lookup (network-bound, dual-stack via getaddrinfo)
+    // 1. First, try fast system DNS lookup (network-bound, dual-stack via getaddrinfo)
     let host = format!("{}:443", domain);
     let mut addrs_list = Vec::new();
-    if let Ok(Ok(addrs)) = tokio::time::timeout(Duration::from_millis(500), tokio::net::lookup_host(host)).await {
+    if let Ok(Ok(addrs)) = tokio::time::timeout(Duration::from_millis(1500), tokio::net::lookup_host(&host)).await {
         for a in addrs {
-            addrs_list.push(a.ip());
+            if !addrs_list.contains(&a.ip()) {
+                addrs_list.push(a.ip());
+            }
         }
     }
 
-    if addrs_list.is_empty() {
-        // Fallback to Anycast dual-stack
-        let anycast = default_cf_anycast_dual_stack();
-        cache_resolved_ips_if_current(expected, domain, anycast.clone());
-        return anycast;
+    if !addrs_list.is_empty() {
+        if crate::config::is_cloudflare_domain(domain)
+            || CFPROXY.read().user_domain.eq_ignore_ascii_case(domain)
+            || crate::config::LAST_SOCKS5_WORKER.read().eq_ignore_ascii_case(domain)
+        {
+            let anycast = default_cf_anycast_dual_stack();
+            for ip in anycast {
+                if !addrs_list.contains(&ip) {
+                    addrs_list.push(ip);
+                }
+            }
+        }
+        cache_resolved_ips_if_current(expected, domain, addrs_list.clone());
+        return addrs_list;
     }
 
-    cache_resolved_ips_if_current(expected, domain, addrs_list.clone());
-    addrs_list
+    // 2. System DNS failed or timed out: fallback to clean Anycast dual-stack
+    let anycast = default_cf_anycast_dual_stack();
+    cache_resolved_ips_if_current(expected, domain, anycast.clone());
+    anycast
 }
 
 pub async fn resolve_clean_dual_stack_ips(domain: &str) -> Vec<IpAddr> {
@@ -1623,11 +1671,31 @@ mod tests {
         assert_eq!(decode_cf_domain("vmmzovy.com"), "offshor.co.uk");
         assert_eq!(decode_cf_domain("mkuosckvso.com"), "cakeisalie.co.uk");
         assert_eq!(decode_cf_domain("cakeisalie.co.uk"), "cakeisalie.co.uk");
+        // Open domain ending with .com should map to .co.uk without Caesar shifting
+        assert_eq!(decode_cf_domain("cakeisalie.com"), "cakeisalie.co.uk");
+        assert_eq!(decode_cf_domain("pclead.com"), "pclead.co.uk");
+        assert_eq!(decode_cf_domain("kws2.virkgj.com"), "pclead.co.uk");
+        assert_eq!(decode_cf_domain("kws4.cakeisalie.co.uk"), "cakeisalie.co.uk");
         assert_eq!(
             decode_cf_domain("my-worker.workers.dev"),
             "my-worker.workers.dev"
         );
         assert_eq!(decode_cf_domain("custom.domain.org"), "custom.domain.org");
+    }
+
+    #[test]
+    fn test_deduplicate_cfproxy_domains() {
+        // Both encrypted and open formats deduplicate cleanly
+        let raw = "virkgj.com\npclead.co.uk\npclead.com\nvmmzovy.com\noffshor.co.uk\n";
+        let parsed = parse_cfproxy_domains(raw);
+        assert_eq!(parsed, vec!["pclead.co.uk".to_string(), "offshor.co.uk".to_string()]);
+
+        let merged = merge_cfproxy_domains(&[
+            vec!["virkgj.com".to_string()],
+            vec!["pclead.co.uk".to_string(), "pclead.com".to_string()],
+            vec!["vmmzovy.com".to_string()],
+        ]);
+        assert_eq!(merged, vec!["pclead.co.uk".to_string(), "offshor.co.uk".to_string()]);
     }
 
     #[test]

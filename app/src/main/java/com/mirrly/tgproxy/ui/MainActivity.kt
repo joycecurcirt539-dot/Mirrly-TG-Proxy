@@ -88,6 +88,7 @@ import androidx.core.view.WindowCompat
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import com.mirrly.tgproxy.MirrlyApplication
+import com.mirrly.tgproxy.service.crash.CrashReportManager
 import com.mirrly.tgproxy.ui.AiChatScreen
 import com.mirrly.tgproxy.ui.theme.MirrlyTheme
 import com.mirrly.tgproxy.ui.theme.TextMuted
@@ -1037,7 +1038,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = logsScale.value
                                     scaleY = logsScale.value
                                     alpha = logsAlpha.value
-                                    renderEffect = if (showOnboarding || showAiChat) blurCache.getBlurEffect(1f) else null
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             LogsScreen(
@@ -1058,7 +1059,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = historyScale.value
                                     scaleY = historyScale.value
                                     alpha = historyAlpha.value
-                                    renderEffect = if (showOnboarding || showAiChat) blurCache.getBlurEffect(1f) else null
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             HistoryScreen(
@@ -1077,7 +1078,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = settingsScale.value
                                     scaleY = settingsScale.value
                                     alpha = settingsAlpha.value
-                                    renderEffect = if (showOnboarding || showAiChat) blurCache.getBlurEffect(1f) else null
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             SettingsScreen(
@@ -1210,6 +1211,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = diagnosticScale.value
                                     scaleY = diagnosticScale.value
                                     alpha = diagnosticAlpha.value
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             NetworkDiagnosticScreen(
@@ -1231,6 +1233,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = speedTestScale.value
                                     scaleY = speedTestScale.value
                                     alpha = speedTestAlpha.value
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             TunnelSpeedTestScreen(
@@ -1249,6 +1252,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = analyticsScale.value
                                     scaleY = analyticsScale.value
                                     alpha = analyticsAlpha.value
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             WorkerAnalyticsScreen(
@@ -1267,6 +1271,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = hallOfFameScale.value
                                     scaleY = hallOfFameScale.value
                                     alpha = hallOfFameAlpha.value
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             HallOfFameScreen(
@@ -1285,6 +1290,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = telegramChannelScale.value
                                     scaleY = telegramChannelScale.value
                                     alpha = telegramChannelAlpha.value
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             TelegramChannelScreen(
@@ -1303,6 +1309,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = diagnosticReportScale.value
                                     scaleY = diagnosticReportScale.value
                                     alpha = diagnosticReportAlpha.value
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             DiagnosticReportScreen(
@@ -1321,6 +1328,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = workerGuideScale.value
                                     scaleY = workerGuideScale.value
                                     alpha = workerGuideAlpha.value
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             WorkerGuideScreen(
@@ -1353,6 +1361,7 @@ class MainActivity : ComponentActivity() {
                                     scaleX = warpGeneratorScale.value
                                     scaleY = warpGeneratorScale.value
                                     alpha = warpGeneratorAlpha.value
+                                    renderEffect = if (showOnboarding || showAiChat || isSheetOpen) blurCache.getBlurEffect(1f) else null
                                 }
                         ) {
                             WarpGeneratorScreen(
@@ -1428,6 +1437,16 @@ class MainActivity : ComponentActivity() {
                         onDispose {
                             onDeepLinkReceived = null
                         }
+                    }
+
+                    val pendingCrash by CrashReportManager.pendingCrashFlow.collectAsState()
+                    pendingCrash?.let { report ->
+                        CrashReportSheet(
+                            report = report,
+                            onDismiss = {
+                                CrashReportManager.clearPendingCrash(applicationContext)
+                            }
+                        )
                     }
 
                     pendingImportWorker?.let { (importName, importDomain) ->

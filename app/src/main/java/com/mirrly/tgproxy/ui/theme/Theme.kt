@@ -4,6 +4,7 @@ import android.app.Activity
 import com.mirrly.tgproxy.util.findActivity
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -502,8 +503,10 @@ fun Modifier.staggeredEntrance(
  * Compresses scale by 3% on touch press, with physical spring bounce on release.
  * Reliably handles clicks without dropping events or interfering with parent scroll gestures.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 fun Modifier.springPress(
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     enabled: Boolean = true,
     pressScale: Float = 0.97f,
     interactionSource: MutableInteractionSource? = null
@@ -529,7 +532,14 @@ fun Modifier.springPress(
             scaleY = scale
         }
         .then(
-            if (onClick != null) {
+            if (onLongClick != null && onClick != null) {
+                Modifier.combinedClickable(
+                    interactionSource = internalInteractionSource,
+                    indication = null,
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                )
+            } else if (onClick != null) {
                 Modifier.clickable(
                     interactionSource = internalInteractionSource,
                     indication = null,

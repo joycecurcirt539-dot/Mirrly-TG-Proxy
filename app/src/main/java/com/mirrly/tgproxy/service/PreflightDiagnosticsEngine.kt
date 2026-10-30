@@ -118,12 +118,16 @@ object PreflightDiagnosticsEngine {
         _preflightStage.value = PreflightStage.PHASE_2_WARMUP_STREAMS
         AppLogger.i(TAG, "Фаза 2/3: Прогрев WSS-туннелей и пула потоков...")
         if (config.isSocks5Mode) {
+            val isCdn = config.socks5UplinkMode == 1 || config.getEffectiveCfDomain().isBlank()
             val isMobile = prefsManager.isForceMobileModeEnabled() ||
                 com.mirrly.tgproxy.MirrlyApplication.instance.proxyServer.effectiveNetworkProfile.let { it.cellular || it.metered || it.isMobile }
             val maxWarmupMs = if (isMobile || isDegraded) 6000L else 3500L
             val pollIntervalMs = 60L
             val startTime = System.currentTimeMillis()
             var lastStatus: com.mirrly.tgproxy.core.WarmPoolStatus? = null
+
+            val poolPrefix = if (isCdn) "Anycast CDN Flowseal" else "Cloudflare Worker"
+            AppLogger.i(TAG, "Фаза 2/3: Прогрев пула WSS-потоков ($poolPrefix)...")
 
             while (System.currentTimeMillis() - startTime < maxWarmupMs) {
                 val status = com.mirrly.tgproxy.core.NativeProxy.getWarmPoolStatus()

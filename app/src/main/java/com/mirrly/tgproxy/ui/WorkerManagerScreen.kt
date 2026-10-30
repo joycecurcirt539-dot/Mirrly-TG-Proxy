@@ -24,6 +24,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
@@ -63,7 +65,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -138,6 +142,14 @@ fun WorkerManagerScreen(
     val activeProtoColor = if (targetProtocol == ProxyMode.MTPROTO) MtprotoAccent else Socks5Accent
 
     val sections = remember { ManagerSection.values().toList() }
+    val primarySections = remember {
+        listOf(
+            ManagerSection.WORKERS,
+            ManagerSection.DEPLOY,
+            ManagerSection.SHARE,
+            ManagerSection.SCANNER
+        )
+    }
 
     var currentSection by remember(initialSection) {
         mutableStateOf(initialSection)
@@ -274,6 +286,28 @@ fun WorkerManagerScreen(
 
     val workersListState = rememberLazyListState()
 
+    val sheetBlurProgress by animateFloatAsState(
+        targetValue = if (BottomSheetStateTracker.isAnySheetOpen) 1f else 0f,
+        animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing),
+        label = "wmBodySheetBlur"
+    )
+    val bodySheetBlurModifier = if (sheetBlurProgress > 0.005f) {
+        Modifier.graphicsLayer {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val blurPx = sheetBlurProgress * 24f * density.density
+                if (blurPx > 0.5f) {
+                    renderEffect = RenderEffect.createBlurEffect(
+                        blurPx,
+                        blurPx,
+                        Shader.TileMode.CLAMP
+                    ).asComposeRenderEffect()
+                }
+            }
+        }
+    } else {
+        Modifier
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // Ambient background particles
         CyberParticlesOverlay(
@@ -287,6 +321,7 @@ fun WorkerManagerScreen(
             targetState = currentSection,
             modifier = Modifier
                 .fillMaxSize()
+                .then(bodySheetBlurModifier)
                 .fadingEdges(topFadeHeight = 28.dp, bottomFadeHeight = 44.dp),
             transitionSpec = {
                 val fromIndex = sections.indexOf(initialState)
@@ -746,6 +781,7 @@ fun WorkerManagerScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(bodySheetBlurModifier)
                 .onGloballyPositioned { coordinates ->
                     val heightInDp = with(density) { coordinates.size.height.toDp() }
                     if (heightInDp > 0.dp && heightInDp != headerHeightDp) {
@@ -919,18 +955,15 @@ fun WorkerManagerScreen(
                     }
                 }
 
-                // Section Tabs Row (Outline only)
+                // 1. Primary 4 Section Tabs Row (Distributed evenly across full width)
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    sections.forEach { sec ->
+                    primarySections.forEach { sec ->
                         val isSelected = currentSection == sec
                         val secColor = when (sec) {
                             ManagerSection.DEPLOY -> Color(0xFFF38020)
-                            ManagerSection.GUIDE -> Color(0xFF38BDF8)
                             else -> activeProtoColor
                         }
 
@@ -939,6 +972,7 @@ fun WorkerManagerScreen(
                             color = Color.Transparent,
                             border = BorderStroke(1.dp, if (isSelected) secColor else AmoledBorder),
                             modifier = Modifier
+                                .weight(1f)
                                 .clip(RoundedCornerShape(10.dp))
                                 .springPress(onClick = {
                                     if (currentSection != sec) {
@@ -947,14 +981,63 @@ fun WorkerManagerScreen(
                                     }
                                 })
                         ) {
-                            Text(
-                                text = stringResource(sec.titleRes),
-                                color = if (isSelected) secColor else TextMuted,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 7.dp, horizontal = 2.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stringResource(sec.titleRes),
+                                    color = if (isSelected) secColor else TextMuted,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
+                    }
+                }
+
+                // 2. Guide Section (Full-width row underneath the 4 tabs)
+                val isGuideSelected = currentSection == ManagerSection.GUIDE
+                val guideColor = Color(0xFF38BDF8)
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, if (isGuideSelected) guideColor else AmoledBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .springPress(onClick = {
+                            if (currentSection != ManagerSection.GUIDE) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                currentSection = ManagerSection.GUIDE
+                            }
+                        })
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp, horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_info_circle),
+                            contentDescription = null,
+                            tint = if (isGuideSelected) guideColor else TextMuted,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(ManagerSection.GUIDE.titleRes),
+                            color = if (isGuideSelected) guideColor else TextMuted,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (isGuideSelected) FontWeight.Bold else FontWeight.Medium
+                        )
                     }
                 }
             }

@@ -53,7 +53,24 @@ object WarpObfuscatedHttpClient {
         Thread(runnable, "warp-registration-deadline").apply { isDaemon = true }
     }.apply { removeOnCancelPolicy = true }
 
-    const val DEFAULT_CAMOUFLAGE_SNI = "cdnjs.cloudflare.com"
+    const val DEFAULT_CAMOUFLAGE_SNI = "consumer-masque-proxy.cloudflareclient.com"
+
+    val VALID_CAMOUFLAGE_SNIS = listOf(
+        "consumer-masque-proxy.cloudflareclient.com",
+        "consumer-masque.cloudflareclient.com",
+        "zt-masque-proxy.cloudflareclient.com",
+        "zt-masque.cloudflareclient.com",
+        HOST
+    )
+
+    fun sanitizeSni(sni: String?): String {
+        val trimmed = sni?.trim().orEmpty()
+        return if (trimmed.isBlank() || trimmed.equals("cdnjs.cloudflare.com", ignoreCase = true)) {
+            DEFAULT_CAMOUFLAGE_SNI
+        } else {
+            trimmed
+        }
+    }
 
     data class HttpResponse(val statusCode: Int, val statusMessage: String, val body: String, val connectedIp: String)
 
@@ -72,7 +89,7 @@ object WarpObfuscatedHttpClient {
         authToken = authToken,
         timeoutMs = timeoutMs,
         candidatesList = candidates.take(maxCandidates.coerceIn(1, candidates.size)),
-        sniHost = sniHost
+        sniHost = sanitizeSni(sniHost)
     )
 
     internal fun executeInternal(
@@ -89,33 +106,54 @@ object WarpObfuscatedHttpClient {
         enableFragmentation: Boolean = true
     ): HttpResponse {
         require(timeoutMs > 0) { "Registration timeout must be positive" }
+        val effectiveSni = sanitizeSni(sniHost)
         val request = encodeRequest(method, path, bodyJson, authToken, host)
         val budget = timeoutMs.coerceIn(1000, 15000)
-        return tryCandidatesWith(candidatesList) { ip ->
-            AppLogger.d(TAG, "Прямой зонд Cloudflare API: $ip (SNI: $sniHost, бюджет ${budget}мс)")
-            Socket().use { socket ->
-                withinDeadline(budget, { socket.close() }) { deadline ->
-                    socket.tcpNoDelay = true
-                    socket.soTimeout = budget
-                    if (!VpnSocketProtector.protect(socket)) {
-                        throw IOException("Socket protection failed; aborted to prevent VPN routing loop")
+        val sniCandidates = if (effectiveSni != DEFAULT_CAMOUFLAGE_SNI) {
+            listOf(effectiveSni, DEFAULT_CAMOUFLAGE_SNI)
+        } else {
+            listOf(DEFAULT_CAMOUFLAGE_SNI)
+        }
+
+        var lastFailure: IOException? = null
+        for (activeSni in sniCandidates) {
+            try {
+                return tryCandidatesWith(candidatesList) { ip ->
+                    AppLogger.d(TAG, "Прямой зонд Cloudflare API: $ip (SNI: $activeSni, бюджет ${budget}мс)")
+                    Socket().use { socket ->
+                        withinDeadline(budget, { socket.close() }) { deadline ->
+                            socket.tcpNoDelay = true
+                            socket.soTimeout = budget
+                            if (!VpnSocketProtector.protect(socket)) {
+                                throw IOException("Socket protection failed; aborted to prevent VPN routing loop")
+                            }
+                            socket.connect(InetSocketAddress(ip, port), budget)
+                            val engine = createEngine(customContext, host = host, port = port, sniHost = activeSni)
+                            val connection = EngineConnection(
+                                socket = socket,
+                                engine = engine,
+                                deadline = deadline,
+                                expectedHost = activeSni,
+                                fallbackHost = host,
+                                enableFragmentation = enableFragmentation
+                            )
+                            connection.handshake()
+                            connection.write(request)
+                            val resp = readHttpResponse(connection, ip, method)
+                            if ((resp.statusCode == 421 || resp.statusCode == 403) && activeSni != DEFAULT_CAMOUFLAGE_SNI) {
+                                AppLogger.w(TAG, "SNI $activeSni отклонен Cloudflare (HTTP ${resp.statusCode}), переключение на $DEFAULT_CAMOUFLAGE_SNI")
+                                throw IOException("Cloudflare rejected SNI $activeSni with HTTP ${resp.statusCode}")
+                            }
+                            resp
+                        }
                     }
-                    socket.connect(InetSocketAddress(ip, port), budget)
-                    val engine = createEngine(customContext, host = host, port = port, sniHost = sniHost)
-                    val connection = EngineConnection(
-                        socket = socket,
-                        engine = engine,
-                        deadline = deadline,
-                        expectedHost = sniHost,
-                        fallbackHost = host,
-                        enableFragmentation = enableFragmentation
-                    )
-                    connection.handshake()
-                    connection.write(request)
-                    readHttpResponse(connection, ip, method)
                 }
+            } catch (e: IOException) {
+                lastFailure = e
+                AppLogger.w(TAG, "Попытка прямого зонда с SNI $activeSni завершилась сбоем: ${e.message}")
             }
         }
+        throw lastFailure ?: IOException("No direct registration candidate")
     }
 
     fun probeDirectApi(timeoutMs: Int = DEFAULT_TIMEOUT_MS): Boolean = try {

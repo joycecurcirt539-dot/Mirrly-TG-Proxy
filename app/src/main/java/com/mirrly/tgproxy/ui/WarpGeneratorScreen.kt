@@ -10,7 +10,10 @@ package com.mirrly.tgproxy.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.net.Uri
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,6 +45,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -268,7 +272,12 @@ fun WarpGeneratorScreen(
                     val effectiveProfile: WarpProfile = if (accountMode == WarpAccountGenerationMode.NEW_ACCOUNT) {
                         logTerm("Регистрация нового аккаунта Cloudflare WARP...")
                         val regResult = WarpAccountManager.registerAndActivate(
-                            licenseKey = licenseKeyText.trim().ifBlank { null }
+                            workerDomain = app.config.warpWorkerDomain.ifBlank { null },
+                            licenseKey = licenseKeyText.trim().ifBlank { null },
+                            sniCamouflage = app.config.warpMasqueSni.ifBlank { null },
+                            onProgress = { step ->
+                                logTerm("[${step.stageTitle}] ${step.detail}")
+                            }
                         )
                         if (regResult.isFailure) {
                             throw regResult.exceptionOrNull() ?: Exception("Регистрация не удалась")
@@ -284,7 +293,12 @@ fun WarpGeneratorScreen(
                         } else {
                             logTerm("Аккаунт не найден. Авторегистрация нового...")
                             val regResult = WarpAccountManager.registerAndActivate(
-                                licenseKey = licenseKeyText.trim().ifBlank { null }
+                                workerDomain = app.config.warpWorkerDomain.ifBlank { null },
+                                licenseKey = licenseKeyText.trim().ifBlank { null },
+                                sniCamouflage = app.config.warpMasqueSni.ifBlank { null },
+                                onProgress = { step ->
+                                    logTerm("[${step.stageTitle}] ${step.detail}")
+                                }
                             )
                             if (regResult.isFailure) {
                                 throw regResult.exceptionOrNull() ?: Exception("Регистрация не удалась")
@@ -349,6 +363,29 @@ fun WarpGeneratorScreen(
         }
     }
 
+    val sheetBlurProgress by animateFloatAsState(
+        targetValue = if (BottomSheetStateTracker.isAnySheetOpen) 1f else 0f,
+        animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing),
+        label = "warpBodySheetBlur"
+    )
+    val density = LocalDensity.current.density
+    val bodySheetBlurModifier = if (sheetBlurProgress > 0.005f) {
+        Modifier.graphicsLayer {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val blurPx = sheetBlurProgress * 24f * density
+                if (blurPx > 0.5f) {
+                    renderEffect = RenderEffect.createBlurEffect(
+                        blurPx,
+                        blurPx,
+                        Shader.TileMode.CLAMP
+                    ).asComposeRenderEffect()
+                }
+            }
+        }
+    } else {
+        Modifier
+    }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
@@ -357,6 +394,7 @@ fun WarpGeneratorScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .then(bodySheetBlurModifier)
                 .fadingEdges(
                     topFadeHeight = 28.dp,
                     bottomFadeHeight = 44.dp

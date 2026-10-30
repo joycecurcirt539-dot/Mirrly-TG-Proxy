@@ -685,6 +685,13 @@ export default {
     const val WS_PATH = "/apiws"
     const val WS_PATH_TEST = "/apiws_test"
 
+    val FLOWSEAL_OPEN_BASES = listOf(
+        "pclead", "offshor", "cakeisalie", "noskomnadzor", "lovetrue",
+        "sorokdva", "pyatdesyatdva", "kartoshka", "sorokodin", "pyatdesyatodin",
+        "notelega", "ebally", "nebally", "havegreatday", "pomogite",
+        "fixtelega", "sadnews", "onedaychamp", "stopblocking", "nothingthere"
+    )
+
     private val dynamicEmbeddedDomains = java.util.concurrent.CopyOnWriteArrayList(DEFAULT_EMBEDDED_DOMAINS)
 
     fun promoteDomain(domain: String) {
@@ -694,30 +701,61 @@ export default {
     }
 
     fun decodeCfDomain(s: String): String {
-        val trimmed = s.trim()
-        if (!trimmed.endsWith(".com")) return trimmed
-        val suffix = ".co.uk"
-        val p = trimmed.dropLast(4)
-        var n = 0
-        for (c in p) {
-            if (c in 'a'..'z' || c in 'A'..'Z') n++
+        var trimmed = s.trim()
+        while (trimmed.endsWith(".")) {
+            trimmed = trimmed.dropLast(1)
         }
-        val sb = StringBuilder()
-        for (c in p) {
-            when (c) {
-                in 'a'..'z' -> {
-                    val v = (((c - 'a') - n % 26 + 26) % 26 + 'a'.code).toChar()
-                    sb.append(v)
-                }
-                in 'A'..'Z' -> {
-                    val v = (((c - 'A') - n % 26 + 26) % 26 + 'A'.code).toChar()
-                    sb.append(v)
-                }
-                else -> sb.append(c)
+        if (trimmed.isEmpty()) return ""
+
+        val stripped = if (trimmed.contains('.')) {
+            val parts = trimmed.split('.', limit = 2)
+            val prefix = parts[0]
+            if (prefix.startsWith("kws") && prefix.length > 3 && prefix.substring(3).all { it.isDigit() || it == '-' }) {
+                parts[1]
+            } else {
+                trimmed
             }
+        } else {
+            trimmed
         }
-        sb.append(suffix)
-        return sb.toString()
+
+        val lower = stripped.lowercase()
+        val openBase = when {
+            lower.endsWith(".co.uk") -> lower.removeSuffix(".co.uk")
+            lower.endsWith(".com") -> lower.removeSuffix(".com")
+            else -> lower
+        }
+
+        if (FLOWSEAL_OPEN_BASES.contains(openBase)) {
+            return "$openBase.co.uk"
+        }
+
+        if (lower.endsWith(".com")) {
+            val suffix = ".co.uk"
+            val p = stripped.dropLast(4)
+            var n = 0
+            for (c in p) {
+                if (c in 'a'..'z' || c in 'A'..'Z') n++
+            }
+            val sb = StringBuilder()
+            for (c in p) {
+                when (c) {
+                    in 'a'..'z' -> {
+                        val v = (((c - 'a') - n % 26 + 26) % 26 + 'a'.code).toChar()
+                        sb.append(v)
+                    }
+                    in 'A'..'Z' -> {
+                        val v = (((c - 'A') - n % 26 + 26) % 26 + 'A'.code).toChar()
+                        sb.append(v)
+                    }
+                    else -> sb.append(c)
+                }
+            }
+            sb.append(suffix)
+            return sb.toString()
+        }
+
+        return stripped
     }
 
     fun getWsDomains(dc: Int, isMedia: Boolean? = null): List<String> {

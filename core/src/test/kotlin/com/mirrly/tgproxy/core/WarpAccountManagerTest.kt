@@ -601,6 +601,32 @@ class WarpAccountManagerTest {
         assertTrue(dataPlaneSuccess.isFullyVerified(), "Candidate with verified data plane is fully verified")
     }
 
+    @Test
+    fun testWarpSniCamouflageValidationAndSanitization() {
+        assertEquals(
+            "consumer-masque-proxy.cloudflareclient.com",
+            WarpObfuscatedHttpClient.DEFAULT_CAMOUFLAGE_SNI,
+            "Default camouflage SNI must be consumer-masque-proxy.cloudflareclient.com"
+        )
+        // cdnjs.cloudflare.com must be sanitized because Cloudflare Edge rejects cross-zone fronting
+        assertEquals(
+            "consumer-masque-proxy.cloudflareclient.com",
+            WarpObfuscatedHttpClient.sanitizeSni("cdnjs.cloudflare.com")
+        )
+        assertEquals(
+            "consumer-masque-proxy.cloudflareclient.com",
+            WarpObfuscatedHttpClient.sanitizeSni(null)
+        )
+        assertEquals(
+            "consumer-masque-proxy.cloudflareclient.com",
+            WarpObfuscatedHttpClient.sanitizeSni("   ")
+        )
+        assertEquals(
+            "consumer-masque.cloudflareclient.com",
+            WarpObfuscatedHttpClient.sanitizeSni("consumer-masque.cloudflareclient.com")
+        )
+    }
+
     @org.junit.jupiter.api.Disabled("Live integration test")
     @Test
     fun testLiveRegistration() {

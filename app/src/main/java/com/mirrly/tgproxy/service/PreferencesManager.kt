@@ -1,5 +1,6 @@
 package com.mirrly.tgproxy.service
 
+import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 
 import android.content.Context
@@ -47,6 +48,9 @@ class PreferencesManager(private val context: Context) {
 
     private val _isSocks5Flow = MutableStateFlow(loadConfig().isSocks5Mode)
     val isSocks5Flow: StateFlow<Boolean> = _isSocks5Flow.asStateFlow()
+
+    private val _socks5UplinkModeFlow = MutableStateFlow(loadConfig().socks5UplinkMode)
+    val socks5UplinkModeFlow: StateFlow<Int> = _socks5UplinkModeFlow.asStateFlow()
 
     private val _proxyModeFlow = MutableStateFlow(loadConfig().proxyMode)
     val proxyModeFlow: StateFlow<ProxyMode> = _proxyModeFlow.asStateFlow()
@@ -139,6 +143,35 @@ class PreferencesManager(private val context: Context) {
     private val _dialThrottlingFlow = MutableStateFlow(isDialThrottlingEnabled())
     val dialThrottlingFlow: StateFlow<Boolean> = _dialThrottlingFlow.asStateFlow()
 
+    // ── Log Journal & Overhead Reduction Settings ──
+    private val _isLogsEnabledFlow = MutableStateFlow(prefs.getBoolean("logs_enabled", true))
+    val isLogsEnabledFlow: StateFlow<Boolean> = _isLogsEnabledFlow.asStateFlow()
+
+    private val _isLogcatReaderAllowedFlow = MutableStateFlow(prefs.getBoolean("logs_logcat_reader_allowed", true))
+    val isLogcatReaderAllowedFlow: StateFlow<Boolean> = _isLogcatReaderAllowedFlow.asStateFlow()
+
+    private val _isLogLevelDebugFlow = MutableStateFlow(prefs.getBoolean("logs_level_debug", false))
+    val isLogLevelDebugFlow: StateFlow<Boolean> = _isLogLevelDebugFlow.asStateFlow()
+
+    private val _isLogLevelInfoFlow = MutableStateFlow(prefs.getBoolean("logs_level_info", true))
+    val isLogLevelInfoFlow: StateFlow<Boolean> = _isLogLevelInfoFlow.asStateFlow()
+
+    private val _isLogLevelWarnFlow = MutableStateFlow(prefs.getBoolean("logs_level_warn", true))
+    val isLogLevelWarnFlow: StateFlow<Boolean> = _isLogLevelWarnFlow.asStateFlow()
+
+    private val _isLogLevelErrorFlow = MutableStateFlow(prefs.getBoolean("logs_level_error", true))
+    val isLogLevelErrorFlow: StateFlow<Boolean> = _isLogLevelErrorFlow.asStateFlow()
+
+    private val _disabledLogCategoriesFlow = MutableStateFlow(
+        prefs.getStringSet("logs_disabled_categories", emptySet()) ?: emptySet()
+    )
+    val disabledLogCategoriesFlow: StateFlow<Set<String>> = _disabledLogCategoriesFlow.asStateFlow()
+
+    private val _disabledLogTagsFlow = MutableStateFlow(
+        prefs.getStringSet("logs_disabled_tags", emptySet()) ?: emptySet()
+    )
+    val disabledLogTagsFlow: StateFlow<Set<String>> = _disabledLogTagsFlow.asStateFlow()
+
     // ── Custom Wallpaper Engine ─────────────────────────────────────────────
     /** Absolute path of the sandboxed wallpaper file, or null for the default AMOLED background. */
     private val _customBackgroundUriFlow = MutableStateFlow(resolveStoredWallpaperPath())
@@ -208,6 +241,14 @@ class PreferencesManager(private val context: Context) {
         if (key == KEY_TLS_CLIENT_HELLO_SPLIT_ENABLED) {
             _isTlsClientHelloSplitEnabledFlow.value = sharedPreferences.getBoolean(key, true)
         }
+        if (key == KEY_SOCKS5_UPLINK_MODE) {
+            val mode = sharedPreferences.getInt(key, 0)
+            _socks5UplinkModeFlow.value = mode
+            try {
+                MirrlyApplication.instance.config.socks5UplinkMode = mode
+            } catch (_: Throwable) {}
+            com.mirrly.tgproxy.core.NativeProxy.setSocks5UplinkMode(mode)
+        }
         if (key == "proxy_mode" || key == "socks5_enabled") {
             val modeName = sharedPreferences.getString("proxy_mode", ProxyMode.MTPROTO.name)
             val isSocks5 = modeName == ProxyMode.SOCKS5.name || sharedPreferences.getBoolean("socks5_enabled", false)
@@ -271,6 +312,17 @@ class PreferencesManager(private val context: Context) {
         }
         if (key == "dial_throttling_enabled") {
             _dialThrottlingFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+        if (key?.startsWith("logs_") == true) {
+            _isLogsEnabledFlow.value = sharedPreferences.getBoolean("logs_enabled", true)
+            _isLogcatReaderAllowedFlow.value = sharedPreferences.getBoolean("logs_logcat_reader_allowed", true)
+            _isLogLevelDebugFlow.value = sharedPreferences.getBoolean("logs_level_debug", false)
+            _isLogLevelInfoFlow.value = sharedPreferences.getBoolean("logs_level_info", true)
+            _isLogLevelWarnFlow.value = sharedPreferences.getBoolean("logs_level_warn", true)
+            _isLogLevelErrorFlow.value = sharedPreferences.getBoolean("logs_level_error", true)
+            _disabledLogCategoriesFlow.value = sharedPreferences.getStringSet("logs_disabled_categories", emptySet()) ?: emptySet()
+            _disabledLogTagsFlow.value = sharedPreferences.getStringSet("logs_disabled_tags", emptySet()) ?: emptySet()
+            syncLogSettingsToAppLogger()
         }
     }
 
@@ -355,6 +407,7 @@ class PreferencesManager(private val context: Context) {
         val socks5Password = WarpKeystoreEncryption.decrypt(socks5PasswordRaw)
         val useDefaultWorkerSocks5 = prefs.getBoolean("use_default_worker_socks5", defaults.useDefaultWorkerSocks5)
         val socks5OptimisticResponse = prefs.getBoolean("socks5_optimistic_response", defaults.socks5OptimisticResponse)
+        val socks5UplinkMode = prefs.getInt(KEY_SOCKS5_UPLINK_MODE, defaults.socks5UplinkMode)
         val targetTelegramPort = prefs.getInt("target_telegram_port", defaults.targetTelegramPort)
         val useWorkerMtproto = prefs.getBoolean("use_worker_mtproto", defaults.useWorkerMtproto)
 
@@ -473,6 +526,7 @@ class PreferencesManager(private val context: Context) {
             socks5Username = socks5Username,
             socks5Password = socks5Password,
             socks5OptimisticResponse = socks5OptimisticResponse,
+            socks5UplinkMode = socks5UplinkMode,
             targetTelegramPort = targetTelegramPort,
             useDefaultWorkerSocks5 = useDefaultWorkerSocks5,
             useWorkerMtproto = useWorkerMtproto,
@@ -601,6 +655,7 @@ class PreferencesManager(private val context: Context) {
             .putInt("socks5_port", config.socks5Port)
             .putString("socks5_username", config.socks5Username)
             .putBoolean("socks5_optimistic_response", config.socks5OptimisticResponse)
+            .putInt(KEY_SOCKS5_UPLINK_MODE, config.socks5UplinkMode)
             .putInt("target_telegram_port", config.targetTelegramPort)
             .putBoolean("use_default_worker_socks5", config.useDefaultWorkerSocks5)
             .putBoolean("use_worker_mtproto", config.useWorkerMtproto)
@@ -689,6 +744,19 @@ class PreferencesManager(private val context: Context) {
 
     fun isSocks5OptimisticResponse(): Boolean {
         return prefs.getBoolean("socks5_optimistic_response", true)
+    }
+
+    fun setSocks5UplinkMode(mode: Int) {
+        prefs.edit().putInt(KEY_SOCKS5_UPLINK_MODE, mode).apply()
+        _socks5UplinkModeFlow.value = mode
+        try {
+            MirrlyApplication.instance.config.socks5UplinkMode = mode
+        } catch (_: Throwable) {}
+        com.mirrly.tgproxy.core.NativeProxy.setSocks5UplinkMode(mode)
+    }
+
+    fun getSocks5UplinkMode(): Int {
+        return prefs.getInt(KEY_SOCKS5_UPLINK_MODE, 0)
     }
 
     fun setTargetTelegramPort(port: Int) {
@@ -1427,6 +1495,7 @@ class PreferencesManager(private val context: Context) {
         const val KEY_ACTIVE_WORKER_ID_MTPROTO = "active_worker_id_mtproto"
         const val KEY_USER_PRIMARY_WORKER_ID_SOCKS5 = "user_primary_worker_id_socks5"
         const val KEY_USER_PRIMARY_WORKER_ID_MTPROTO = "user_primary_worker_id_mtproto"
+        const val KEY_SOCKS5_UPLINK_MODE = "socks5_uplink_mode"
         private const val KEY_SOCKET_BUFFER_AUTOTUNE_MIGRATED = "socket_buffer_autotune_migrated_v1"
 
         // Custom Wallpaper Engine
@@ -2270,5 +2339,106 @@ class PreferencesManager(private val context: Context) {
         prefs.edit().putBoolean("dial_throttling_enabled", enabled).apply()
         _dialThrottlingFlow.value = enabled
         com.mirrly.tgproxy.core.NativeProxy.setDialThrottlingEnabled(enabled)
+    }
+
+    // ── Log Settings & Load Optimization ────────────────────────────────────
+    fun isLogsEnabled(): Boolean = prefs.getBoolean("logs_enabled", true)
+    fun isLogcatReaderAllowed(): Boolean = prefs.getBoolean("logs_logcat_reader_allowed", true)
+
+    fun syncLogSettingsToAppLogger() {
+        val loggingEnabled = isLogsEnabled()
+        val logcatAllowed = isLogcatReaderAllowed()
+        val levels = mutableSetOf<com.mirrly.tgproxy.core.LogLevel>()
+        if (prefs.getBoolean("logs_level_debug", false)) levels.add(com.mirrly.tgproxy.core.LogLevel.DEBUG)
+        if (prefs.getBoolean("logs_level_info", true)) levels.add(com.mirrly.tgproxy.core.LogLevel.INFO)
+        if (prefs.getBoolean("logs_level_warn", true)) levels.add(com.mirrly.tgproxy.core.LogLevel.WARN)
+        if (prefs.getBoolean("logs_level_error", true)) levels.add(com.mirrly.tgproxy.core.LogLevel.ERROR)
+        val disabledCats = prefs.getStringSet("logs_disabled_categories", emptySet()) ?: emptySet()
+        val disabledTgs = prefs.getStringSet("logs_disabled_tags", emptySet()) ?: emptySet()
+
+        com.mirrly.tgproxy.core.AppLogger.configure(
+            loggingEnabled = loggingEnabled,
+            logcatReaderAllowed = logcatAllowed,
+            levels = levels,
+            disabledCats = disabledCats,
+            disabledTgs = disabledTgs
+        )
+    }
+
+    fun setLogsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("logs_enabled", enabled).apply()
+        _isLogsEnabledFlow.value = enabled
+        syncLogSettingsToAppLogger()
+    }
+
+    fun setLogcatReaderAllowed(allowed: Boolean) {
+        prefs.edit().putBoolean("logs_logcat_reader_allowed", allowed).apply()
+        _isLogcatReaderAllowedFlow.value = allowed
+        syncLogSettingsToAppLogger()
+    }
+
+    fun setLogLevelEnabled(level: com.mirrly.tgproxy.core.LogLevel, enabled: Boolean) {
+        val key = when (level) {
+            com.mirrly.tgproxy.core.LogLevel.DEBUG -> "logs_level_debug"
+            com.mirrly.tgproxy.core.LogLevel.INFO -> "logs_level_info"
+            com.mirrly.tgproxy.core.LogLevel.WARN -> "logs_level_warn"
+            com.mirrly.tgproxy.core.LogLevel.ERROR -> "logs_level_error"
+        }
+        prefs.edit().putBoolean(key, enabled).apply()
+        when (level) {
+            com.mirrly.tgproxy.core.LogLevel.DEBUG -> _isLogLevelDebugFlow.value = enabled
+            com.mirrly.tgproxy.core.LogLevel.INFO -> _isLogLevelInfoFlow.value = enabled
+            com.mirrly.tgproxy.core.LogLevel.WARN -> _isLogLevelWarnFlow.value = enabled
+            com.mirrly.tgproxy.core.LogLevel.ERROR -> _isLogLevelErrorFlow.value = enabled
+        }
+        syncLogSettingsToAppLogger()
+    }
+
+    fun setLogCategoryEnabled(categoryKey: String, enabled: Boolean) {
+        val current = prefs.getStringSet("logs_disabled_categories", emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (enabled) {
+            current.remove(categoryKey)
+        } else {
+            current.add(categoryKey)
+        }
+        prefs.edit().putStringSet("logs_disabled_categories", current).apply()
+        _disabledLogCategoriesFlow.value = current.toSet()
+        syncLogSettingsToAppLogger()
+    }
+
+    fun setLogTagEnabled(tag: String, enabled: Boolean) {
+        val cleanTag = tag.trim()
+        val current = prefs.getStringSet("logs_disabled_tags", emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (enabled) {
+            current.removeAll { it.equals(cleanTag, ignoreCase = true) }
+        } else {
+            current.add(cleanTag)
+        }
+        prefs.edit().putStringSet("logs_disabled_tags", current).apply()
+        _disabledLogTagsFlow.value = current.toSet()
+        syncLogSettingsToAppLogger()
+    }
+
+    fun resetLogSettings() {
+        prefs.edit()
+            .putBoolean("logs_enabled", true)
+            .putBoolean("logs_logcat_reader_allowed", true)
+            .putBoolean("logs_level_debug", false)
+            .putBoolean("logs_level_info", true)
+            .putBoolean("logs_level_warn", true)
+            .putBoolean("logs_level_error", true)
+            .putStringSet("logs_disabled_categories", emptySet())
+            .putStringSet("logs_disabled_tags", emptySet())
+            .apply()
+
+        _isLogsEnabledFlow.value = true
+        _isLogcatReaderAllowedFlow.value = true
+        _isLogLevelDebugFlow.value = false
+        _isLogLevelInfoFlow.value = true
+        _isLogLevelWarnFlow.value = true
+        _isLogLevelErrorFlow.value = true
+        _disabledLogCategoriesFlow.value = emptySet()
+        _disabledLogTagsFlow.value = emptySet()
+        syncLogSettingsToAppLogger()
     }
 }

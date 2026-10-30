@@ -48,6 +48,8 @@ interface ProxyLibrary : Library {
     fun IsTlsClientHelloSplitEnabled(): Int
     fun SetSocks5Optimistic(enabled: Int)
     fun IsSocks5Optimistic(): Int
+    fun SetSocks5UplinkMode(mode: Int)
+    fun GetSocks5UplinkMode(): Int
     fun PromoteCfproxyDomainForDc(dcId: Int, isMedia: Int, domain: String): Int
     fun SetWorkerProtocol(domain: String, proto: Int)
     fun SetSecret(secret: String)
@@ -464,6 +466,22 @@ object NativeProxy {
             ProxyLibrary.INSTANCE.IsSocks5Optimistic() != 0
         } catch (_: Throwable) {
             true
+        }
+    }
+
+    fun setSocks5UplinkMode(mode: Int) {
+        try {
+            ProxyLibrary.INSTANCE.SetSocks5UplinkMode(mode)
+        } catch (t: Throwable) {
+            AppLogger.w("NativeProxy", "FFI [SetSocks5UplinkMode] не доступен: ${t.message}")
+        }
+    }
+
+    fun getSocks5UplinkMode(): Int {
+        return try {
+            ProxyLibrary.INSTANCE.GetSocks5UplinkMode()
+        } catch (_: Throwable) {
+            0
         }
     }
 

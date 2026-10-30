@@ -10,12 +10,26 @@ import org.junit.jupiter.api.Test
 class AppLoggerTest {
     @BeforeEach
     fun setUp() {
+        AppLogger.configure(
+            loggingEnabled = true,
+            logcatReaderAllowed = true,
+            levels = setOf(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR, LogLevel.DEBUG),
+            disabledCats = emptySet(),
+            disabledTgs = emptySet()
+        )
         AppLogger.clear()
     }
 
     @AfterEach
     fun tearDown() {
         AppLogger.clear()
+        AppLogger.configure(
+            loggingEnabled = true,
+            logcatReaderAllowed = true,
+            levels = setOf(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR, LogLevel.DEBUG),
+            disabledCats = emptySet(),
+            disabledTgs = emptySet()
+        )
     }
 
     @Test
@@ -29,6 +43,55 @@ class AppLoggerTest {
         assertEquals("message-10", snapshot.first().rawMessage)
         assertEquals("message-509", snapshot.last().rawMessage)
         assertEquals(AppLogger.getLogs(), snapshot)
+    }
+
+    @Test
+    fun `disabling global logging drops incoming logs immediately`() {
+        AppLogger.setLoggingEnabled(false)
+        AppLogger.i("Test", "dropped message")
+        AppLogger.e("Test", "dropped error")
+
+        assertTrue(AppLogger.getLogs().isEmpty())
+        assertFalse(AppLogger.isLoggingEnabled)
+    }
+
+    @Test
+    fun `disabling debug level drops debug logs but accepts info`() {
+        AppLogger.setLevelEnabled(LogLevel.DEBUG, false)
+
+        AppLogger.d("LocalProxyServer", "debug event")
+        AppLogger.i("LocalProxyServer", "info event")
+
+        val logs = AppLogger.getLogs()
+        assertEquals(1, logs.size)
+        assertEquals("info event", logs.first().rawMessage)
+        assertEquals(LogLevel.INFO, logs.first().level)
+    }
+
+    @Test
+    fun `disabling category drops logs matching any tag of category`() {
+        AppLogger.setCategoryEnabled(LogCategory.WARP_SCANNER.key, false)
+
+        AppLogger.i("WarpEndpointScanner", "warp probe message")
+        AppLogger.i("LocalProxyServer", "proxy message")
+
+        val logs = AppLogger.getLogs()
+        assertEquals(1, logs.size)
+        assertEquals("LocalProxyServer", logs.first().tag)
+    }
+
+    @Test
+    fun `disabling specific tag drops only that tag`() {
+        AppLogger.setTagEnabled("mirrlyengine", false)
+
+        AppLogger.i("mirrlyengine", "engine event")
+        AppLogger.i("LocalProxyServer", "proxy event")
+
+        val logs = AppLogger.getLogs()
+        assertEquals(1, logs.size)
+        assertEquals("LocalProxyServer", logs.first().tag)
+        assertTrue(AppLogger.isTagDisabled("mirrlyengine"))
+        assertFalse(AppLogger.isTagDisabled("LocalProxyServer"))
     }
 
     @Test

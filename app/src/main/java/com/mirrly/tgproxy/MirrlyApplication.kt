@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Mirrly TG Proxy - Native MTProto & Cloudflare WebSocket Proxy for Android
  * Copyright (C) 2026 R1Xern (Mirrly Dev)
  *
@@ -44,7 +44,9 @@ class MirrlyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        com.mirrly.tgproxy.service.crash.CrashReportManager.init(this)
         prefsManager = PreferencesManager(this)
+        prefsManager.syncLogSettingsToAppLogger()
         warpProfileManager = com.mirrly.tgproxy.service.WarpProfileManager.getInstance(this)
         com.mirrly.tgproxy.util.LocaleHelper.applyLocale(this, prefsManager.getAppLanguage())
         com.mirrly.tgproxy.service.SessionHistoryManager.init(this)

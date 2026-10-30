@@ -2,4 +2,5 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="update_apks" path="apks/" />
     <external-cache-path name="external_update_apks" path="apks/" />
+    <cache-path name="logs" path="logs/" />
 </paths>

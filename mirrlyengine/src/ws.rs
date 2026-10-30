@@ -453,12 +453,13 @@ pub fn find_sni_split_pos(buf: &[u8]) -> Option<usize> {
 #[derive(Debug)]
 enum SplitStreamState {
     Init,
-    /// Flushing a segment before starting the delay.
+    /// Flushing a segment before sending the next one.
     Flushing,
     /// Delaying after sending a segment before sending the next one.
     Delaying {
         sleep: Pin<Box<tokio::time::Sleep>>,
     },
+    WritingRest,
     Done,
 }
 
@@ -474,17 +475,12 @@ pub struct TlsClientHelloSplitStream<S> {
 impl<S> TlsClientHelloSplitStream<S> {
     pub fn new(inner: S, split_pos: usize, delay: Duration) -> Self {
         let enabled = split_pos > 0;
-        let effective_delay = if enabled {
-            delay.max(Duration::from_millis(25))
-        } else {
-            Duration::ZERO
-        };
         Self {
             inner,
             enabled,
             splits: Vec::new(),
             global_written: 0,
-            delay: effective_delay,
+            delay,
             state: SplitStreamState::Init,
         }
     }
@@ -518,25 +514,24 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for TlsClientHelloSplitStream<S> {
             let this = self.as_mut().get_mut();
             match &mut this.state {
                 SplitStreamState::Init => {
-                    if !this.enabled || buf.len() < 5 || buf.first() != Some(&0x16) {
+                    if !this.enabled || buf.len() < 9 || buf.first() != Some(&0x16) {
                         this.state = SplitStreamState::Done;
                         return Pin::new(&mut this.inner).poll_write(cx, buf);
                     }
 
                     if this.splits.is_empty() {
-                        let mut splits = Vec::with_capacity(2);
-                        // Split 1: byte 2 (splits TLS Record header 0x16 0x03)
-                        splits.push(2);
-
-                        // Split 2: inside SNI hostname if present
+                        let mut splits = Vec::with_capacity(1);
+                        // Anti-DPI split: split inside the SNI hostname string (never in the 5-byte TLS header)
                         if let Some(sni_split) = find_sni_split_pos(buf) {
-                            if sni_split > 2 && sni_split < buf.len() {
+                            if sni_split > 5 && sni_split < buf.len() {
                                 splits.push(sni_split);
                             }
                         }
 
-                        splits.sort_unstable();
-                        splits.dedup();
+                        if splits.is_empty() {
+                            this.state = SplitStreamState::Done;
+                            return Pin::new(&mut this.inner).poll_write(cx, buf);
+                        }
 
                         crate::ldebug!(
                             "TLS ClientHello anti-DPI split applied: total_len={}, splits={:?}, delay={:?}",
@@ -558,7 +553,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for TlsClientHelloSplitStream<S> {
                                 };
                                 continue;
                             } else {
-                                this.state = SplitStreamState::Init;
+                                this.state = SplitStreamState::WritingRest;
                                 continue;
                             }
                         }
@@ -569,13 +564,13 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for TlsClientHelloSplitStream<S> {
                 SplitStreamState::Delaying { sleep } => {
                     match sleep.as_mut().poll(cx) {
                         Poll::Ready(()) => {
-                            this.state = SplitStreamState::Init;
+                            this.state = SplitStreamState::WritingRest;
                             continue;
                         }
                         Poll::Pending => return Poll::Pending,
                     }
                 }
-                SplitStreamState::Done => {
+                SplitStreamState::WritingRest | SplitStreamState::Done => {
                     return Pin::new(&mut this.inner).poll_write(cx, buf);
                 }
             }
@@ -2075,11 +2070,12 @@ pub async fn ws_handshake_split_host_ext(
 
     let handshake_timeout = ws_handshake_timeout(timeout);
     let net_gen = crate::network_profile::current_generation();
-    let split_enabled = is_tls_client_hello_split_enabled();
+    let should_split = is_tls_client_hello_split_enabled()
+        && (tls_sni.contains("workers.dev") || tls_sni.contains("pages.dev"));
     let split_stream = TlsClientHelloSplitStream::new(
         raw_conn,
-        if split_enabled { 2 } else { 0 },
-        if split_enabled { Duration::from_millis(25) } else { Duration::ZERO },
+        if should_split { 1 } else { 0 },
+        Duration::ZERO,
     );
     let tls_start = std::time::Instant::now();
 
@@ -2285,11 +2281,12 @@ pub async fn ws_connect_happy_eyeballs_split_ext(
                     remaining.saturating_sub(Duration::from_millis(50)),
                 );
 
-                let split_enabled = is_tls_client_hello_split_enabled();
+                let should_split = is_tls_client_hello_split_enabled()
+                    && (tls_sni.contains("workers.dev") || tls_sni.contains("pages.dev"));
                 let split_stream = TlsClientHelloSplitStream::new(
                     stream,
-                    if split_enabled { 2 } else { 0 },
-                    if split_enabled { Duration::from_millis(25) } else { Duration::ZERO },
+                    if should_split { 1 } else { 0 },
+                    Duration::ZERO,
                 );
 
                 let tls_start = Instant::now();

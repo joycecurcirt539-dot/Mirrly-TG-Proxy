@@ -12,6 +12,20 @@ use std::time::{Duration, Instant};
 // Nagle's algorithm is enabled by default (TCP_NODELAY = false) for packet coalescing and cellular network stability
 pub static TCP_NODELAY: AtomicBool = AtomicBool::new(false);
 pub static SOCKS5_OPTIMISTIC_RESPONSE: AtomicBool = AtomicBool::new(true);
+
+pub const SOCKS5_UPLINK_WORKER: i32 = 0;
+pub const SOCKS5_UPLINK_FLOWSEAL: i32 = 1;
+pub static SOCKS5_UPLINK_MODE: AtomicI32 = AtomicI32::new(SOCKS5_UPLINK_WORKER);
+
+#[inline]
+pub fn get_socks5_uplink_mode() -> i32 {
+    SOCKS5_UPLINK_MODE.load(Ordering::Relaxed)
+}
+
+#[inline]
+pub fn set_socks5_uplink_mode(mode: i32) {
+    SOCKS5_UPLINK_MODE.store(mode, Ordering::Relaxed);
+}
 pub const DEFAULT_RECV_BUF: usize = 0;
 pub const DEFAULT_SEND_BUF: usize = 0;
 pub const DEFAULT_MTPROTO_STANDBY_PER_ACTIVE_SLOT: i32 = 2;
@@ -463,20 +477,25 @@ pub fn lookup_telegram_dc_ip(ip: IpAddr) -> Option<(i32, bool)> {
             let o = v4.octets();
             // Specific known media endpoints
             match o {
-                [149, 154, 175, 52] => return Some((1, true)),
-                [149, 154, 175, 102] => return Some((3, true)),
-                [149, 154, 167, 151]
+                [149, 154, 175, 51] | [149, 154, 175, 52] => return Some((1, true)),
+                [149, 154, 175, 101] | [149, 154, 175, 102] => return Some((3, true)),
+                [149, 154, 167, 52]
+                | [149, 154, 167, 53]
+                | [149, 154, 167, 151]
                 | [149, 154, 167, 222]
                 | [149, 154, 167, 223]
                 | [149, 154, 162, 123] => return Some((2, true)),
-                [149, 154, 164, 250]
+                [149, 154, 167, 93]
+                | [149, 154, 164, 250]
                 | [149, 154, 166, 120]
                 | [149, 154, 166, 121]
                 | [149, 154, 167, 118]
                 | [149, 154, 165, 111] => return Some((4, true)),
-                [91, 108, 56, 102] | [91, 108, 56, 128] | [91, 108, 56, 151] => {
-                    return Some((5, true))
-                }
+                [91, 108, 56, 102]
+                | [91, 108, 56, 128]
+                | [91, 108, 56, 131]
+                | [91, 108, 56, 151]
+                | [91, 108, 56, 166] => return Some((5, true)),
                 _ => {}
             }
 
@@ -589,7 +608,22 @@ pub fn lookup_telegram_dc_ip(ip: IpAddr) -> Option<(i32, bool)> {
 }
 
 pub fn lookup_telegram_dc(host: &str) -> Option<(i32, bool)> {
-    lookup_telegram_dc_by_ip(host)
+    let clean = host.trim().trim_matches(['[', ']']);
+    if let Some(res) = lookup_telegram_dc_by_ip(clean) {
+        return Some(res);
+    }
+    let lower = clean.to_ascii_lowercase();
+    if lower.contains("pluto") { return Some((1, false)); }
+    if lower.contains("venus") { return Some((2, false)); }
+    if lower.contains("aurora") { return Some((3, false)); }
+    if lower.contains("vesta") { return Some((4, false)); }
+    if lower.contains("flora") { return Some((5, false)); }
+    if lower.contains("kws1") { return Some((1, lower.contains("-1"))); }
+    if lower.contains("kws2") { return Some((2, lower.contains("-1"))); }
+    if lower.contains("kws3") { return Some((3, lower.contains("-1"))); }
+    if lower.contains("kws4") { return Some((4, lower.contains("-1"))); }
+    if lower.contains("kws5") { return Some((5, lower.contains("-1"))); }
+    None
 }
 
 // Telegram protocols & DC mapping

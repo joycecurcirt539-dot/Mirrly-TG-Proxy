@@ -525,7 +525,8 @@ object WarpAccountManager {
         accountId: String,
         token: String,
         licenseKey: String,
-        workerDomain: String? = null
+        workerDomain: String? = null,
+        sniCamouflage: String? = null
     ): Result<WarpAccountInfo> = withContext(Dispatchers.IO) {
         val cleanKey = licenseKey.trim()
         if (cleanKey.isBlank()) {
@@ -537,6 +538,7 @@ object WarpAccountManager {
 
         val effectiveWorker = workerDomain?.let { WorkerDomainNormalizer.sanitizeDomain(it) }?.ifEmpty { null }
             ?: REGISTRATION_WORKER_DOMAIN
+        val effectiveSni = WarpObfuscatedHttpClient.sanitizeSni(sniCamouflage)
 
         val bodyJson = JSONObject().apply {
             put("license", cleanKey)
@@ -586,7 +588,8 @@ object WarpAccountManager {
                     bodyJson = bodyJson,
                     authToken = token,
                     timeoutMs = 5000,
-                    maxCandidates = 4
+                    maxCandidates = 4,
+                    sniHost = effectiveSni
                 )
                 if (obfResp.statusCode in 200..299 && obfResp.body.isNotBlank()) {
                     responseJson = JSONObject(obfResp.body)
@@ -676,7 +679,8 @@ object WarpAccountManager {
     suspend fun fetchAccountInfo(
         accountId: String,
         token: String,
-        workerDomain: String? = null
+        workerDomain: String? = null,
+        sniCamouflage: String? = null
     ): Result<WarpAccountInfo> = withContext(Dispatchers.IO) {
         if (accountId.isBlank() || token.isBlank()) {
             return@withContext Result.failure(IllegalArgumentException("Отсутствуют идентификатор или токен аккаунта WARP"))
@@ -684,6 +688,7 @@ object WarpAccountManager {
 
         val effectiveWorker = workerDomain?.let { WorkerDomainNormalizer.sanitizeDomain(it) }?.ifEmpty { null }
             ?: REGISTRATION_WORKER_DOMAIN
+        val effectiveSni = WarpObfuscatedHttpClient.sanitizeSni(sniCamouflage)
         var responseJson: JSONObject? = null
         var lastError: Exception? = null
 
@@ -717,7 +722,8 @@ object WarpAccountManager {
                     path = "/v0a4471/reg/$accountId/account",
                     authToken = token,
                     timeoutMs = 5000,
-                    maxCandidates = 4
+                    maxCandidates = 4,
+                    sniHost = effectiveSni
                 )
                 if (obfResp.statusCode in 200..299 && obfResp.body.isNotBlank()) {
                     responseJson = JSONObject(obfResp.body)
@@ -788,6 +794,7 @@ object WarpAccountManager {
         effectiveApiBase: String = API_BASE_V4471,
         workerDomain: String? = REGISTRATION_WORKER_DOMAIN,
         cachedOperaEndpoint: String? = null,
+        sniHost: String = WarpObfuscatedHttpClient.DEFAULT_CAMOUFLAGE_SNI,
         timeoutMs: Int = WarpObfuscatedHttpClient.DEFAULT_TIMEOUT_MS
     ): ApiCallResult {
         val mediaType = "application/json; charset=UTF-8".toMediaType()
@@ -796,6 +803,7 @@ object WarpAccountManager {
         val effectiveWorker = workerDomain?.let { WorkerDomainNormalizer.sanitizeDomain(it) }?.ifEmpty { null }
             ?: (if (isRegisterViaWorker) REGISTRATION_WORKER_DOMAIN else null)
         val isExplicitCustomWorker = !workerDomain.isNullOrBlank() && workerDomain != REGISTRATION_WORKER_DOMAIN
+        val effectiveSni = WarpObfuscatedHttpClient.sanitizeSni(sniHost)
 
         // Нормализация пути: удаление префиксов версий API во избежание двойного пути /warp-api/v0a4471/reg
         val cleanPath = path
@@ -850,7 +858,7 @@ object WarpAccountManager {
             }
         }
 
-        // 2. Резервный прямой обфусцированный зонд Cloudflare API (нарезка ClientHello для Anycast IP)
+        // 2. Резервный прямой обфусцированный зонд Cloudflare API (нарезка ClientHello для Anycast IP и SNI-маскировка)
         if (lastError !is IllegalStateException) {
             try {
                 val obfResp = WarpObfuscatedHttpClient.execute(
@@ -858,12 +866,22 @@ object WarpAccountManager {
                     path = "/v0a4471$cleanPath",
                     bodyJson = bodyJson,
                     authToken = authToken,
-                    timeoutMs = timeoutMs.coerceAtMost(3000),
-                    maxCandidates = 2
+                    timeoutMs = timeoutMs.coerceAtMost(5000),
+                    maxCandidates = 4,
+                    sniHost = effectiveSni
                 )
                 if ((obfResp.statusCode in 200..299) && obfResp.body.isNotBlank()) {
                     val parsed = try { JSONObject(obfResp.body) } catch (_: Exception) { null }
                     if (parsed != null) return ApiCallResult(parsed, null, null)
+                } else if (obfResp.body.isNotBlank()) {
+                    val parsed = try { JSONObject(obfResp.body) } catch (_: Exception) { null }
+                    val errors = parsed?.optJSONArray("errors")
+                    if (errors != null && errors.length() > 0) {
+                        val msg = errors.getJSONObject(0).optString("message", "Ошибка API Cloudflare")
+                        lastError = IllegalStateException(msg)
+                    } else if (obfResp.statusCode in 400..499) {
+                        lastError = java.io.IOException("Direct API HTTP ${obfResp.statusCode}: ${obfResp.statusMessage}")
+                    }
                 }
             } catch (e: Exception) {
                 if (lastError == null) lastError = e
@@ -893,6 +911,15 @@ object WarpAccountManager {
                     if (resp.isSuccessful && !body.isNullOrBlank()) {
                         val parsed = try { JSONObject(body) } catch (_: Exception) { null }
                         if (parsed != null) return ApiCallResult(parsed, null, null)
+                    } else if (!body.isNullOrBlank()) {
+                        val parsed = try { JSONObject(body) } catch (_: Exception) { null }
+                        val errors = parsed?.optJSONArray("errors")
+                        if (errors != null && errors.length() > 0) {
+                            val msg = errors.getJSONObject(0).optString("message", "Ошибка API Cloudflare")
+                            lastError = IllegalStateException(msg)
+                        } else {
+                            lastError = IllegalStateException("HTTP ${resp.code}: $body")
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -981,10 +1008,12 @@ object WarpAccountManager {
         licenseKey: String? = null,
         existingProfile: WarpProfile? = null,
         fallbackToBootstrap: Boolean = false,
+        sniCamouflage: String? = null,
         onProgress: ((WarpRegistrationStep) -> Unit)? = null
     ): Result<WarpProfile> = withContext(Dispatchers.IO) {
         try {
-            AppLogger.i(TAG, "Запуск раздельной регистрации WARP (WireGuard + MASQUE)...")
+            val effectiveSni = WarpObfuscatedHttpClient.sanitizeSni(sniCamouflage)
+            AppLogger.i(TAG, "Запуск раздельной регистрации WARP (WireGuard + MASQUE, SNI: $effectiveSni)...")
             onProgress?.invoke(WarpRegistrationStep(1, 4, "Генерация ключей WireGuard", "Генерация пары Curve25519 (X25519) и серийного номера Android..."))
             val (wgPriv, wgPub) = generateWireGuardKeyPair()
             val (p256Priv, p256Pub, clientCert) = try {
@@ -995,7 +1024,7 @@ object WarpAccountManager {
             }
             val wgSerialHex = randomSerialHex()
             val tosTimestamp = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS+00:00").withZone(ZoneOffset.UTC).format(Instant.now())
-            onProgress?.invoke(WarpRegistrationStep(1, 4, "Регистрация WireGuard", "Серийный номер: $wgSerialHex. Подготовка запроса POST /reg..."))
+            onProgress?.invoke(WarpRegistrationStep(1, 4, "Регистрация WireGuard", "Серийный номер: $wgSerialHex (SNI: $effectiveSni). Подготовка запроса POST /reg..."))
 
             val wgRegBody = JSONObject().apply {
                 put("key", wgPub); put("install_id", ""); put("fcm_token", "")
@@ -1015,7 +1044,8 @@ object WarpAccountManager {
                 authToken = null,
                 effectiveApiBase = API_BASE_V4471,
                 workerDomain = cleanWorkerDomain,
-                cachedOperaEndpoint = activeOperaEndpoint
+                cachedOperaEndpoint = activeOperaEndpoint,
+                sniHost = effectiveSni
             )
             activeOperaEndpoint = wgRes.connectedOperaEndpoint
             val regJson = wgRes.json
@@ -1098,7 +1128,8 @@ object WarpAccountManager {
                     authToken = token,
                     effectiveApiBase = API_BASE_V4471,
                     workerDomain = cleanWorkerDomain,
-                    cachedOperaEndpoint = activeOperaEndpoint
+                    cachedOperaEndpoint = activeOperaEndpoint,
+                    sniHost = effectiveSni
                 )
                 if (actRes.json != null) {
                     isWgActivated = actRes.json.optBoolean("warp_enabled", true)
@@ -1150,7 +1181,8 @@ object WarpAccountManager {
                         authToken = null,
                         effectiveApiBase = API_BASE_V4471,
                         workerDomain = cleanWorkerDomain,
-                        cachedOperaEndpoint = activeOperaEndpoint
+                        cachedOperaEndpoint = activeOperaEndpoint,
+                        sniHost = effectiveSni
                     )
                     val mJson = masqueRes.json
                     val mId = mJson?.optString("id", "") ?: ""
@@ -1188,7 +1220,8 @@ object WarpAccountManager {
                             authToken = masqueToken,
                             effectiveApiBase = API_BASE_V4471,
                             workerDomain = cleanWorkerDomain,
-                            cachedOperaEndpoint = activeOperaEndpoint
+                            cachedOperaEndpoint = activeOperaEndpoint,
+                            sniHost = effectiveSni
                         )
                         if (mActRes.json != null) {
                             isMasqueActivated = mActRes.json.optBoolean("warp_enabled", true)
@@ -1217,7 +1250,8 @@ object WarpAccountManager {
                     accountId = accountId,
                     token = token,
                     licenseKey = effectiveLicenseKey,
-                    workerDomain = cleanWorkerDomain
+                    workerDomain = cleanWorkerDomain,
+                    sniCamouflage = effectiveSni
                 )
                 if (attachWg.isSuccess) {
                     val info = attachWg.getOrThrow()
@@ -1232,7 +1266,8 @@ object WarpAccountManager {
                                 accountId = masqueAccountId,
                                 token = masqueToken,
                                 licenseKey = effectiveLicenseKey,
-                                workerDomain = cleanWorkerDomain
+                                workerDomain = cleanWorkerDomain,
+                                sniCamouflage = effectiveSni
                             )
                             AppLogger.i(TAG, "Лицензия WARP+ успешно привязана к MASQUE ($masqueAccountId)")
                         } catch (e: Exception) {

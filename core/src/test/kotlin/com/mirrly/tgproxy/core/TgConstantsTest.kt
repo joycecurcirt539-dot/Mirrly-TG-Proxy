@@ -104,4 +104,24 @@ class TgConstantsTest {
         assertFalse(TgConstants.isNat64Address("2001:db8::1"))
         assertFalse(TgConstants.isNat64Address("192.168.1.1"))
     }
+    @Test
+    fun testFlowsealOpenBasesCountAndMembers() {
+        assertEquals(20, TgConstants.FLOWSEAL_OPEN_BASES.size)
+        assertTrue(TgConstants.FLOWSEAL_OPEN_BASES.contains("pclead"))
+        assertTrue(TgConstants.FLOWSEAL_OPEN_BASES.contains("offshor"))
+        assertTrue(TgConstants.FLOWSEAL_OPEN_BASES.contains("cakeisalie"))
+        assertTrue(TgConstants.FLOWSEAL_OPEN_BASES.contains("noskomnadzor"))
+        assertTrue(TgConstants.FLOWSEAL_OPEN_BASES.contains("nothingthere"))
+    }
+
+    @Test
+    fun testDecodeCfDomainOpenAndEncrypted() {
+        // Open domains with .co.uk and .com normalize to authoritative .co.uk Flowseal endpoints
+        assertEquals("pclead.co.uk", TgConstants.decodeCfDomain("pclead.co.uk"))
+        assertEquals("pclead.co.uk", TgConstants.decodeCfDomain("kws1.pclead.co.uk"))
+        assertEquals("cakeisalie.co.uk", TgConstants.decodeCfDomain("cakeisalie.com"))
+        assertEquals("cakeisalie.co.uk", TgConstants.decodeCfDomain("kws4.cakeisalie.com"))
+        assertEquals("nothingthere.co.uk", TgConstants.decodeCfDomain("nothingthere.com"))
+        assertEquals("nothingthere.co.uk", TgConstants.decodeCfDomain("kws2.nothingthere.co.uk"))
+    }
 }

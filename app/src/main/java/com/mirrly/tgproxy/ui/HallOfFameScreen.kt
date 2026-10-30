@@ -21,7 +21,11 @@ package com.mirrly.tgproxy.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import android.os.Build
 import android.widget.Toast
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.animation.*
 import androidx.annotation.StringRes
 import androidx.annotation.DrawableRes
@@ -1044,6 +1048,29 @@ fun HallOfFameScreen(
     val totalHeroesCount = remember { ContributorsList.size }
     var selectedFilter by rememberSaveable { mutableStateOf(FameCategoryFilter.ALL) }
 
+    val sheetBlurProgress by animateFloatAsState(
+        targetValue = if (BottomSheetStateTracker.isAnySheetOpen) 1f else 0f,
+        animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing),
+        label = "fameBodySheetBlur"
+    )
+    val density = LocalDensity.current.density
+    val bodySheetBlurModifier = if (sheetBlurProgress > 0.005f) {
+        Modifier.graphicsLayer {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val blurPx = sheetBlurProgress * 24f * density
+                if (blurPx > 0.5f) {
+                    renderEffect = RenderEffect.createBlurEffect(
+                        blurPx,
+                        blurPx,
+                        Shader.TileMode.CLAMP
+                    ).asComposeRenderEffect()
+                }
+            }
+        }
+    } else {
+        Modifier
+    }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
@@ -1052,6 +1079,7 @@ fun HallOfFameScreen(
             modifier = Modifier
                 .adaptiveContainerWidth(600.dp)
                 .fillMaxHeight()
+                .then(bodySheetBlurModifier)
                 .fadingEdges(topFadeHeight = 24.dp, bottomFadeHeight = 44.dp)
                 .verticalScroll(scrollState)
                 .padding(
@@ -1447,10 +1475,7 @@ private fun CategoryFilterBar(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalFadingEdges(startFadeWidth = 6.dp, endFadeWidth = 14.dp)
-            .horizontalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         FameCategoryFilter.values().forEach { filter ->
@@ -1462,37 +1487,24 @@ private fun CategoryFilterBar(
                 FameCategoryFilter.COMMUNITY -> Color(0xFF26A5E4)
             }
             val borderColor = if (isSelected) filterAccent else AmoledBorder
-            val contentColor = if (isSelected) TextWhite else TextMuted
             val iconTint = if (isSelected) filterAccent else TextMuted
 
             Box(
                 modifier = Modifier
+                    .weight(1f)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color.Transparent)
                     .border(1.dp, borderColor, RoundedCornerShape(8.dp))
                     .springPress(onClick = { onSelectFilter(filter) })
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(id = filter.iconRes),
-                        contentDescription = null,
-                        tint = iconTint,
-                        modifier = Modifier.size(12.dp)
-                    )
-                    Text(
-                        text = stringResource(filter.labelRes),
-                        fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = contentColor,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
+                Icon(
+                    painter = painterResource(id = filter.iconRes),
+                    contentDescription = stringResource(filter.labelRes),
+                    tint = iconTint,
+                    modifier = Modifier.size(17.dp)
+                )
             }
         }
     }

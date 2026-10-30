@@ -83,6 +83,7 @@ fun WarpRegistrationDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val app = com.mirrly.tgproxy.MirrlyApplication.instance
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -145,7 +146,8 @@ fun WarpRegistrationDialog(
                 accountId = prof.accountId,
                 token = prof.token,
                 licenseKey = cleanKey,
-                workerDomain = workerDomain
+                workerDomain = workerDomain,
+                sniCamouflage = app.config.warpMasqueSni.ifBlank { null }
             )
             isAttachingLicense = false
             result.onSuccess { info ->
@@ -185,6 +187,7 @@ fun WarpRegistrationDialog(
                 licenseKey = licenseKeyInput.trim().ifBlank { null },
                 existingProfile = currentProfile,
                 fallbackToBootstrap = false,
+                sniCamouflage = app.config.warpMasqueSni.ifBlank { null },
                 onProgress = { step ->
                     coroutineScope.launch {
                         currentStepIndex = step.stepIndex

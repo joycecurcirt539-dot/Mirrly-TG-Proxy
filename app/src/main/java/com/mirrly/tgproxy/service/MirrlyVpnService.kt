@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Mirrly TG Proxy - Native MTProto & Cloudflare WebSocket Proxy for Android
  * Copyright (C) 2026 R1Xern (Mirrly Dev)
  *
@@ -505,8 +505,8 @@ class MirrlyVpnService : VpnService() {
                 }
                 NativeProxy.setAwgConfig(awgIni)
 
-                // Передаем настройки MASQUE с гарантированным анти-блокировочным SNI (cdnjs.cloudflare.com)
-                val masqueSni = if (config.warpMasqueSni.isNotBlank() && config.warpMasqueSni != "consumer-masque-proxy.cloudflareclient.com") {
+                // Передаем настройки MASQUE с гарантированным анти-блокировочным SNI (consumer-masque-proxy.cloudflareclient.com)
+                val masqueSni = if (config.warpMasqueSni.isNotBlank() && !config.warpMasqueSni.equals("cdnjs.cloudflare.com", ignoreCase = true)) {
                     config.warpMasqueSni
                 } else {
                     com.mirrly.tgproxy.service.sni.SniBypassManager.DEFAULT_BYPASS_SNI

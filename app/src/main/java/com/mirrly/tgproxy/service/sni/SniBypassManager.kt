@@ -8,11 +8,11 @@ import com.`21Modz`.SNI
 /**
  * Менеджер обхода блокировок DPI/ТСПУ через SNI-спуфинг (libsni.so).
  * Обеспечивает безопасную инициализацию хука OpenSSL/BoringSSL в Android
- * для прозрачной подмены SNI в пакетах ClientHello на cdnjs.cloudflare.com.
+ * для прозрачной подмены SNI в пакетах ClientHello на consumer-masque-proxy.cloudflareclient.com.
  */
 object SniBypassManager {
     private const val TAG = "SniBypassManager"
-    const val DEFAULT_BYPASS_SNI = "cdnjs.cloudflare.com"
+    const val DEFAULT_BYPASS_SNI = "consumer-masque-proxy.cloudflareclient.com"
 
     @Volatile
     private var isInitialized = false
@@ -59,12 +59,17 @@ object SniBypassManager {
 
     fun setSni(sniDomain: String): Boolean {
         if (!SNI.ok) return false
+        val cleanDomain = if (sniDomain.isBlank() || sniDomain.equals("cdnjs.cloudflare.com", ignoreCase = true)) {
+            DEFAULT_BYPASS_SNI
+        } else {
+            sniDomain.trim()
+        }
         return try {
-            val result = SNI.set(sniDomain)
-            AppLogger.d(TAG, "Установка целевого SNI '$sniDomain': $result")
+            val result = SNI.set(cleanDomain)
+            AppLogger.d(TAG, "Установка целевого SNI '$cleanDomain': $result")
             result
         } catch (t: Throwable) {
-            AppLogger.w(TAG, "Ошибка установки SNI '$sniDomain': ${t.message}")
+            AppLogger.w(TAG, "Ошибка установки SNI '$cleanDomain': ${t.message}")
             false
         }
     }

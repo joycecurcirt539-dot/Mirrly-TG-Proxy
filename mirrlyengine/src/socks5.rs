@@ -1,5 +1,6 @@
 use crate::cfproxy::*;
 use crate::config::*;
+use crate::crypto::{new_aes_ctr, MsgSplitter};
 use crate::ws::*;
 use crate::{ldebug, linfo, lwarn};
 use byteorder::{ByteOrder, LittleEndian};
@@ -13,6 +14,18 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
+
+pub(crate) fn spawn_task<F>(future: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(future)
+    } else {
+        crate::runtime().spawn(future)
+    }
+}
 
 #[inline]
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -203,7 +216,15 @@ async fn handle_socks5_client(
                 return;
             }
         } else {
-            lwarn!("SOCKS5 auth rejected: credentials mismatch");
+            lwarn!(
+                "SOCKS5 auth rejected: credentials mismatch (expected user='{}' len={}, got user='{}' len={}; expected pass len={}, got pass len={})",
+                expected_user,
+                expected_user.len(),
+                String::from_utf8_lossy(&uname_buf),
+                uname_buf.len(),
+                expected_pass.len(),
+                pass_buf.len()
+            );
             let _ = client.write_all(&[0x01, 0xFF]).await;
             return;
         }
@@ -414,24 +435,45 @@ async fn handle_socks5_client(
         return;
     }
 
-    // Extract DC and media flag from destination host and initial 64-byte handshake
+    // Extract DC, media flag, and protocol tag from destination host and initial 64-byte handshake
     let host_dc = lookup_telegram_dc(&target_host);
     let init_dc = dc_from_init(&init_buf[..64]);
-    let (dc, is_media, _dc_ok) = match (host_dc, init_dc) {
-        (Some((hdc, hmedia)), Some((_idc, imedia))) => (hdc, hmedia || imedia, true),
-        (Some((hdc, hmedia)), None) => (hdc, hmedia, true),
-        (None, Some((idc, imedia))) => (idc, imedia, true),
-        (None, None) => (2, false, false),
+    let (dc, is_media, detected_proto) = match (host_dc, init_dc) {
+        (Some((hdc, hmedia)), Some((_idc, imedia, proto))) => (hdc, hmedia || imedia, Some(proto)),
+        (Some((hdc, hmedia)), None) => (hdc, hmedia, None),
+        (None, Some((idc, imedia, proto))) => (idc, imedia, Some(proto)),
+        (None, None) => (2, false, None),
     };
 
     let (worker_dst, effective_port) =
         resolve_socks5_telegram_destination(&target_host, target_port, Some(dc), is_media);
 
     let worker_enabled = CFPROXY_ENABLED.load(Ordering::Relaxed);
+    let uplink_mode = crate::config::get_socks5_uplink_mode();
+    let uplink_name = if uplink_mode == crate::config::SOCKS5_UPLINK_FLOWSEAL {
+        "Anycast CDN Flowseal"
+    } else {
+        "Cloudflare Worker"
+    };
+
+    let init_head: Option<[u8; 64]> = if init_buf.len() >= 64 {
+        let mut h = [0u8; 64];
+        h.copy_from_slice(&init_buf[..64]);
+        Some(h)
+    } else {
+        None
+    };
+
+    let initial_payload = if init_buf.len() > 64 {
+        init_buf[64..].to_vec()
+    } else {
+        Vec::new()
+    };
 
     if worker_enabled {
         ldebug!(
-            "SOCKS5 routing to Cloudflare Worker for DC{}{}: {}:{} (coalesced: {} bytes)",
+            "SOCKS5 routing to {} for DC{}{}: {}:{} (coalesced: {} bytes)",
+            uplink_name,
             dc,
             if is_media { " (media)" } else { "" },
             worker_dst,
@@ -442,11 +484,24 @@ async fn handle_socks5_client(
         let ws_opt =
             socks5_acquire_upstream_ws(dc, is_media, &worker_dst, effective_port, &init_buf, &cancel)
                 .await;
-        if let Some(ws) = ws_opt {
+        if let Some((ws, winner_domain)) = ws_opt {
             STATS.connections_cfproxy.fetch_add(1, Ordering::Relaxed);
             STATS.connections_ws.fetch_add(1, Ordering::Relaxed);
             crate::supervisor::ROUTE_SUPERVISOR.record_app_readiness(true, None);
-            bridge_socks5_ws(client, Arc::new(ws), dc, is_media, &worker_dst, cancel).await;
+            let is_flowseal = uplink_mode == crate::config::SOCKS5_UPLINK_FLOWSEAL || CFPROXY.read().user_domain.is_empty();
+            let pending_payload = if is_flowseal { initial_payload } else { Vec::new() };
+            bridge_socks5_ws(
+                client,
+                Arc::new(ws),
+                dc,
+                is_media,
+                &winner_domain,
+                cancel,
+                detected_proto,
+                pending_payload,
+                init_head,
+                is_flowseal,
+            ).await;
             return;
         }
         lwarn!(
@@ -538,21 +593,40 @@ pub fn resolve_socks5_telegram_destination(
     host: &str,
     port: u16,
     dc: Option<i32>,
-    _is_media: bool,
+    is_media: bool,
 ) -> (String, u16) {
     let host_trimmed = host.trim().trim_matches(['[', ']']);
-    let effective_dc = dc.or_else(|| lookup_telegram_dc(host_trimmed).map(|(d, _)| d));
+    let (detected_dc, detected_media) = lookup_telegram_dc(host_trimmed)
+        .map(|(d, m)| (Some(d), m))
+        .unwrap_or((None, false));
+    let effective_dc = dc.or(detected_dc);
+    let effective_media = is_media || detected_media;
 
-    // When routing via Cloudflare Worker, map all Telegram DC destinations to their canonical IPv4 endpoint.
-    // This prevents WRONG_DC (-444) errors, guarantees fast ~40ms reachability, and maximizes warm socket reuse.
-    if let Some(d) = effective_dc {
+    if effective_media {
+        // If target host is already an explicit media IP, preserve it
+        if host_trimmed.parse::<std::net::IpAddr>().is_ok() && detected_media {
+            return (host_trimmed.to_string(), port);
+        }
+        // Canonical media endpoints
+        if let Some(d) = effective_dc {
+            let media_ip = match d {
+                1 => "149.154.175.52",
+                2 => "149.154.167.52",
+                3 => "149.154.175.101",
+                4 => "149.154.167.93",
+                5 => "91.108.56.131",
+                _ => canonical_ipv4_for_dc(d),
+            };
+            return (media_ip.to_string(), port);
+        }
+    } else if let Some(d) = effective_dc {
         return (canonical_ipv4_for_dc(d).to_string(), port);
     }
 
     (host_trimmed.to_string(), port)
 }
 
-pub fn dc_from_init(data: &[u8]) -> Option<(i32, bool)> {
+pub fn dc_from_init(data: &[u8]) -> Option<(i32, bool, u32)> {
     if data.len() < 64 {
         return None;
     }
@@ -580,7 +654,7 @@ pub fn dc_from_init(data: &[u8]) -> Option<(i32, bool)> {
     let is_media = dc_raw < 0;
 
     if (1..=5).contains(&dc_abs) || dc_abs == 203 {
-        Some((dc_abs, is_media))
+        Some((dc_abs, is_media, proto))
     } else {
         None
     }
@@ -628,6 +702,21 @@ impl Socks5Slot {
         }
     }
 
+    /// Instant non-blocking pop for Flowseal Anycast nodes where any fresh entry is valid.
+    pub fn try_pop_fresh_any(&self, max_age: Duration) -> Option<(RawWebSocket, String)> {
+        let mut q = self.queue.lock();
+        while let Some(entry) = q.pop_front() {
+            if !entry.ws.is_closed() && entry.created.elapsed() < max_age {
+                return Some((entry.ws, entry.domain));
+            } else {
+                spawn_task(async move {
+                    let _ = entry.ws.close().await;
+                });
+            }
+        }
+        None
+    }
+
     /// Instant non-blocking pop (<1 us). If empty, returns None immediately without waiting.
     pub fn try_pop_fresh(&self, user_domain: &str, max_age: Duration) -> Option<RawWebSocket> {
         let mut q = self.queue.lock();
@@ -635,7 +724,7 @@ impl Socks5Slot {
             if entry.created.elapsed() < max_age && entry.domain == user_domain {
                 return Some(entry.ws);
             } else {
-                tokio::spawn(async move {
+                spawn_task(async move {
                     let _ = entry.ws.close().await;
                 });
             }
@@ -706,14 +795,13 @@ pub fn target_warm_capacity(key: Socks5WarmKey) -> usize {
 }
 
 pub fn trigger_warm_socks5_refill(user_domain: String, dc: i32, is_media: bool, cancel: CancellationToken) {
-    if user_domain.is_empty() {
-        return;
-    }
+    let uplink_mode = crate::config::get_socks5_uplink_mode();
+    let is_flowseal = uplink_mode == crate::config::SOCKS5_UPLINK_FLOWSEAL || user_domain.is_empty();
     let key = Socks5WarmKey { dc, is_media };
     let target = target_warm_capacity(key);
     let slot = get_warm_slot(key);
 
-    tokio::spawn(async move {
+    spawn_task(async move {
         // Atomic batch deficit calculation under slot-level sync lock (<1 us)
         let needed = {
             let current = slot.ready_count();
@@ -736,7 +824,7 @@ pub fn trigger_warm_socks5_refill(user_domain: String, dc: i32, is_media: bool, 
             let user_domain = user_domain.clone();
             let cancel = cancel.clone();
             let slot = slot.clone();
-            tokio::spawn(async move {
+            spawn_task(async move {
                 struct SlotInFlightGuard {
                     slot: Arc<Socks5Slot>,
                 }
@@ -747,30 +835,74 @@ pub fn trigger_warm_socks5_refill(user_domain: String, dc: i32, is_media: bool, 
                 }
                 let _guard = SlotInFlightGuard { slot: slot.clone() };
 
-                let worker_dst = canonical_ipv4_for_dc(dc);
-                let sid = format!("{:016x}", rand::random::<u64>());
-                let media_flag = if is_media { "1" } else { "0" };
-                let path = format!(
-                    "/apiws?dst={}&dc={}&media={}&sid={}",
-                    worker_dst, dc, media_flag, sid
-                );
-
                 let timeout = crate::config::adaptive_ws_connect_timeout().max(8.0);
-                let (ws_opt, _, _) = cf_connect_domain_with_category(
-                    &user_domain,
-                    &path,
-                    None,
-                    timeout,
-                    crate::budget::FlowCategory::Background,
-                    Some(&cancel),
-                )
-                .await;
+                let (ws_opt, domain_tag) = if is_flowseal {
+                    let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
+                    let (enabled, mut domains) = {
+                        let cfg = CFPROXY.read();
+                        (CFPROXY_ENABLED.load(Ordering::Relaxed), cfg.domains.clone())
+                    };
+                    if domains.is_empty() {
+                        domains = crate::cfproxy::default_cfproxy_domains();
+                    }
+                    let ordered = crate::balancer::BALANCER
+                        .read()
+                        .get_domains_for_dc(effective_dc, is_media);
+                    let mut candidates = Vec::new();
+                    for d in ordered {
+                        let norm = crate::balancer::normalize_domain(&d);
+                        if !norm.is_empty() && cfproxy_429_cooldown_remaining_scoped(&norm, ProtoScope::Socks5) == Duration::ZERO {
+                            candidates.push(norm);
+                        }
+                    }
+                    for d in &domains {
+                        let norm = crate::balancer::normalize_domain(d);
+                        if !norm.is_empty() && !candidates.contains(&norm) && cfproxy_429_cooldown_remaining_scoped(&norm, ProtoScope::Socks5) == Duration::ZERO {
+                            candidates.push(norm);
+                        }
+                    }
+                    if candidates.is_empty() {
+                        candidates = crate::cfproxy::default_cfproxy_domains();
+                    }
+
+                    let domain_base = candidates[rand::random::<usize>() % candidates.len()].clone();
+                    let target_host = format!("kws{}.{}", effective_dc, domain_base);
+                    let (ws, _, _) = cf_connect_domain_with_category(
+                        &target_host,
+                        "/apiws",
+                        None,
+                        timeout,
+                        crate::budget::FlowCategory::Background,
+                        Some(&cancel),
+                    )
+                    .await;
+                    (ws, domain_base)
+                } else {
+                    let worker_dst = canonical_ipv4_for_dc(dc);
+                    let sid = format!("{:016x}", rand::random::<u64>());
+                    let media_flag = if is_media { "1" } else { "0" };
+                    let path = format!(
+                        "/apiws?dst={}&dc={}&media={}&sid={}",
+                        worker_dst, dc, media_flag, sid
+                    );
+
+                    let (ws, _, _) = cf_connect_domain_with_category(
+                        &user_domain,
+                        &path,
+                        None,
+                        timeout,
+                        crate::budget::FlowCategory::Background,
+                        Some(&cancel),
+                    )
+                    .await;
+                    (ws, user_domain)
+                };
 
                 if let Some(ws) = ws_opt {
                     if let Err(entry) = slot.push_if_below(
                         Socks5WarmEntry {
                             ws,
-                            domain: user_domain,
+                            domain: domain_tag,
                             created: Instant::now(),
                         },
                         target,
@@ -793,9 +925,6 @@ pub fn trigger_warm_socks5_refill(user_domain: String, dc: i32, is_media: bool, 
 }
 
 pub fn trigger_warm_socks5_pool_prime(user_domain: String, cancel: CancellationToken) {
-    if user_domain.is_empty() {
-        return;
-    }
     let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
     if is_mobile {
         // Mobile / Hotspot Staggered Prime:
@@ -803,7 +932,7 @@ pub fn trigger_warm_socks5_pool_prime(user_domain: String, cancel: CancellationT
         // Stagger to prevent cellular bufferbloat and modem TX queue exhaustion:
         let u = user_domain.clone();
         let c = cancel.clone();
-        tokio::spawn(async move {
+        spawn_task(async move {
             // Stage 1: Critical DC2 chat immediately (2 streams)
             trigger_warm_socks5_refill(u.clone(), 2, false, c.clone());
             // Stage 2: DC2 media after 120ms stagger (2 streams)
@@ -825,19 +954,20 @@ pub fn trigger_warm_socks5_pool_prime(user_domain: String, cancel: CancellationT
 }
 
 pub fn clear_socks5_warm_pool() {
-    tokio::spawn(async move {
-        let slots: Vec<Arc<Socks5Slot>> = {
-            let r = SOCKS5_WARM_SLOTS.read();
-            r.values().cloned().collect()
-        };
-        for slot in slots {
-            for entry in slot.drain_all() {
-                tokio::spawn(async move {
+    let slots: Vec<Arc<Socks5Slot>> = {
+        let r = SOCKS5_WARM_SLOTS.read();
+        r.values().cloned().collect()
+    };
+    for slot in slots {
+        let dead = slot.drain_all();
+        if !dead.is_empty() {
+            spawn_task(async move {
+                for entry in dead {
                     let _ = entry.ws.close().await;
-                });
-            }
+                }
+            });
         }
-    });
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -854,6 +984,24 @@ pub struct Socks5WarmPoolStatus {
 }
 
 pub fn get_socks5_warm_pool_status() -> Socks5WarmPoolStatus {
+    let (enabled, _user_domain) = {
+        let cfg = CFPROXY.read();
+        (CFPROXY_ENABLED.load(Ordering::Relaxed), cfg.user_domain.trim().to_string())
+    };
+    if !enabled {
+        return Socks5WarmPoolStatus {
+            ready_total: 0,
+            target_total: 0,
+            in_flight_total: 0,
+            dc2_chat_ready: 0,
+            dc2_chat_target: 0,
+            dc2_media_ready: 0,
+            dc2_media_target: 0,
+            dc4_media_ready: 0,
+            dc4_media_target: 0,
+        };
+    }
+
     let slot_dc2_chat = get_warm_slot(Socks5WarmKey { dc: 2, is_media: false });
     let slot_dc2_media = get_warm_slot(Socks5WarmKey { dc: 2, is_media: true });
     let slot_dc4_media = get_warm_slot(Socks5WarmKey { dc: 4, is_media: true });
@@ -890,16 +1038,13 @@ pub fn get_socks5_warm_pool_status() -> Socks5WarmPoolStatus {
 }
 
 pub fn ensure_warm_pool_housekeeper(cancel: CancellationToken) {
-    tokio::spawn(async move {
+    spawn_task(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(20));
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => break,
                 _ = interval.tick() => {
                     let user_domain = CFPROXY.read().user_domain.clone();
-                    if user_domain.is_empty() {
-                        continue;
-                    }
                     let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
                     // On cellular networks, CGNAT drops idle TCP after 15-30s.
                     // Keep idle sockets bounded to 22s on mobile to avoid dead sockets.
@@ -927,7 +1072,7 @@ pub fn ensure_warm_pool_housekeeper(cancel: CancellationToken) {
                         };
 
                         for dead in dead_entries {
-                            tokio::spawn(async move {
+                            spawn_task(async move {
                                 let _ = dead.ws.close().await;
                             });
                         }
@@ -950,7 +1095,7 @@ pub async fn socks5_acquire_upstream_ws(
     target_port: u16,
     init: &[u8],
     cancel_token: &CancellationToken,
-) -> Option<RawWebSocket> {
+) -> Option<(RawWebSocket, String)> {
     let expected = crate::generation_guard::snapshot();
     let (enabled, user_domain) = {
         let cfg = CFPROXY.read();
@@ -960,10 +1105,105 @@ pub async fn socks5_acquire_upstream_ws(
         )
     };
 
-    if !enabled || user_domain.is_empty() {
-        if enabled && user_domain.is_empty() {
-            lwarn!("SOCKS5 requires configured Cloudflare Worker; none configured");
+    if !enabled {
+        return None;
+    }
+
+    let uplink_mode = crate::config::get_socks5_uplink_mode();
+    let is_flowseal = uplink_mode == crate::config::SOCKS5_UPLINK_FLOWSEAL || user_domain.is_empty();
+
+    // ── Anycast CDN Flowseal Uplink ──
+    if is_flowseal {
+        let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
+        let key = Socks5WarmKey { dc: effective_dc, is_media };
+        let slot = get_warm_slot(key);
+
+        let is_mobile = MOBILE_NETWORK.load(Ordering::Relaxed);
+        let max_age = if is_mobile { Duration::from_secs(22) } else { Duration::from_secs(45) };
+        let warm_opt = slot.try_pop_fresh_any(max_age);
+
+        let (ws, winner_domain) = if let Some((ws, domain)) = warm_opt {
+            ldebug!(
+                "SOCKS5 Flowseal warm pool ok {} (DC{}{}) (0 ms)",
+                domain,
+                effective_dc,
+                if is_media { "m" } else { "" }
+            );
+            (ws, domain)
+        } else {
+            ldebug!(
+                "SOCKS5 Flowseal Anycast race attempt -> DC{}{}",
+                effective_dc,
+                if is_media { " (media)" } else { "" }
+            );
+            let race_res = crate::proxy::cfproxy_acquire_raw_ws_race(
+                effective_dc,
+                is_media,
+                ProtoScope::Socks5,
+                cancel_token,
+            )
+            .await;
+            match race_res {
+                Some(r) => r,
+                None => {
+                    lwarn!(
+                        "SOCKS5 Flowseal upstream unavailable for DC{}{}; suppressing unproxied TCP fallback",
+                        effective_dc,
+                        if is_media { "m" } else { "" }
+                    );
+                    return None;
+                }
+            }
+        };
+
+        if !crate::generation_guard::is_current(expected) {
+            ldebug!("SOCKS5 Flowseal dial completed but network generation changed; dropping stale socket");
+            let _ = ws.close().await;
+            return None;
         }
+
+        if !init.is_empty() {
+            if init.len() >= 64 {
+                // Frame 1: Exactly 64 bytes of Obfuscated2 handshake
+                // In Flowseal Anycast CDN, negative DC is strictly required to route to Media servers.
+                let target_dc = if is_media { -effective_dc } else { effective_dc };
+                let patched_init_head = patch_init_dc(&init[..64], target_dc);
+                if let Err(e) = ws.send(&patched_init_head).await {
+                    let _ = ws.close().await;
+                    lwarn!("SOCKS5 Flowseal first 64-byte handshake write failed: {:?}", e);
+                    return None;
+                }
+            } else {
+                if let Err(e) = ws.send(init).await {
+                    let _ = ws.close().await;
+                    lwarn!("SOCKS5 Flowseal short payload write failed: {:?}", e);
+                    return None;
+                }
+            }
+        }
+
+        // Replenish warm pool slot in background for subsequent parallel requests
+        trigger_warm_socks5_refill(user_domain.clone(), effective_dc, is_media, cancel_token.clone());
+
+        clear_cfproxy_429_cooldown_scoped(&winner_domain, ProtoScope::Socks5);
+        clear_cfproxy_recovery_cooldown(&winner_domain);
+        let base_domain = crate::balancer::normalize_domain(&winner_domain);
+        if !base_domain.is_empty() {
+            crate::balancer::BALANCER.write().record_useful_success(
+                crate::network_profile::current_generation(),
+                effective_dc,
+                is_media,
+                &base_domain,
+            );
+        }
+        *LAST_SOCKS5_WORKER.write() = winner_domain.clone();
+        STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
+        return Some((ws, winner_domain));
+    }
+
+    // ── Cloudflare Worker Uplink ──
+    if user_domain.is_empty() {
+        lwarn!("SOCKS5 requires configured Cloudflare Worker; none configured");
         return None;
     }
 
@@ -1008,7 +1248,7 @@ pub async fn socks5_acquire_upstream_ws(
                 );
                 STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
                 trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
-                return Some(ws);
+                return Some((ws, user_domain.clone()));
             } else {
                 let _ = ws.close().await;
             }
@@ -1020,7 +1260,7 @@ pub async fn socks5_acquire_upstream_ws(
             );
             STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
             trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
-            return Some(ws);
+            return Some((ws, user_domain.clone()));
         }
     }
 
@@ -1100,7 +1340,7 @@ pub async fn socks5_acquire_upstream_ws(
                 *LAST_SOCKS5_WORKER.write() = user_domain.clone();
                 STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
                 trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
-                return Some(ws);
+                return Some((ws, user_domain.clone()));
             }
         } else {
             if !resolved_ip.is_empty() {
@@ -1113,7 +1353,7 @@ pub async fn socks5_acquire_upstream_ws(
             *LAST_SOCKS5_WORKER.write() = user_domain.clone();
             STATS.socks5_fastpath_hits.fetch_add(1, Ordering::Relaxed);
             trigger_warm_socks5_refill(user_domain.clone(), dc, is_media, cancel_token.clone());
-            return Some(ws);
+            return Some((ws, user_domain.clone()));
         }
     }
 
@@ -1192,8 +1432,12 @@ pub async fn bridge_socks5_ws(
     ws: Arc<RawWebSocket>,
     dc: i32,
     is_media: bool,
-    worker_dst: &str,
+    winner_domain: &str,
     cancel_token: CancellationToken,
+    proto: Option<u32>,
+    initial_clt_data: Vec<u8>,
+    init_head: Option<[u8; 64]>,
+    is_flowseal: bool,
 ) {
     let session_start = Instant::now();
     let total_up = Arc::new(AtomicU64::new(0));
@@ -1215,6 +1459,19 @@ pub async fn bridge_socks5_ws(
         }
     };
 
+    let (mut splitter, mut clt_dec, mut tg_enc) = if is_flowseal && init_head.is_some() {
+        let head = init_head.unwrap();
+        let p = proto.unwrap_or(0xEFEFEFEF);
+        let s = MsgSplitter::new(p);
+        let mut d = new_aes_ctr(&head[8..40], &head[40..56]);
+        let mut dummy = [0u8; 64];
+        d.xor(&mut dummy);
+        let e = d.clone();
+        (Some(s), Some(d), Some(e))
+    } else {
+        (None, None, None)
+    };
+
     // Up: Client -> WS
     let ws_up = ws.clone();
     let bridge_cancel_up = bridge_cancel.clone();
@@ -1222,6 +1479,29 @@ pub async fn bridge_socks5_ws(
     let total_up_clone = total_up.clone();
     let reason_up = close_reason.clone();
     let up = async move {
+        // 1. Process initial coalesced application data (if any) through splitter
+        if !initial_clt_data.is_empty() {
+            let n = initial_clt_data.len();
+            total_up_clone.fetch_add(n as u64, Ordering::Relaxed);
+            STATS.bytes_up.fetch_add(n as i64, Ordering::Relaxed);
+            if let (Some(ref mut s), Some(ref mut d), Some(ref mut e)) = (&mut splitter, &mut clt_dec, &mut tg_enc) {
+                let frames = s.process(&initial_clt_data, d, e);
+                if !frames.is_empty() {
+                    if let Err(err) = ws_up.send_batch(&frames).await {
+                        ldebug!("Bridge WS upstream send_batch initial error: {:?}", err);
+                        bridge_cancel_up.cancel();
+                        return;
+                    }
+                }
+            } else {
+                if let Err(err) = ws_up.send(&initial_clt_data).await {
+                    ldebug!("Bridge WS upstream send initial error: {:?}", err);
+                    bridge_cancel_up.cancel();
+                    return;
+                }
+            }
+        }
+
         let mut buf = vec![0u8; WS_BRIDGE_CHUNK_SIZE];
         loop {
             let res = tokio::select! {
@@ -1231,6 +1511,12 @@ pub async fn bridge_socks5_ws(
             match res {
                 Ok(Ok(0)) => {
                     activity_up.upload_eof();
+                    if let (Some(ref mut s), _, Some(ref mut e)) = (&mut splitter, &mut clt_dec, &mut tg_enc) {
+                        let tail = s.flush(e);
+                        if !tail.is_empty() {
+                            let _ = ws_up.send_batch(&tail).await;
+                        }
+                    }
                     let mut r = reason_up.lock();
                     if *r == "Normal" {
                         *r = "ClientEof".to_string();
@@ -1263,20 +1549,47 @@ pub async fn bridge_socks5_ws(
                     activity_up.touch();
                     total_up_clone.fetch_add(n as u64, Ordering::Relaxed);
                     STATS.bytes_up.fetch_add(n as i64, Ordering::Relaxed);
-                    let send_res = tokio::select! {
-                        _ = bridge_cancel_up.cancelled() => Err(WsError::Other("cancelled".to_string())),
-                        r = ws_up.send(&buf[..n]) => r,
-                    };
-                    if let Err(e) = send_res {
-                        ldebug!("Bridge WS upstream send error: {:?}", e);
-                        let mut r = reason_up.lock();
-                        if *r == "Normal" {
-                            *r = format!("WsSendErr({:?})", e);
+
+                    if let (Some(ref mut s), Some(ref mut d), Some(ref mut e)) = (&mut splitter, &mut clt_dec, &mut tg_enc) {
+                        let frames = s.process(&buf[..n], d, e);
+                        if !frames.is_empty() {
+                            let send_res = tokio::select! {
+                                _ = bridge_cancel_up.cancelled() => Err(WsError::Other("cancelled".to_string())),
+                                r = ws_up.send_batch(&frames) => r,
+                            };
+                            if let Err(e) = send_res {
+                                ldebug!("Bridge WS upstream send_batch error: {:?}", e);
+                                let mut r = reason_up.lock();
+                                if *r == "Normal" {
+                                    *r = format!("WsSendBatchErr({:?})", e);
+                                }
+                                bridge_cancel_up.cancel();
+                                break;
+                            }
                         }
-                        bridge_cancel_up.cancel();
-                        break;
+                    } else {
+                        let send_res = tokio::select! {
+                            _ = bridge_cancel_up.cancelled() => Err(WsError::Other("cancelled".to_string())),
+                            r = ws_up.send(&buf[..n]) => r,
+                        };
+                        if let Err(e) = send_res {
+                            ldebug!("Bridge WS upstream send error: {:?}", e);
+                            let mut r = reason_up.lock();
+                            if *r == "Normal" {
+                                *r = format!("WsSendErr({:?})", e);
+                            }
+                            bridge_cancel_up.cancel();
+                            break;
+                        }
                     }
                 }
+            }
+        }
+
+        if let (Some(ref mut s), _, Some(ref mut e)) = (&mut splitter, &mut clt_dec, &mut tg_enc) {
+            let tail = s.flush(e);
+            if !tail.is_empty() {
+                let _ = ws_up.send_batch(&tail).await;
             }
         }
     };
@@ -1286,10 +1599,14 @@ pub async fn bridge_socks5_ws(
     let bridge_cancel_down = bridge_cancel.clone();
     let total_down_clone = total_down.clone();
     let reason_down = close_reason.clone();
+    let down_dst = winner_domain.to_string();
     let down = async move {
         let mut bytes_before_stall: u64 = 0;
         let mut last_progress_log = Instant::now();
         let mut last_progress_bytes: u64 = 0;
+        let mut first_rx = true;
+        let base_domain = crate::balancer::normalize_domain(&down_dst);
+        let cur_gen = crate::network_profile::current_generation();
 
         loop {
             let res = activity
@@ -1306,6 +1623,18 @@ pub async fn bridge_socks5_ws(
                     bytes_before_stall = bytes_before_stall.saturating_add(n as u64);
                     total_down_clone.fetch_add(n as u64, Ordering::Relaxed);
                     STATS.bytes_down.fetch_add(n as i64, Ordering::Relaxed);
+
+                    if first_rx && n > 0 {
+                        first_rx = false;
+                        if !base_domain.is_empty() {
+                            crate::balancer::BALANCER.write().record_useful_success(
+                                cur_gen,
+                                dc,
+                                is_media,
+                                &base_domain,
+                            );
+                        }
+                    }
 
                     let current_total = total_down_clone.load(Ordering::Relaxed);
                     if current_total >= 64 * 1024 {
@@ -1364,15 +1693,26 @@ pub async fn bridge_socks5_ws(
                 }
             }
         }
+
+        if first_rx && !base_domain.is_empty() {
+            crate::balancer::BALANCER.write().record_failure(
+                cur_gen,
+                dc,
+                is_media,
+                &base_domain,
+            );
+        }
+
         let domain = ws_down.recovery_scope().to_string();
+        let tracker_domain = if !base_domain.is_empty() { &base_domain } else { &domain };
         if bytes_before_stall == 0 && !bridge_cancel_down.is_cancelled() {
             crate::node_independence::NODE_INDEPENDENCE_TRACKER
                 .write()
-                .record_node_stall(&domain, 0);
+                .record_node_stall(tracker_domain, 0);
         } else if bytes_before_stall > 0 {
             crate::node_independence::NODE_INDEPENDENCE_TRACKER
                 .write()
-                .record_node_bytes_transferred(&domain, bytes_before_stall);
+                .record_node_bytes_transferred(tracker_domain, bytes_before_stall);
         }
         let _ =
             bounded_shutdown(&mut c_write, &bridge_cancel_down, Duration::from_secs(2)).await;
@@ -1395,7 +1735,7 @@ pub async fn bridge_socks5_ws(
         "SOCKS5 session ended: DC{}{} (dst={}), dur={:.1}s, rx={:.1} KB, tx={:.1} KB, avg={:.1} KB/s, reason={}",
         dc,
         if is_media { " (media)" } else { "" },
-        worker_dst,
+        winner_domain,
         dur_sec,
         rx_kb,
         tx_kb,
@@ -3059,17 +3399,17 @@ mod tests {
         LittleEndian::write_i16(&mut init[60..62], 2 ^ LittleEndian::read_i16(&ks[60..62]));
 
         let res = dc_from_init(&init);
-        assert_eq!(res, Some((2, false)));
+        assert_eq!(res, Some((2, false, 0xEEEEEEEE)));
 
         // Patch to DC4
         let patched = patch_init_dc(&init, 4);
         let res_patched = dc_from_init(&patched);
-        assert_eq!(res_patched, Some((4, false)));
+        assert_eq!(res_patched, Some((4, false, 0xEEEEEEEE)));
 
         // Patch to DC4 Media (negative DC)
         let patched_media = patch_init_dc(&init, -4);
         let res_patched_media = dc_from_init(&patched_media);
-        assert_eq!(res_patched_media, Some((4, true)));
+        assert_eq!(res_patched_media, Some((4, true, 0xEEEEEEEE)));
     }
 
     #[test]

@@ -190,7 +190,7 @@ class Socks5ProtocolTest {
         )
         val directServer = LocalProxyServer(configDirect)
         directServer.updateWorkerConfig()
-        assertEquals("Cloudflare Worker WSS", directServer.stats.activeCascadeStage)
-        assertEquals("Cloudflare Worker", directServer.stats.activeEffectiveRoute)
+        assertEquals("Anycast CDN Flowseal", directServer.stats.activeCascadeStage)
+        assertEquals("Anycast CDN Flowseal", directServer.stats.activeEffectiveRoute)
     }
 }

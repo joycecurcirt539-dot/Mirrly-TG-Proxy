@@ -100,11 +100,18 @@ pub fn normalize_domain(domain: &str) -> String {
     }
     let host = s.split('/').next().unwrap_or(s);
     let host = host.split(':').next().unwrap_or(host);
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return String::new();
+    }
     if let Some(rest) = host.strip_prefix("kws") {
         if let Some(dot_idx) = rest.find('.') {
             let prefix = &rest[..dot_idx];
             if !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit() || c == '-') {
-                return rest[dot_idx + 1..].to_ascii_lowercase();
+                let rest_domain = &rest[dot_idx + 1..];
+                if rest_domain.parse::<std::net::IpAddr>().is_ok() {
+                    return String::new();
+                }
+                return rest_domain.to_ascii_lowercase();
             }
         }
     }
@@ -313,7 +320,7 @@ impl Balancer {
             .domains
             .iter()
             .map(|d| normalize_domain(d))
-            .filter(|d| !seen.contains(d))
+            .filter(|d| !seen.contains(d) && !d.is_empty())
             .collect();
         let mut rng = rand::thread_rng();
         remaining.shuffle(&mut rng);

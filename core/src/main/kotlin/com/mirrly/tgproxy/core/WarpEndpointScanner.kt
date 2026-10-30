@@ -164,7 +164,7 @@ object WarpEndpointScanner {
 
     private const val TAG = "WarpEndpointScanner"
 
-    const val MASQUE_SNI = "cdnjs.cloudflare.com"
+    const val MASQUE_SNI = ProxyConfig.WARP_MASQUE_SNI_CONSUMER_PROXY
     const val MASQUE_ALPN = "h3"
 
     @Volatile

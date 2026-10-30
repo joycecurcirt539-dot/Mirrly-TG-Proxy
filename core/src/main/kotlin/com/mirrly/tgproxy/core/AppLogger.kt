@@ -73,10 +73,109 @@ object AppLogger {
     val logsFlow: StateFlow<List<LogEntry>> = _logsFlow.asStateFlow()
 
     @Volatile
+    var isLoggingEnabled: Boolean = true
+        private set
+
+    @Volatile
+    var isLogcatReaderAllowed: Boolean = true
+        private set
+
+    @Volatile
+    var enabledLevels: Set<LogLevel> = setOf(LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR, LogLevel.DEBUG)
+        private set
+
+    @Volatile
+    var disabledCategories: Set<String> = emptySet()
+        private set
+
+    @Volatile
+    var disabledTags: Set<String> = emptySet()
+        private set
+
+    private val dynamicKnownTags = java.util.concurrent.ConcurrentHashMap.newKeySet<String>().apply {
+        LogCategory.entries.forEach { addAll(it.tags) }
+    }
+
+    @Volatile
     private var isLogcatReaderStarted = false
     private var logcatProcess: Process? = null
     private val loggerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var logcatJob: Job? = null
+
+    @Synchronized
+    fun configure(
+        loggingEnabled: Boolean = isLoggingEnabled,
+        logcatReaderAllowed: Boolean = isLogcatReaderAllowed,
+        levels: Set<LogLevel> = enabledLevels,
+        disabledCats: Set<String> = disabledCategories,
+        disabledTgs: Set<String> = disabledTags
+    ) {
+        isLoggingEnabled = loggingEnabled
+        isLogcatReaderAllowed = logcatReaderAllowed
+        enabledLevels = levels
+        disabledCategories = disabledCats
+        disabledTags = disabledTgs
+        if (!isLoggingEnabled || !isLogcatReaderAllowed) {
+            stopLogcatReader()
+        }
+    }
+
+    @Synchronized
+    fun setLoggingEnabled(enabled: Boolean) {
+        isLoggingEnabled = enabled
+        if (!enabled) {
+            stopLogcatReader()
+        }
+    }
+
+    @Synchronized
+    fun setLogcatReaderAllowed(allowed: Boolean) {
+        isLogcatReaderAllowed = allowed
+        if (!allowed) {
+            stopLogcatReader()
+        }
+    }
+
+    @Synchronized
+    fun setLevelEnabled(level: LogLevel, enabled: Boolean) {
+        enabledLevels = if (enabled) enabledLevels + level else enabledLevels - level
+    }
+
+    @Synchronized
+    fun setCategoryEnabled(categoryKey: String, enabled: Boolean) {
+        disabledCategories = if (enabled) disabledCategories - categoryKey else disabledCategories + categoryKey
+    }
+
+    @Synchronized
+    fun setTagEnabled(tag: String, enabled: Boolean) {
+        val cleanTag = tag.trim()
+        disabledTags = if (enabled) {
+            disabledTags.filterNot { it.equals(cleanTag, ignoreCase = true) }.toSet()
+        } else {
+            disabledTags + cleanTag
+        }
+    }
+
+    fun isLevelEnabled(level: LogLevel): Boolean = level in enabledLevels
+
+    fun isCategoryEnabled(categoryKey: String): Boolean = categoryKey !in disabledCategories
+
+    fun isTagDisabled(tag: String): Boolean {
+        val cleanTag = tag.trim()
+        if (cleanTag.isEmpty()) return false
+        if (disabledTags.any { it.equals(cleanTag, ignoreCase = true) }) return true
+        val cat = LogCategory.findCategoryForTag(cleanTag)
+        if (cat != null && disabledCategories.contains(cat.key)) return true
+        return false
+    }
+
+    fun isTagEnabled(tag: String): Boolean = !isTagDisabled(tag)
+
+    fun isLoggingEnabledFor(level: LogLevel, tag: String): Boolean {
+        return isLoggingEnabled && level in enabledLevels && !isTagDisabled(tag)
+    }
+
+    fun getAllKnownTags(): Set<String> = dynamicKnownTags.toSet()
 
     @Synchronized
     fun getLogs(): List<LogEntry> {
@@ -85,10 +184,15 @@ object AppLogger {
 
     @Synchronized
     fun log(level: LogLevel, tag: String, message: String) {
-        if (HumanLogTranslator.shouldIgnoreLogcatLine(tag, message)) return
+        if (!isLoggingEnabled) return
+        if (level !in enabledLevels) return
+        val cleanTag = tag.trim().ifEmpty { "System" }
+        if (isTagDisabled(cleanTag)) return
+        if (HumanLogTranslator.shouldIgnoreLogcatLine(cleanTag, message)) return
 
-        val entry = LogEntry(level = level, tag = tag, rawMessage = message)
-        println("[$tag] $message")
+        dynamicKnownTags.add(cleanTag)
+
+        val entry = LogEntry(level = level, tag = cleanTag, rawMessage = message)
         logQueue.addLast(entry)
         if (logQueue.size > MAX_LOGS) {
             logQueue.removeFirst()
@@ -111,6 +215,7 @@ object AppLogger {
 
     @Synchronized
     fun startLogcatReader(pid: Int = -1) {
+        if (!isLoggingEnabled || !isLogcatReaderAllowed) return
         if (isLogcatReaderStarted) return
         isLogcatReaderStarted = true
 
@@ -143,6 +248,7 @@ object AppLogger {
     }
 
     private fun parseAndAddLogcatLine(line: String) {
+        if (!isLoggingEnabled) return
         if (line.isBlank()) return
         val level = when {
             line.contains("[ERROR]") || line.contains(" E/") || line.contains(" E ") || line.startsWith("E/") -> LogLevel.ERROR
@@ -151,6 +257,7 @@ object AppLogger {
             line.contains(" I/") || line.contains(" I ") || line.startsWith("I/") -> LogLevel.INFO
             else -> return
         }
+        if (level !in enabledLevels) return
 
         val tag = try {
             val startIdx = line.indexOf(")")
@@ -163,6 +270,7 @@ object AppLogger {
 
         // Ignore internal AppLogger logcat lines to avoid duplicate entries
         if (tag == "AppLogger") return
+        if (isTagDisabled(tag)) return
 
         // Reopening the screen starts a new `logcat` process, which replays its
         // ring buffer. The original line includes the event timestamp, so exact

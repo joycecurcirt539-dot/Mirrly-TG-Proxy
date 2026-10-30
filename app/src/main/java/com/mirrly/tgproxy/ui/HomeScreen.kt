@@ -166,6 +166,7 @@ fun HomeScreen(
     val server = app.proxyServer
 
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
+    val socks5UplinkMode by app.prefsManager.socks5UplinkModeFlow.collectAsState(initial = app.config.socks5UplinkMode)
     val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
     val activeWorkerIdMtproto by app.prefsManager.activeWorkerIdMtprotoFlow.collectAsState()
     val activeWorkerIdSocks5 by app.prefsManager.activeWorkerIdSocks5Flow.collectAsState()
@@ -197,6 +198,7 @@ fun HomeScreen(
     val protoColors = currentTabColors
     var showVpnProtocolDialog by rememberSaveable { mutableStateOf(false) }
     var showSplitTunnelAppsDialog by rememberSaveable { mutableStateOf(false) }
+    var showUplinkSwitcherSheet by rememberSaveable { mutableStateOf(false) }
     val vpnSplitTunnelPackages by app.prefsManager.vpnSplitTunnelPackagesFlow.collectAsState()
 
     val vpnState by com.mirrly.tgproxy.service.MirrlyVpnService.vpnState.collectAsState()
@@ -668,7 +670,8 @@ fun HomeScreen(
                     onOpenVpnInfo = {
                         showVpnProtocolDialog = true
                     },
-                    useWorkerMtproto = useWorkerMtproto
+                    useWorkerMtproto = useWorkerMtproto,
+                    socks5UplinkMode = socks5UplinkMode
                 )
             }
         },
@@ -903,7 +906,11 @@ fun HomeScreen(
                 // ─── 2. CENTER SECTION (Power button) ───
                 val isProxyRunning = currentState == ProxyUiState.CONNECTED || currentState == ProxyUiState.CONNECTING
                 val hasNoCustomWorker = if (isSocks5) {
-                    activeWorkerSocks5.domain.isBlank() || activeWorkerSocks5.id == "no_worker" || activeWorkerSocks5.isDeveloperWorker
+                    if (socks5UplinkMode == 1) {
+                        false
+                    } else {
+                        activeWorkerSocks5.domain.isBlank() || activeWorkerSocks5.id == "no_worker" || activeWorkerSocks5.isDeveloperWorker
+                    }
                 } else {
                     useWorkerMtproto && (activeWorkerMtproto.domain.isBlank() || activeWorkerMtproto.id == "no_worker" || activeWorkerMtproto.isDeveloperWorker)
                 }
@@ -998,7 +1005,7 @@ fun HomeScreen(
                                         val isSocks5Mode = (activeTab == HomeScreenTab.SOCKS5 || proxyMode == com.mirrly.tgproxy.core.ProxyMode.SOCKS5)
                                         val isMtprotoWithWorker = (activeTab == HomeScreenTab.MTPROTO || proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO) && useWorkerMtproto
                                         if (isSocks5Mode) {
-                                            if (app.config.getEffectiveCfDomain().isBlank() && activeWorkerSocks5.domain.isBlank()) {
+                                            if (socks5UplinkMode != 1 && app.config.getEffectiveCfDomain().isBlank() && activeWorkerSocks5.domain.isBlank()) {
                                                 HapticHelper.performTapClick(context)
                                                 showSocks5CfAuthRequiredDialog = true
                                                 return@clickable
@@ -1479,7 +1486,8 @@ fun HomeScreen(
                     // User-friendly Status line (Reflects active protocol and uplink mode)
                     val statusSubtitle = when (currentState) {
                         ProxyUiState.CONNECTED -> {
-                            if (telemetry.healthVerdict.contains(stringResource(R.string.status_waiting_network), ignoreCase = true) || telemetry.healthVerdict.contains("Waiting for network", ignoreCase = true) || (telemetry.healthScore == 0 && telemetry.pingMs < 0)) {
+                            val isActivelyTransmitting = (telemetry.activeConns > 0 || telemetry.totalRecv != "0 B" || telemetry.totalSent != "0 B")
+                            if (!isActivelyTransmitting && (telemetry.healthVerdict.contains(stringResource(R.string.status_waiting_network), ignoreCase = true) || telemetry.healthVerdict.contains("Waiting for network", ignoreCase = true) || (telemetry.healthScore == 0 && telemetry.pingMs < 0))) {
                                 stringResource(R.string.status_offline)
                             } else if (!isSocks5) {
                                 if (app.config.cfProxyEnabled) {
@@ -1488,7 +1496,9 @@ fun HomeScreen(
                                     stringResource(R.string.uplink_mtproto_direct_secured)
                                 }
                             } else {
-                                if (telemetry.effectiveRoute.isNotBlank()) {
+                                if (socks5UplinkMode == 1 || app.config.getEffectiveCfDomain().isBlank()) {
+                                    stringResource(R.string.uplink_socks5_flowseal_secured)
+                                } else if (telemetry.effectiveRoute.isNotBlank()) {
                                     com.mirrly.tgproxy.core.ProxyDisplayLabels.homeStatusLabel(
                                         effectiveRoute = telemetry.effectiveRoute,
                                         operator = telemetry.operator,
@@ -1613,20 +1623,48 @@ fun HomeScreen(
                                     )
                                 }
 
-                                // Center SQI Quality Orb
-                                LiquidWaveQualityCircle(
-                                    score = if (currentState == ProxyUiState.CONNECTED) telemetry.healthScore else 0,
-                                    isProxyActive = currentState == ProxyUiState.CONNECTED,
-                                    isSocks5 = isSocks5,
-                                    customColor = protoColors.primary,
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onOpenDiagnostics()
-                                    },
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .springPress()
-                                )
+                                // Center SQI Quality Orb + Grand 4D Tesseract Underneath
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                ) {
+                                    LiquidWaveQualityCircle(
+                                        score = if (currentState == ProxyUiState.CONNECTED) telemetry.healthScore else 0,
+                                        isProxyActive = currentState == ProxyUiState.CONNECTED,
+                                        isSocks5 = isSocks5,
+                                        customColor = protoColors.primary,
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            onOpenDiagnostics()
+                                        },
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .springPress()
+                                    )
+
+                                    // Grand 4D Tesseract Icon (Tap to switch Uplink)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(CircleShape)
+                                            .springPress(onClick = {
+                                                HapticHelper.performTapClick(context)
+                                                showUplinkSwitcherSheet = true
+                                            }),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        AnimatedTesseractIcon(
+                                            modifier = Modifier.size(36.dp),
+                                            color = protoColors.primary,
+                                            secondaryColor = protoColors.light,
+                                            strokeWidth = 0.75.dp,
+                                            glowIntensity = 0.85f,
+                                            showCore = true,
+                                            isAnimated = !isAnimationsDisabled
+                                        )
+                                    }
+                                }
 
                                 // Upload Speed & Total (Weight 1f)
                                 Column(
@@ -1792,10 +1830,6 @@ fun HomeScreen(
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
-
-
 
                     Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 8.dp))
 
@@ -2127,6 +2161,7 @@ fun HomeScreen(
                 UplinkStateDialog(
                     uplinkMode = uplinkMode,
                     isSocks5 = isSocks5,
+                    socks5UplinkMode = socks5UplinkMode,
                     activeWorker = activeWorker,
                     warpProfile = warpProfile,
                     effectiveRoute = telemetry.effectiveRoute,
@@ -2162,6 +2197,51 @@ fun HomeScreen(
                         showSplitTunnelAppsDialog = false
                     },
                     onDismiss = { showSplitTunnelAppsDialog = false }
+                )
+            }
+
+            if (showUplinkSwitcherSheet) {
+                UplinkSwitcherBottomSheet(
+                    isSocks5 = activeTab == HomeScreenTab.SOCKS5,
+                    socks5UplinkMode = socks5UplinkMode,
+                    useWorkerMtproto = useWorkerMtproto,
+                    activeWorker = if (activeTab == HomeScreenTab.SOCKS5) activeWorkerSocks5 else activeWorkerMtproto,
+                    protoColors = protoColors,
+                    onSelectSocks5Uplink = { mode ->
+                        app.prefsManager.setSocks5UplinkMode(mode)
+                        app.config.socks5UplinkMode = mode
+                        app.saveConfig()
+                        if (server.isRunning) {
+                            val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
+                                action = ProxyForegroundService.ACTION_RESTART
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                context.startForegroundService(serviceIntent)
+                            } else {
+                                context.startService(serviceIntent)
+                            }
+                        }
+                    },
+                    onSelectMtprotoWorker = { useWorker ->
+                        app.prefsManager.setUseWorkerMtproto(useWorker)
+                        app.config.useWorkerMtproto = useWorker
+                        app.saveConfig()
+                        if (server.isRunning) {
+                            val serviceIntent = Intent(context, ProxyForegroundService::class.java).apply {
+                                action = ProxyForegroundService.ACTION_RESTART
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                context.startForegroundService(serviceIntent)
+                            } else {
+                                context.startService(serviceIntent)
+                            }
+                        }
+                    },
+                    onOpenWorkerManager = {
+                        showUplinkSwitcherSheet = false
+                        onOpenWorkerManager(if (activeTab == HomeScreenTab.SOCKS5) com.mirrly.tgproxy.core.ProxyMode.SOCKS5 else com.mirrly.tgproxy.core.ProxyMode.MTPROTO)
+                    },
+                    onDismiss = { showUplinkSwitcherSheet = false }
                 )
             }
         }
@@ -3470,6 +3550,7 @@ fun ProtocolSwitcherHeader(
     onOpenUplinkState: () -> Unit = {},
     onOpenVpnInfo: () -> Unit = {},
     useWorkerMtproto: Boolean = true,
+    socks5UplinkMode: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -3722,7 +3803,13 @@ fun ProtocolSwitcherHeader(
                 }
             }
             HomeScreenTab.SOCKS5 -> {
-                if (activeWorkerSocks5.domain.isNotBlank()) {
+                if (socks5UplinkMode == 1) {
+                    Triple(
+                        "Flowseal Anycast CDN",
+                        Socks5Accent,
+                        onOpenUplinkState
+                    )
+                } else if (activeWorkerSocks5.domain.isNotBlank()) {
                     Triple(
                         "Worker WSS • ${activeWorkerSocks5.name}",
                         Socks5Accent,
@@ -4005,6 +4092,7 @@ fun LiquidWaveQualityCircle(
 fun UplinkStateDialog(
     uplinkMode: com.mirrly.tgproxy.core.UplinkMode,
     isSocks5: Boolean,
+    socks5UplinkMode: Int = 0,
     activeWorker: com.mirrly.tgproxy.core.WorkerProfile,
     warpProfile: com.mirrly.tgproxy.core.WarpProfile?,
     effectiveRoute: String = "",
@@ -4021,6 +4109,8 @@ fun UplinkStateDialog(
     var showInfoDialog by remember { mutableStateOf(false) }
     val modeTitle = if (!isSocks5) {
         "MTProto Direct / WSS"
+    } else if (socks5UplinkMode == 1) {
+        "Anycast CDN Flowseal"
     } else {
         "Cloudflare Worker WSS"
     }
@@ -4128,19 +4218,25 @@ fun UplinkStateDialog(
                         UplinkStateRow(stringResource(R.string.uplink_field_encryption), "Fake-TLS 1.3 • dd-secret")
                         UplinkStateRow(stringResource(R.string.uplink_field_cache_nodes), stringResource(R.string.uplink_field_cache_nodes_val))
                     } else {
-                        val isSocks5WorkerActive = activeWorker.domain.isNotBlank()
+                        val isFlowseal = (socks5UplinkMode == 1 || activeWorker.domain.isBlank())
                         UplinkStateRow(stringResource(R.string.uplink_field_protocol), "SOCKS5 TCP Relay • :10808")
                         UplinkStateRow(
                             stringResource(R.string.uplink_field_transport),
-                            "Cloudflare Worker WSS • :443"
+                            if (isFlowseal) "Anycast CDN Flowseal (Бета) • kws*.apiws" else "Cloudflare Worker WSS • :443"
                         )
-                        if (isSocks5WorkerActive) {
-                            UplinkStateRow(stringResource(R.string.uplink_field_active_worker), activeWorker.name)
-                            UplinkStateRow(stringResource(R.string.uplink_field_node_domain), activeWorker.domain)
+                        if (isFlowseal) {
+                            UplinkStateRow(stringResource(R.string.uplink_field_node_domain), "Flowseal Anycast Pool (20 узлов) • Бета")
+                            UplinkStateRow(stringResource(R.string.uplink_field_cache_nodes), stringResource(R.string.uplink_field_cache_nodes_val))
                         } else {
-                            UplinkStateRow(stringResource(R.string.uplink_field_node_domain), stringResource(R.string.wm_dev_workers_removed_title))
+                            val isSocks5WorkerActive = activeWorker.domain.isNotBlank()
+                            if (isSocks5WorkerActive) {
+                                UplinkStateRow(stringResource(R.string.uplink_field_active_worker), activeWorker.name)
+                                UplinkStateRow(stringResource(R.string.uplink_field_node_domain), activeWorker.domain)
+                            } else {
+                                UplinkStateRow(stringResource(R.string.uplink_field_node_domain), stringResource(R.string.wm_dev_workers_removed_title))
+                            }
                         }
-                        UplinkStateRow(stringResource(R.string.uplink_field_conn_pool), "WsPool • 4 сокета WSS")
+                        UplinkStateRow(stringResource(R.string.uplink_field_conn_pool), "WsPool • WSS Standby")
                     }
                 }
             }

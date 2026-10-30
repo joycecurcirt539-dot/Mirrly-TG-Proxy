@@ -967,6 +967,7 @@ fun SettingsScreen(
     var socks5Optimistic by remember { mutableStateOf(app.prefsManager.isSocks5OptimisticResponse()) }
     val proxyMode by app.prefsManager.proxyModeFlow.collectAsState(initial = app.config.proxyMode)
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState(initial = app.config.isSocks5Mode)
+    val socks5UplinkMode by app.prefsManager.socks5UplinkModeFlow.collectAsState(initial = app.config.socks5UplinkMode)
     val useWorkerMtproto by app.prefsManager.useWorkerMtprotoFlow.collectAsState()
     val isSwitching by com.mirrly.tgproxy.service.ProtocolSwitchManager.isSwitching.collectAsState()
 
@@ -1439,6 +1440,15 @@ fun SettingsScreen(
 
                     SettingsDivider()
                 } else if (activeProtocolMode == SettingsProtocolMode.SOCKS5) {
+                    SettingsSocks5UplinkCard(
+                        uplinkMode = socks5UplinkMode,
+                        onSelectUplinkMode = { mode ->
+                            app.prefsManager.setSocks5UplinkMode(mode)
+                            config.socks5UplinkMode = mode
+                            restartProxyIfNeeded()
+                        }
+                    )
+
                     SettingsWorkerSection(
                         config = config,
                         onOpenWorkerManager = { onOpenWorkerManager(com.mirrly.tgproxy.core.ProxyMode.SOCKS5) },
@@ -3247,6 +3257,143 @@ private fun SettingsNetworkSection(
                 app.prefsManager.setDialThrottlingEnabled(checked)
             }
         )
+    }
+}
+
+/**
+ * Zero-Popup Outline Card for selecting SOCKS5 routing uplink.
+ * Options:
+ * 0 - Cloudflare Worker (Custom or default)
+ * 1 - Anycast CDN Flowseal (Direct WSS tunneling)
+ */
+@Composable
+private fun SettingsSocks5UplinkCard(
+    uplinkMode: Int,
+    onSelectUplinkMode: (Int) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.Transparent)
+            .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+            .padding(14.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = stringResource(R.string.settings_socks5_uplink_title),
+                    color = TextWhite,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.5.sp
+                )
+                Text(
+                    text = stringResource(R.string.settings_socks5_uplink_desc),
+                    color = TextMuted,
+                    fontSize = 11.5.sp,
+                    lineHeight = 15.sp
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Option 0: Cloudflare Worker
+                val isWorkerSelected = (uplinkMode == 0)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isWorkerSelected) Socks5Accent.copy(alpha = 0.10f) else Color.Transparent,
+                    border = BorderStroke(1.dp, if (isWorkerSelected) Socks5Accent else AmoledBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onSelectUplinkMode(0)
+                        }
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_socks5_uplink_worker_title),
+                            fontSize = 12.5.sp,
+                            fontWeight = if (isWorkerSelected) FontWeight.Bold else FontWeight.SemiBold,
+                            color = if (isWorkerSelected) TextWhite else TextWhite.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_socks5_uplink_worker_subtitle),
+                            fontSize = 10.5.sp,
+                            color = if (isWorkerSelected) Socks5Accent.copy(alpha = 0.85f) else TextMuted,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Option 1: Anycast CDN Flowseal
+                val isFlowsealSelected = (uplinkMode == 1)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isFlowsealSelected) Socks5Accent.copy(alpha = 0.10f) else Color.Transparent,
+                    border = BorderStroke(1.dp, if (isFlowsealSelected) Socks5Accent else AmoledBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onSelectUplinkMode(1)
+                        }
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_socks5_uplink_flowseal_title),
+                            fontSize = 12.5.sp,
+                            fontWeight = if (isFlowsealSelected) FontWeight.Bold else FontWeight.SemiBold,
+                            color = if (isFlowsealSelected) TextWhite else TextWhite.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_socks5_uplink_flowseal_subtitle),
+                            fontSize = 10.5.sp,
+                            color = if (isFlowsealSelected) Socks5Accent.copy(alpha = 0.85f) else TextMuted,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            // Footnote info box
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, Socks5Accent.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_socks5_uplink_footnote),
+                    color = TextMuted,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
+            }
+        }
     }
 }
 
