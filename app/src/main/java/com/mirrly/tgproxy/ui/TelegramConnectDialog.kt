@@ -69,6 +69,10 @@ fun TelegramConnectDialog(
     val isMtActive = app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.MTPROTO
     val isSocks5Active = app.config.proxyMode == com.mirrly.tgproxy.core.ProxyMode.SOCKS5
 
+    val isCustomTheme = app.prefsManager.getThemeAccentMode() != ThemeAccentMode.PROTOCOL_DEFAULT
+    val mtColor = if (isCustomTheme) LocalProtocolColors.current.primary else MtprotoAccent
+    val s5Color = if (isCustomTheme) LocalProtocolColors.current.primary else Socks5Accent
+
     MirrlyModalBottomSheet(
         onDismissRequest = onDismiss,
         maxTabletWidth = 460.dp
@@ -111,7 +115,7 @@ fun TelegramConnectDialog(
                     .background(Color.Transparent)
                     .border(
                         1.dp,
-                        if (isMtActive) MtprotoAccent.copy(alpha = 0.65f) else AmoledBorder,
+                        if (isMtActive) mtColor.copy(alpha = 0.65f) else AmoledBorder,
                         RoundedCornerShape(16.dp)
                     )
                     .padding(14.dp)
@@ -126,7 +130,7 @@ fun TelegramConnectDialog(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(MtprotoAccent)
+                                .background(mtColor)
                         )
                         Text(
                             text = stringResource(R.string.tg_connect_proto_mtproto),
@@ -153,7 +157,7 @@ fun TelegramConnectDialog(
                                 .weight(1.3f)
                                 .height(42.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, MtprotoAccent, RoundedCornerShape(12.dp))
+                                .border(1.dp, mtColor, RoundedCornerShape(12.dp))
                                 .springPress(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     if (app.config.proxyMode != com.mirrly.tgproxy.core.ProxyMode.MTPROTO) {
@@ -170,7 +174,7 @@ fun TelegramConnectDialog(
                                 text = stringResource(R.string.tg_connect_btn_open_tg),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = MtprotoAccent
+                                color = mtColor
                             )
                         }
 
@@ -208,7 +212,7 @@ fun TelegramConnectDialog(
                     .background(Color.Transparent)
                     .border(
                         1.dp,
-                        if (isSocks5Active) Socks5Accent.copy(alpha = 0.65f) else AmoledBorder,
+                        if (isSocks5Active) s5Color.copy(alpha = 0.65f) else AmoledBorder,
                         RoundedCornerShape(16.dp)
                     )
                     .padding(14.dp)
@@ -223,7 +227,7 @@ fun TelegramConnectDialog(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(Socks5Accent)
+                                .background(s5Color)
                         )
                         Text(
                             text = stringResource(R.string.tg_connect_proto_socks5),
@@ -280,7 +284,7 @@ fun TelegramConnectDialog(
                                 .weight(1.3f)
                                 .height(42.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, Socks5Accent, RoundedCornerShape(12.dp))
+                                .border(1.dp, s5Color, RoundedCornerShape(12.dp))
                                 .springPress(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     if (!app.config.isSocks5Mode) {
@@ -297,7 +301,7 @@ fun TelegramConnectDialog(
                                 text = stringResource(R.string.tg_connect_btn_open_tg),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = Socks5Accent
+                                color = s5Color
                             )
                         }
 

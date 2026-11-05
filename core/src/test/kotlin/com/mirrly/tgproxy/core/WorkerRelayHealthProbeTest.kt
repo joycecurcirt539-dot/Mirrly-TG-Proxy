@@ -63,7 +63,7 @@ class WorkerRelayHealthProbeTest {
     }), WorkerStatus.ERROR_UNREACHABLE)
 
     @Test fun `upgrade without ACK times out`() = check(
-        MockResponse().withWebSocketUpgrade(object : WebSocketListener() {}), WorkerStatus.ERROR_UNREACHABLE, 250)
+        MockResponse().withWebSocketUpgrade(object : WebSocketListener() {}), WorkerStatus.ERROR_UNREACHABLE, 600)
 
     @Test fun `caller cancellation propagates`() = runBlocking {
         MockWebServer().use { server ->

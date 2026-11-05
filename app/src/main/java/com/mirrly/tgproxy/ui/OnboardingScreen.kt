@@ -22,6 +22,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -52,8 +54,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mirrly.tgproxy.R
+import com.mirrly.tgproxy.service.PreferencesManager
+import com.mirrly.tgproxy.service.WallpaperPreset
 import com.mirrly.tgproxy.ui.theme.*
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Премиальный экран первого запуска и приветствия (Onboarding Screen).
@@ -71,14 +77,15 @@ import kotlinx.coroutines.launch
 @Composable
 fun OnboardingScreen(
     initialLanguage: String = "ru",
+    prefsManager: PreferencesManager? = null,
     onLanguageSelected: (String) -> Unit,
     onComplete: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     var currentLang by remember(initialLanguage) { mutableStateOf(initialLanguage) }
-    var currentStep by remember { mutableIntStateOf(0) } // 0: Язык, 1: Прокси Telegram, 2: VPN и аплинки, 3: Быстрый старт
-    val totalSteps = 4
+    var currentStep by remember { mutableIntStateOf(0) } // 0: Язык, 1: Выбор фона, 2: Прокси Telegram, 3: VPN и аплинки, 4: Быстрый старт
+    val totalSteps = 5
 
     // Анимационный контроллер плавного выхода на главный экран
     val exitProgress = remember { Animatable(0f) }
@@ -121,7 +128,7 @@ fun OnboardingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Transparent)
+            .background(Color.Black.copy(alpha = 0.85f))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -197,7 +204,7 @@ fun OnboardingScreen(
                             label = "stepBarWidth_$i"
                         )
                         val barColor by animateColorAsState(
-                            targetValue = if (isSelected) ActiveGreenLed else Color.White.copy(alpha = 0.16f),
+                            targetValue = if (isSelected) ActiveGreenLed else Color.White.copy(alpha = 0.32f),
                             animationSpec = tween(durationMillis = 320),
                             label = "stepBarColor_$i"
                         )
@@ -278,12 +285,17 @@ fun OnboardingScreen(
                                 )
                             }
                             1 -> {
-                                StepTelegramProxy()
+                                StepWallpaperSelection(
+                                    prefsManager = prefsManager
+                                )
                             }
                             2 -> {
-                                StepVpnMode()
+                                StepTelegramProxy()
                             }
                             3 -> {
+                                StepVpnMode()
+                            }
+                            4 -> {
                                 StepQuickStartGuide()
                             }
                         }
@@ -329,7 +341,7 @@ fun OnboardingScreen(
                             } else {
                                 stringResource(R.string.onboarding_btn_skip)
                             },
-                            color = TextMuted,
+                            color = Color(0xFFD4D4E0),
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -409,12 +421,12 @@ private fun StepLanguageSelection(
                 fontWeight = FontWeight.Black,
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 1.3.sp,
-                color = TextMuted
+                color = ActiveGreenLed.copy(alpha = 0.90f)
             )
             Text(
                 text = stringResource(R.string.onboarding_step_language_desc),
                 fontSize = 13.5.sp,
-                color = TextWhite.copy(alpha = 0.88f),
+                color = TextWhite,
                 lineHeight = 19.sp
             )
         }
@@ -518,14 +530,14 @@ private fun LanguageCardItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    color = if (isSelected) TextWhite else TextWhite.copy(alpha = 0.88f),
+                    color = TextWhite,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
                 )
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = subtitle,
-                    color = if (isSelected) ActiveGreenLed.copy(alpha = 0.85f) else TextMuted,
+                    color = if (isSelected) ActiveGreenLed else Color(0xFFD4D4E0),
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     letterSpacing = 0.2.sp
@@ -565,7 +577,7 @@ private fun LanguageCardItem(
                     modifier = Modifier
                         .size(18.dp)
                         .clip(CircleShape)
-                        .border(1.2.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+                        .border(1.2.dp, Color.White.copy(alpha = 0.45f), CircleShape)
                 )
             }
         }
@@ -573,7 +585,310 @@ private fun LanguageCardItem(
 }
 
 /**
- * Шаг 2: Прокси для Telegram (MTProto и SOCKS5).
+ * Шаг 2: Выбор фона интерфейса (Динамические видео-обои, фото-обои или чистый AMOLED).
+ */
+@Composable
+private fun StepWallpaperSelection(
+    prefsManager: PreferencesManager?
+) {
+    val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val activePresetId by (prefsManager?.customBackgroundActivePresetIdFlow ?: remember { MutableStateFlow<String?>(null) }).collectAsState()
+    val wallpaperUri by (prefsManager?.customBackgroundUriFlow ?: remember { MutableStateFlow<String?>(null) }).collectAsState()
+    val userPresets by (prefsManager?.customBackgroundUserPresetsFlow ?: remember { MutableStateFlow<List<WallpaperPreset>>(emptyList()) }).collectAsState()
+    val hasCustomWallpaper = wallpaperUri != null
+
+    val isSpaceToiletActive = hasCustomWallpaper && activePresetId == WallpaperPreset.PRESET_ID_SPACE_TOILET
+    val isGrassActive = hasCustomWallpaper && activePresetId == WallpaperPreset.PRESET_ID_GRASS
+    val isBreezeActive = hasCustomWallpaper && activePresetId == WallpaperPreset.PRESET_ID_BREEZE
+    val isAmoledActive = !hasCustomWallpaper || activePresetId == null
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // Заголовок и вводный текст шага
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(R.string.onboarding_step_wallpaper_title),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.3.sp,
+                color = ActiveGreenLed.copy(alpha = 0.90f)
+            )
+            Text(
+                text = stringResource(R.string.onboarding_step_wallpaper_desc),
+                fontSize = 13.5.sp,
+                color = TextWhite,
+                lineHeight = 19.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        // 1. Space Toilet (Default dynamic video preset with 70% dimming)
+        val spaceToiletPreset = remember {
+            WallpaperPreset.BUILTIN_PRESETS.firstOrNull { it.id == WallpaperPreset.PRESET_ID_SPACE_TOILET }
+        }
+        val spaceToiletThumb = rememberWallpaperImage("wallpapers/space_toilet_preview.jpg", 0L)
+        WallpaperSelectionCardItem(
+            title = spaceToiletPreset?.title ?: "Space Toilet",
+            subtitle = stringResource(R.string.onboarding_wallpaper_space_toilet_desc),
+            isSelected = isSpaceToiletActive,
+            previewContent = {
+                PresetVideoPreview(
+                    assetPath = "wallpapers/space_toilet_thumb.mp4",
+                    previewImage = spaceToiletThumb,
+                    modifier = Modifier.fillMaxSize()
+                )
+            },
+            onClick = {
+                if (spaceToiletPreset != null) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    coroutineScope.launch {
+                        prefsManager?.applyPreset(spaceToiletPreset)
+                    }
+                }
+            }
+        )
+
+        // 2. Утренняя роса (Photo wallpaper)
+        val grassPreset = remember {
+            WallpaperPreset.BUILTIN_PRESETS.firstOrNull { it.id == WallpaperPreset.PRESET_ID_GRASS }
+        }
+        val grassImage = rememberWallpaperImage("wallpapers/wallpaper_grass_preview.jpg", 0L)
+        WallpaperSelectionCardItem(
+            title = grassPreset?.titleRes?.let { stringResource(it) } ?: "Утренняя роса",
+            subtitle = stringResource(R.string.onboarding_wallpaper_grass_desc),
+            isSelected = isGrassActive,
+            previewContent = {
+                if (grassImage != null) {
+                    Image(
+                        bitmap = grassImage.bitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            },
+            onClick = {
+                if (grassPreset != null) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    coroutineScope.launch {
+                        prefsManager?.applyPreset(grassPreset)
+                    }
+                }
+            }
+        )
+
+        // 3. Морской бриз (Photo wallpaper)
+        val breezePreset = remember {
+            WallpaperPreset.BUILTIN_PRESETS.firstOrNull { it.id == WallpaperPreset.PRESET_ID_BREEZE }
+        }
+        val breezeImage = rememberWallpaperImage("wallpapers/wallpaper_breeze_preview.jpg", 0L)
+        WallpaperSelectionCardItem(
+            title = breezePreset?.titleRes?.let { stringResource(it) } ?: "Морской бриз",
+            subtitle = stringResource(R.string.onboarding_wallpaper_breeze_desc),
+            isSelected = isBreezeActive,
+            previewContent = {
+                if (breezeImage != null) {
+                    Image(
+                        bitmap = breezeImage.bitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            },
+            onClick = {
+                if (breezePreset != null) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    coroutineScope.launch {
+                        prefsManager?.applyPreset(breezePreset)
+                    }
+                }
+            }
+        )
+
+        // 4. Чистый AMOLED (Pure AMOLED with cyber particles)
+        WallpaperSelectionCardItem(
+            title = stringResource(R.string.onboarding_wallpaper_amoled_title),
+            subtitle = stringResource(R.string.onboarding_wallpaper_amoled_desc),
+            isSelected = isAmoledActive,
+            previewContent = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_wallpaper),
+                        contentDescription = null,
+                        tint = if (isAmoledActive) ActiveGreenLed else Color.White.copy(alpha = 0.50f),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            },
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                prefsManager?.clearCustomWallpaper()
+            }
+        )
+
+        // 5. User Custom Presets (if any)
+        userPresets.forEach { userPreset ->
+            val isUserPresetActive = hasCustomWallpaper && activePresetId == userPreset.id
+            val userPreviewImage = rememberWallpaperImage(
+                path = userPreset.previewAssetPath ?: userPreset.previewFilePath ?: userPreset.filePath,
+                revision = 0L
+            )
+            WallpaperSelectionCardItem(
+                title = userPreset.title,
+                subtitle = "${userPreset.blurDp.roundToInt()} dp · ${(userPreset.dimFactor * 100).roundToInt()}%",
+                isSelected = isUserPresetActive,
+                previewContent = {
+                    if (userPreset.type == PreferencesManager.WALLPAPER_TYPE_VIDEO) {
+                        PresetVideoPreview(
+                            videoPath = userPreset.filePath,
+                            assetPath = userPreset.previewAssetPath?.takeIf { it.endsWith(".mp4") } ?: userPreset.assetPath,
+                            previewImage = userPreviewImage,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else if (userPreviewImage != null) {
+                        Image(
+                            bitmap = userPreviewImage.bitmap,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                },
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    coroutineScope.launch {
+                        prefsManager?.applyPreset(userPreset)
+                    }
+                }
+            )
+        }
+    }
+}
+
+/**
+ * Просторная интерактивная карточка выбора фона в стиле MirrlyUI.
+ */
+@Composable
+private fun WallpaperSelectionCardItem(
+    title: String,
+    subtitle: String,
+    isSelected: Boolean,
+    previewContent: @Composable () -> Unit,
+    onClick: () -> Unit
+) {
+    val activeBorderBrush = Brush.horizontalGradient(
+        colors = listOf(
+            ActiveGreenLed,
+            ActiveGreenLed.copy(alpha = 0.80f),
+            ActiveGreenLed
+        )
+    )
+
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = Color.Transparent,
+        border = if (isSelected) {
+            BorderStroke(1.5.dp, activeBorderBrush)
+        } else {
+            BorderStroke(1.dp, AmoledBorder)
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .lightSweep(isEnabled = isSelected, shape = RoundedCornerShape(20.dp), borderWidth = 1.5.dp)
+            .springPress(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Миниатюрное окно превью (54 x 70 dp) с аппаратным рендерингом
+            Box(
+                modifier = Modifier
+                    .size(width = 54.dp, height = 70.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.Black)
+                    .border(
+                        width = 1.dp,
+                        color = if (isSelected) ActiveGreenLed.copy(alpha = 0.60f) else AmoledBorder,
+                        shape = RoundedCornerShape(12.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                previewContent()
+            }
+
+            // Название фона и подпись параметров
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = TextWhite,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = subtitle,
+                    color = if (isSelected) ActiveGreenLed else Color(0xFFD4D4E0),
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+            }
+
+            // Правый индикатор выбора (Светящийся чип "ВЫБРАНО" или контурный кружок)
+            if (isSelected) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = ActiveGreenLed.copy(alpha = 0.14f),
+                    border = BorderStroke(1.dp, ActiveGreenLed.copy(alpha = 0.45f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(ActiveGreenLed)
+                        )
+                        Text(
+                            text = stringResource(R.string.onboarding_lang_badge_selected),
+                            color = ActiveGreenLed,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 0.8.sp
+                        )
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .border(1.2.dp, Color.White.copy(alpha = 0.45f), CircleShape)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Шаг 3: Прокси для Telegram (MTProto и SOCKS5).
  */
 @Composable
 private fun StepTelegramProxy() {
@@ -585,12 +900,12 @@ private fun StepTelegramProxy() {
                 fontWeight = FontWeight.Black,
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 1.3.sp,
-                color = TextMuted
+                color = ActiveGreenLed.copy(alpha = 0.90f)
             )
             Text(
                 text = stringResource(R.string.onboarding_step_proxy_desc),
                 fontSize = 13.5.sp,
-                color = TextWhite.copy(alpha = 0.88f),
+                color = TextWhite,
                 lineHeight = 19.5.sp
             )
         }
@@ -645,7 +960,7 @@ private fun StepTelegramProxy() {
 }
 
 /**
- * Шаг 3: Системный режим VPN и протоколы аплинка.
+ * Шаг 4: Системный режим VPN и протоколы аплинка.
  */
 @Composable
 private fun StepVpnMode() {
@@ -657,12 +972,12 @@ private fun StepVpnMode() {
                 fontWeight = FontWeight.Black,
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 1.3.sp,
-                color = TextMuted
+                color = ActiveGreenLed.copy(alpha = 0.90f)
             )
             Text(
                 text = stringResource(R.string.onboarding_step_vpn_desc),
                 fontSize = 13.5.sp,
-                color = TextWhite.copy(alpha = 0.88f),
+                color = TextWhite,
                 lineHeight = 19.5.sp
             )
         }
@@ -755,7 +1070,7 @@ private fun FeatureRowItem(
             )
             Text(
                 text = detail,
-                color = TextMuted,
+                color = Color(0xFFD4D4E0),
                 fontSize = 12.sp,
                 lineHeight = 17.sp
             )
@@ -764,7 +1079,7 @@ private fun FeatureRowItem(
 }
 
 /**
- * Шаг 3: Быстрый старт (Три простых шага для настройки защищенного соединения).
+ * Шаг 5: Быстрый старт (Три простых шага для настройки защищенного соединения).
  */
 @Composable
 private fun StepQuickStartGuide() {
@@ -776,12 +1091,12 @@ private fun StepQuickStartGuide() {
                 fontWeight = FontWeight.Black,
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 1.3.sp,
-                color = TextMuted
+                color = ActiveGreenLed.copy(alpha = 0.90f)
             )
             Text(
                 text = stringResource(R.string.onboarding_step_guide_desc),
                 fontSize = 13.5.sp,
-                color = TextWhite.copy(alpha = 0.88f),
+                color = TextWhite,
                 lineHeight = 19.5.sp
             )
         }
@@ -881,7 +1196,7 @@ private fun QuickStartStepRow(
             }
             Text(
                 text = description,
-                color = TextMuted,
+                color = Color(0xFFD4D4E0),
                 fontSize = 12.sp,
                 lineHeight = 17.sp
             )

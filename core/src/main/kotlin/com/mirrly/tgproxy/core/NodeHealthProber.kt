@@ -54,9 +54,7 @@ enum class NodeProbeStatus(val label: String, val isSuccess: Boolean) {
 }
 
 enum class HealthTargetType(val displayName: String) {
-    VLESS_PAGES("Pages / CDN"),
-    WORKER("Cloudflare Worker"),
-    OPERA_VPN("Opera VPN")
+    WORKER("Cloudflare Worker")
 }
 
 data class HealthTargetNode(
@@ -76,9 +74,6 @@ data class HealthNodeResult(
     val directStatus: NodeProbeStatus,
     val directLatencyMs: Long? = null,
     val directDetail: String = "",
-    val operaStatus: NodeProbeStatus? = null,
-    val operaLatencyMs: Long? = null,
-    val operaDetail: String = "",
     val nodeStatus: NodeProbeStatus? = null,
     val nodeLatencyMs: Long? = null,
     val nodeDetail: String = ""
@@ -102,12 +97,8 @@ object NodeHealthProber {
      */
     suspend fun probeAll(
         targets: List<HealthTargetNode>,
-        operaEndpoint: String? = "77.111.247.139:443",
         localSocksPort: Int? = null,
         localSocksAuth: Pair<String, String>? = null,
-        vlessDomain: String? = null,
-        vlessPath: String? = null,
-        vlessUuid: String? = null,
         onProgress: ((completed: Int, total: Int, currentResult: HealthNodeResult) -> Unit)? = null
     ): Map<String, HealthNodeResult> = withContext(Dispatchers.IO) {
         val semaphore = Semaphore(6)
@@ -119,12 +110,8 @@ object NodeHealthProber {
                 semaphore.withPermit {
                     val res = probeSingle(
                         target = target,
-                        operaEndpoint = operaEndpoint,
                         localSocksPort = localSocksPort,
-                        localSocksAuth = localSocksAuth,
-                        vlessDomain = vlessDomain,
-                        vlessPath = vlessPath,
-                        vlessUuid = vlessUuid
+                        localSocksAuth = localSocksAuth
                     )
                     resultsCache[target.id] = res
                     synchronized(this@NodeHealthProber) {
@@ -142,47 +129,29 @@ object NodeHealthProber {
     /**
      * Замеряет доступность одного узла:
      * 1. Прямой опрос (DNS -> TCP -> TLS SNI -> WS HTTP probe, детектирует сброс TCP RST ТСПУ).
-     * 2. Каскадный опрос:
-     *    - Для узлов Opera VPN: замер доступности ЧЕРЕЗ VLESS (через туннель).
-     *    - Для узлов Pages и Workers: замер доступности ЧЕРЕЗ OPERA VPN (HTTP CONNECT).
+     * 2. Проверка через локальный SOCKS5 (если указан).
      */
     suspend fun probeSingle(
         target: HealthTargetNode,
-        operaEndpoint: String? = "77.111.247.139:443",
         localSocksPort: Int? = null,
-        localSocksAuth: Pair<String, String>? = null,
-        vlessDomain: String? = null,
-        vlessPath: String? = null,
-        vlessUuid: String? = null
+        localSocksAuth: Pair<String, String>? = null
     ): HealthNodeResult = coroutineScope {
         val directDeferred = async(Dispatchers.IO) { probeDirect(target) }
-        val cascadeDeferred = async(Dispatchers.IO) {
-            if (target.type == HealthTargetType.OPERA_VPN) {
-                probeViaVless(target, localSocksPort, localSocksAuth, vlessDomain, vlessPath, vlessUuid)
-            } else if (!operaEndpoint.isNullOrBlank()) {
-                probeViaOperaVpn(target, operaEndpoint)
-            } else null
-        }
-        // TSK-V12: Сквозной VLESS E2E замер для Pages/Workers (полный VLESS relay handshake)
-        val vlessE2eDeferred = if (target.type != HealthTargetType.OPERA_VPN) {
-            async(Dispatchers.IO) { probeVlessE2E(target, vlessUuid) }
+        val socksDeferred = if (localSocksPort != null && localSocksPort > 0) {
+            async(Dispatchers.IO) { probeViaLocalSocks(target, localSocksPort, localSocksAuth) }
         } else null
 
         val direct = directDeferred.await()
-        val cascade = cascadeDeferred.await()
-        val vlessE2e = vlessE2eDeferred?.await()
+        val socks = socksDeferred?.await()
 
         HealthNodeResult(
             targetId = target.id,
             directStatus = direct.status,
             directLatencyMs = direct.latencyMs,
             directDetail = direct.detail,
-            operaStatus = cascade?.status,
-            operaLatencyMs = cascade?.latencyMs,
-            operaDetail = cascade?.detail ?: "",
-            nodeStatus = vlessE2e?.status,
-            nodeLatencyMs = vlessE2e?.latencyMs,
-            nodeDetail = vlessE2e?.detail ?: ""
+            nodeStatus = socks?.status,
+            nodeLatencyMs = socks?.latencyMs,
+            nodeDetail = socks?.detail ?: ""
         )
     }
 
@@ -321,156 +290,7 @@ object NodeHealthProber {
     }
 
     /**
-     * Замеряет доступность и задержку узла через upstream HTTP CONNECT прокси Opera VPN.
-     */
-    internal fun probeViaOperaVpn(target: HealthTargetNode, operaEndpoint: String): ProbeMetric {
-        val host = target.domain.trim()
-        val port = target.port
-        val (operaHost, operaPort) = parseHostPort(operaEndpoint, 443)
-        val startTime = System.currentTimeMillis()
-
-        var rawSocket: Socket? = null
-        var sslSocket: SSLSocket? = null
-
-        return try {
-            rawSocket = Socket()
-            VpnSocketProtector.protect(rawSocket)
-            rawSocket.tcpNoDelay = true
-            rawSocket.soTimeout = READ_TIMEOUT_MS
-
-            rawSocket.connect(InetSocketAddress(operaHost, operaPort), CONNECT_TIMEOUT_MS)
-
-            val connectReq = "CONNECT $host:$port HTTP/1.1\r\n" +
-                    "Host: $host:$port\r\n" +
-                    "Proxy-Connection: Keep-Alive\r\n" +
-                    "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n\r\n"
-
-            val out = rawSocket.getOutputStream()
-            out.write(connectReq.toByteArray(StandardCharsets.UTF_8))
-            out.flush()
-
-            val inp = rawSocket.getInputStream()
-            val buf = ByteArray(1024)
-            val n = inp.read(buf)
-            if (n <= 0) {
-                return ProbeMetric(NodeProbeStatus.ERROR, null, "Opera: сброс туннеля")
-            }
-            val resp = String(buf, 0, n, StandardCharsets.UTF_8)
-            if (!resp.contains("200")) {
-                return ProbeMetric(NodeProbeStatus.ERROR, null, "Opera: ${resp.lines().firstOrNull()?.take(20)}")
-            }
-
-            // Туннель поднят, проводим TLS рукопожатие с конечным узлом
-            val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
-            sslSocket = sslFactory.createSocket(rawSocket, host, port, true) as SSLSocket
-            sslSocket.soTimeout = READ_TIMEOUT_MS
-            val sslParams = sslSocket.sslParameters ?: SSLParameters()
-            sslParams.serverNames = listOf(SNIHostName(host))
-            sslSocket.sslParameters = sslParams
-            sslSocket.startHandshake()
-
-            val elapsed = System.currentTimeMillis() - startTime
-            ProbeMetric(NodeProbeStatus.AVAILABLE, elapsed, "Opera туннель OK")
-        } catch (e: Exception) {
-            ProbeMetric(NodeProbeStatus.TIMEOUT, null, "Opera: ${e.message ?: "таймаут"}")
-        } finally {
-            try { sslSocket?.close() } catch (_: Exception) {}
-            try { rawSocket?.close() } catch (_: Exception) {}
-        }
-    }
-
-    /**
-     * Замеряет доступность узла Opera VPN через VLESS туннель:
-     * 1. Если запущен локальный SOCKS5 (с VLESS аплинком) -> опрос через него.
-     * 2. Иначе -> прямой замер через VLESS WebSocket хост.
-     */
-    internal fun probeViaVless(
-        target: HealthTargetNode,
-        localSocksPort: Int?,
-        localSocksAuth: Pair<String, String>?,
-        vlessDomain: String?,
-        vlessPath: String?,
-        vlessUuid: String?
-    ): ProbeMetric {
-        if (localSocksPort != null && localSocksPort > 0) {
-            val localRes = probeViaLocalSocks(target, localSocksPort, localSocksAuth)
-            if (localRes.status == NodeProbeStatus.AVAILABLE) {
-                return localRes.copy(detail = "VLESS туннель OK")
-            }
-        }
-
-        val domain = vlessDomain?.trim()?.ifEmpty { null } ?: "free-vless.pages.dev"
-        val path = vlessPath?.trim()?.ifEmpty { "/vless-ws?ed=2048" } ?: "/vless-ws?ed=2048"
-        val uuid = vlessUuid?.trim()?.ifEmpty { "d342d11e-d424-4583-b36e-524ab1f0afa4" } ?: "d342d11e-d424-4583-b36e-524ab1f0afa4"
-
-        return probeViaVlessDirectWs(target, domain, path, uuid)
-    }
-
-    private fun probeViaVlessDirectWs(
-        target: HealthTargetNode,
-        vlessDomain: String,
-        vlessPath: String,
-        vlessUuid: String
-    ): ProbeMetric {
-        val startTime = System.currentTimeMillis()
-        var sslSocket: SSLSocket? = null
-        var rawSocket: Socket? = null
-
-        return try {
-            rawSocket = Socket()
-            VpnSocketProtector.protect(rawSocket)
-            rawSocket.tcpNoDelay = true
-            rawSocket.soTimeout = READ_TIMEOUT_MS
-            rawSocket.connect(InetSocketAddress(vlessDomain, 443), CONNECT_TIMEOUT_MS)
-
-            val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
-            sslSocket = sslFactory.createSocket(rawSocket, vlessDomain, 443, true) as SSLSocket
-            sslSocket.soTimeout = READ_TIMEOUT_MS
-            val sslParams = sslSocket.sslParameters ?: SSLParameters()
-            sslParams.serverNames = listOf(SNIHostName(vlessDomain))
-            sslSocket.sslParameters = sslParams
-            sslSocket.startHandshake()
-
-            val out = sslSocket.getOutputStream()
-            val inp = sslSocket.getInputStream()
-
-            val req = "GET $vlessPath HTTP/1.1\r\n" +
-                    "Host: $vlessDomain\r\n" +
-                    "Upgrade: websocket\r\n" +
-                    "Connection: Upgrade\r\n" +
-                    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
-                    "Sec-WebSocket-Version: 13\r\n\r\n"
-            out.write(req.toByteArray(StandardCharsets.US_ASCII))
-            out.flush()
-
-            val buf = ByteArray(1024)
-            val n = inp.read(buf)
-            if (n > 0) {
-                val resp = String(buf, 0, n, StandardCharsets.US_ASCII)
-                if (resp.contains("101") || resp.contains("200")) {
-                    val elapsed = System.currentTimeMillis() - startTime
-                    ProbeMetric(NodeProbeStatus.AVAILABLE, elapsed, "VLESS туннель OK")
-                } else {
-                    ProbeMetric(NodeProbeStatus.ERROR, null, "VLESS: ${resp.lines().firstOrNull()?.take(20)}")
-                }
-            } else {
-                ProbeMetric(NodeProbeStatus.ERROR, null, "VLESS: сброс")
-            }
-        } catch (e: Exception) {
-            val msg = e.message ?: "ошибка"
-            if (msg.contains("reset", ignoreCase = true) || msg.contains("RST", ignoreCase = true)) {
-                ProbeMetric(NodeProbeStatus.DPI_BLOCKED, null, "ТСПУ блок VLESS")
-            } else {
-                ProbeMetric(NodeProbeStatus.TIMEOUT, null, "VLESS: $msg")
-            }
-        } finally {
-            try { sslSocket?.close() } catch (_: Exception) {}
-            try { rawSocket?.close() } catch (_: Exception) {}
-        }
-    }
-
-    /**
-     * Замеряет доступность через локальный активный SOCKS5 прокси (поверх VLESS или WARP).
+     * Замеряет доступность через локальный активный SOCKS5 прокси.
      */
     internal fun probeViaLocalSocks(
         target: HealthTargetNode,
@@ -663,219 +483,6 @@ object NodeHealthProber {
         timeoutMs: Int = CONNECT_TIMEOUT_MS,
         e2eProbe: Boolean = false
     ): ProbeMetric = probeViaLocalSocks(targetIp, targetPort, socksPort, auth, timeoutMs, e2eProbe = e2eProbe)
-
-    /**
-     * TSK-V12: Сквозной VLESS E2E замер.
-     * Полный путь: TCP -> TLS -> WS 101 Upgrade -> VLESS binary header -> VLESS response.
-     * Валидирует реальное прохождение байт через Worker/Pages VLESS-релей.
-     * Целевой хост: 149.154.167.51:443 (Telegram DC2).
-     */
-    internal fun probeVlessE2E(
-        target: HealthTargetNode,
-        fallbackUuid: String?
-    ): ProbeMetric {
-        val host = target.domain.trim()
-        val port = target.port
-        val path = target.path.ifBlank { "/vless-ws?ed=2048" }
-        val uuid = target.uuid.ifBlank { fallbackUuid ?: "d342d11e-d424-4583-b36e-524ab1f0afa4" }
-        val startTime = System.currentTimeMillis()
-
-        var rawSocket: Socket? = null
-        var sslSocket: SSLSocket? = null
-
-        return try {
-            // 1. TCP + TLS
-            rawSocket = Socket()
-            VpnSocketProtector.protect(rawSocket)
-            rawSocket.tcpNoDelay = true
-            rawSocket.soTimeout = READ_TIMEOUT_MS
-            rawSocket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
-
-            val sslFactory = SSLSocketFactory.getDefault() as SSLSocketFactory
-            sslSocket = sslFactory.createSocket(rawSocket, host, port, true) as SSLSocket
-            sslSocket.soTimeout = READ_TIMEOUT_MS
-            val sslParams = sslSocket.sslParameters ?: SSLParameters()
-            sslParams.serverNames = listOf(SNIHostName(host))
-            sslSocket.sslParameters = sslParams
-            sslSocket.startHandshake()
-
-            val out = sslSocket.getOutputStream()
-            val inp = sslSocket.getInputStream()
-
-            // 2. WS Upgrade
-            val cleanPath = if (path.startsWith("/")) path else "/$path"
-            val wsReq = "GET $cleanPath HTTP/1.1\r\n" +
-                    "Host: $host\r\n" +
-                    "Upgrade: websocket\r\n" +
-                    "Connection: Upgrade\r\n" +
-                    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
-                    "Sec-WebSocket-Version: 13\r\n" +
-                    "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36\r\n\r\n"
-            out.write(wsReq.toByteArray(StandardCharsets.US_ASCII))
-            out.flush()
-
-            val buf = ByteArray(1024)
-            val n = inp.read(buf)
-            if (n <= 0) {
-                return ProbeMetric(NodeProbeStatus.ERROR, null, "E2E: WS сброс")
-            }
-            val resp = String(buf, 0, n, StandardCharsets.US_ASCII)
-            if (resp.contains("429")) {
-                return ProbeMetric(NodeProbeStatus.RATE_LIMITED, null, "E2E: лимит 429")
-            }
-            if (!resp.contains("101")) {
-                val status = resp.lines().firstOrNull()?.take(25) ?: "unknown"
-                return ProbeMetric(NodeProbeStatus.ERROR, null, "E2E: $status")
-            }
-
-            // 3. Отправка VLESS header как WS binary frame
-            val vlessHeader = buildVlessProbeHeader(uuid)
-            val vlessStart = System.currentTimeMillis()
-            sendWsBinaryFrame(out, vlessHeader)
-
-            // 4. Чтение VLESS response из WS frame
-            val vlessResp = readWsBinaryFrame(inp)
-            val vlessRtt = System.currentTimeMillis() - vlessStart
-            val totalLatency = System.currentTimeMillis() - startTime
-
-            if (vlessResp == null || vlessResp.size < 2) {
-                return ProbeMetric(NodeProbeStatus.ERROR, null, "E2E: пустой VLESS ответ")
-            }
-
-            // 5. Валидация VLESS response (version 0x00 + addons_len)
-            if (vlessResp[0] != 0x00.toByte()) {
-                return ProbeMetric(NodeProbeStatus.ERROR, null, "E2E: VLESS v${vlessResp[0].toInt() and 0xFF}")
-            }
-
-            val status = if (totalLatency > 600) NodeProbeStatus.WARNING else NodeProbeStatus.AVAILABLE
-            ProbeMetric(status, totalLatency, "Relay ${vlessRtt}мс")
-        } catch (e: Exception) {
-            val msg = e.message?.lowercase() ?: ""
-            when {
-                msg.contains("reset") || msg.contains("broken pipe") ||
-                        msg.contains("handshake_failure") || e is java.net.SocketException ->
-                    ProbeMetric(NodeProbeStatus.DPI_BLOCKED, null, "ТСПУ блок E2E")
-                e is SocketTimeoutException ->
-                    ProbeMetric(NodeProbeStatus.TIMEOUT, null, "E2E: таймаут relay")
-                e is java.io.EOFException ->
-                    ProbeMetric(NodeProbeStatus.ERROR, null, "E2E: обрыв relay")
-                else ->
-                    ProbeMetric(NodeProbeStatus.ERROR, null, "E2E: ${e.message?.take(30)}")
-            }
-        } finally {
-            try { sslSocket?.close() } catch (_: Exception) {}
-            try { rawSocket?.close() } catch (_: Exception) {}
-        }
-    }
-
-    /**
-     * Собирает минимальный VLESS TCP-request header для зондирования.
-     * Target: 149.154.167.51:443 (Telegram DC2 — гарантированно активный TCP-endpoint).
-     * Формат: version(1) + uuid(16) + addons_len(1) + cmd(1) + port(2) + atyp(1) + ipv4(4) = 26 байт.
-     */
-    private fun buildVlessProbeHeader(uuidHex: String): ByteArray {
-        val uuid = parseUuidHexToBytes(uuidHex)
-        val buf = ByteArray(26)
-        buf[0] = 0x00 // VLESS version
-        System.arraycopy(uuid, 0, buf, 1, 16)
-        buf[17] = 0x00 // addons length = 0
-        buf[18] = 0x01 // command = TCP connect
-        buf[19] = (443 shr 8).toByte()  // port high byte
-        buf[20] = (443 and 0xFF).toByte() // port low byte
-        buf[21] = 0x01 // address type = IPv4
-        buf[22] = 149.toByte() // 149.154.167.51 (Telegram DC2)
-        buf[23] = 154.toByte()
-        buf[24] = 167.toByte()
-        buf[25] = 51
-        return buf
-    }
-
-    /** Парсит UUID строку (с дефисами или без) в 16-байтовый массив. */
-    private fun parseUuidHexToBytes(hex: String): ByteArray {
-        val clean = hex.replace("-", "").lowercase()
-        if (clean.length != 32) return ByteArray(16)
-        return ByteArray(16) { i ->
-            clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()
-        }
-    }
-
-    /**
-     * Отправляет бинарный WebSocket frame (клиент -> сервер, с маской).
-     * FIN=1, opcode=0x02 (Binary), MASK=1.
-     */
-    private fun sendWsBinaryFrame(out: OutputStream, payload: ByteArray) {
-        val len = payload.size
-        val maskKey = byteArrayOf(0x37, 0x7A, 0x11, 0x5B)
-
-        out.write(0x82) // FIN + Binary opcode
-
-        if (len < 126) {
-            out.write(0x80 or len) // MASK bit set + length
-        } else {
-            out.write(0x80 or 126)
-            out.write(len shr 8)
-            out.write(len and 0xFF)
-        }
-
-        out.write(maskKey)
-
-        for (i in payload.indices) {
-            out.write(payload[i].toInt() xor maskKey[i % 4].toInt())
-        }
-        out.flush()
-    }
-
-    /**
-     * Читает один WebSocket binary frame (сервер -> клиент, без маски).
-     * Возвращает payload или null при ошибке.
-     */
-    private fun readWsBinaryFrame(inp: InputStream): ByteArray? {
-        val b0 = inp.read()
-        if (b0 < 0) return null
-        val b1 = inp.read()
-        if (b1 < 0) return null
-
-        val masked = (b1 and 0x80) != 0
-        var payloadLen = (b1 and 0x7F)
-
-        if (payloadLen == 126) {
-            val h = inp.read()
-            val l = inp.read()
-            if (h < 0 || l < 0) return null
-            payloadLen = (h shl 8) or l
-        } else if (payloadLen == 127) {
-            return null // 8-byte extended length — слишком большой для VLESS response
-        }
-
-        if (payloadLen <= 0 || payloadLen > 65536) return null
-
-        val maskKey = if (masked) {
-            val mk = ByteArray(4)
-            readInputFully(inp, mk)
-            mk
-        } else null
-
-        val data = ByteArray(payloadLen)
-        readInputFully(inp, data)
-
-        if (maskKey != null) {
-            for (i in data.indices) {
-                data[i] = (data[i].toInt() xor maskKey[i % 4].toInt()).toByte()
-            }
-        }
-
-        return data
-    }
-
-    /** Полное чтение буфера из InputStream с обработкой частичных reads. */
-    private fun readInputFully(inp: InputStream, buf: ByteArray) {
-        var off = 0
-        while (off < buf.size) {
-            val n = inp.read(buf, off, buf.size - off)
-            if (n < 0) throw java.io.EOFException("unexpected EOF reading WS frame")
-            off += n
-        }
-    }
 
     private fun parseHostPort(raw: String, defaultPort: Int = 443): Pair<String, Int> {
         val trimmed = raw.trim()

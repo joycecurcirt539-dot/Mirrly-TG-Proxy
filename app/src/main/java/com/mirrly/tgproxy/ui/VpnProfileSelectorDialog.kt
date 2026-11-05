@@ -100,8 +100,8 @@ fun VpnProfileSelectorDialog(
     val revealedConfigIds = remember { mutableStateListOf<String>() }
 
     val awgCount = remember(savedProfiles) { savedProfiles.count { it.format.isAwg } }
-    val wgCount = remember(savedProfiles) { savedProfiles.count { it.format == WarpGeneratorFormat.WIREGUARD } }
-    val otherCount = remember(savedProfiles) { savedProfiles.count { !it.format.isAwg && it.format != WarpGeneratorFormat.WIREGUARD } }
+    val masqueCount = remember(savedProfiles) { savedProfiles.count { it.format == WarpGeneratorFormat.WARP_MASQUE } }
+    val otherCount = remember(savedProfiles) { savedProfiles.count { !it.format.isAwg && it.format != WarpGeneratorFormat.WARP_MASQUE } }
 
     val filteredProfiles = remember(savedProfiles, searchQuery, selectedFormatFilter) {
         savedProfiles.filter { sp ->
@@ -114,8 +114,8 @@ fun VpnProfileSelectorDialog(
             }
             val matchesFormat = when (selectedFormatFilter) {
                 "AWG" -> sp.format.isAwg
-                "WG" -> sp.format == WarpGeneratorFormat.WIREGUARD
-                "OTHER" -> !sp.format.isAwg && sp.format != WarpGeneratorFormat.WIREGUARD
+                "MASQUE" -> sp.format == WarpGeneratorFormat.WARP_MASQUE
+                "OTHER" -> !sp.format.isAwg && sp.format != WarpGeneratorFormat.WARP_MASQUE
                 else -> true
             }
             matchesSearch && matchesFormat
@@ -131,7 +131,8 @@ fun VpnProfileSelectorDialog(
 
     fun activateProfile(profileId: String) {
         val target = savedProfiles.find { it.id == profileId } ?: return
-        if (target.format.extension != "conf") {
+        val ext = target.format.extension
+        if (ext != "conf" && ext != "masque" && ext != "json" && target.format != WarpGeneratorFormat.WARP_MASQUE) {
             Toast.makeText(context, context.getString(R.string.warp_gen_err_export_only_format), Toast.LENGTH_SHORT).show()
             return
         }
@@ -564,13 +565,13 @@ fun VpnProfileSelectorDialog(
                         }
                     )
                     ProfileFilterChip(
-                        title = "WG",
-                        count = wgCount,
-                        isSelected = selectedFormatFilter == "WG",
+                        title = "MASQUE",
+                        count = masqueCount,
+                        isSelected = selectedFormatFilter == "MASQUE",
                         activeColor = Color(0xFF10B981),
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            selectedFormatFilter = if (selectedFormatFilter == "WG") null else "WG"
+                            selectedFormatFilter = if (selectedFormatFilter == "MASQUE") null else "MASQUE"
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         }
                     )

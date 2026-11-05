@@ -40,11 +40,11 @@ class ProfileGenerationScanGuardTest {
     @Test
     fun testApplyWarpEndpointRejectsModeMismatch() {
         val config = ProxyConfig()
-        config.uplinkModeName = UplinkMode.VLESS.name
+        config.uplinkModeName = UplinkMode.AWG.name
         val server = LocalProxyServer(config)
 
         val gen = server.currentProfileGeneration.get()
-        // If scan was launched for MASQUE, but current mode is VLESS, reject
+        // If scan was launched for MASQUE, but current mode is AWG, reject
         val rejected = server.applyWarpEndpoint(
             "162.159.193.1:1000",
             expectedGeneration = gen,
@@ -61,16 +61,16 @@ class ProfileGenerationScanGuardTest {
         val server = LocalProxyServer(config)
 
         val gen = server.currentProfileGeneration.get()
-        // User changes mode to VLESS manually
-        server.applyUplinkMode(UplinkMode.VLESS)
-        assertEquals(UplinkMode.VLESS.name, config.uplinkModeName)
+        // User changes mode to AWG manually
+        server.applyUplinkMode(UplinkMode.AWG)
+        assertEquals(UplinkMode.AWG.name, config.uplinkModeName)
         val nextGen = server.currentProfileGeneration.get()
         assertEquals(gen + 1, nextGen)
 
-        // An async failover task from old generation tries to apply AWG
-        val rejected = server.applyUplinkMode(UplinkMode.AWG, expectedGeneration = gen)
+        // An async failover task from old generation tries to apply WORKER
+        val rejected = server.applyUplinkMode(UplinkMode.WORKER, expectedGeneration = gen)
         assertFalse(rejected)
-        assertEquals(UplinkMode.VLESS.name, config.uplinkModeName)
+        assertEquals(UplinkMode.AWG.name, config.uplinkModeName)
     }
 
     @Test
@@ -97,10 +97,10 @@ class ProfileGenerationScanGuardTest {
             scanApplied.set(ok)
         }
 
-        // Before scan finishes, user selects Profile B (e.g. VLESS or different mode)
+        // Before scan finishes, user selects Profile B (e.g. AWG or different mode)
         delay(30)
-        server.applyUplinkMode(UplinkMode.VLESS)
-        assertEquals(UplinkMode.VLESS.name, config.uplinkModeName)
+        server.applyUplinkMode(UplinkMode.AWG)
+        assertEquals(UplinkMode.AWG.name, config.uplinkModeName)
         val genB = server.currentProfileGeneration.get()
         assertTrue(genB > genA)
 
@@ -108,7 +108,7 @@ class ProfileGenerationScanGuardTest {
         assertTrue(scanCompleted.get())
         assertFalse(scanApplied.get(), "Slow scan result must not be applied after user selected Mode B")
         assertNotEquals("scanned-ep-A:1070", config.warpPeerEndpoint)
-        assertEquals(UplinkMode.VLESS.name, config.uplinkModeName)
+        assertEquals(UplinkMode.AWG.name, config.uplinkModeName)
     }
 
     @Test

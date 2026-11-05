@@ -27,68 +27,11 @@ import org.junit.jupiter.api.Test
 class TrustPolicySyncTest {
 
     @Test
-    fun testIsPrivateVpsNodeDetection() {
-        // 1. Default Pages preset is public
-        val publicPreset = ProxyConfig(
-            uplinkModeName = UplinkMode.VLESS.name,
-            vlessDomain = "vless-ru.pages.dev",
-            vlessServerAddress = "vless-ru.pages.dev"
-        )
-        assertFalse(publicPreset.isPrivateVpsNode)
-
-        // 2. Custom IP VPS is private
-        val privateIpVps = ProxyConfig(
-            uplinkModeName = UplinkMode.VLESS.name,
-            vlessServerAddress = "194.87.123.45",
-            vlessDomain = "194.87.123.45"
-        )
-        assertTrue(privateIpVps.isPrivateVpsNode)
-
-        // 3. Custom domain VPS with Reality is private
-        val privateRealityVps = ProxyConfig(
-            uplinkModeName = UplinkMode.VLESS.name,
-            vlessServerAddress = "my-vps.example.com",
-            vlessDomain = "my-vps.example.com",
-            vlessSecurity = "reality",
-            vlessPublicKey = "abcdef1234567890abcdef1234567890"
-        )
-        assertTrue(privateRealityVps.isPrivateVpsNode)
-
-        // 4. Custom domain without workers.dev or pages.dev is private
-        val customDomainVps = ProxyConfig(
-            uplinkModeName = UplinkMode.VLESS.name,
-            vlessDomain = "node01.vpn-corp.net",
-            vlessServerAddress = "node01.vpn-corp.net"
-        )
-        assertTrue(customDomainVps.isPrivateVpsNode)
-
-        // 5. Worker domain is public
-        val workerPublic = ProxyConfig(
-            uplinkModeName = UplinkMode.VLESS.name,
-            vlessDomain = "my-worker.workers.dev",
-            vlessServerAddress = "my-worker.workers.dev"
-        )
-        assertFalse(workerPublic.isPrivateVpsNode)
-
-        // 6. Non-VLESS / non-Hybrid modes are not private VPS nodes
-        val warpMasque = ProxyConfig(
-            uplinkModeName = UplinkMode.MASQUE.name
-        )
-        assertFalse(warpMasque.isPrivateVpsNode)
-    }
-
-    @Test
     fun testTrustPolicyDefaultsSecureByDefault() {
         val config = ProxyConfig()
 
         // By default, private VPS MUST NOT leak to public relay on failure
         assertFalse(config.allowPublicRelayFallbackForPrivateVps)
-
-        // By default, Opera direct exit is forbidden (Opera only used as transport hop to VPS)
-        assertFalse(config.allowOperaDirectExit)
-
-        // By default, Opera hopping for VLESS is disabled
-        assertFalse(config.useOperaVpnForVless)
     }
 
     @Test
@@ -97,19 +40,17 @@ class TrustPolicySyncTest {
 
         val json = """
         {
-            "route_id": "vless_direct",
+            "route_id": "warp_masque",
             "generation": 3,
-            "stage_code": 4,
-            "stage_name": "VLESS Direct",
-            "effective_route": "VLESS Direct VPS",
-            "operator": "Private VPS",
-            "is_private": true,
+            "stage_code": 1,
+            "stage_name": "WARP MASQUE",
+            "effective_route": "WARP MASQUE",
+            "operator": "Cloudflare WARP",
+            "is_private": false,
             "trust_boundary_maintained": true,
             "allow_public_relay_fallback": false,
-            "allow_opera_direct_exit": false,
-            "allow_opera_transport_hop": false,
             "trace": [
-                {"timestamp_ms": 1720000000000, "generation": 1, "from_stage": "None", "to_stage": "VLESS Direct", "reason": "Init intent"}
+                {"timestamp_ms": 1720000000000, "generation": 1, "from_stage": "None", "to_stage": "WARP MASQUE", "reason": "Init intent"}
             ]
         }
         """.trimIndent()
@@ -133,9 +74,9 @@ class TrustPolicySyncTest {
         stats.isPrivateNode = isPriv
         stats.isTrustBoundaryMaintained = trustOk
 
-        assertEquals("VLESS Direct VPS", stats.activeEffectiveRoute)
-        assertEquals("Private VPS", stats.activeOperator)
-        assertTrue(stats.isPrivateNode)
+        assertEquals("WARP MASQUE", stats.activeEffectiveRoute)
+        assertEquals("Cloudflare WARP", stats.activeOperator)
+        assertFalse(stats.isPrivateNode)
         assertTrue(stats.isTrustBoundaryMaintained)
     }
 
@@ -155,11 +96,9 @@ class TrustPolicySyncTest {
             "is_private": false,
             "trust_boundary_maintained": false,
             "allow_public_relay_fallback": true,
-            "allow_opera_direct_exit": false,
-            "allow_opera_transport_hop": false,
             "trace": [
-                {"timestamp_ms": 1720000000000, "generation": 1, "from_stage": "None", "to_stage": "VLESS Direct", "reason": "Init intent"},
-                {"timestamp_ms": 1720000005000, "generation": 5, "from_stage": "VLESS Direct", "to_stage": "Cloudflare Worker", "reason": "Fallback: VPS unreachable"}
+                {"timestamp_ms": 1720000000000, "generation": 1, "from_stage": "None", "to_stage": "Custom VPS", "reason": "Init intent"},
+                {"timestamp_ms": 1720000005000, "generation": 5, "from_stage": "Custom VPS", "to_stage": "Cloudflare Worker", "reason": "Fallback: VPS unreachable"}
             ]
         }
         """.trimIndent()
@@ -178,30 +117,15 @@ class TrustPolicySyncTest {
         assertEquals("Cloudflare Worker WSS", stats.activeEffectiveRoute)
         assertEquals("Cloudflare Worker", stats.activeOperator)
         assertFalse(stats.isPrivateNode)
-        // Trust boundary maintained is FALSE because origin intent was private VPS but active is public relay
         assertFalse(stats.isTrustBoundaryMaintained)
-    }
-
-    @Test
-    fun testStageCode7OperaHopMapping() {
-        // Stage 7 = VLESS via Opera Hop (Opera is only a transport hop to user VPS)
-        val stageMap = mapOf(
-            4 to "VLESS Direct",
-            5 to "Opera Direct Exit",
-            7 to "VLESS via Opera Hop"
-        )
-
-        assertEquals("VLESS Direct", stageMap[4])
-        assertEquals("Opera Direct Exit", stageMap[5])
-        assertEquals("VLESS via Opera Hop", stageMap[7])
     }
 
     @Test
     fun testResetBaselineClearsTrustState() {
         val stats = ProxyStats()
 
-        stats.activeEffectiveRoute = "VLESS Direct VPS"
-        stats.activeOperator = "Private VPS"
+        stats.activeEffectiveRoute = "WARP MASQUE"
+        stats.activeOperator = "Cloudflare WARP"
         stats.isPrivateNode = true
         stats.isTrustBoundaryMaintained = false
 

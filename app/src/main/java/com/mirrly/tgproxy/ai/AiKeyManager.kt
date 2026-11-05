@@ -29,6 +29,7 @@ object AiKeyManager {
     private const val TAG = "AiKeyManager"
     private const val PREFS_FILE = "mirrly_gemini_encrypted_prefs"
     private const val KEY_GEMINI_API = "gemini_api_key_v1"
+    private const val KEY_OPENROUTER_API = "openrouter_api_key_v1"
     private const val FALLBACK_PREFS_FILE = "mirrly_gemini_fallback_prefs"
 
     @Volatile
@@ -143,6 +144,87 @@ object AiKeyManager {
         }
         runCatching {
             getFallbackPrefs(context).edit().remove(KEY_GEMINI_API).apply()
+        }
+    }
+
+    /**
+     * Сохраняет API-ключ OpenRouter в зашифрованное хранилище.
+     */
+    fun saveOpenRouterApiKey(context: Context, apiKey: String) {
+        val cleanKey = apiKey.trim()
+        val encPrefs = getEncryptedPrefs(context)
+        if (encPrefs != null) {
+            try {
+                encPrefs.edit().putString(KEY_OPENROUTER_API, cleanKey).apply()
+                getFallbackPrefs(context).edit().remove(KEY_OPENROUTER_API).apply()
+                return
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Ошибка записи ключа OpenRouter в EncryptedSharedPreferences", e)
+            }
+        }
+
+        try {
+            val fallback = getFallbackPrefs(context)
+            if (cleanKey.isEmpty()) {
+                fallback.edit().remove(KEY_OPENROUTER_API).apply()
+            } else {
+                val cipherText = WarpKeystoreEncryption.encrypt(cleanKey)
+                fallback.edit().putString(KEY_OPENROUTER_API, cipherText).apply()
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Ошибка сохранения ключа OpenRouter в fallback", e)
+        }
+    }
+
+    /**
+     * Получает сохраненный API-ключ OpenRouter.
+     */
+    fun getOpenRouterApiKey(context: Context): String {
+        val encPrefs = getEncryptedPrefs(context)
+        if (encPrefs != null) {
+            try {
+                val key = encPrefs.getString(KEY_OPENROUTER_API, null)
+                if (!key.isNullOrBlank()) {
+                    return key.trim()
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Ошибка чтения ключа OpenRouter: ${e.message}")
+            }
+        }
+
+        try {
+            val fallback = getFallbackPrefs(context)
+            val cipherText = fallback.getString(KEY_OPENROUTER_API, null)
+            if (!cipherText.isNullOrBlank()) {
+                val decrypted = WarpKeystoreEncryption.decrypt(cipherText).trim()
+                if (encPrefs != null && decrypted.isNotEmpty()) {
+                    runCatching { encPrefs.edit().putString(KEY_OPENROUTER_API, decrypted).apply() }
+                }
+                return decrypted
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Ошибка расшифровки ключа OpenRouter из fallback", e)
+        }
+
+        return ""
+    }
+
+    /**
+     * Проверяет наличие ключа OpenRouter.
+     */
+    fun hasOpenRouterApiKey(context: Context): Boolean {
+        return getOpenRouterApiKey(context).isNotBlank()
+    }
+
+    /**
+     * Удаляет ключ OpenRouter.
+     */
+    fun clearOpenRouterApiKey(context: Context) {
+        runCatching {
+            getEncryptedPrefs(context)?.edit()?.remove(KEY_OPENROUTER_API)?.apply()
+        }
+        runCatching {
+            getFallbackPrefs(context).edit().remove(KEY_OPENROUTER_API).apply()
         }
     }
 }

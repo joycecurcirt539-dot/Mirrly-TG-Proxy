@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 enum class DnsScope {
     /**
-     * Бутстрап-резолвер для прокси-узлов и эндпоинтов (Worker, VLESS, MASQUE Anycast, DoH сервера).
+     * Бутстрап-резолвер для прокси-узлов и эндпоинтов (Worker, MASQUE Anycast, DoH сервера).
      * Разрешает системный DNS fallback и гарантированный Anycast fallback при недоступности DoH.
      */
     BOOTSTRAP,

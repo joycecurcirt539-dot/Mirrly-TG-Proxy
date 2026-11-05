@@ -27,6 +27,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
@@ -35,12 +36,16 @@ import java.io.File
 import com.mirrly.tgproxy.service.PreferencesManager
 import com.mirrly.tgproxy.service.WallpaperProcessor
 import com.mirrly.tgproxy.service.WallpaperPreset
+import com.mirrly.tgproxy.service.AgslShaderPreset
+import com.mirrly.tgproxy.ui.theme.LocalCardShape
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import androidx.core.view.WindowCompat
 import com.mirrly.tgproxy.core.AppLogger
 import com.mirrly.tgproxy.core.NativeProxy
-import com.mirrly.tgproxy.service.DeveloperModeManager
+import com.mirrly.tgproxy.ui.theme.ThemeAccentMode
+import com.mirrly.tgproxy.ui.theme.ThemePresets
+import com.mirrly.tgproxy.ui.theme.ColorEngine
 import android.view.WindowManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -441,7 +446,7 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
             TermGlossaryItem(
                 term = "Uplink Route",
                 definition = "The external server route through which the proxy reaches target data centers.",
-                keywords = listOf("uplink", "warp", "vless", "route")
+                keywords = listOf("uplink", "warp", "masque", "awg", "route")
             ),
             TermGlossaryItem(
                 term = "Network Latency RTT",
@@ -630,7 +635,7 @@ internal fun getRelevantTermExplanations(text: String, lang: String): List<TermG
             TermGlossaryItem(
                 term = "Сервер подключения",
                 definition = "Внешний маршрут через который приложение связывается с целевой сетью.",
-                keywords = listOf("аплинк", "uplink", "warp", "vless", "маршрут")
+                keywords = listOf("аплинк", "uplink", "warp", "masque", "awg", "маршрут")
             ),
             TermGlossaryItem(
                 term = "Сетевая задержка RTT",
@@ -938,6 +943,7 @@ fun SettingsScreen(
     onOpenVpnOnboarding: (() -> Unit)? = null,
     onOpenDiagnosticReport: () -> Unit = {},
     onOpenWarpGenerator: () -> Unit = {},
+    onOpenAiChat: ((String?) -> Unit)? = null,
     initialIsVpn: Boolean = false
 ) {
     val context = LocalContext.current
@@ -1016,21 +1022,17 @@ fun SettingsScreen(
     val vpnSplitTunnelEnabled by app.prefsManager.vpnSplitTunnelEnabledFlow.collectAsState()
     val vpnSplitTunnelAllowlist by app.prefsManager.vpnSplitTunnelAllowlistFlow.collectAsState()
     val vpnSplitTunnelPackages by app.prefsManager.vpnSplitTunnelPackagesFlow.collectAsState()
-    val isDevVpnUnlocked by DeveloperModeManager.isDevVpnUnlocked.collectAsState()
     var showVpnProtocolDialog by rememberSaveable { mutableStateOf(false) }
     var showSplitTunnelAppsDialog by rememberSaveable { mutableStateOf(false) }
     var warpProfile by remember { mutableStateOf(app.prefsManager.getWarpProfile()) }
     var isRegisteringWarp by remember { mutableStateOf(false) }
-    var isRegisterWarpViaWorker by remember { mutableStateOf(config.isRegisterWarpViaWorker) }
-    var vlessUuid by remember { mutableStateOf<String>(app.prefsManager.getVlessUuid().ifEmpty { config.vlessUuid }) }
     var sleepTimerInitialTab by remember { mutableStateOf(TimerDialogTab.TIMER) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showDonationDialog by remember { mutableStateOf(false) }
-    var showWarpRegistrationDialog by remember { mutableStateOf(false) }
-    var warpDialogStartRegistrationImmediately by remember { mutableStateOf(false) }
     var showCfAuthDialog by remember { mutableStateOf(false) }
     var showOnboardingDialog by remember { mutableStateOf(false) }
     var showVpnOnboardingDialog by remember { mutableStateOf(false) }
+    var showAiOnboardingDialog by remember { mutableStateOf(false) }
     val triggerVpnOnboarding: () -> Unit = onOpenVpnOnboarding ?: { showVpnOnboardingDialog = true }
 
     val cfAuthState by com.mirrly.tgproxy.service.cloudflare.CloudflareOAuthManager.authState.collectAsState()
@@ -1412,25 +1414,12 @@ fun SettingsScreen(
                             }
                         },
                         onRefreshWarpAccount = {
-                            warpDialogStartRegistrationImmediately = true
-                            showWarpRegistrationDialog = true
+                            onOpenWarpGenerator()
                         },
                         onOpenWarpDetails = {
-                            warpDialogStartRegistrationImmediately = false
-                            showWarpRegistrationDialog = true
+                            onOpenWarpGenerator()
                         },
                         onInfoClick = { infoKey = it },
-                        vlessUuid = vlessUuid,
-                        onRegenerateVlessUuid = {
-                            val newUuid = com.mirrly.tgproxy.core.ProxyConfig.generateVlessUuid()
-                            vlessUuid = newUuid
-                            config.vlessUuid = newUuid
-                            app.saveConfig()
-                            Toast.makeText(context, context.getString(R.string.toast_vless_uuid_generated), Toast.LENGTH_SHORT).show()
-                            if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
-                                com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
-                            }
-                        },
                         onRestartProxy = {
                             if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) {
                                 com.mirrly.tgproxy.service.MirrlyVpnService.restart(context)
@@ -1500,6 +1489,7 @@ fun SettingsScreen(
                     },
                     onOpenOnboarding = onOpenOnboarding,
                     onOpenVpnOnboarding = triggerVpnOnboarding,
+                    onOpenAiOnboarding = { showAiOnboardingDialog = true },
                     onOpenDiagnosticReport = onOpenDiagnosticReport,
                     onInfoClick = { infoKey = it },
                     onLanguageChange = onLanguageChange
@@ -1549,7 +1539,8 @@ fun SettingsScreen(
 
             if (showMisc) {
                 SettingsCustomizationSection(
-                    onInfoClick = { infoKey = it }
+                    onInfoClick = { infoKey = it },
+                    onOpenAiChat = onOpenAiChat
                 )
                 SettingsDivider()
                 SettingsAboutSection(
@@ -1592,24 +1583,6 @@ fun SettingsScreen(
             )
         }
 
-        if (showWarpRegistrationDialog) {
-            WarpRegistrationDialog(
-                initialProfile = warpProfile,
-                workerDomain = com.mirrly.tgproxy.core.WarpAccountManager.REGISTRATION_WORKER_DOMAIN,
-                initialLicenseKey = config.warpLicenseKey,
-                startRegistrationImmediately = warpDialogStartRegistrationImmediately,
-                onProfileSaved = { newProf ->
-                    app.prefsManager.saveWarpProfile(newProf)
-                    warpProfile = newProf
-                    config.applyWarpProfile(newProf)
-                    app.saveConfig()
-                    restartProxyIfNeeded()
-                },
-                onDismiss = {
-                    showWarpRegistrationDialog = false
-                }
-            )
-        }
 
         if (showCfAuthDialog) {
             Socks5CloudflareAuthDialog(
@@ -1658,10 +1631,17 @@ fun SettingsScreen(
                 },
                 onOpenImport = {
                     showVpnOnboardingDialog = false
-                    warpDialogStartRegistrationImmediately = false
-                    showWarpRegistrationDialog = true
+                    onOpenWarpGenerator()
                 },
                 onOpenGenerator = onOpenWarpGenerator
+            )
+        }
+
+        if (showAiOnboardingDialog) {
+            AiOnboardingScreen(
+                isReplay = true,
+                onDismiss = { showAiOnboardingDialog = false },
+                onComplete = { showAiOnboardingDialog = false }
             )
         }
     }
@@ -1918,6 +1898,7 @@ private fun SettingsVpnStatusOverviewSection(
 ) {
     val haptic = LocalHapticFeedback.current
     val vpnStatus by com.mirrly.tgproxy.service.MirrlyVpnService.vpnStatus.collectAsState()
+    val cardShape = LocalCardShape.current
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 1),
@@ -1997,12 +1978,12 @@ private fun SettingsVpnStatusOverviewSection(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
+                .clip(cardShape)
                 .background(Color.Transparent)
                 .border(
                     1.dp,
                     if (vpnState == com.mirrly.tgproxy.ui.theme.VpnUiState.CONNECTED) ActiveGreenLed.copy(alpha = 0.45f) else AmoledBorder,
-                    RoundedCornerShape(18.dp)
+                    cardShape
                 )
         ) {
             Column {
@@ -2111,6 +2092,7 @@ private fun SettingsVpnSplitTunnelSection(
     onInfoClick: (String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
+    val cardShape = LocalCardShape.current
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 2),
@@ -2142,9 +2124,9 @@ private fun SettingsVpnSplitTunnelSection(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
+                .clip(cardShape)
                 .background(Color.Transparent)
-                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
+                .border(1.dp, AmoledBorder, cardShape)
         ) {
             Column {
                 Row(
@@ -4669,8 +4651,6 @@ private fun SettingsUplinkWarpSection(
     onRefreshWarpAccount: () -> Unit,
     onOpenWarpDetails: () -> Unit,
     onInfoClick: (String) -> Unit,
-    vlessUuid: String,
-    onRegenerateVlessUuid: () -> Unit,
     onRestartProxy: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -4680,10 +4660,8 @@ private fun SettingsUplinkWarpSection(
     val customWorkers = remember { app.prefsManager.getCustomWorkers() }
     val allWorkers = remember(devWorkers, customWorkers) { devWorkers + customWorkers }
 
-    var activeVlessDomain by remember { mutableStateOf(config.getEffectiveVlessDomain()) }
     var activeAwgStrategy by remember { mutableStateOf(config.awgStrategy) }
     var customAwgIniText by remember { mutableStateOf(config.awgCustomIni) }
-    var isRegisterWarpViaWorker by remember { mutableStateOf(config.isRegisterWarpViaWorker) }
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 4),
@@ -4936,47 +4914,6 @@ private fun SettingsUplinkWarpSection(
                     }
 
                     // Переключатель регистрации через Worker Relay vs прямой SNI spoofing
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-                                Text(
-                                    text = stringResource(R.string.settings_warp_reg_via_worker_title),
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextWhite
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = stringResource(R.string.settings_warp_reg_via_worker_desc),
-                                    fontSize = 10.sp,
-                                    color = TextMuted,
-                                    lineHeight = 13.5.sp
-                                )
-                            }
-                            InertialSpringSwitch(
-                                checked = isRegisterWarpViaWorker,
-                                onCheckedChange = { checked ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    isRegisterWarpViaWorker = checked
-                                    app.prefsManager.setWarpRegisterViaWorker(checked)
-                                    app.config.isRegisterWarpViaWorker = checked
-                                    app.saveConfig()
-                                }
-                            )
-                        }
-                    }
-
                     AnimatedVisibility(
                         visible = uplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG,
                         enter = fadeIn() + expandVertically(),
@@ -5095,6 +5032,7 @@ private fun SettingsSystemSection(
     onOpenSchedule: () -> Unit,
     onOpenOnboarding: () -> Unit = {},
     onOpenVpnOnboarding: () -> Unit = {},
+    onOpenAiOnboarding: () -> Unit = {},
     onOpenDiagnosticReport: () -> Unit = {},
     onInfoClick: (String) -> Unit,
     onLanguageChange: (String) -> Unit = {}
@@ -5765,6 +5703,42 @@ private fun SettingsSystemSection(
 
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
 
+                // Вводное руководство по ИИ
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenAiOnboarding()
+                        })
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = stringResource(R.string.settings_ai_onboarding_replay),
+                            color = TextWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_ai_onboarding_replay_desc),
+                            color = TextMuted,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AmoledBorder.copy(alpha = 0.5f)))
+
                 // Диагностический отчет
                 Row(
                     modifier = Modifier
@@ -5803,68 +5777,70 @@ private fun SettingsSystemSection(
     }
 }
 
+/**
+ * Унифицированная кнопка сворачивания/разворачивания карточек настроек MirrlyUI.
+ * Обеспечивает единый компактный контурный стиль без текста, тактильный виброотклик и динамический акцент темы.
+ */
+@Composable
+fun SettingsCollapseButton(
+    isExpanded: Boolean,
+    onToggle: () -> Unit,
+    accentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color.Transparent,
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isExpanded) accentColor.copy(alpha = 0.6f) else AmoledBorder
+        ),
+        modifier = modifier
+            .size(34.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .springPress(onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onToggle()
+            })
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                painter = painterResource(
+                    id = if (isExpanded) R.drawable.ic_accordion_collapse else R.drawable.ic_accordion_expand
+                ),
+                contentDescription = null,
+                tint = if (isExpanded) accentColor else TextMuted,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
 @Composable
 private fun SettingsCustomizationSection(
-    onInfoClick: (String) -> Unit
+    onInfoClick: (String) -> Unit,
+    onOpenAiChat: ((String?) -> Unit)? = null
 ) {
+    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     val prefs = MirrlyApplication.instance.prefsManager
 
-    val accentColor = Color(0xFF3B82F6)
-    val activeLedColor = Color(0xFF22C55E)
+    val currentThemeMode by prefs.themeAccentModeFlow.collectAsState()
+    val currentPresetId = prefs.getThemePresetId()
+    val customHex = prefs.getThemeCustomColorHex()
 
-    val wallpaperUri by prefs.customBackgroundUriFlow.collectAsState()
-    val wallpaperRevision by prefs.customBackgroundRevisionFlow.collectAsState()
-    val wallpaperType by prefs.customBackgroundTypeFlow.collectAsState()
-    val videoPowerSave by prefs.customBackgroundVideoPowerSaveFlow.collectAsState()
-    val videoMetadata by prefs.customBackgroundVideoMetadataFlow.collectAsState()
-    val blurDp by prefs.customBackgroundBlurFlow.collectAsState()
-    val dimFactor by prefs.customBackgroundDimFlow.collectAsState()
-    val particlesEnabled by prefs.customBackgroundParticlesFlow.collectAsState()
-    val activePresetId by prefs.customBackgroundActivePresetIdFlow.collectAsState()
-    val userPresets by prefs.customBackgroundUserPresetsFlow.collectAsState()
-    val allPresets = remember(userPresets) { WallpaperPreset.BUILTIN_PRESETS + userPresets }
-
-    var showResetConfirm by remember { mutableStateOf(false) }
-    var showSavePresetCard by remember { mutableStateOf(false) }
-    var newPresetTitle by remember { mutableStateOf("") }
-    var isProcessing by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-
-    var sliderBlur by remember(blurDp) { mutableFloatStateOf(blurDp) }
-    var sliderDim by remember(dimFactor) { mutableFloatStateOf(dimFactor) }
-
-    val mediaPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { selectedUri ->
-        if (selectedUri != null) {
-            coroutineScope.launch {
-                isProcessing = true
-                errorMessage = null
-                try {
-                    val result = prefs.setCustomMediaWallpaper(selectedUri)
-                    if (result.isFailure) {
-                        errorMessage = result.exceptionOrNull()?.localizedMessage ?: "Unknown error"
-                    } else {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        showResetConfirm = false
-                    }
-                } catch (e: Exception) {
-                    errorMessage = e.localizedMessage ?: "Unknown error"
-                } finally {
-                    isProcessing = false
-                }
-            }
+    val accentColor = remember(currentThemeMode, currentPresetId, customHex) {
+        when (currentThemeMode) {
+            ThemeAccentMode.PROTOCOL_DEFAULT -> MtprotoAccent
+            ThemeAccentMode.STEALTH -> Color.White
+            ThemeAccentMode.PRESET -> ThemePresets.getPresetById(currentPresetId)?.primaryColor ?: MtprotoAccent
+            ThemeAccentMode.MONET -> ColorEngine.getSystemMonetAccent(context)
+            ThemeAccentMode.CUSTOM -> ColorEngine.parseHexColor(customHex) ?: MtprotoAccent
         }
     }
-
-    val hasCustomWallpaper = !wallpaperUri.isNullOrBlank()
-    val isVideo = wallpaperType == PreferencesManager.WALLPAPER_TYPE_VIDEO
-    val previewPath = remember(wallpaperUri, wallpaperRevision, wallpaperType) {
-        prefs.getWallpaperPreviewFile()?.absolutePath
-    }
-    val wallpaperImage = rememberWallpaperImage(previewPath, wallpaperRevision)
+    val activeLedColor = accentColor
 
     Column(
         modifier = Modifier.staggeredEntrance(index = 4),
@@ -5878,875 +5854,41 @@ private fun SettingsCustomizationSection(
             color = TextMuted
         )
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Transparent)
-                .border(1.dp, AmoledBorder, RoundedCornerShape(18.dp))
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.weight(1f, fill = false)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.Transparent)
-                            .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        WallpaperGlyph(
-                            color = if (hasCustomWallpaper) accentColor else TextWhite,
-                            pulse = if (isProcessing) 1f else 0f,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+        // ── 1. КАСТОМИЗАЦИЯ ФОНА (Фото / Видео / AGSL Шейдеры) ──
+        SettingsWallpaperCard(
+            accentColor = accentColor,
+            onInfoClick = onInfoClick
+        )
 
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.settings_customization_wallpaper_title),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .clip(CircleShape)
-                                    .springPress()
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onInfoClick("custom_wallpaper_info")
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_info_circle),
-                                    contentDescription = null,
-                                    tint = TextMuted,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
-                        }
+        // ── 2. ЦВЕТОВОЙ ПРОФИЛЬ И ТЕМА (MirrlyUI) ──
+        SettingsThemeAccentCard(
+            onInfoClick = onInfoClick
+        )
 
-                        Text(
-                            text = if (hasCustomWallpaper) {
-                                if (isVideo) {
-                                    stringResource(R.string.settings_customization_wallpaper_active_video)
-                                } else {
-                                    stringResource(R.string.settings_customization_wallpaper_active_image)
-                                }
-                            } else {
-                                stringResource(R.string.settings_customization_wallpaper_default)
-                            },
-                            fontSize = 11.sp,
-                            color = if (hasCustomWallpaper) activeLedColor else TextMuted
-                        )
-                    }
-                }
-            }
+        // ── 3. КИНЕТИЧЕСКАЯ ЦЕНТРАЛЬНАЯ КНОПКА (MTProto / SOCKS5 / VPN) ──
+        SettingsCentralButtonsCard(
+            accentColor = accentColor,
+            onInfoClick = onInfoClick,
+            onOpenAiChat = onOpenAiChat
+        )
 
-            Text(
-                text = stringResource(R.string.settings_customization_wallpaper_desc),
-                fontSize = 12.sp,
-                color = TextMuted,
-                lineHeight = 16.sp
-            )
+        // ── 4. ДИНАМИКА ЧАСТИЦ И АППАРАТНЫЙ ГИРО-ПАРАЛЛАКС ──
+        SettingsParticleDynamicsCard(
+            accentColor = accentColor,
+            onInfoClick = onInfoClick
+        )
 
-            if (errorMessage != null) {
-                Text(
-                    text = errorMessage.orEmpty(),
-                    fontSize = 11.sp,
-                    color = Color(0xFFEF4444),
-                    lineHeight = 14.sp
-                )
-            }
+        // ── 5. МАСШТАБИРОВАНИЕ И ГЕОМЕТРИЯ UI ──
+        SettingsUiDimensionsCard(
+            accentColor = accentColor,
+            onInfoClick = onInfoClick
+        )
 
-            if (hasCustomWallpaper && wallpaperImage != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(130.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .border(1.dp, AmoledBorder, RoundedCornerShape(14.dp))
-                ) {
-                    WallpaperBlurredImage(
-                        image = wallpaperImage,
-                        blurDp = sliderBlur,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = sliderDim))
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.Black.copy(alpha = 0.65f))
-                            .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        if (isVideo && videoMetadata != null) {
-                            val sizeMb = String.format(java.util.Locale.US, "%.1f", videoMetadata!!.fileSizeBytes / (1024f * 1024f))
-                            Text(
-                                text = stringResource(
-                                    R.string.settings_customization_wallpaper_video_metrics,
-                                    videoMetadata!!.width,
-                                    videoMetadata!!.height,
-                                    videoMetadata!!.durationSec,
-                                    sizeMb
-                                ),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = TextWhite
-                            )
-                        } else {
-                            val sizeKb = (wallpaperImage.fileSizeBytes / 1024L).coerceAtLeast(1L)
-                            Text(
-                                text = stringResource(
-                                    R.string.settings_customization_wallpaper_metrics,
-                                    wallpaperImage.width,
-                                    wallpaperImage.height,
-                                    sizeKb.toString()
-                                ),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = TextWhite
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ── Presets Section ─────────────────────────────────────
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_customization_presets_title),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite
-                    )
-
-                    if (hasCustomWallpaper) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.6f)),
-                            modifier = Modifier
-                                .springPress()
-                                .clickable(enabled = !isProcessing) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    showSavePresetCard = !showSavePresetCard
-                                }
-                        ) {
-                            Text(
-                                text = "+ ${stringResource(R.string.settings_customization_preset_save_current)}",
-                                color = accentColor,
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                }
-
-                AnimatedVisibility(
-                    visible = showSavePresetCard,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Transparent)
-                            .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = stringResource(R.string.settings_customization_preset_save_title),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextWhite
-                            )
-                            Text(
-                                text = if (isVideo) "Видео • ${sliderBlur.roundToInt()} dp • ${(sliderDim * 100).roundToInt()}%"
-                                else "Фото • ${sliderBlur.roundToInt()} dp • ${(sliderDim * 100).roundToInt()}%",
-                                fontSize = 10.sp,
-                                color = accentColor
-                            )
-                        }
-
-                        BasicTextField(
-                            value = newPresetTitle,
-                            onValueChange = { newPresetTitle = it },
-                            singleLine = true,
-                            textStyle = TextStyle(
-                                color = TextWhite,
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Default
-                            ),
-                            cursorBrush = SolidColor(accentColor),
-                            decorationBox = { innerTextField ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color.Transparent)
-                                        .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp, vertical = 8.dp)
-                                ) {
-                                    if (newPresetTitle.isEmpty()) {
-                                        Text(
-                                            text = stringResource(R.string.settings_customization_preset_name_hint),
-                                            color = TextMuted,
-                                            fontSize = 12.sp
-                                        )
-                                    }
-                                    innerTextField()
-                                }
-                            }
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.Transparent)
-                                    .border(1.dp, accentColor, RoundedCornerShape(8.dp))
-                                    .springPress()
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        val titleToSave = newPresetTitle.trim().ifEmpty {
-                                            if (isVideo) "Видео пресет" else "Фото пресет"
-                                        }
-                                        coroutineScope.launch {
-                                            prefs.saveCurrentAsUserPreset(titleToSave)
-                                            newPresetTitle = ""
-                                            showSavePresetCard = false
-                                        }
-                                    }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.settings_customization_preset_save_btn),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = accentColor
-                                )
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.Transparent)
-                                    .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp))
-                                    .springPress()
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        showSavePresetCard = false
-                                    }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.settings_customization_wallpaper_cancel),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Normal,
-                                    color = TextMuted
-                                )
-                            }
-                        }
-                    }
-                }
-
-                val presetsScrollState = rememberScrollState()
-                val startFadeWidth by animateDpAsState(
-                    targetValue = if (presetsScrollState.canScrollBackward) 16.dp else 0.dp,
-                    animationSpec = tween(180),
-                    label = "presetStartFade"
-                )
-                val endFadeWidth by animateDpAsState(
-                    targetValue = if (presetsScrollState.canScrollForward) 24.dp else 0.dp,
-                    animationSpec = tween(180),
-                    label = "presetEndFade"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalFadingEdges(
-                            startFadeWidth = startFadeWidth,
-                            endFadeWidth = endFadeWidth
-                        )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(presetsScrollState),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        allPresets.forEach { preset ->
-                            val isPresetActive = hasCustomWallpaper && activePresetId == preset.id
-                            WallpaperPresetCard(
-                                preset = preset,
-                                isActive = isPresetActive,
-                                accentColor = accentColor,
-                                onSelect = {
-                                    coroutineScope.launch {
-                                        isProcessing = true
-                                        errorMessage = null
-                                        try {
-                                            val res = prefs.applyPreset(preset)
-                                            if (res.isFailure) {
-                                                errorMessage = res.exceptionOrNull()?.localizedMessage ?: "Unknown error"
-                                            } else {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                showResetConfirm = false
-                                            }
-                                        } catch (e: Exception) {
-                                            errorMessage = e.localizedMessage ?: "Unknown error"
-                                        } finally {
-                                            isProcessing = false
-                                        }
-                                    }
-                                },
-                                onDelete = if (!preset.isBuiltIn) {
-                                    {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        prefs.deleteUserPreset(preset.id)
-                                    }
-                                } else null
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (!hasCustomWallpaper) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Transparent)
-                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
-                            .springPress()
-                            .clickable(enabled = !isProcessing) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                mediaPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            }
-                            .padding(vertical = 12.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        WallpaperGlyph(
-                            color = accentColor,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.settings_customization_wallpaper_choose_image),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Transparent)
-                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
-                            .springPress()
-                            .clickable(enabled = !isProcessing) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                mediaPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                                )
-                            }
-                            .padding(vertical = 12.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_video),
-                            contentDescription = null,
-                            tint = accentColor,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.settings_customization_wallpaper_choose_video),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite
-                        )
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Transparent)
-                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
-                            .springPress()
-                            .clickable(enabled = !isProcessing) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                mediaPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                                )
-                            }
-                            .padding(vertical = 10.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_refresh),
-                            contentDescription = null,
-                            tint = TextWhite,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (isVideo) {
-                                stringResource(R.string.settings_customization_wallpaper_replace_video)
-                            } else {
-                                stringResource(R.string.settings_customization_wallpaper_replace_image)
-                            },
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextWhite
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Transparent)
-                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
-                            .springPress()
-                            .clickable(enabled = !isProcessing) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                showResetConfirm = !showResetConfirm
-                            }
-                            .padding(vertical = 10.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_trash),
-                            contentDescription = null,
-                            tint = Color(0xFFEF4444),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.settings_customization_wallpaper_reset),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFEF4444)
-                        )
-                    }
-                }
-
-                AnimatedVisibility(
-                    visible = showResetConfirm,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Transparent)
-                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_customization_wallpaper_reset_confirm_title),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFEF4444)
-                        )
-                        Text(
-                            text = stringResource(R.string.settings_customization_wallpaper_reset_confirm_desc),
-                            fontSize = 11.sp,
-                            color = TextMuted,
-                            lineHeight = 15.sp
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color.Transparent)
-                                    .border(1.dp, Color(0xFFEF4444), RoundedCornerShape(10.dp))
-                                    .springPress()
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        prefs.clearCustomWallpaper()
-                                        showResetConfirm = false
-                                    }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.settings_customization_wallpaper_reset_confirm_btn),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFEF4444)
-                                )
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color.Transparent)
-                                    .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
-                                    .springPress()
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        showResetConfirm = false
-                                    }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.settings_customization_wallpaper_cancel),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Normal,
-                                    color = TextMuted
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = stringResource(R.string.settings_customization_wallpaper_blur),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = TextWhite
-                            )
-                            Text(
-                                text = "${sliderBlur.roundToInt()} dp",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = accentColor
-                            )
-                        }
-
-                        Slider(
-                            value = sliderBlur,
-                            onValueChange = {
-                                sliderBlur = it
-                                prefs.setWallpaperBlur(it, persist = false)
-                            },
-                            onValueChangeFinished = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                prefs.setWallpaperBlur(sliderBlur, persist = true)
-                            },
-                            valueRange = 0f..25f,
-                            steps = 24,
-                            colors = SliderDefaults.colors(
-                                thumbColor = accentColor,
-                                activeTrackColor = accentColor,
-                                inactiveTrackColor = AmoledBorder
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = stringResource(R.string.settings_customization_wallpaper_dim),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = TextWhite
-                            )
-                            Text(
-                                text = "${(sliderDim * 100f).roundToInt()}%",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = accentColor
-                            )
-                        }
-
-                        Slider(
-                            value = sliderDim,
-                            onValueChange = {
-                                sliderDim = it
-                                prefs.setWallpaperDim(it, persist = false)
-                            },
-                            onValueChangeFinished = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                prefs.setWallpaperDim(sliderDim, persist = true)
-                            },
-                            valueRange = 0.10f..0.85f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = accentColor,
-                                activeTrackColor = accentColor,
-                                inactiveTrackColor = AmoledBorder
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    if (isVideo) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.Transparent)
-                                .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f, fill = false)) {
-                                Text(
-                                    text = stringResource(R.string.settings_customization_wallpaper_video_power_save),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = TextWhite
-                                )
-                                Text(
-                                    text = stringResource(R.string.settings_customization_wallpaper_video_power_save_desc),
-                                    fontSize = 11.sp,
-                                    color = TextMuted,
-                                    lineHeight = 14.sp
-                                )
-                            }
-
-                            InertialSpringSwitch(
-                                checked = videoPowerSave,
-                                onCheckedChange = { checked ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    prefs.setWallpaperVideoPowerSave(checked)
-                                }
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Transparent)
-                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f, fill = false)) {
-                            Text(
-                                text = stringResource(R.string.settings_customization_wallpaper_particles),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextWhite
-                            )
-                            Text(
-                                text = stringResource(R.string.settings_customization_wallpaper_particles_desc),
-                                fontSize = 11.sp,
-                                color = TextMuted,
-                                lineHeight = 14.sp
-                            )
-                        }
-
-                        InertialSpringSwitch(
-                            checked = particlesEnabled,
-                            onCheckedChange = { checked ->
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                prefs.setWallpaperParticlesEnabled(checked)
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun WallpaperPresetCard(
-    preset: WallpaperPreset,
-    isActive: Boolean,
-    accentColor: Color,
-    onSelect: () -> Unit,
-    onDelete: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
-) {
-    val haptic = LocalHapticFeedback.current
-    val previewImage = rememberWallpaperImage(
-        path = preset.previewAssetPath ?: preset.previewFilePath ?: preset.filePath,
-        revision = 0L
-    )
-
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = Color.Transparent,
-        border = BorderStroke(
-            width = if (isActive) 1.5.dp else 1.dp,
-            color = if (isActive) accentColor else AmoledBorder
-        ),
-        modifier = modifier
-            .width(112.dp)
-            .height(168.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .springPress()
-            .clickable {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onSelect()
-            }
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(108.dp)
-                    .clip(RoundedCornerShape(topStart = 13.dp, topEnd = 13.dp))
-                    .background(Color.Black)
-            ) {
-                if (preset.type == PreferencesManager.WALLPAPER_TYPE_VIDEO) {
-                    PresetVideoPreview(
-                        videoPath = preset.filePath,
-                        assetPath = preset.previewAssetPath?.takeIf { it.endsWith(".mp4") } ?: preset.assetPath,
-                        previewImage = previewImage,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else if (previewImage != null) {
-                    Image(
-                        bitmap = previewImage.bitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
-                // Delete Button for user custom presets (top end)
-                if (onDelete != null && !preset.isBuiltIn) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(4.dp)
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.70f))
-                            .border(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f), CircleShape)
-                            .springPress()
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onDelete()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "×",
-                            color = Color(0xFFEF4444),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-
-            // Title & Parameters
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 7.dp, vertical = 5.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                val displayTitle = preset.titleRes?.let { stringResource(it) } ?: preset.title
-                Text(
-                    text = displayTitle,
-                    fontSize = 11.sp,
-                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isActive) TextWhite else TextMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${preset.blurDp.roundToInt()} dp • ${(preset.dimFactor * 100).roundToInt()}%",
-                    fontSize = 9.sp,
-                    color = TextMuted,
-                    maxLines = 1
-                )
-            }
-        }
+        // ── 6. ТАКТИЛЬНЫЙ ВИБРООТКЛИК (Haptic Profiles) ──
+        SettingsHapticCard(
+            accentColor = accentColor,
+            onInfoClick = onInfoClick
+        )
     }
 }
 
@@ -7170,7 +6312,6 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
     val (dlgTitleRes, dlgBodyRes) = when (infoKey) {
         "uplink_modes_info" -> R.string.info_uplink_modes_title to R.string.info_uplink_modes_body
         "warp_masque_info" -> R.string.info_warp_masque_title to R.string.info_warp_masque_body
-        "vless_info" -> R.string.info_vless_title to R.string.info_vless_body
         "port", "ports_info" -> R.string.info_ports_title to R.string.info_ports_body
         "secret", "secret_info" -> R.string.info_secret_title to R.string.info_secret_body
         "cf_domain", "worker_info" -> R.string.info_worker_title to R.string.info_worker_body
@@ -7192,6 +6333,12 @@ fun SettingsInfoDialog(infoKey: String, onDismiss: () -> Unit) {
         "vpn_core_info" -> R.string.info_vpn_system_title to R.string.info_vpn_system_body
         "vpn_splittunnel_info" -> R.string.info_vpn_splittunnel_title to R.string.info_vpn_splittunnel_body
         "custom_wallpaper_info", "customization_info" -> R.string.settings_customization_info_title to R.string.settings_customization_info_desc
+        "theme_accent_info" -> R.string.settings_theme_accent_info_title to R.string.settings_theme_accent_info_desc
+        "buttons_info" -> R.string.settings_customization_buttons_info_title to R.string.settings_customization_buttons_info_desc
+        "buttons_guide" -> R.string.settings_customization_buttons_guide_title to R.string.settings_customization_buttons_guide_desc
+        "particle_dynamics_info" -> R.string.settings_customization_particles_info_title to R.string.settings_customization_particles_info_desc
+        "dimensions_info" -> R.string.settings_customization_dimensions_info_title to R.string.settings_customization_dimensions_info_desc
+        "haptic_profiles_info" -> R.string.settings_customization_haptic_info_title to R.string.settings_customization_haptic_info_desc
         else -> return
     }
     val dlgTitle = stringResource(dlgTitleRes)

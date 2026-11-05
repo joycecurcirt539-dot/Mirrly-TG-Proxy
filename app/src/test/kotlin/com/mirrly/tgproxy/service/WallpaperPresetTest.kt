@@ -26,15 +26,22 @@ import org.junit.Test
 class WallpaperPresetTest {
 
     @Test
-    fun builtinPresets_containExpectedThreePresets() {
+    fun builtinPresets_containExpectedPresets() {
         val presets = WallpaperPreset.BUILTIN_PRESETS
-        assertEquals(3, presets.size)
+        assertEquals(4, presets.size)
+
+        val defaultAmoled = presets.find { it.id == WallpaperPreset.PRESET_ID_DEFAULT_AMOLED }
+        assertNotNull(defaultAmoled)
+        assertEquals(PreferencesManager.WALLPAPER_TYPE_IMAGE, defaultAmoled?.type)
+        assertEquals(0f, defaultAmoled?.blurDp ?: -1f, 0.001f)
+        assertEquals(0f, defaultAmoled?.dimFactor ?: -1f, 0.001f)
+        assertTrue(defaultAmoled?.isBuiltIn == true)
 
         val spaceToilet = presets.find { it.id == WallpaperPreset.PRESET_ID_SPACE_TOILET }
         assertNotNull(spaceToilet)
         assertEquals(PreferencesManager.WALLPAPER_TYPE_VIDEO, spaceToilet?.type)
         assertEquals(0f, spaceToilet?.blurDp ?: -1f, 0.001f)
-        assertEquals(0.50f, spaceToilet?.dimFactor ?: -1f, 0.001f)
+        assertEquals(0.70f, spaceToilet?.dimFactor ?: -1f, 0.001f)
         assertTrue(spaceToilet?.isBuiltIn == true)
 
         val grass = presets.find { it.id == WallpaperPreset.PRESET_ID_GRASS }

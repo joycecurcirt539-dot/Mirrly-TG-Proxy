@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ui.theme.*
 import com.mirrly.tgproxy.util.shareApp
@@ -78,6 +79,8 @@ fun AboutScreen(
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     val ledGreen = ActiveGreenLed
+    val prefs = MirrlyApplication.instance.prefsManager
+    val isLiquidGlassEnabled by prefs.liquidGlassEnabledFlow.collectAsState()
 
     // Pulsing gradient glow for hero section
     val infiniteTransition = rememberInfiniteTransition(label = "pulseGlow")
@@ -424,9 +427,15 @@ fun AboutScreen(
                 }
             }
 
-            // 6. HALL OF FAME CARD
+            // 6. COMMUNITY SHOWCASE SECTION (APPLE LIQUID GLASS)
+            CommunityShowcaseSection(
+                liquidGlassEnabled = isLiquidGlassEnabled,
+                modifier = Modifier.staggeredEntrance(index = 5)
+            )
+
+            // 7. HALL OF FAME CARD
             Column(
-                modifier = Modifier.staggeredEntrance(index = 5),
+                modifier = Modifier.staggeredEntrance(index = 6),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -514,9 +523,9 @@ fun AboutScreen(
                 }
             }
 
-            // 7. GITHUB REPOSITORY RATING CARD
+            // 8. GITHUB REPOSITORY RATING CARD
             Column(
-                modifier = Modifier.staggeredEntrance(index = 6),
+                modifier = Modifier.staggeredEntrance(index = 7),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -607,9 +616,9 @@ fun AboutScreen(
                 }
             }
 
-            // 8. PROJECT SUPPORT CARD
+            // 9. PROJECT SUPPORT CARD
             Column(
-                modifier = Modifier.staggeredEntrance(index = 7),
+                modifier = Modifier.staggeredEntrance(index = 8),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -1045,5 +1054,355 @@ private fun LinkCardItem(
             tint = TextMuted.copy(alpha = 0.7f),
             modifier = Modifier.size(15.dp)
         )
+    }
+}
+
+/**
+ * Community Showcase Section recognizing community creators and contributions.
+ * Implemented with Apple Liquid Glass shader effects, tactile springPress interactions,
+ * and dynamic protocol theme adaptations.
+ */
+@Composable
+private fun CommunityShowcaseSection(
+    liquidGlassEnabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
+    val primaryColor = LocalProtocolColors.current.primary
+
+    var isExpanded by rememberSaveable { mutableStateOf(true) }
+    val previewBounce = remember { Animatable(1f) }
+
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "communityChevronRotation"
+    )
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Section Header
+        Text(
+            text = stringResource(R.string.about_section_community),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.3.sp,
+            color = TextMuted
+        )
+
+        // Showcase Card with Apple Liquid Glass Shader & Tactile Physics
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .liquidGlass(
+                    enabled = liquidGlassEnabled,
+                    cornerRadiusDp = 20.dp,
+                    warpStrength = 0.18f,
+                    tint = Color(0xFF04060A).copy(alpha = 0.22f)
+                )
+                .padding(16.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                // Header row: Icon, Title, Badge, Subtitle & Accordion Chevron
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            isExpanded = !isExpanded
+                        }),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, primaryColor.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_volunteer_badge),
+                                contentDescription = null,
+                                tint = primaryColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = stringResource(R.string.about_community_card_title),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = stringResource(R.string.about_community_card_desc),
+                                fontSize = 11.5.sp,
+                                color = TextMuted,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_arrow_down),
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier
+                                .size(16.dp)
+                                .graphicsLayer { rotationZ = chevronRotation }
+                        )
+                    }
+                }
+
+                // Collapsed Summary View
+                if (!isExpanded) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, primaryColor.copy(alpha = 0.40f), RoundedCornerShape(10.dp))
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.ic_community_cat_plane),
+                                contentDescription = null,
+                                modifier = Modifier.size(34.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.about_community_author_name),
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextWhite
+                            )
+                            Text(
+                                text = stringResource(R.string.about_community_work_contribution),
+                                fontSize = 11.sp,
+                                color = TextMuted,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                // Expanded In-Place Content
+                AnimatedVisibility(
+                    visible = isExpanded,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        HorizontalDivider(thickness = 1.dp, color = Color(0xFF141824))
+
+                        // Large Interactive Vector Preview Box with Soft Neon Outline
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(190.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color.Transparent)
+                                .border(
+                                    width = 1.dp,
+                                    brush = Brush.verticalGradient(
+                                        listOf(
+                                            primaryColor.copy(alpha = 0.35f),
+                                            primaryColor.copy(alpha = 0.10f)
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    coroutineScope.launch {
+                                        previewBounce.animateTo(0.90f, tween(70))
+                                        previewBounce.animateTo(
+                                            1.0f,
+                                            spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                                        )
+                                    }
+                                })
+                        ) {
+                            // Subtle radial ambient glow behind the artwork
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                drawCircle(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            primaryColor.copy(alpha = 0.15f),
+                                            primaryColor.copy(alpha = 0.03f),
+                                            Color.Transparent
+                                        ),
+                                        center = center,
+                                        radius = size.minDimension * 0.55f
+                                    )
+                                )
+                            }
+
+                            // Interactive Vector Artwork Preview
+                            Image(
+                                painter = painterResource(id = R.drawable.ic_community_cat_plane),
+                                contentDescription = stringResource(R.string.about_community_artwork_desc),
+                                modifier = Modifier
+                                    .size(155.dp)
+                                    .graphicsLayer {
+                                        scaleX = previewBounce.value
+                                        scaleY = previewBounce.value
+                                    },
+                                contentScale = ContentScale.Fit
+                            )
+
+                            // Clean inscription directly inside the preview canvas
+                            Text(
+                                text = stringResource(R.string.about_community_badge_first),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp,
+                                color = primaryColor.copy(alpha = 0.85f),
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 10.dp)
+                            )
+                        }
+
+                        // Author & Status Block
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Transparent)
+                                    .border(1.dp, primaryColor.copy(alpha = 0.45f), CircleShape)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_user),
+                                    contentDescription = null,
+                                    tint = primaryColor,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = stringResource(R.string.about_community_author_name),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextWhite
+                                )
+                                Text(
+                                    text = stringResource(R.string.about_community_work_status),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = primaryColor.copy(alpha = 0.90f),
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+
+                        // Contribution Details
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, AmoledBorder, RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = stringResource(R.string.about_community_work_contribution_label),
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.sp,
+                                    color = TextMuted
+                                )
+                                Text(
+                                    text = stringResource(R.string.about_community_work_contribution),
+                                    fontSize = 12.5.sp,
+                                    lineHeight = 18.sp,
+                                    color = TextWhite.copy(alpha = 0.88f)
+                                )
+                            }
+                        }
+
+                        // Creators' Gratitude Banner
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFFFF4081).copy(alpha = 0.06f))
+                                .border(1.dp, Color(0xFFFF4081).copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFF4081).copy(alpha = 0.15f))
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_heart),
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF4081),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            Text(
+                                text = stringResource(R.string.about_community_work_gratitude),
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = TextWhite.copy(alpha = 0.95f),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

@@ -69,13 +69,15 @@ class AiChatModelTest {
     @Test
     fun testAiDiagnosticToolsDeclarations() {
         val tools = AiDiagnosticTools.getToolDeclarations()
-        assertEquals(4, tools.length())
+        assertEquals(6, tools.length())
 
         val toolNames = (0 until tools.length()).map { tools.getJSONObject(it).getString("name") }
         assertTrue(toolNames.contains("get_service_status"))
         assertTrue(toolNames.contains("get_network_health"))
         assertTrue(toolNames.contains("get_recent_failure_logs"))
         assertTrue(toolNames.contains("test_uplink_connection"))
+        assertTrue(toolNames.contains("get_reference_icon_code"))
+        assertTrue(toolNames.contains("apply_svg_button_icon"))
     }
 
     @Test
@@ -94,5 +96,94 @@ class AiChatModelTest {
         assertEquals("Прокси работает стабильно.", message.text)
         assertEquals("Выполнен запрос get_service_status()", message.thought)
         assertEquals("get_service_status", message.toolName)
+    }
+
+    @Test
+    fun testAiSmartDnsInitialization() {
+        val dns = com.mirrly.tgproxy.ai.AiSmartDns.dohDns
+        org.junit.Assert.assertNotNull(dns)
+    }
+
+    @Test
+    fun testAiSmartDnsProvidersConstants() {
+        assertEquals("geohide", com.mirrly.tgproxy.ai.AiSmartDns.PROVIDER_GEOHIDE)
+        assertEquals("dns_ai", com.mirrly.tgproxy.ai.AiSmartDns.PROVIDER_DNS_AI)
+        assertEquals("comss", com.mirrly.tgproxy.ai.AiSmartDns.PROVIDER_COMSS)
+        assertEquals("auto", com.mirrly.tgproxy.ai.AiSmartDns.PROVIDER_AUTO)
+    }
+
+    @Test
+    fun testGeoHideDnsResolution() {
+        try {
+            val addresses = com.mirrly.tgproxy.ai.AiSmartDns.resolveWithGeoHide("generativelanguage.googleapis.com")
+            assertTrue("GeoHide must resolve IP addresses", addresses.isNotEmpty())
+            val ipStrings = addresses.map { it.hostAddress }
+            println("GeoHide resolved IPs: $ipStrings")
+        } catch (e: Exception) {
+            println("GeoHide test skipped if offline: ${e.message}")
+        }
+    }
+
+    @Test
+    fun testCloudflareAiPopularModels() {
+        val models = com.mirrly.tgproxy.ai.CloudflareAiClient.POPULAR_MODELS
+        assertTrue(models.isNotEmpty())
+        val ids = models.map { it.id }
+        assertTrue(ids.contains("@cf/meta/llama-3.3-70b-instruct"))
+        assertTrue(ids.contains("@cf/deepseek-ai/deepseek-r1-distill-qwen-32b"))
+        assertTrue(ids.contains("@cf/qwen/qwen2.5-72b-instruct"))
+    }
+
+    @Test
+    fun testOpenRouterAiPopularModels() {
+        val models = com.mirrly.tgproxy.ai.OpenRouterAiClient.POPULAR_MODELS
+        assertTrue(models.isNotEmpty())
+        val ids = models.map { it.id }
+        assertTrue(ids.contains("deepseek/deepseek-r1:free"))
+        assertTrue(ids.contains("anthropic/claude-3.5-sonnet"))
+        assertTrue(ids.contains("openai/gpt-4o"))
+        assertTrue(ids.contains("meta-llama/llama-3.3-70b-instruct:free"))
+    }
+
+    @Test
+    fun testAiPromptsConstants() {
+        assertEquals("DIAGNOSTIC", com.mirrly.tgproxy.ai.AiPrompts.MODE_DIAGNOSTIC)
+        assertEquals("FUN", com.mirrly.tgproxy.ai.AiPrompts.MODE_FUN)
+        assertEquals("CUSTOM", com.mirrly.tgproxy.ai.AiPrompts.MODE_CUSTOM)
+        assertEquals("NONE", com.mirrly.tgproxy.ai.AiPrompts.MODE_NONE)
+        assertTrue(com.mirrly.tgproxy.ai.AiPrompts.PROMPT_DIAGNOSTIC.contains("get_service_status"))
+        assertTrue(com.mirrly.tgproxy.ai.AiPrompts.PROMPT_DIAGNOSTIC.contains("apply_svg_button_icon"))
+    }
+
+    @Test
+    fun testGeminiApiClientPopularModels() {
+        val models = com.mirrly.tgproxy.ai.GeminiApiClient.POPULAR_MODELS
+        assertTrue(models.isNotEmpty())
+        val ids = models.map { it.id }
+        assertTrue(ids.contains("gemini-2.5-flash"))
+        assertTrue(ids.contains("gemini-2.5-pro"))
+        assertTrue(ids.contains("gemini-2.0-flash"))
+    }
+
+    @Test
+    fun testAiModelFormatter() {
+        // Cloudflare
+        assertEquals("Llama 3.3 70B", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("@cf/meta/llama-3.3-70b-instruct"))
+        assertEquals("DeepSeek R1 32B", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("@cf/deepseek-ai/deepseek-r1-distill-qwen-32b"))
+        assertEquals("Llama 3.1 8B", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("@cf/meta/llama-3.1-8b-instruct"))
+        assertEquals("Qwen 2.5 72B", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("@cf/qwen/qwen2.5-72b-instruct"))
+        assertEquals("Mistral 7B", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("@cf/mistral/mistral-7b-instruct-v0.2"))
+
+        // OpenRouter
+        assertEquals("DeepSeek R1", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("deepseek/deepseek-r1"))
+        assertEquals("DeepSeek R1", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("deepseek/deepseek-r1:free"))
+        assertEquals("DeepSeek V3", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("deepseek/deepseek-chat"))
+        assertEquals("Claude 3.5 Sonnet", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("anthropic/claude-3.5-sonnet"))
+        assertEquals("GPT-4o", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("openai/gpt-4o"))
+
+        // Gemini
+        assertEquals("Gemini 3.6 Flash", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("gemini-3.6-flash"))
+        assertEquals("Gemini 2.5 Flash", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("gemini-2.5-flash"))
+        assertEquals("Gemini 3.5 Lite", com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName("gemini-3.5-flash-lite"))
     }
 }

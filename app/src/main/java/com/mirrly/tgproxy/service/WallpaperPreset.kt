@@ -54,11 +54,23 @@ data class WallpaperPreset(
     }
 
     companion object {
+        const val PRESET_ID_DEFAULT_AMOLED = "builtin_default_amoled"
         const val PRESET_ID_SPACE_TOILET = "builtin_space_toilet"
         const val PRESET_ID_GRASS = "builtin_grass"
         const val PRESET_ID_BREEZE = "builtin_breeze"
 
         val BUILTIN_PRESETS: List<WallpaperPreset> = listOf(
+            WallpaperPreset(
+                id = PRESET_ID_DEFAULT_AMOLED,
+                title = "По умолчанию",
+                titleRes = R.string.settings_customization_preset_default_amoled,
+                type = PreferencesManager.WALLPAPER_TYPE_IMAGE,
+                assetPath = null,
+                previewAssetPath = null,
+                blurDp = 0f,
+                dimFactor = 0f,
+                isBuiltIn = true
+            ),
             WallpaperPreset(
                 id = PRESET_ID_SPACE_TOILET,
                 title = "Space Toilet",
@@ -67,7 +79,7 @@ data class WallpaperPreset(
                 assetPath = "wallpapers/space_toilet.mp4",
                 previewAssetPath = "wallpapers/space_toilet_thumb.mp4",
                 blurDp = 0f,
-                dimFactor = 0.50f,
+                dimFactor = 0.70f,
                 isBuiltIn = true
             ),
             WallpaperPreset(

@@ -15,8 +15,8 @@ android {
         applicationId = "com.mirrly.tgproxy"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30
-        versionName = "2.1.0"
+        versionCode = 31
+        versionName = "2.1.1"
 
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -24,20 +24,8 @@ android {
             useSupportLibrary = true
         }
         manifestPlaceholders["appLabel"] = "Mirrly TG Proxy"
-        externalNativeBuild {
-            cmake {
-                cppFlags("")
-            }
-        }
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-        }
-    }
-
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
         }
     }
 
@@ -170,6 +158,16 @@ android {
             jniLibs.srcDirs("src/main/jniLibs")
         }
     }
+
+    applicationVariants.all {
+        val vName = versionName
+        val vCode = versionCode
+        outputs.all {
+            val output = this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            val abi = output?.getFilter("ABI") ?: "universal"
+            output?.outputFileName = "MTGP [$vName+$vCode] [$abi].apk"
+        }
+    }
 }
 
 dependencies {
@@ -181,6 +179,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("androidx.browser:browser:1.8.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("net.java.dev.jna:jna:5.14.0@aar")
 

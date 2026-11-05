@@ -91,7 +91,7 @@ object CloudflareOAuthManager {
     private const val TOKEN_URL = "https://dash.cloudflare.com/oauth2/token"
 
     private const val OAUTH_SCOPES = "account:read user:read workers:write workers_kv:write " +
-            "workers_routes:write workers_scripts:write workers_tail:read offline_access"
+            "workers_routes:write workers_scripts:write workers_tail:read ai:read ai:write offline_access"
 
     // Dedicated supervisor scope ensuring background persistence during browser interactions
     private val authScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

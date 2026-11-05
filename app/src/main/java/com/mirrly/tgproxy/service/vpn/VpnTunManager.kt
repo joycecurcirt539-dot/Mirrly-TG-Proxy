@@ -233,10 +233,6 @@ object VpnTunManager {
                 } catch (e: Exception) {
                     AppLogger.w(TAG, "Не удалось добавить исключение для собственного пакета: ${e.message}")
                 }
-                // Эталон Cloudflare (VpnWarpTunnel): исключаем системный маркет Google Play от захвата туннелем
-                try {
-                    builder.addDisallowedApplication("com.android.vending")
-                } catch (_: Exception) {}
             }
 
             // 5. Блокирующий режим файлового дескриптора TUN для стабильного нативного I/O (Task N13)

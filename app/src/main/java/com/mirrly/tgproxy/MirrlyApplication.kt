@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Mirrly TG Proxy - Native MTProto & Cloudflare WebSocket Proxy for Android
  * Copyright (C) 2026 R1Xern (Mirrly Dev)
  *
@@ -52,7 +52,6 @@ class MirrlyApplication : Application() {
         com.mirrly.tgproxy.service.SessionHistoryManager.init(this)
         com.mirrly.tgproxy.service.WorkerRequestTracker.init(this)
         config = prefsManager.loadConfig()
-        com.mirrly.tgproxy.core.WarpAccountManager.isRegisterViaWorker = config.isRegisterWarpViaWorker
         proxyServer = LocalProxyServer(config)
         proxyServer.stats.externalByteProvider = {
             val uid = android.os.Process.myUid()
@@ -88,7 +87,6 @@ class MirrlyApplication : Application() {
     }
 
     fun saveConfig() {
-        com.mirrly.tgproxy.core.WarpAccountManager.isRegisterViaWorker = config.isRegisterWarpViaWorker
         prefsManager.saveConfig(config)
     }
 

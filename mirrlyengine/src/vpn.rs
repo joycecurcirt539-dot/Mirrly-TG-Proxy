@@ -664,6 +664,10 @@ pub async fn run_vpn(
     use std::fs::File;
     use std::os::unix::io::FromRawFd;
 
+    if !crate::traffic_guard::is_traffic_authorized() {
+        return Err("Cryptographic gateway authorization failed".to_string());
+    }
+
     let mode = get_vpn_uplink_mode();
     crate::linfo!(
         "VPN: initializing native L3 TUN engine (tun_fd={}, uplink={})",

@@ -13,6 +13,10 @@ package com.mirrly.tgproxy.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.widget.Toast
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.collection.LruCache
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -100,6 +104,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -109,6 +114,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -119,8 +125,27 @@ import com.mirrly.tgproxy.ai.AiDiagnosticTools
 import com.mirrly.tgproxy.ai.AiHistoryManager
 import com.mirrly.tgproxy.ai.AiKeyManager
 import com.mirrly.tgproxy.ai.AiPrompts
+import com.mirrly.tgproxy.ai.ProposedSvgAction
+import com.mirrly.tgproxy.ai.CloudflareAiClient
 import com.mirrly.tgproxy.ai.GeminiApiClient
+import com.mirrly.tgproxy.ai.OpenRouterAiClient
 import com.mirrly.tgproxy.ai.RateLimitException
+import com.mirrly.tgproxy.ui.MirrlyModalBottomSheet
+import com.mirrly.tgproxy.ui.icon.AnimatedDynamicVectorButton
+import com.mirrly.tgproxy.ui.icon.SvgPathDataParser
+import com.mirrly.tgproxy.ui.theme.AmoledBorder
+import com.mirrly.tgproxy.ui.theme.MtprotoAccent
+import com.mirrly.tgproxy.ui.theme.Socks5Accent
+import com.mirrly.tgproxy.ui.theme.VpnAccent
+import com.mirrly.tgproxy.ui.theme.TextWhite
+import com.mirrly.tgproxy.ui.theme.TextMuted
+import com.mirrly.tgproxy.ui.theme.springPress
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -133,7 +158,8 @@ import java.util.UUID
 @Composable
 fun AiChatScreen(
     onClose: () -> Unit = {},
-    onBack: () -> Unit = onClose
+    onBack: () -> Unit = onClose,
+    initialPrompt: String? = null
 ) {
     val handleBack = {
         onClose()
@@ -149,25 +175,43 @@ fun AiChatScreen(
     val app = MirrlyApplication.instance
     val prefs = app.prefsManager
     val apiClient = remember { GeminiApiClient() }
+    val cfApiClient = remember { CloudflareAiClient() }
+    val openRouterClient = remember { OpenRouterAiClient() }
 
+    var selectedProvider by remember { mutableStateOf(prefs.getAiProvider()) }
     var selectedModel by remember { mutableStateOf(prefs.getAiModel()) }
     var temperature by remember { mutableFloatStateOf(prefs.getAiTemperature()) }
     var reasoningEnabled by remember { mutableStateOf(prefs.isAiReasoningEnabled()) }
-    var useSocks5 by remember { mutableStateOf(prefs.isAiUseSocks5()) }
+    var useSmartDns by remember { mutableStateOf(prefs.isAiUseSmartDns()) }
+    var smartDnsProvider by remember { mutableStateOf(prefs.getAiSmartDnsProvider()) }
     var promptMode by remember { mutableStateOf(prefs.getAiSystemPromptMode()) }
     var customPrompt by remember { mutableStateOf(prefs.getAiCustomSystemPrompt()) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showQuickModelPicker by remember { mutableStateOf(false) }
+    var showAiOnboarding by rememberSaveable { mutableStateOf(!prefs.hasSeenAiOnboarding()) }
+    var isAiOnboardingReplay by rememberSaveable { mutableStateOf(false) }
+    var isInputExpanded by rememberSaveable { mutableStateOf(false) }
+
     val chatBlurRadius by animateDpAsState(
-        targetValue = if (showSettingsSheet) 16.dp else 0.dp,
+        targetValue = if (showSettingsSheet || showQuickModelPicker || showAiOnboarding || isInputExpanded) 16.dp else 0.dp,
         animationSpec = tween(220),
         label = "chatBlur"
     )
 
     val messages = remember { mutableStateListOf<AiChatMessage>() }
-    var inputMessage by remember { mutableStateOf("") }
+    var inputMessage by rememberSaveable {
+        mutableStateOf(if (!initialPrompt.isNullOrBlank()) initialPrompt else prefs.getAiChatDraft())
+    }
     var isGenerating by remember { mutableStateOf(false) }
     var rateLimitCountdown by remember { mutableIntStateOf(0) }
     var countdownJob by remember { mutableStateOf<Job?>(null) }
+
+    LaunchedEffect(initialPrompt) {
+        if (!initialPrompt.isNullOrBlank()) {
+            inputMessage = initialPrompt
+            prefs.setAiChatDraft(initialPrompt)
+        }
+    }
 
     // Загрузка сохраненных сообщений
     LaunchedEffect(Unit) {
@@ -184,6 +228,8 @@ fun AiChatScreen(
         onDispose {
             AiHistoryManager.saveMessages(context, messages)
             apiClient.cancelCurrent()
+            cfApiClient.cancelCurrent()
+            openRouterClient.cancelCurrent()
         }
     }
 
@@ -200,9 +246,12 @@ fun AiChatScreen(
 
     fun startNewChat() {
         apiClient.cancelCurrent()
+        cfApiClient.cancelCurrent()
+        openRouterClient.cancelCurrent()
         isGenerating = false
         messages.clear()
         AiHistoryManager.clear(context)
+        prefs.setAiChatDraft("")
         inputMessage = ""
         focusManager.clearFocus()
     }
@@ -211,10 +260,29 @@ fun AiChatScreen(
         val cleanText = userText.trim()
         if (cleanText.isEmpty() || isGenerating) return
 
-        val apiKey = AiKeyManager.getApiKey(context)
-        if (apiKey.isEmpty()) {
-            showSettingsSheet = true
-            return
+        when (selectedProvider) {
+            "Cloudflare" -> {
+                val token = prefs.getCloudflareToken().orEmpty()
+                val accountId = prefs.getCloudflareAccountId().orEmpty()
+                if (!prefs.isCloudflareAuthorized() || token.isEmpty() || accountId.isEmpty()) {
+                    showSettingsSheet = true
+                    return
+                }
+            }
+            "OpenRouter" -> {
+                val key = AiKeyManager.getOpenRouterApiKey(context)
+                if (key.isEmpty()) {
+                    showSettingsSheet = true
+                    return
+                }
+            }
+            else -> {
+                val apiKey = AiKeyManager.getApiKey(context)
+                if (apiKey.isEmpty()) {
+                    showSettingsSheet = true
+                    return
+                }
+            }
         }
 
         val userMessage = AiChatMessage(
@@ -223,6 +291,7 @@ fun AiChatScreen(
             text = cleanText
         )
         messages.add(userMessage)
+        prefs.setAiChatDraft("")
         inputMessage = ""
         focusManager.clearFocus()
 
@@ -247,52 +316,120 @@ fun AiChatScreen(
         scope.launch {
             listState.animateScrollToItem(messages.size - 1)
 
-            val result = apiClient.sendMessageStream(
-                context = context,
-                history = messages.dropLast(2),
-                userPrompt = cleanText,
-                endpoint = prefs.getAiEndpoint(),
-                model = selectedModel,
-                apiKey = apiKey,
-                temperature = temperature,
-                reasoningEnabled = reasoningEnabled,
-                systemInstruction = effectiveInstruction,
-                useSocks5 = useSocks5,
-                onToolCallStarted = { toolName ->
-                    val idx = messages.indexOfFirst { it.id == assistantMessageId }
-                    if (idx != -1) {
-                        messages[idx] = messages[idx].copy(
-                            isExecutingTool = true,
-                            toolName = toolName
-                        )
-                    }
-                },
-                onToolCallFinished = { _, _ ->
-                    val idx = messages.indexOfFirst { it.id == assistantMessageId }
-                    if (idx != -1) {
-                        messages[idx] = messages[idx].copy(isExecutingTool = false)
-                    }
-                },
-                onChunk = { textChunk, thoughtChunk ->
-                    val idx = messages.indexOfFirst { it.id == assistantMessageId }
-                    if (idx != -1) {
-                        val current = messages[idx]
-                        messages[idx] = current.copy(
-                            text = current.text + textChunk,
-                            thought = current.thought + thoughtChunk
-                        )
-                    }
+            val batcher = StreamChunkBatcher { textChunk, thoughtChunk ->
+                val idx = messages.indexOfFirst { it.id == assistantMessageId }
+                if (idx != -1) {
+                    val current = messages[idx]
+                    messages[idx] = current.copy(
+                        text = current.text + textChunk,
+                        thought = current.thought + thoughtChunk
+                    )
                 }
-            )
+            }
 
+            val result = when (selectedProvider) {
+                "Cloudflare" -> {
+                    val token = prefs.getCloudflareToken().orEmpty()
+                    val accountId = prefs.getCloudflareAccountId().orEmpty()
+                    cfApiClient.sendMessageStream(
+                        token = token,
+                        accountId = accountId,
+                        model = selectedModel,
+                        history = messages.dropLast(2),
+                        userPrompt = cleanText,
+                        systemInstruction = effectiveInstruction,
+                        onChunk = { textChunk, thoughtChunk ->
+                            batcher.append(textChunk, thoughtChunk)
+                        }
+                    )
+                }
+                "OpenRouter" -> {
+                    val openRouterKey = AiKeyManager.getOpenRouterApiKey(context)
+                    openRouterClient.sendMessageStream(
+                        apiKey = openRouterKey,
+                        model = selectedModel,
+                        history = messages.dropLast(2),
+                        userPrompt = cleanText,
+                        systemInstruction = effectiveInstruction,
+                        temperature = temperature,
+                        useSmartDns = useSmartDns,
+                        onChunk = { textChunk, thoughtChunk ->
+                            batcher.append(textChunk, thoughtChunk)
+                        }
+                    )
+                }
+                else -> {
+                    val apiKey = AiKeyManager.getApiKey(context)
+                    apiClient.sendMessageStream(
+                        context = context,
+                        history = messages.dropLast(2),
+                        userPrompt = cleanText,
+                        endpoint = prefs.getAiEndpoint(),
+                        model = selectedModel,
+                        apiKey = apiKey,
+                        temperature = temperature,
+                        reasoningEnabled = reasoningEnabled,
+                        systemInstruction = effectiveInstruction,
+                        useSmartDns = useSmartDns,
+                        onToolCallStarted = { toolName ->
+                            batcher.flush()
+                            val idx = messages.indexOfFirst { it.id == assistantMessageId }
+                            if (idx != -1) {
+                                messages[idx] = messages[idx].copy(
+                                    isExecutingTool = true,
+                                    toolName = toolName
+                                )
+                            }
+                        },
+                        onToolCallFinished = { toolName, result ->
+                            batcher.flush()
+                            val idx = messages.indexOfFirst { it.id == assistantMessageId }
+                            if (idx != -1) {
+                                val proposed = if (toolName == "apply_svg_button_icon" && result.optString("status") == "proposed") {
+                                    ProposedSvgAction(
+                                        protocol = result.optString("protocol", "mtproto"),
+                                        pathData = result.optString("path_data", ""),
+                                        iconName = result.optString("icon_name", "Кастомная иконка")
+                                    )
+                                } else messages[idx].proposedSvgAction
+
+                                messages[idx] = messages[idx].copy(
+                                    isExecutingTool = false,
+                                    proposedSvgAction = proposed
+                                )
+                            }
+                        },
+                        onChunk = { textChunk, thoughtChunk ->
+                            batcher.append(textChunk, thoughtChunk)
+                        }
+                    )
+                }
+            }
+
+            batcher.flush()
             isGenerating = false
             result.onSuccess { (finalText, finalThought) ->
                 val idx = messages.indexOfFirst { it.id == assistantMessageId }
                 if (idx != -1) {
-                    messages[idx] = messages[idx].copy(
+                    val currentMsg = messages[idx]
+                    var action = currentMsg.proposedSvgAction
+                    if (action == null && SvgPathDataParser.validatePathData(finalText)) {
+                        val extracted = SvgPathDataParser.extractPathData(finalText)
+                        if (extracted.isNotBlank() && (finalText.contains("<svg") || finalText.contains("pathData") || finalText.contains("d=\""))) {
+                            val detectedProto = when {
+                                finalText.contains("socks5", ignoreCase = true) -> "socks5"
+                                finalText.contains("vpn", ignoreCase = true) -> "vpn"
+                                else -> "mtproto"
+                            }
+                            action = ProposedSvgAction(detectedProto, extracted, "Сгенерированная SVG иконка")
+                        }
+                    }
+
+                    messages[idx] = currentMsg.copy(
                         text = finalText,
                         thought = finalThought,
-                        isExecutingTool = false
+                        isExecutingTool = false,
+                        proposedSvgAction = action
                     )
                 }
                 AiHistoryManager.saveMessages(context, messages)
@@ -356,7 +493,10 @@ fun AiChatScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     IconButton(
                         onClick = handleBack,
                         modifier = Modifier.size(36.dp)
@@ -368,7 +508,7 @@ fun AiChatScreen(
                         )
                     }
                     Spacer(modifier = Modifier.width(6.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "Mirrly TG Proxy",
@@ -396,25 +536,15 @@ fun AiChatScreen(
                                 )
                             }
                         }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { showSettingsSheet = true }
-                        ) {
-                            Text(
-                                text = selectedModel,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "▾",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
+                        ModelStatusIndicator(
+                            selectedProvider = selectedProvider,
+                            selectedModel = selectedModel,
+                            onClick = { showQuickModelPicker = true }
+                        )
                     }
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -501,8 +631,14 @@ fun AiChatScreen(
                 }
             }
 
-            // ── Баннер при отсутствии ключа ──
-            if (!AiKeyManager.hasApiKey(context)) {
+            // ── Баннер при отсутствии ключа / авторизации ──
+            val isConfigured = when (selectedProvider) {
+                "Cloudflare" -> prefs.isCloudflareAuthorized() && prefs.getCloudflareToken().orEmpty().isNotBlank()
+                "OpenRouter" -> AiKeyManager.hasOpenRouterApiKey(context)
+                else -> AiKeyManager.hasApiKey(context)
+            }
+
+            if (!isConfigured) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -520,13 +656,27 @@ fun AiChatScreen(
                 ) {
                     Column {
                         Text(
-                            text = "Требуется API-ключ Gemini",
+                            text = when (selectedProvider) {
+                                "Cloudflare" -> "Требуется авторизация Cloudflare Workers AI"
+                                "OpenRouter" -> "Требуется API-ключ OpenRouter"
+                                else -> "Требуется API-ключ Gemini"
+                            },
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "Для работы автономной диагностики укажите ваш бесплатный ключ Google AI Studio. Ключ хранится локально в защищенном виде.",
+                            text = when (selectedProvider) {
+                                "Cloudflare" -> {
+                                    "Для работы серверных моделей Llama, DeepSeek R1 и Qwen выполните вход через официальный Cloudflare OAuth."
+                                }
+                                "OpenRouter" -> {
+                                    "Для доступа к DeepSeek R1, Claude 3.5, GPT-4o и Llama укажите ваш API-ключ OpenRouter (sk-or-v1-...)."
+                                }
+                                else -> {
+                                    "Для работы автономной диагностики укажите ваш бесплатный ключ Google AI Studio. Ключ хранится локально в защищенном виде."
+                                }
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
@@ -542,7 +692,11 @@ fun AiChatScreen(
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Text(
-                                text = "Настроить ключ",
+                                text = when (selectedProvider) {
+                                    "Cloudflare" -> "Войти через Cloudflare"
+                                    "OpenRouter" -> "Ввести ключ OpenRouter"
+                                    else -> "Настроить ключ"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.primary
@@ -719,29 +873,65 @@ fun AiChatScreen(
                     }
                 }
 
-                // Поле ввода и кнопка Отправка/Стоп
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Поле ввода и кнопка Отправка/Стоп (скрывается при развёрнутом редакторе)
+                AnimatedVisibility(
+                    visible = !isInputExpanded,
+                    enter = fadeIn(tween(180)) + expandVertically(tween(180)),
+                    exit = fadeOut(tween(140)) + shrinkVertically(tween(140))
                 ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                     OutlinedTextField(
                         value = inputMessage,
-                        onValueChange = { inputMessage = it },
+                        onValueChange = {
+                            inputMessage = it
+                            prefs.setAiChatDraft(it)
+                        },
                         modifier = Modifier.weight(1f),
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = TextWhite,
+                            fontSize = 14.sp
+                        ),
                         placeholder = {
                             Text(
-                                text = "Введите запрос или проблему...",
+                                text = stringResource(R.string.ai_chat_input_placeholder),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
                         },
+                        trailingIcon = {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .springPress(onClick = {
+                                        focusManager.clearFocus()
+                                        isInputExpanded = true
+                                    }),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_expand),
+                                    contentDescription = stringResource(R.string.ai_chat_expand_editor_title),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        },
                         maxLines = 4,
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite,
+                            cursorColor = MaterialTheme.colorScheme.primary,
                             focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
                         )
                     )
 
@@ -801,9 +991,36 @@ fun AiChatScreen(
         }
     }
 
+    if (isInputExpanded) {
+        ExpandedChatInputSheet(
+            text = inputMessage,
+            onTextChange = {
+                inputMessage = it
+                prefs.setAiChatDraft(it)
+            },
+            onApply = {
+                isInputExpanded = false
+            },
+            onSend = {
+                isInputExpanded = false
+                sendMessage(inputMessage)
+            },
+            onDismiss = {
+                isInputExpanded = false
+            }
+        )
+    }
+
     if (showSettingsSheet) {
         AiSettingsSheet(
             onDismiss = { showSettingsSheet = false },
+            provider = selectedProvider,
+            onProviderSelected = { newProvider ->
+                selectedProvider = newProvider
+                prefs.setAiProvider(newProvider)
+                val newModel = prefs.getAiModel()
+                selectedModel = newModel
+            },
             selectedModel = selectedModel,
             onModelSelected = {
                 selectedModel = it
@@ -819,10 +1036,15 @@ fun AiChatScreen(
                 reasoningEnabled = it
                 prefs.setAiReasoningEnabled(it)
             },
-            useSocks5 = useSocks5,
-            onUseSocks5Toggled = {
-                useSocks5 = it
-                prefs.setAiUseSocks5(it)
+            useSmartDns = useSmartDns,
+            onUseSmartDnsToggled = {
+                useSmartDns = it
+                prefs.setAiUseSmartDns(it)
+            },
+            smartDnsProvider = smartDnsProvider,
+            onSmartDnsProviderChanged = {
+                smartDnsProvider = it
+                prefs.setAiSmartDnsProvider(it)
             },
             promptMode = promptMode,
             onPromptModeChanged = {
@@ -834,11 +1056,56 @@ fun AiChatScreen(
                 customPrompt = it
                 prefs.setAiCustomSystemPrompt(it)
             },
+            onOpenAiOnboarding = {
+                showSettingsSheet = false
+                isAiOnboardingReplay = true
+                showAiOnboarding = true
+            },
             onClearHistory = {
                 startNewChat()
             }
         )
     }
+
+    if (showQuickModelPicker) {
+        AiQuickModelSheet(
+            onDismiss = { showQuickModelPicker = false },
+            currentProvider = selectedProvider,
+            onProviderChanged = { newProvider ->
+                selectedProvider = newProvider
+                prefs.setAiProvider(newProvider)
+                val newModel = prefs.getAiModel()
+                selectedModel = newModel
+            },
+            selectedModel = selectedModel,
+            onModelSelected = { newModel ->
+                selectedModel = newModel
+                prefs.setAiModel(newModel)
+            },
+            useSmartDns = useSmartDns
+        )
+    }
+
+    if (showAiOnboarding) {
+        AiOnboardingScreen(
+            isReplay = isAiOnboardingReplay,
+            onDismiss = {
+                showAiOnboarding = false
+                isAiOnboardingReplay = false
+            },
+            onComplete = {
+                showAiOnboarding = false
+                isAiOnboardingReplay = false
+                selectedProvider = prefs.getAiProvider()
+                selectedModel = prefs.getAiModel()
+                promptMode = prefs.getAiSystemPromptMode()
+                customPrompt = prefs.getAiCustomSystemPrompt()
+                useSmartDns = prefs.isAiUseSmartDns()
+                smartDnsProvider = prefs.getAiSmartDnsProvider()
+            }
+        )
+    }
+}
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -915,9 +1182,466 @@ private fun MessageBubble(msg: AiChatMessage) {
                             }
                         }
                     }
+
+                    if (msg.proposedSvgAction != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ProposedSvgActionCard(action = msg.proposedSvgAction)
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ProposedSvgActionCard(action: ProposedSvgAction) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val prefs = MirrlyApplication.instance.prefsManager
+    var isApplied by rememberSaveable(action.pathData) {
+        val currentPreset = prefs.getCentralButtonIcon(action.protocol)
+        val currentCode = prefs.getCustomIconCode(action.protocol)
+        mutableStateOf(currentPreset == "custom" && currentCode == action.pathData)
+    }
+
+    val protoAccent = when (action.protocol.lowercase()) {
+        "mtproto" -> MtprotoAccent
+        "socks5" -> Socks5Accent
+        "vpn" -> VpnAccent
+        else -> MaterialTheme.colorScheme.primary
+    }
+
+    val protoLabel = when (action.protocol.lowercase()) {
+        "mtproto" -> "MTProto"
+        "socks5" -> "SOCKS5"
+        "vpn" -> "VPN"
+        else -> action.protocol.uppercase()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.35f))
+            .border(1.dp, if (isApplied) protoAccent else AmoledBorder, RoundedCornerShape(12.dp))
+            .padding(10.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Vector Live Animated Preview
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, protoAccent.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AnimatedDynamicVectorButton(
+                        pathData = action.pathData,
+                        state = ProxyUiState.CONNECTED,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(4.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = action.iconName.ifEmpty { "Векторная иконка" },
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite
+                    )
+                    Text(
+                        text = "$protoLabel · SVG код кнопки",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = protoAccent
+                    )
+                }
+            }
+
+            // Apply Button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isApplied) protoAccent.copy(alpha = 0.12f) else Color.Transparent)
+                    .border(
+                        1.dp,
+                        if (isApplied) protoAccent else protoAccent.copy(alpha = 0.6f),
+                        RoundedCornerShape(8.dp)
+                    )
+                    .springPress(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        prefs.setCustomIconCode(action.protocol, action.pathData)
+                        prefs.setCentralButtonIcon(action.protocol, "custom")
+                        isApplied = true
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.ai_chat_action_svg_applied, protoLabel),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    })
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (isApplied) stringResource(R.string.ai_chat_action_svg_applied, protoLabel) else stringResource(R.string.ai_chat_apply_svg_btn),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isApplied) protoAccent else TextWhite
+                )
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun ExpandedChatInputSheet(
+    text: String,
+    onTextChange: (String) -> Unit,
+    onApply: () -> Unit,
+    onSend: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+    var editorHeightDp by rememberSaveable { mutableFloatStateOf(280f) }
+    val animatedEditorHeight by animateDpAsState(
+        targetValue = editorHeightDp.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "editorHeight"
+    )
+    val isFullHeight = editorHeightDp > 360f
+
+    MirrlyModalBottomSheet(
+        onDismissRequest = onDismiss
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_expand),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = stringResource(R.string.ai_chat_expand_editor_title),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite
+                        )
+                        Text(
+                            text = stringResource(R.string.ai_chat_expand_editor_char_count_fmt, text.length),
+                            fontSize = 11.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                // Quick Actions: Resize, Paste & Clear
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Resize Toggle: Expand / Collapse
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(6.dp))
+                            .springPress(onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                editorHeightDp = if (isFullHeight) 280f else 500f
+                            })
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (isFullHeight) stringResource(R.string.ai_chat_expand_editor_resize_collapse) else stringResource(R.string.ai_chat_expand_editor_resize_expand),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Transparent)
+                            .border(1.dp, AmoledBorder, RoundedCornerShape(6.dp))
+                            .springPress(onClick = {
+                                val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+                                if (!clip.isNullOrBlank()) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onTextChange(text + (if (text.isNotEmpty()) "\n" else "") + clip)
+                                }
+                            })
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(text = "Вставить", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    if (text.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.Transparent)
+                                .border(1.dp, AmoledBorder, RoundedCornerShape(6.dp))
+                                .springPress(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onTextChange("")
+                                })
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(text = "Очистить", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+
+            // Draggable resize bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures { change, dragAmount ->
+                            change.consume()
+                            val deltaDp = -dragAmount / density.density
+                            editorHeightDp = (editorHeightDp + deltaDp).coerceIn(260f, 600f)
+                        }
+                    }
+                    .padding(vertical = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(AmoledBorder)
+                )
+            }
+
+            // Large Multiline Editor with pure white text and dynamic height
+            OutlinedTextField(
+                value = text,
+                onValueChange = onTextChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(animatedEditorHeight),
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    color = TextWhite,
+                    fontSize = 14.sp
+                ),
+                placeholder = {
+                    Text(
+                        text = stringResource(R.string.ai_chat_expand_editor_placeholder),
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                },
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextWhite,
+                    unfocusedTextColor = TextWhite,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = AmoledBorder,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent
+                )
+            )
+
+            // Bottom Actions
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.Transparent)
+                        .border(1.dp, AmoledBorder, RoundedCornerShape(10.dp))
+                        .springPress(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onApply()
+                        })
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.ai_chat_expand_editor_apply),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextWhite
+                    )
+                }
+
+                val canSend = text.isNotBlank()
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (canSend) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
+                        .border(
+                            1.dp,
+                            if (canSend) MaterialTheme.colorScheme.primary else AmoledBorder,
+                            RoundedCornerShape(10.dp)
+                        )
+                        .springPress(onClick = {
+                            if (canSend) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onSend()
+                            }
+                        })
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.ai_chat_expand_editor_send),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (canSend) MaterialTheme.colorScheme.primary else TextMuted
+                    )
+                }
+            }
+        }
+    }
+}
+
+private val markdownBlocksCache = LruCache<String, List<MarkdownBlock>>(200)
+private val inlineMarkdownCache = LruCache<String, AnnotatedString>(500)
+
+/**
+ * Потоковый батчер чанков SSE для ограничения частоты обновлений SnapshotStateList в Jetpack Compose.
+ * Буферизует входящие токены и сбрасывает их в состояние с интервалом не чаще 45 мс.
+ */
+private class StreamChunkBatcher(
+    private val intervalMs: Long = 45L,
+    private val onFlush: (textChunk: String, thoughtChunk: String) -> Unit
+) {
+    private val textBuf = StringBuilder()
+    private val thoughtBuf = StringBuilder()
+    private var lastFlushTime = System.currentTimeMillis()
+
+    @Synchronized
+    fun append(text: String, thought: String) {
+        if (text.isNotEmpty()) textBuf.append(text)
+        if (thought.isNotEmpty()) thoughtBuf.append(thought)
+        val now = System.currentTimeMillis()
+        if (now - lastFlushTime >= intervalMs) {
+            flushInternal(now)
+        }
+    }
+
+    @Synchronized
+    fun flush() {
+        flushInternal(System.currentTimeMillis())
+    }
+
+    private fun flushInternal(now: Long) {
+        if (textBuf.isNotEmpty() || thoughtBuf.isNotEmpty()) {
+            val t = textBuf.toString()
+            val th = thoughtBuf.toString()
+            textBuf.clear()
+            thoughtBuf.clear()
+            lastFlushTime = now
+            onFlush(t, th)
+        }
+    }
+}
+
+/**
+ * Изолированный индикатор текущей модели с анимацией пульсации.
+ * Локализует фазу анимации внутри собственного Composable, предотвращая рекомпозицию экрана чата.
+ */
+@Composable
+private fun ModelStatusIndicator(
+    selectedProvider: String,
+    selectedModel: String,
+    onClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "modelPulse")
+    val modelPulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.40f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "modelPulseAlpha"
+    )
+
+    val providerLabel = when (selectedProvider) {
+        "Cloudflare" -> "Workers AI"
+        "OpenRouter" -> "OpenRouter"
+        else -> "Gemini"
+    }
+    val shortModelName = com.mirrly.tgproxy.ai.AiModelFormatter.formatShortName(selectedModel)
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .background(
+                    MaterialTheme.colorScheme.primary.copy(alpha = modelPulseAlpha),
+                    shape = CircleShape
+                )
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "$providerLabel • $shortModelName",
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = modelPulseAlpha),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = "▾",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = modelPulseAlpha)
+        )
     }
 }
 
@@ -940,6 +1664,7 @@ private sealed interface MarkdownBlock {
  * Чистая функция парсинга Markdown в список типизированных блоков.
  */
 private fun parseMarkdownBlocks(text: String): List<MarkdownBlock> {
+    markdownBlocksCache.get(text)?.let { return it }
     val lines = text.lines()
     val blocks = mutableListOf<MarkdownBlock>()
 
@@ -1049,6 +1774,7 @@ private fun parseMarkdownBlocks(text: String): List<MarkdownBlock> {
     flushTable()
     flushCodeBlock()
 
+    markdownBlocksCache.put(text, blocks)
     return blocks
 }
 
@@ -1338,7 +2064,8 @@ private fun CodeBlockCard(codeText: String, context: Context) {
  * Парсер инлайн разметки (**жирный**, *курсив*, `код`).
  */
 fun parseInlineMarkdown(text: String): AnnotatedString {
-    return buildAnnotatedString {
+    inlineMarkdownCache.get(text)?.let { return it }
+    val result = buildAnnotatedString {
         var i = 0
         val n = text.length
 
@@ -1402,6 +2129,8 @@ fun parseInlineMarkdown(text: String): AnnotatedString {
             }
         }
     }
+    inlineMarkdownCache.put(text, result)
+    return result
 }
 
 /**

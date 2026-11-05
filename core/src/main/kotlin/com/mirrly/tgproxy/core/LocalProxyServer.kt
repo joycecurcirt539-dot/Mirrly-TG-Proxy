@@ -370,10 +370,7 @@ class LocalProxyServer(val config: ProxyConfig = ProxyConfig()) {
                             1 -> "WARP MASQUE"
                             2 -> "WARP AmneziaWG"
                             3 -> "Cloudflare Worker"
-                            4 -> "VLESS Direct"
-                            5 -> "Opera VPN"
                             6 -> "Direct TCP"
-                            7 -> "VLESS + Opera Hop"
                             else -> stats.activeCascadeStage
                         }
                     }

@@ -85,34 +85,35 @@ fun UpdateScreen(
     // ── Default Fallback Assets for Current Version (download URLs only, no hardcoded hashes) ──
     val defaultReleaseAssets = remember {
         val ver = com.mirrly.tgproxy.core.UpdateChecker.cleanVersionString(com.mirrly.tgproxy.BuildConfig.VERSION_NAME)
+        val code = com.mirrly.tgproxy.BuildConfig.VERSION_CODE
         listOf(
             ReleaseApkAsset(
-                name = "app-arm64-v8a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-arm64-v8a-release.apk",
+                name = "MTGP [$ver+$code] [arm64-v8a].apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/MTGP%20%5B$ver%2B$code%5D%20%5Barm64-v8a%5D.apk",
                 sizeBytes = 0L,
                 apkType = ApkType.ARM64
             ),
             ReleaseApkAsset(
-                name = "app-universal-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-universal-release.apk",
+                name = "MTGP [$ver+$code] [universal].apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/MTGP%20%5B$ver%2B$code%5D%20%5Buniversal%5D.apk",
                 sizeBytes = 0L,
                 apkType = ApkType.UNIVERSAL
             ),
             ReleaseApkAsset(
-                name = "app-armeabi-v7a-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-armeabi-v7a-release.apk",
+                name = "MTGP [$ver+$code] [armeabi-v7a].apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/MTGP%20%5B$ver%2B$code%5D%20%5Barmeabi-v7a%5D.apk",
                 sizeBytes = 0L,
                 apkType = ApkType.ARM_V7
             ),
             ReleaseApkAsset(
-                name = "app-x86_64-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-x86_64-release.apk",
+                name = "MTGP [$ver+$code] [x86_64].apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/MTGP%20%5B$ver%2B$code%5D%20%5Bx86_64%5D.apk",
                 sizeBytes = 0L,
                 apkType = ApkType.X86_64
             ),
             ReleaseApkAsset(
-                name = "app-x86-release.apk",
-                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/app-x86-release.apk",
+                name = "MTGP [$ver+$code] [x86].apk",
+                downloadUrl = "https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases/download/v$ver/MTGP%20%5B$ver%2B$code%5D%20%5Bx86%5D.apk",
                 sizeBytes = 0L,
                 apkType = ApkType.X86
             )

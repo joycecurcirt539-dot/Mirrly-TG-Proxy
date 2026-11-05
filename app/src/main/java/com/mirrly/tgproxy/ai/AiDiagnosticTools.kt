@@ -92,6 +92,48 @@ object AiDiagnosticTools {
             })
         })
 
+        // 5. get_reference_icon_code
+        toolsArray.put(JSONObject().apply {
+            put("name", "get_reference_icon_code")
+            put("description", "Предоставляет эталонную геометрию и структуру сплайнов (SVG pathData) для центральных кнопок MirrlyUI (MTProto кибер-самолёт, SOCKS5 стелс-перехватчик, VPN Cloudflare облако). Вызывай при необходимости изучить эталонную геометрию и пропорции.")
+            put("parameters", JSONObject().apply {
+                put("type", "OBJECT")
+                put("properties", JSONObject().apply {
+                    put("protocol", JSONObject().apply {
+                        put("type", "STRING")
+                        put("description", "Протокол: 'mtproto', 'socks5' или 'vpn'")
+                    })
+                })
+            })
+        })
+
+        // 6. apply_svg_button_icon
+        toolsArray.put(JSONObject().apply {
+            put("name", "apply_svg_button_icon")
+            put("description", "Формирует интерактивную кнопку применения сгенерированного SVG кода центральной кнопки для пользователя. ВНИМАНИЕ: Относится ИСКЛЮЧИТЕЛЬНО к SVG / pathData коду центральных кнопок Mirrly TG Proxy.")
+            put("parameters", JSONObject().apply {
+                put("type", "OBJECT")
+                put("properties", JSONObject().apply {
+                    put("protocol", JSONObject().apply {
+                        put("type", "STRING")
+                        put("description", "Целевой протокол кнопки: 'mtproto', 'socks5' или 'vpn'")
+                    })
+                    put("svg_path_data", JSONObject().apply {
+                        put("type", "STRING")
+                        put("description", "Строка векторных сплайнов pathData (M... Z) или чистый SVG код.")
+                    })
+                    put("icon_name", JSONObject().apply {
+                        put("type", "STRING")
+                        put("description", "Краткое название созданной иконки (например: 'Кибер-самолёт MTProto', 'Крипто-ядро').")
+                    })
+                })
+                put("required", org.json.JSONArray().apply {
+                    put("protocol")
+                    put("svg_path_data")
+                })
+            })
+        })
+
         return toolsArray
     }
 
@@ -108,6 +150,8 @@ object AiDiagnosticTools {
                 executeGetRecentFailureLogs(limit)
             }
             "test_uplink_connection" -> executeTestUplink()
+            "get_reference_icon_code" -> executeGetReferenceIconCode(args)
+            "apply_svg_button_icon" -> executeApplySvgButtonIcon(args)
             else -> JSONObject().apply {
                 put("error", "Unknown function: $functionName")
             }
@@ -260,6 +304,33 @@ object AiDiagnosticTools {
             sanitized.take(25000) + "\n\n[...хвост объемного отчета усечен...]"
         } else {
             sanitized
+        }
+    }
+
+    private fun executeGetReferenceIconCode(args: JSONObject): JSONObject {
+        val protocol = args.optString("protocol", "all").lowercase()
+        return JSONObject().apply {
+            put("status", "ok")
+            put("protocol", protocol)
+            put("reference_code", com.mirrly.tgproxy.ui.icon.CentralButtonPresets.getReferenceVectorCode(protocol))
+            put("design_rules", "Вьюпорт: 100x100. Только контуры Stroke без непрозрачных фоновых заливок. Замкнутые контуры Z.")
+        }
+    }
+
+    private fun executeApplySvgButtonIcon(args: JSONObject): JSONObject {
+        val protocol = args.optString("protocol", "mtproto").lowercase()
+        val rawPath = args.optString("svg_path_data", "")
+        val iconName = args.optString("icon_name", "Кастомная иконка")
+        val cleanPath = com.mirrly.tgproxy.ui.icon.SvgPathDataParser.extractPathData(rawPath)
+        val isValid = com.mirrly.tgproxy.ui.icon.SvgPathDataParser.validatePathData(cleanPath)
+
+        return JSONObject().apply {
+            put("status", if (isValid) "proposed" else "invalid")
+            put("protocol", protocol)
+            put("icon_name", iconName)
+            put("path_data", cleanPath)
+            put("is_valid", isValid)
+            put("message", if (isValid) "Интерактивная кнопка применения SVG отображена пользователю." else "Сплайн не прошел валидацию синтаксиса.")
         }
     }
 

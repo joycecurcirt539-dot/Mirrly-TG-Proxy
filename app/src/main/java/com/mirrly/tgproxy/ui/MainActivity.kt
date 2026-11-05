@@ -90,6 +90,7 @@ import android.graphics.Shader
 import com.mirrly.tgproxy.MirrlyApplication
 import com.mirrly.tgproxy.service.crash.CrashReportManager
 import com.mirrly.tgproxy.ui.AiChatScreen
+import com.mirrly.tgproxy.ui.theme.LocalProtocolColors
 import com.mirrly.tgproxy.ui.theme.MirrlyTheme
 import com.mirrly.tgproxy.ui.theme.TextMuted
 import com.mirrly.tgproxy.ui.theme.TextWhite
@@ -233,6 +234,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val app = MirrlyApplication.instance
             val currentLanguage by app.prefsManager.appLanguageFlow.collectAsState()
+            val uiScale by app.prefsManager.uiScaleFlow.collectAsState()
+            val textScale by app.prefsManager.textScaleFlow.collectAsState()
             val context = LocalContext.current
             val currentConfig = LocalConfiguration.current
             val systemDensity = LocalDensity.current
@@ -252,20 +255,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            val localizedConfig = remember(currentConfig, targetLocale) {
+            val localizedConfig = remember(currentConfig, targetLocale, textScale) {
                 Configuration(currentConfig).apply {
                     setLocale(targetLocale)
-                    // This product deliberately uses a dense, fixed visual scale.  Compose text
-                    // must not reflow cards or controls when Android's global font-size slider changes.
-                    fontScale = 1f
+                    fontScale = textScale
                 }
             }
-            // The visual system was designed around a 390dp phone.  On a 320–359dp
+            // The visual system was designed around a 390dp phone. On a 320–359dp
             // viewport, reduce every dp/sp measurement together so fixed control rows
             // retain their proportions instead of clipping or overlapping.
             val compactScale = (currentConfig.screenWidthDp / 390f).coerceIn(0.82f, 1f)
-            val designDensity = remember(systemDensity.density, compactScale) {
-                Density(density = systemDensity.density * compactScale, fontScale = 1f)
+            val designDensity = remember(systemDensity.density, compactScale, uiScale, textScale) {
+                Density(
+                    density = systemDensity.density * compactScale * uiScale,
+                    fontScale = textScale
+                )
             }
             val layoutDirection = if (targetLocale.language == "fa") LayoutDirection.Rtl else LayoutDirection.Ltr
 
@@ -283,8 +287,20 @@ class MainActivity : ComponentActivity() {
                 val signatureStatus = remember {
                     com.mirrly.tgproxy.util.SignatureVerifier.verify(applicationContext)
                 }
+                val isUnofficial = remember {
+                    val isClonedPackage = applicationContext.packageName != "com.mirrly.tgproxy"
+                    val isEngineBlocked = !com.mirrly.tgproxy.core.NativeProxy.isEngineAuthorized()
+                    val isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+                    (signatureStatus == com.mirrly.tgproxy.util.SignatureStatus.UNOFFICIAL_MODIFIED ||
+                     isClonedPackage ||
+                     isEngineBlocked) && !isDebug
+                }
+                val isDailySecurityDue = remember {
+                    com.mirrly.tgproxy.service.LaunchCountManager.shouldShowDailySecurityNotice(applicationContext)
+                }
                 var showUnofficialDialog by remember {
-                    mutableStateOf(signatureStatus == com.mirrly.tgproxy.util.SignatureStatus.UNOFFICIAL_MODIFIED)
+                    mutableStateOf(isUnofficial || isDailySecurityDue)
                 }
 
                 val shouldShowStarDialog = remember {
@@ -431,6 +447,7 @@ class MainActivity : ComponentActivity() {
                 var isVpnTabActive by remember { mutableStateOf(false) }
                 var showOnboarding by rememberSaveable { mutableStateOf(!app.prefsManager.hasSeenOnboarding()) }
                 var showAiChat by rememberSaveable { mutableStateOf(false) }
+                var aiChatInitialPrompt by rememberSaveable { mutableStateOf<String?>(null) }
 
                 val customWallpaperPath by app.prefsManager.customBackgroundUriFlow.collectAsState()
                 val customWallpaperRevision by app.prefsManager.customBackgroundRevisionFlow.collectAsState()
@@ -438,7 +455,19 @@ class MainActivity : ComponentActivity() {
                 val customWallpaperBlur by app.prefsManager.customBackgroundBlurFlow.collectAsState()
                 val customWallpaperDim by app.prefsManager.customBackgroundDimFlow.collectAsState()
                 val customWallpaperVideoPowerSave by app.prefsManager.customBackgroundVideoPowerSaveFlow.collectAsState()
+                val wallpaperParallaxEnabled by app.prefsManager.wallpaperParallaxEnabledFlow.collectAsState()
+                val wallpaperParallaxDepth by app.prefsManager.wallpaperParallaxDepthFlow.collectAsState()
+                val wallpaperShaderSpeed by app.prefsManager.wallpaperShaderSpeedFlow.collectAsState()
+                val wallpaperParticlesStyle by app.prefsManager.wallpaperParticlesStyleFlow.collectAsState()
+                val wallpaperParticlesCount by app.prefsManager.wallpaperParticlesCountFlow.collectAsState()
+                val wallpaperParticlesSpeed by app.prefsManager.wallpaperParticlesSpeedFlow.collectAsState()
                 val hasCustomWallpaper = customWallpaperPath != null
+                val isVideoWallpaperPowerSaving = hasCustomWallpaper && customWallpaperType == com.mirrly.tgproxy.service.PreferencesManager.WALLPAPER_TYPE_VIDEO && customWallpaperVideoPowerSave
+                val tiltOffset by rememberSensorTilt(
+                    enabled = wallpaperParallaxEnabled,
+                    powerSaveActive = isVideoWallpaperPowerSaving,
+                    depthMultiplier = wallpaperParallaxDepth
+                )
                 val previewFile = remember(customWallpaperPath, customWallpaperRevision, customWallpaperType) {
                     app.prefsManager.getWallpaperPreviewFile()?.absolutePath
                 }
@@ -478,7 +507,13 @@ class MainActivity : ComponentActivity() {
                 val onOpenWorkerAnalytics = remember { { navigateTo("worker_analytics") } }
                 val onOpenHallOfFame = remember { { navigateTo("hall_of_fame") } }
                 val onOpenOnboarding = remember { { showOnboarding = true } }
-                val onOpenAiChat = remember { { showAiChat = true } }
+                val onOpenAiChatWithPrompt: (String?) -> Unit = remember {
+                    { prompt ->
+                        aiChatInitialPrompt = prompt
+                        showAiChat = true
+                    }
+                }
+                val onOpenAiChat = remember { { onOpenAiChatWithPrompt(null) } }
                 val onOpenTelegramChannel = remember { { navigateTo("telegram_channel") } }
                 val onOpenDiagnosticReport = remember { { navigateTo("diagnostic_report") } }
                 val onOpenWarpGenerator = remember { { navigateTo("warp_generator") } }
@@ -896,7 +931,18 @@ class MainActivity : ComponentActivity() {
                             blurDp = customWallpaperBlur,
                             dim = customWallpaperDim,
                             powerSaveEnabled = customWallpaperVideoPowerSave,
-                            modifier = Modifier.fillMaxSize()
+                            shaderSpeed = wallpaperShaderSpeed,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    if (wallpaperParallaxEnabled && !isVideoWallpaperPowerSaving) {
+                                        val scaleFactor = 1.0f + 0.08f * wallpaperParallaxDepth
+                                        scaleX = scaleFactor
+                                        scaleY = scaleFactor
+                                        translationX = -tiltOffset.x * 14.dp.toPx()
+                                        translationY = -tiltOffset.y * 14.dp.toPx()
+                                    }
+                                }
                         )
                     }
 
@@ -924,16 +970,34 @@ class MainActivity : ComponentActivity() {
                         ) {
                             val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
                             val proxyMode by app.prefsManager.proxyModeFlow.collectAsState(initial = app.config.proxyMode)
+                            val isCustomTheme = app.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
                             val systemVpnColors = remember { com.mirrly.tgproxy.ui.theme.VpnThemeManager.getSystemVpnPalette(applicationContext) }
+                            val effectiveVpnColors = if (isCustomTheme) LocalProtocolColors.current else systemVpnColors
+                            val density = LocalDensity.current
+                            val parallaxOffsetXPx = if (wallpaperParallaxEnabled && !isVideoWallpaperPowerSaving) {
+                                with(density) { tiltOffset.x * 24.dp.toPx() }
+                            } else 0f
+                            val parallaxOffsetYPx = if (wallpaperParallaxEnabled && !isVideoWallpaperPowerSaving) {
+                                with(density) { tiltOffset.y * 24.dp.toPx() }
+                            } else 0f
+
+                            val aiPauseParticles by app.prefsManager.aiPauseBackgroundParticlesFlow.collectAsState()
+                            val isConstellationPausedEff = (currentScreen != "home" && !showOnboarding && !showAiChat && !isSheetOpen) || (showAiChat && aiPauseParticles)
+
                             CyberEnergyCanvas(
                                 state = globalProxyState,
                                 proxyMode = proxyMode,
                                 isSocks5 = isSocks5,
                                 isVpnMode = isVpnTabActive,
-                                vpnColors = systemVpnColors,
+                                vpnColors = effectiveVpnColors,
                                 externalTouchPoint = globalTouchPoint,
-                                isConstellationPaused = (currentScreen != "home" && !showOnboarding && !showAiChat && !isSheetOpen),
+                                isConstellationPaused = isConstellationPausedEff,
                                 hasCustomBackground = hasCustomWallpaper,
+                                parallaxOffsetX = parallaxOffsetXPx,
+                                parallaxOffsetY = parallaxOffsetYPx,
+                                particleStyle = remember(wallpaperParticlesStyle) { com.mirrly.tgproxy.service.ParticleStyle.fromString(wallpaperParticlesStyle) },
+                                particleCount = wallpaperParticlesCount,
+                                particleSpeed = wallpaperParticlesSpeed,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -1092,6 +1156,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenOnboarding = onOpenOnboarding,
                                 onOpenDiagnosticReport = onOpenDiagnosticReport,
                                 onOpenWarpGenerator = onOpenWarpGenerator,
+                                onOpenAiChat = onOpenAiChatWithPrompt,
                                 initialIsVpn = isVpnTabActive
                             )
                         }
@@ -1372,7 +1437,9 @@ class MainActivity : ComponentActivity() {
 
                     if (showUnofficialDialog) {
                         UnofficialBuildDialog(
+                            isUnofficialDetected = isUnofficial,
                             onDismiss = {
+                                com.mirrly.tgproxy.service.LaunchCountManager.onDailySecurityNoticeDismissed(applicationContext)
                                 showUnofficialDialog = false
                             }
                         )
@@ -1399,6 +1466,7 @@ class MainActivity : ComponentActivity() {
                     if (showOnboarding) {
                         OnboardingScreen(
                             initialLanguage = app.prefsManager.getAppLanguage(),
+                            prefsManager = app.prefsManager,
                             onLanguageSelected = { selectedLang ->
                                 app.prefsManager.setAppLanguage(selectedLang)
                             },
@@ -1423,7 +1491,9 @@ class MainActivity : ComponentActivity() {
                         AiChatScreen(
                             onClose = {
                                 showAiChat = false
-                            }
+                                aiChatInitialPrompt = null
+                            },
+                            initialPrompt = aiChatInitialPrompt
                         )
                     }
 

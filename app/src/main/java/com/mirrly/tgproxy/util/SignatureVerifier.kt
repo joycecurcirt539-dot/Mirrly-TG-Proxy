@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.core.NativeProxy
 import java.io.File
 import java.security.MessageDigest
 
@@ -16,29 +17,44 @@ enum class SignatureStatus {
 object SignatureVerifier {
     private const val TAG = "SignatureVerifier"
 
-    // Official release key SHA-256 fingerprint (used for fallback if native library fails)
-    const val OFFICIAL_RELEASE_SHA256 = "00:32:69:CB:70:12:DF:37:61:E7:D3:92:79:5C:C3:55:02:43:39:A4:B2:1B:3F:B5:75:A4:C9:2B:CC:DD:25:16"
+    private val MASK_A = byteArrayOf(
+        0xA5.toByte(), 0x5A.toByte(), 0x3C.toByte(), 0xC3.toByte(), 0x96.toByte(), 0x69.toByte(), 0x0F.toByte(), 0xF0.toByte(),
+        0x55.toByte(), 0xAA.toByte(), 0x33.toByte(), 0xCC.toByte(), 0x0F.toByte(), 0xF0.toByte(), 0x5A.toByte(), 0xA5.toByte()
+    )
+    private val MASK_B = byteArrayOf(
+        0x3C.toByte(), 0xC3.toByte(), 0x5A.toByte(), 0xA5.toByte(), 0x96.toByte(), 0x69.toByte(), 0xF0.toByte(), 0x0F.toByte(),
+        0xAA.toByte(), 0x55.toByte(), 0xCC.toByte(), 0x33.toByte(), 0xF0.toByte(), 0x0F.toByte(), 0xA5.toByte(), 0x5A.toByte()
+    )
+    private val ENC_A = byteArrayOf(
+        0xA5.toByte(), 0x68.toByte(), 0x55.toByte(), 0x08.toByte(), 0xE6.toByte(), 0x7B.toByte(), 0xD0.toByte(), 0xC7.toByte(),
+        0x34.toByte(), 0x4D.toByte(), 0xE0.toByte(), 0x5E.toByte(), 0x76.toByte(), 0xAC.toByte(), 0x99.toByte(), 0xF0.toByte()
+    )
+    private val ENC_B = byteArrayOf(
+        0x3E.toByte(), 0x80.toByte(), 0x63.toByte(), 0x01.toByte(), 0x24.toByte(), 0x72.toByte(), 0xCF.toByte(), 0xBA.toByte(),
+        0xDF.toByte(), 0xF1.toByte(), 0x05.toByte(), 0x18.toByte(), 0x3C.toByte(), 0xD2.toByte(), 0x80.toByte(), 0x4C.toByte()
+    )
 
-    @Volatile
-    private var isNativeLoaded = false
-
-    init {
-        try {
-            System.loadLibrary("mirrly_sec")
-            isNativeLoaded = true
-            AppLogger.i(TAG, "Native security library mirrly_sec loaded successfully")
-        } catch (e: Throwable) {
-            AppLogger.w(TAG, "Failed to load native security library mirrly_sec: ${e.message}")
-            isNativeLoaded = false
+    private fun getOfficialKeyCleanHex(): String {
+        val out = ByteArray(32)
+        for (i in 0 until 16) {
+            out[i] = (ENC_A[i].toInt() xor MASK_A[i].toInt()).toByte()
+            out[i + 16] = (ENC_B[i].toInt() xor MASK_B[i].toInt()).toByte()
         }
+        return out.joinToString("") { String.format("%02X", it) }
     }
 
-    // Dynamically registered via JNI_OnLoad in native_sec.cpp
-    @JvmStatic
-    private external fun verifyNative(context: Context, currentSha256: String?, expectedRemoteHashes: Array<String>?): Int
+    @Volatile
+    private var isEnvironmentProfileDecoyValid: Boolean = true
 
     @Volatile
     private var cachedStatus: SignatureStatus? = null
+
+    @JvmStatic
+    private fun verifyDecoyEnvironment(context: Context): Boolean {
+        val flags = context.applicationInfo.flags
+        val isDebug = (flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        return isEnvironmentProfileDecoyValid && !isDebug
+    }
 
     fun verify(context: Context): SignatureStatus {
         val cached = cachedStatus
@@ -46,37 +62,18 @@ object SignatureVerifier {
             return cached
         }
 
-        val status = if (isNativeLoaded) {
-            try {
-                val currentSha256 = getSignatureSha256(context)
-                val code = verifyNative(context, currentSha256, null)
-                val nativeStatus = when (code) {
-                    0 -> SignatureStatus.OFFICIAL_RELEASE
-                    1 -> SignatureStatus.DEBUG_BUILD
-                    else -> SignatureStatus.UNOFFICIAL_MODIFIED
-                }
-                // If native reports UNOFFICIAL — run Kotlin fallback as a secondary check.
-                // The JNI certificate-reading path can produce a different SHA than the
-                // Kotlin reflection path on some Android API levels, causing false negatives.
-                // Kotlin fallback compares against the hardcoded official key and is reliable.
-                if (nativeStatus == SignatureStatus.UNOFFICIAL_MODIFIED) {
-                    AppLogger.w(TAG, "Native returned UNOFFICIAL_MODIFIED (native SHA may differ from Kotlin SHA on this device/API), running Kotlin fallback")
-                    val kotlinStatus = verifyKotlinFallback(context)
-                    if (kotlinStatus == SignatureStatus.OFFICIAL_RELEASE || kotlinStatus == SignatureStatus.DEBUG_BUILD) {
-                        AppLogger.i(TAG, "Kotlin fallback overrides native UNOFFICIAL result → $kotlinStatus")
-                        kotlinStatus
-                    } else {
-                        nativeStatus
-                    }
-                } else {
-                    nativeStatus
-                }
-            } catch (e: Throwable) {
-                AppLogger.w(TAG, "Native verify call failed: ${e.message}, falling back to Kotlin verification")
-                verifyKotlinFallback(context)
+        val status = try {
+            val isDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            val isOfficialPackage = context.packageName == "com.mirrly.tgproxy"
+            val isAuthenticInEngine = isOfficialPackage && NativeProxy.isEngineAuthorized()
+
+            when {
+                isAuthenticInEngine -> SignatureStatus.OFFICIAL_RELEASE
+                isDebug -> SignatureStatus.DEBUG_BUILD
+                else -> SignatureStatus.UNOFFICIAL_MODIFIED
             }
-        } else {
-            verifyKotlinFallback(context)
+        } catch (_: Throwable) {
+            SignatureStatus.UNOFFICIAL_MODIFIED
         }
 
         cachedStatus = status
@@ -89,61 +86,26 @@ object SignatureVerifier {
     @Suppress("UNUSED_PARAMETER")
     fun verify(context: Context, expectedRemoteHashes: List<String>?): SignatureStatus = verify(context)
 
-    private fun verifyKotlinFallback(context: Context): SignatureStatus {
-        val status = try {
-            val signatures = getAppSignatures(context)
-            if (signatures.isEmpty()) {
-                AppLogger.w(TAG, "No signatures found during Kotlin fallback verification: marking UNOFFICIAL_MODIFIED")
-                SignatureStatus.UNOFFICIAL_MODIFIED
-            } else {
-                val currentSha256WithColons = hashSha256(signatures[0])
-                val currentSha256Clean = currentSha256WithColons.replace(":", "").uppercase()
-                AppLogger.i(TAG, "Current APK Signature SHA-256: $currentSha256WithColons")
-
-                val isDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-
-                val isKnownOfficialKey = currentSha256WithColons.equals(OFFICIAL_RELEASE_SHA256, ignoreCase = true) ||
-                        OFFICIAL_RELEASE_SHA256.replace(":", "").equals(currentSha256Clean, ignoreCase = true)
-
-                if (isKnownOfficialKey) {
-                    SignatureStatus.OFFICIAL_RELEASE
-                } else if (isDebug) {
-                    SignatureStatus.DEBUG_BUILD
-                } else {
-                    SignatureStatus.UNOFFICIAL_MODIFIED
-                }
-            }
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Error verifying APK signature: ${e.message}")
-            SignatureStatus.UNOFFICIAL_MODIFIED
-        }
-        return status
+    fun getSecurityReportJson(): String? {
+        return NativeProxy.getSecurityPostureReportJson()
     }
 
-    /**
-     * Verifies the cryptographic signing certificate of a downloaded APK file BEFORE installation.
-     * Guarantees that only authentic APKs signed with the official release key can be installed.
-     * Remote checksums/metadata must NEVER participate in signing certificate verification.
-     */
     @Suppress("UNUSED_PARAMETER")
     fun verifyApkFile(context: Context, apkFile: File, expectedRemoteHashes: List<String>? = null): SignatureStatus {
         return try {
             val signatures = getApkFileSignatures(context, apkFile)
             if (signatures.isEmpty()) {
-                AppLogger.e(TAG, "verifyApkFile: No signatures found in ${apkFile.name}")
                 return SignatureStatus.UNOFFICIAL_MODIFIED
             }
 
             val apkSha256WithColons = hashSha256(signatures[0])
             val apkSha256Clean = apkSha256WithColons.replace(":", "").uppercase()
-            AppLogger.i(TAG, "Downloaded APK Certificate SHA-256: $apkSha256WithColons")
 
-            val cleanOfficial = OFFICIAL_RELEASE_SHA256.replace(":", "").uppercase()
+            val cleanOfficial = getOfficialKeyCleanHex()
             val isKnownOfficialKey = apkSha256Clean == cleanOfficial
 
             val isCurrentDebug = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
-            // If running in debug mode, only accept debug certificate if it matches the current running app's debug certificate
             val isMatchingDebugSignature = if (isCurrentDebug) {
                 val currentSignatures = getAppSignatures(context)
                 if (currentSignatures.isNotEmpty()) {
@@ -157,8 +119,7 @@ object SignatureVerifier {
                 isMatchingDebugSignature -> SignatureStatus.DEBUG_BUILD
                 else -> SignatureStatus.UNOFFICIAL_MODIFIED
             }
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "verifyApkFile exception: ${e.message}")
+        } catch (_: Exception) {
             SignatureStatus.UNOFFICIAL_MODIFIED
         }
     }
@@ -183,8 +144,7 @@ object SignatureVerifier {
                 val signatures = packageInfo?.signatures
                 signatures?.map { it.toByteArray() } ?: emptyList()
             }
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to retrieve signatures from APK file: ${e.message}")
+        } catch (_: Exception) {
             emptyList()
         }
     }
@@ -224,8 +184,7 @@ object SignatureVerifier {
                 val signatures = packageInfo.signatures
                 signatures?.map { it.toByteArray() } ?: emptyList()
             }
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to retrieve package signatures: ${e.message}")
+        } catch (_: Exception) {
             emptyList()
         }
     }

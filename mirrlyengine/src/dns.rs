@@ -184,10 +184,10 @@ pub async fn resolve_doh_wireformat(query_bytes: &[u8]) -> Result<Vec<u8>, Strin
         let guard = DOH_ENDPOINTS.read();
         if guard.is_empty() {
             vec![
-                "https://1.1.1.1/dns-query".to_string(),
-                "https://dns.google/dns-query".to_string(),
                 "https://common.dot.dns.yandex.net/dns-query".to_string(),
                 "https://dns.adguard-dns.com/dns-query".to_string(),
+                "https://188.114.96.1/dns-query".to_string(),
+                "https://dns.google/dns-query".to_string(),
             ]
         } else {
             guard.clone()

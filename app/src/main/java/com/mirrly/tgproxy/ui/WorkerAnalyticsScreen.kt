@@ -83,8 +83,9 @@ fun WorkerAnalyticsScreen(
     val app = MirrlyApplication.instance
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
 
-    val activeProtoColor = if (isSocks5) Color(0xFFB388FF) else Color(0xFF00FF87)
-    val secondaryProtoColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00F5D4)
+    val isCustomTheme = app.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
+    val activeProtoColor = if (isCustomTheme) LocalProtocolColors.current.primary else if (isSocks5) Color(0xFFB388FF) else Color(0xFF00FF87)
+    val secondaryProtoColor = if (isCustomTheme) LocalProtocolColors.current.secondary else if (isSocks5) Color(0xFF818CF8) else Color(0xFF00F5D4)
     val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
 
     var selectedTab by remember { mutableStateOf(if (isSocks5) AnalyticsTab.SOCKS5 else AnalyticsTab.MTPROTO) }
@@ -155,7 +156,7 @@ fun WorkerAnalyticsScreen(
             ) {
                 AnalyticsTab.values().forEach { tab ->
                     val isSelected = selectedTab == tab
-                    val tabColor = if (tab == AnalyticsTab.SOCKS5) Color(0xFF818CF8) else Color(0xFF00FF87)
+                    val tabColor = if (isCustomTheme) activeProtoColor else if (tab == AnalyticsTab.SOCKS5) Color(0xFF818CF8) else Color(0xFF00FF87)
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -753,6 +754,8 @@ private fun AnalyticsTopBar(
     onBack: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
+    val activeProtoColor = if (isCustomTheme) LocalProtocolColors.current.primary else if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -795,17 +798,17 @@ private fun AnalyticsTopBar(
                     modifier = Modifier
                         .padding(end = 12.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (isSocks5) Color(0xFF818CF8).copy(alpha = 0.12f) else Color(0xFF00FF87).copy(alpha = 0.12f))
+                        .background(activeProtoColor.copy(alpha = 0.12f))
                         .border(
                             0.8.dp,
-                            if (isSocks5) Color(0xFF818CF8).copy(alpha = 0.45f) else Color(0xFF00FF87).copy(alpha = 0.45f),
+                            activeProtoColor.copy(alpha = 0.45f),
                             RoundedCornerShape(8.dp)
                         )
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
                         text = stringResource(R.string.wa_chart_100k_day),
-                        color = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
+                        color = activeProtoColor,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )

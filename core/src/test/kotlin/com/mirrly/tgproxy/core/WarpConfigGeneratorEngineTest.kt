@@ -81,30 +81,32 @@ class WarpConfigGeneratorEngineTest {
     }
 
     @Test
-    fun testBuildWireguardConfAndRoundTrip() {
-        val conf = WarpConfigGeneratorEngine.buildWireguardConf(
-            privateKey = testPrivKey,
-            addressLine = "172.16.0.2/32",
-            dnsLine = "1.1.1.1, 1.0.0.1",
-            peerPublicKey = testPeerKey,
-            endpoint = "188.114.96.1:8095"
+    fun testBuildWarpMasqueProfileAndRoundTrip() {
+        val masqueProf = baseProfile.copy(
+            isMasqueValid = true,
+            p256PrivateKeyBase64 = "MHcCAQEEIPtest",
+            clientCertBase64 = "MIIBtest",
+            token = "jwt-test-token"
         )
+        val encoded = WarpConfigGeneratorEngine.buildWarpMasqueProfile(
+            profile = masqueProf,
+            endpoint = "188.114.97.66:4500",
+            dnsLine = "1.1.1.1, 1.0.0.1",
+            asJsonDump = false
+        )
+        assertTrue(encoded.isNotBlank())
+        val decoded = WarpProfileCodec.decode(encoded)
+        assertNotNull(decoded)
+        assertEquals("188.114.97.66:4500", decoded?.peerEndpoint)
+        assertEquals("1.1.1.1, 1.0.0.1", decoded?.dnsServers)
 
-        assertTrue(conf.contains("[Interface]"))
-        assertTrue(conf.contains("PrivateKey = $testPrivKey"))
-        assertTrue(conf.contains("Address = 172.16.0.2/32"))
-        assertTrue(conf.contains("DNS = 1.1.1.1, 1.0.0.1"))
-        assertTrue(conf.contains("[Peer]"))
-        assertTrue(conf.contains("PublicKey = $testPeerKey"))
-        assertTrue(conf.contains("Endpoint = 188.114.96.1:8095"))
-
-        val parseResult = WarpProfileParser.parse(conf)
-        assertTrue(parseResult is WarpImportResult.Success)
-        val success = parseResult as WarpImportResult.Success
-        assertEquals(ImportedProfileType.WIREGUARD_CONF, success.type)
-        assertEquals("172.16.0.2", success.profile.clientIpv4)
-        assertEquals("188.114.96.1:8095", success.profile.peerEndpoint)
-        assertEquals(testPrivKey, success.profile.privateKeyBase64)
+        val jsonDump = WarpConfigGeneratorEngine.buildWarpMasqueProfile(
+            profile = masqueProf,
+            endpoint = "188.114.97.66:4500",
+            asJsonDump = true
+        )
+        assertTrue(jsonDump.contains("\"accountId\""))
+        assertTrue(jsonDump.contains("\"endpoint\": \"188.114.97.66:4500\""))
     }
 
     @Test
@@ -206,37 +208,6 @@ class WarpConfigGeneratorEngineTest {
     }
 
     @Test
-    fun testBuildClashMetaYaml() {
-        val yaml = WarpConfigGeneratorEngine.buildClashMetaYaml(
-            profileName = "WARP-Test",
-            privateKey = testPrivKey,
-            ipv4 = "172.16.0.2",
-            ipv6 = "2606:4700::1",
-            includeIPv6 = true,
-            dnsList = listOf("1.1.1.1", "1.0.0.1"),
-            peerPublicKey = testPeerKey,
-            endpoint = "188.114.96.1:8095"
-        )
-
-        assertTrue(yaml.contains("proxies:"))
-        assertTrue(yaml.contains("name: \"WARP-Test\""))
-        assertTrue(yaml.contains("type: wireguard"))
-        assertTrue(yaml.contains("server: 188.114.96.1"))
-        assertTrue(yaml.contains("port: 8095"))
-        assertTrue(yaml.contains("ip: 172.16.0.2"))
-        assertTrue(yaml.contains("ipv6: 2606:4700::1"))
-        assertTrue(yaml.contains("public-key: $testPeerKey"))
-        assertTrue(yaml.contains("private-key: $testPrivKey"))
-
-        val parseResult = WarpProfileParser.parse(yaml)
-        assertTrue(parseResult is WarpImportResult.Success)
-        val success = parseResult as WarpImportResult.Success
-        assertEquals(ImportedProfileType.CLASH_META_YAML, success.type)
-        assertEquals("172.16.0.2", success.profile.clientIpv4)
-        assertEquals("188.114.96.1:8095", success.profile.peerEndpoint)
-    }
-
-    @Test
     fun testValidateWarpSafety() {
         val safeParams = WarpAwgConfigParams(
             s1 = 0, s2 = 0, s3 = 0, s4 = 0,
@@ -258,8 +229,8 @@ class WarpConfigGeneratorEngineTest {
     @Test
     fun testGenerateBatch() {
         val settings = WarpGeneratorBuildSettings(
-            formats = setOf(WarpGeneratorFormat.WIREGUARD, WarpGeneratorFormat.AWG_1_0),
-            endpoints = listOf(WarpEndpointPresetOption.CLEAN_8095, WarpEndpointPresetOption.ENGAGE_ALT),
+            formats = setOf(WarpGeneratorFormat.WARP_MASQUE, WarpGeneratorFormat.AWG_1_0),
+            endpoints = listOf(WarpEndpointPresetOption.FRA_4500, WarpEndpointPresetOption.ENGAGE_500),
             dnsPresets = listOf(WarpDnsPresetOption.CLOUDFLARE)
         )
 

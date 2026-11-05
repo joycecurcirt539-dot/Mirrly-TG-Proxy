@@ -46,7 +46,31 @@ object AiPrompts {
         "ОБЯЗАТЕЛЬНО сначала вызови диагностические инструменты: get_service_status(), get_network_health(), " +
         "get_recent_failure_logs() или test_uplink_connection(). Только после получения структурированного JSON формулируй ответ на их основе.\n" +
         "2. Отвечай строго, по делу, технически грамотно на русском языке. Запрещены любые эмодзи, смайлики, пафосные или маркетинговые штампы.\n" +
-        "3. Не выдумывай несуществующие ошибки. Анализируй исключительно возвращенные JSON-метрики."
+        "3. Не выдумывай несуществующие ошибки. Анализируй исключительно возвращенные JSON-метрики.\n" +
+        "4. РЕГЛАМЕНТ СОЗДАНИЯ ИКОНОК ЦЕНТРАЛЬНЫХ КНОПОК:\n" +
+        "При запросе пользователя на создание или изменение иконки центральной кнопки (MTProto, SOCKS5, VPN) КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО генерировать код сразу в первом ответе!\n" +
+        "Сначала ты ОБЯЗАН провести структурированное интервью с пользователем:\n" +
+        "ШАГ 1: Спроси пользователя, какой стиль использовать:\n" +
+        "- Вариант 1: По эталонным референсам разработчиков Mirrly TG Proxy (стелс-перехватчик Warp Glider, бумажный самолёт Cyber Plane, облако WARP Cloud, кибер-щит Aegis).\n" +
+        "- Вариант 2: Полностью кастомный по индивидуальному текстовому описанию пользователя.\n" +
+        "Обязательно предупреди пользователя, что для точной геометрии ты сначала задашь уточняющие вопросы (3 вопроса для референса разработчиков либо 6 вопросов для кастомного стиля).\n\n" +
+        "ШАГ 2 (ИНТЕРВЬЮ):\n" +
+        "- Если выбран Вариант 1 (Референс разработчиков): задай ровно 3 вопроса (в одном сообщении):\n" +
+        "  1) Какой из протоколов/силуэтов взять за основу? (MTProto самолёт / SOCKS5 стелс-перехватчик / VPN облако WARP / Кибер-щит);\n" +
+        "  2) Какая геометрия линий предпочтительнее? (острые гранёные грани Stealth / плавные обтекаемые аэродинамические контуры / матричная технологическая сетка);\n" +
+        "  3) Какие акцентные детали добавить? (гранёный внутренний кокпит / сопла-ускорители / центральное ядро-монограмма / защитные щитки).\n" +
+        "  При необходимости ты можешь вызвать инструмент get_reference_icon_code(protocol), предупредив пользователя: 'Запрашиваю эталонный векторный код кнопки...', но в первую очередь ориентируйся на ответы пользователя.\n" +
+        "- Если выбран Вариант 2 (Кастомный стиль по описанию): задай ровно 6 вопросов (в одном сообщении):\n" +
+        "  1) Главный объект, образ или метафора в центре (космический корабль, сокол, кристалл, руна, клинок, щит, монограмма)?\n" +
+        "  2) Общая форма силуэта (ромбовидная, шестиугольная, треугольная, круглая, щитообразная)?\n" +
+        "  3) Плотность и сложность линий (минималистичный лёгкий контур из 2-3 сплайнов или многослойный хай-тек чертёж)?\n" +
+        "  4) Центральное ядро или фокус внимания (пустой центр, светящийся центральный элемент, перекрестие, крипто-эмблема)?\n" +
+        "  5) Пространственная ориентация и угол (направлен строго вверх, наклон 45 градусов в динамике полёта, полная вертикальная симметрия)?\n" +
+        "  6) Динамика и анимация (статичный чёткий вектор или кинетическая динамика с эффектом полёта/левитации, покачивания и импульса пульсации)?\n\n" +
+        "ШАГ 3 (ГЕНЕРАЦИЯ):\n" +
+        "Только после того, как пользователь ответит на все вопросы (на 3 вопроса для Варианта 1 или на 6 вопросов для Варианта 2), сгенерируй чистый векторный SVG/pathData код:\n" +
+        "- Вьюпорт: 0 0 100 100. Стиль: Stroke 1.5-2.0dp, без непрозрачных фоновых заливок fill, замкнутые сплайны Z.\n" +
+        "- В конце ответа ОБЯЗАТЕЛЬНО вызови инструмент apply_svg_button_icon(protocol, svg_path_data, icon_name). Инструмент apply_svg_button_icon относится ИСКЛЮЧИТЕЛЬНО к SVG / pathData коду центральных кнопок Mirrly TG Proxy."
 
     const val PROMPT_FUN =
         "Ты — остроумный и дружелюбный ИИ-собеседник в приложении Mirrly TG Proxy. " +
@@ -74,7 +98,7 @@ class RateLimitException(val retryAfterSeconds: Int, message: String) : Exceptio
  * - Автономный цикл вызова локальных инструментов (Function Calling)
  * - Разделение рассуждений модели (Reasoning Thoughts) и финального ответа
  * - Обработку ошибок 429 с извлечением Retry-After
- * - Туннелирование через локальный SOCKS5-прокси (127.0.0.1:10808)
+ * - Обход региональных геоблокировок через SmartDNS (Comss.one DoH)
  * - Динамическую загрузку каталога доступных моделей Google AI Studio
  */
 class GeminiApiClient {
@@ -82,9 +106,44 @@ class GeminiApiClient {
     companion object {
         private const val TAG = "GeminiApiClient"
         private val RETRY_AFTER_REGEX = Pattern.compile("(?i)(?:retry after|wait)\\s+(\\d+)\\s*s")
+
+        val POPULAR_MODELS = listOf(
+            GeminiModelInfo(
+                id = "gemini-2.5-flash",
+                displayName = "Gemini 2.5 Flash",
+                description = "Новейшая быстрая модель с адаптивным мышлением и поддержкой инструментов"
+            ),
+            GeminiModelInfo(
+                id = "gemini-2.5-flash-lite",
+                displayName = "Gemini 2.5 Lite",
+                description = "Облегченная модель с минимальным временем отклика"
+            ),
+            GeminiModelInfo(
+                id = "gemini-2.5-pro",
+                displayName = "Gemini 2.5 Pro",
+                description = "Флагманская модель для сложного инженерного анализа"
+            ),
+            GeminiModelInfo(
+                id = "gemini-2.0-flash",
+                displayName = "Gemini 2.0 Flash",
+                description = "Стабильная универсальная модель с высокой скоростью генерации"
+            ),
+            GeminiModelInfo(
+                id = "gemini-1.5-flash",
+                displayName = "Gemini 1.5 Flash",
+                description = "Базовая проверенная временем модель"
+            )
+        )
     }
 
     private val directClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    private val smartDnsClient: OkHttpClient = OkHttpClient.Builder()
+        .dns(AiSmartDns.dohDns)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -103,8 +162,8 @@ class GeminiApiClient {
         currentCall.getAndSet(null)?.cancel()
     }
 
-    private fun getClient(useSocks5: Boolean): OkHttpClient {
-        return if (useSocks5) socks5Client else directClient
+    private fun getClient(useSmartDns: Boolean): OkHttpClient {
+        return if (useSmartDns) smartDnsClient else directClient
     }
 
     /**
@@ -113,7 +172,7 @@ class GeminiApiClient {
     suspend fun fetchAvailableModels(
         apiKey: String,
         endpoint: String,
-        useSocks5: Boolean = false
+        useSmartDns: Boolean = true
     ): Result<List<GeminiModelInfo>> = withContext(Dispatchers.IO) {
         val cleanKey = apiKey.trim()
         val cleanEndpoint = endpoint.trim().trimEnd('/')
@@ -129,7 +188,7 @@ class GeminiApiClient {
             .build()
 
         try {
-            getClient(useSocks5).newCall(request).execute().use { response ->
+            getClient(useSmartDns).newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (response.code == 429) {
                     val waitSec = parseRetryAfter(response.header("Retry-After"), body)
@@ -152,12 +211,31 @@ class GeminiApiClient {
                     val methods = m.optJSONArray("supportedGenerationMethods") ?: JSONArray()
                     val methodsList = (0 until methods.length()).map { methods.getString(it) }
 
-                    // Отбираем только текстовые и мультимодальные генеративные модели
-                    if (methodsList.contains("generateContent") && !modelId.contains("embedding") && !modelId.contains("aqa")) {
+                    // Отбираем строго текстовые диалоговые генеративные модели (без imagen, veo, embedding, tts, whisper, aqa, learnlm, audio, live)
+                    val isTextModel = methodsList.contains("generateContent") &&
+                            modelId.startsWith("gemini-") &&
+                            !modelId.contains("embedding") &&
+                            !modelId.contains("aqa") &&
+                            !modelId.contains("imagen") &&
+                            !modelId.contains("veo") &&
+                            !modelId.contains("tts") &&
+                            !modelId.contains("whisper") &&
+                            !modelId.contains("realtime") &&
+                            !modelId.contains("vision-preview") &&
+                            !modelId.contains("learnlm") &&
+                            !modelId.contains("robotics") &&
+                            !modelId.contains("audio") &&
+                            !modelId.contains("live") &&
+                            !modelId.contains("computer-use") &&
+                            !modelId.startsWith("gemini-1.0")
+
+                    if (isTextModel) {
+                        val rawDisplay = m.optString("displayName", "")
+                        val formattedDisplay = if (rawDisplay.isNotBlank()) rawDisplay else AiModelFormatter.formatShortName(modelId)
                         list.add(
                             GeminiModelInfo(
                                 id = modelId,
-                                displayName = m.optString("displayName", modelId),
+                                displayName = formattedDisplay,
                                 description = m.optString("description", "")
                             )
                         )
@@ -207,7 +285,7 @@ class GeminiApiClient {
         temperature: Float,
         reasoningEnabled: Boolean,
         systemInstruction: String? = null,
-        useSocks5: Boolean = false,
+        useSmartDns: Boolean = true,
         onToolCallStarted: (toolName: String) -> Unit = {},
         onToolCallFinished: (toolName: String, result: JSONObject) -> Unit = { _, _ -> },
         onChunk: (textChunk: String, thoughtChunk: String) -> Unit
@@ -274,7 +352,7 @@ class GeminiApiClient {
                     .post(body)
                     .build()
 
-                val call = getClient(useSocks5).newCall(request)
+                val call = getClient(useSmartDns).newCall(request)
                 currentCall.set(call)
 
                 val requestedFunctionCalls = mutableListOf<PendingFunctionCall>()

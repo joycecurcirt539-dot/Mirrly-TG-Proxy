@@ -44,10 +44,10 @@ class ProxyDisplayLabelsTest {
     @Test
     fun `other routes retain operator and trust state`() {
         assertEquals(
-            "VLESS (Частный VPS) (Private VPS) · Публичный резерв",
+            "WARP MASQUE (Custom VPS) · Публичный резерв",
             ProxyDisplayLabels.homeStatusLabel(
-                effectiveRoute = "VLESS (Частный VPS)",
-                operator = "Private VPS",
+                effectiveRoute = "WARP MASQUE",
+                operator = "Custom VPS",
                 isTrustBoundaryMaintained = false
             )
         )

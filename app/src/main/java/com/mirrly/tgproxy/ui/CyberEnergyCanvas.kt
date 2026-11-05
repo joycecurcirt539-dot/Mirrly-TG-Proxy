@@ -19,6 +19,8 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.mirrly.tgproxy.service.ParticleStyle
+import com.mirrly.tgproxy.service.PreferencesManager
 import com.mirrly.tgproxy.ui.theme.ActiveGreenLed
 import com.mirrly.tgproxy.ui.theme.rememberAnimatedProtocolColors
 import com.mirrly.tgproxy.ui.theme.ProtocolColors
@@ -26,6 +28,8 @@ import com.mirrly.tgproxy.ui.theme.VpnThemeManager
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
+
+private const val MAX_PARTICLES_CAPACITY = 100
 
 private data class MicroParticle(
     val relX: Float,        // Relative start X (0..1)
@@ -86,6 +90,12 @@ fun CyberEnergyCanvas(
     externalTouchPoint: Offset? = null,
     isConstellationPaused: Boolean = false,
     hasCustomBackground: Boolean = false,
+    particleStyle: ParticleStyle? = null,
+    particleCount: Int? = null,
+    particleSpeed: Float? = null,
+    particleSize: Float? = null,
+    parallaxOffsetX: Float = 0f,
+    parallaxOffsetY: Float = 0f,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -119,6 +129,28 @@ fun CyberEnergyCanvas(
     val app = com.mirrly.tgproxy.MirrlyApplication.instance
     val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
     val customParticlesEnabled by app.prefsManager.customBackgroundParticlesFlow.collectAsState()
+
+    val currentStyleName by app.prefsManager.wallpaperParticlesStyleFlow.collectAsState()
+    val currentCountPref by app.prefsManager.wallpaperParticlesCountFlow.collectAsState()
+    val currentSpeedPref by app.prefsManager.wallpaperParticlesSpeedFlow.collectAsState()
+    val currentSizePref by app.prefsManager.wallpaperParticlesSizeFlow.collectAsState()
+    val orbitalSpheresScale by app.prefsManager.orbitalSpheresScaleFlow.collectAsState()
+
+    val effectiveStyle = particleStyle ?: remember(currentStyleName) {
+        ParticleStyle.fromString(currentStyleName)
+    }
+    val effectiveCount = (particleCount ?: currentCountPref).coerceIn(
+        PreferencesManager.WALLPAPER_PARTICLES_COUNT_MIN,
+        PreferencesManager.WALLPAPER_PARTICLES_COUNT_MAX
+    )
+    val effectiveSpeed = (particleSpeed ?: currentSpeedPref).coerceIn(
+        PreferencesManager.WALLPAPER_PARTICLES_SPEED_MIN,
+        PreferencesManager.WALLPAPER_PARTICLES_SPEED_MAX
+    )
+    val effectiveSize = (particleSize ?: currentSizePref).coerceIn(
+        PreferencesManager.WALLPAPER_PARTICLES_SIZE_MIN,
+        PreferencesManager.WALLPAPER_PARTICLES_SIZE_MAX
+    )
 
     // ── ANIMATION FRAME TIMER (PAUSED IN BACKGROUND OR IF ANIMATIONS DISABLED) ──
     val shouldAnimate = isAppResumed && !isAnimationsDisabled
@@ -177,9 +209,11 @@ fun CyberEnergyCanvas(
     val vpnPalette = vpnColors ?: remember { VpnThemeManager.getSystemVpnPalette(context) }
     val animatedProtoColors = rememberAnimatedProtocolColors(
         proxyMode = proxyMode,
-        isSocks5 = isSocks5
+        isSocks5 = isSocks5,
+        isVpn = isVpnMode,
+        vpnPalette = vpnPalette
     )
-    val protoColors = if (isVpnMode) vpnPalette else animatedProtoColors
+    val protoColors = animatedProtoColors
 
     // Animated colors for glowing spheres across all 3 states:
     // 1. Disconnected: Barely visible (barely visible), subtle dark graphite
@@ -225,11 +259,11 @@ fun CyberEnergyCanvas(
         }
     }
 
-    // Generate 50 fine micro-particles with deterministic seed (delicate, non-intrusive size ~0.75dp .. 2.1dp)
+    // Generate fine micro-particles with deterministic seed (up to MAX_PARTICLES_CAPACITY)
     val particles = remember {
         val list = mutableListOf<MicroParticle>()
         val random = java.util.Random(2026)
-        for (i in 0 until 50) {
+        for (i in 0 until MAX_PARTICLES_CAPACITY) {
             list.add(
                 MicroParticle(
                     relX = random.nextFloat(),
@@ -263,8 +297,8 @@ fun CyberEnergyCanvas(
         }
     }
 
-    // Precalculated reusable FloatArray to hold (px, py, alpha) for zero-allocation constellation rendering
-    val particleCoords = remember { FloatArray(50 * 3) }
+    // Precalculated reusable FloatArray (6 floats per particle: px, py, alpha, aux1, aux2, aux3)
+    val particleCoords = remember { FloatArray(MAX_PARTICLES_CAPACITY * 6) }
 
     // Precalculate layout pixel metrics once per density change (Spheres reduced by 25%)
     val metrics = remember(density) {
@@ -345,8 +379,10 @@ fun CyberEnergyCanvas(
         }
 
         val t = timeState.value / 1_000_000_000f
-        val tiltX = 0f
-        val tiltY = 0f
+
+        // Multi-layer parallax: background orb layer shifts counter to foreground particles (depth 0.3 vs 0.7)
+        val orbTiltX = -parallaxOffsetX * (14f / 24f)
+        val orbTiltY = -parallaxOffsetY * (14f / 24f)
 
         // Balanced float speed for glowing spheres
         val timeScale = 0.70f + animatedEnergy * 0.45f
@@ -379,9 +415,9 @@ fun CyberEnergyCanvas(
                 }
 
                 // Orb 1: Upper-Right Organic Flow
-                val orb1X = width * 0.65f + sin(t * 0.14f * timeScale) * metrics.p120 + cos(t * 0.22f * timeScale + 1.4f) * metrics.p45 - tiltX * 0.5f
-                val orb1Y = height * 0.22f + cos(t * 0.11f * timeScale + 0.7f) * metrics.p135 + sin(t * 0.18f * timeScale) * metrics.p40 - tiltY * 0.5f
-                val orb1Radius = metrics.p175 + sin(t * 0.15f) * metrics.p25
+                val orb1X = width * 0.65f + sin(t * 0.14f * timeScale) * metrics.p120 + cos(t * 0.22f * timeScale + 1.4f) * metrics.p45 + orbTiltX * 0.5f
+                val orb1Y = height * 0.22f + cos(t * 0.11f * timeScale + 0.7f) * metrics.p135 + sin(t * 0.18f * timeScale) * metrics.p40 + orbTiltY * 0.5f
+                val orb1Radius = (metrics.p175 + sin(t * 0.15f) * metrics.p25) * orbitalSpheresScale
                 val o1c = orb1CenterColor.toArgb()
                 val o1Alpha = (o1c ushr 24) and 0xFF
                 val o1Mid = ((o1Alpha * 0.40f).toInt() shl 24) or (o1c and 0x00FFFFFF)
@@ -397,9 +433,9 @@ fun CyberEnergyCanvas(
                 nativeCanvas.drawCircle(orb1X, orb1Y, orb1Radius, orbPaint)
 
                 // Orb 2: Center-Left Organic Flow
-                val orb2X = width * 0.25f + cos(t * 0.12f * timeScale + 2.1f) * metrics.p110 + sin(t * 0.19f * timeScale) * metrics.p55 - tiltX * 0.7f
-                val orb2Y = height * 0.52f + sin(t * 0.15f * timeScale + 1.1f) * metrics.p150 + cos(t * 0.24f * timeScale + 0.3f) * metrics.p50 - tiltY * 0.7f
-                val orb2Radius = metrics.p195 + cos(t * 0.13f + 1.5f) * metrics.p30
+                val orb2X = width * 0.25f + cos(t * 0.12f * timeScale + 2.1f) * metrics.p110 + sin(t * 0.19f * timeScale) * metrics.p55 + orbTiltX * 0.7f
+                val orb2Y = height * 0.52f + sin(t * 0.15f * timeScale + 1.1f) * metrics.p150 + cos(t * 0.24f * timeScale + 0.3f) * metrics.p50 + orbTiltY * 0.7f
+                val orb2Radius = (metrics.p195 + cos(t * 0.13f + 1.5f) * metrics.p30) * orbitalSpheresScale
                 val o2c = orb2CenterColor.toArgb()
                 val o2Alpha = (o2c ushr 24) and 0xFF
                 val o2Mid = ((o2Alpha * 0.35f).toInt() shl 24) or (o2c and 0x00FFFFFF)
@@ -415,9 +451,9 @@ fun CyberEnergyCanvas(
                 nativeCanvas.drawCircle(orb2X, orb2Y, orb2Radius, orbPaint)
 
                 // Orb 3: Lower-Right Organic Flow
-                val orb3X = width * 0.75f + sin(t * 0.10f * timeScale + 4.2f) * metrics.p130 + cos(t * 0.18f * timeScale + 2.5f) * metrics.p40 - tiltX * 0.4f
-                val orb3Y = height * 0.78f + cos(t * 0.17f * timeScale + 2.8f) * metrics.p110 + sin(t * 0.25f * timeScale + 0.9f) * metrics.p45 - tiltY * 0.4f
-                val orb3Radius = metrics.p165 + sin(t * 0.14f + 2.5f) * metrics.p22
+                val orb3X = width * 0.75f + sin(t * 0.10f * timeScale + 4.2f) * metrics.p130 + cos(t * 0.18f * timeScale + 2.5f) * metrics.p40 + orbTiltX * 0.4f
+                val orb3Y = height * 0.78f + cos(t * 0.17f * timeScale + 2.8f) * metrics.p110 + sin(t * 0.25f * timeScale + 0.9f) * metrics.p45 + orbTiltY * 0.4f
+                val orb3Radius = (metrics.p165 + sin(t * 0.14f + 2.5f) * metrics.p22) * orbitalSpheresScale
                 val o3c = orb3CenterColor.toArgb()
                 val o3Alpha = (o3c ushr 24) and 0xFF
                 val o3Mid = ((o3Alpha * 0.30f).toInt() shl 24) or (o3c and 0x00FFFFFF)
@@ -433,9 +469,9 @@ fun CyberEnergyCanvas(
                 nativeCanvas.drawCircle(orb3X, orb3Y, orb3Radius, orbPaint)
 
                 // Orb 4: Deep Tech Accent Floating Mid-Top
-                val orb4X = width * 0.45f + cos(t * 0.09f * timeScale + 0.8f) * metrics.p95 + sin(t * 0.16f * timeScale + 3.1f) * metrics.p50 - tiltX * 0.6f
-                val orb4Y = height * 0.35f + sin(t * 0.13f * timeScale + 3.5f) * metrics.p125 + cos(t * 0.21f * timeScale) * metrics.p35 - tiltY * 0.6f
-                val orb4Radius = metrics.p185 + sin(t * 0.11f + 0.5f) * metrics.p28
+                val orb4X = width * 0.45f + cos(t * 0.09f * timeScale + 0.8f) * metrics.p95 + sin(t * 0.16f * timeScale + 3.1f) * metrics.p50 + orbTiltX * 0.6f
+                val orb4Y = height * 0.35f + sin(t * 0.13f * timeScale + 3.5f) * metrics.p125 + cos(t * 0.21f * timeScale) * metrics.p35 + orbTiltY * 0.6f
+                val orb4Radius = (metrics.p185 + sin(t * 0.11f + 0.5f) * metrics.p28) * orbitalSpheresScale
                 val o4c = orb4CenterColor.toArgb()
                 val o4Alpha = (o4c ushr 24) and 0xFF
                 val o4Mid = ((o4Alpha * 0.35f).toInt() shl 24) or (o4c and 0x00FFFFFF)
@@ -460,56 +496,125 @@ fun CyberEnergyCanvas(
         val currentTouch = effectiveTouchPoint
         val touchWeight = touchIntensity.value
 
-        // Pass 1: Compute particle coordinates with touch deflection physics
-        for (i in preparedParticles.indices) {
-            val p = preparedParticles[i]
-            val driftXPx = p.driftXPx
+        // Pass 1: Compute particle coordinates based on active ParticleStyle
+        when (effectiveStyle) {
+            ParticleStyle.BOKEH_DUST -> {
+                for (i in 0 until effectiveCount) {
+                    val p = preparedParticles[i]
+                    val driftXPx = p.driftXPx
+                    val speedFactor = p.speedY * effectiveSpeed
 
-            // Continuous vertical position with smooth tilt shift
-            val rawY = p.relY * height + t * baseSpeedY * p.speedY + tiltY * p.speedY * 1.2f
-            var py = ((rawY % height) + height) % height
+                    // Continuous vertical position with smooth tilt shift
+                    val rawY = p.relY * height + t * baseSpeedY * speedFactor + parallaxOffsetY * (0.6f + p.speedY * 0.4f)
+                    var py = ((rawY % height) + height) % height
 
-            // Continuous horizontal position with smooth tilt shift
-            val rawX = p.relX * width + sin(t * p.freqX + p.phase) * driftXPx + tiltX * p.speedY * 1.2f
-            var px = ((rawX % width) + width) % width
+                    // Continuous horizontal position with smooth tilt shift
+                    val rawX = p.relX * width + sin(t * p.freqX * effectiveSpeed + p.phase) * driftXPx + parallaxOffsetX * (0.6f + p.speedY * 0.4f)
+                    var px = ((rawX % width) + width) % width
 
-            // Touch magnetic deflection
-            if (currentTouch != null && touchWeight > 0.01f) {
-                val dx = px - currentTouch.x
-                val dy = py - currentTouch.y
-                val distSq = dx * dx + dy * dy
-                if (distSq < touchRadiusPx * touchRadiusPx && distSq > 0.1f) {
-                    val dist = kotlin.math.sqrt(distSq)
-                    val force = (1f - dist / touchRadiusPx) * touchWeight * (45f * p.speedY)
-                    px += (dx / dist) * force
-                    py += (dy / dist) * force
+                    // Touch magnetic deflection
+                    if (currentTouch != null && touchWeight > 0.01f) {
+                        val dx = px - currentTouch.x
+                        val dy = py - currentTouch.y
+                        val distSq = dx * dx + dy * dy
+                        if (distSq < touchRadiusPx * touchRadiusPx && distSq > 0.1f) {
+                            val dist = kotlin.math.sqrt(distSq)
+                            val force = (1f - dist / touchRadiusPx) * touchWeight * (45f * p.speedY)
+                            px += (dx / dist) * force
+                            py += (dy / dist) * force
+                        }
+                    }
+
+                    // Twinkle alpha: crisp and visible in all 3 states
+                    val flicker = 0.82f + 0.18f * sin(t * 2.2f + p.phase)
+                    val stateAlphaMultiplier = if (isConnected || isVpnMode) (0.80f + 0.20f * animatedEnergy) else 0.76f
+                    val normalAlpha = (p.baseAlpha * flicker * stateAlphaMultiplier).coerceIn(0.24f, 0.95f)
+
+                    val baseIdx = i * 6
+                    particleCoords[baseIdx] = px
+                    particleCoords[baseIdx + 1] = py
+                    particleCoords[baseIdx + 2] = normalAlpha
                 }
             }
+            ParticleStyle.BITSTREAM_MATRIX -> {
+                val downwardSpeed = metrics.speedYDisconn.let { kotlin.math.abs(it) } * 18f * effectiveSpeed * (if (isConnected) 1.5f else 0.9f)
+                for (i in 0 until effectiveCount) {
+                    val p = preparedParticles[i]
+                    val depthParallax = 0.7f + p.speedY * 0.3f
+                    val speedFactor = (0.65f + p.speedY * 0.75f) * effectiveSpeed
 
-            // Twinkle alpha: crisp and visible in all 3 states (even disconnected)
-            val flicker = 0.82f + 0.18f * sin(t * 2.2f + p.phase)
-            val stateAlphaMultiplier = if (isConnected || isVpnMode) (0.80f + 0.20f * animatedEnergy) else 0.76f
-            val normalAlpha = (p.baseAlpha * flicker * stateAlphaMultiplier).coerceIn(0.24f, 0.95f)
+                    val rawX = p.relX * width + parallaxOffsetX * depthParallax
+                    val px = ((rawX % width) + width) % width
 
-            particleCoords[i * 3] = px
-            particleCoords[i * 3 + 1] = py
-            particleCoords[i * 3 + 2] = normalAlpha
+                    val rawY = p.relY * height + t * downwardSpeed * speedFactor + parallaxOffsetY * depthParallax
+                    val py = ((rawY % height) + height) % height
+
+                    // Packet burst impulse at active transmission intervals
+                    val burstPhase = ((t * 2.2f + i * 1.618f) % 4.0f)
+                    val isBurst = isConnected && (burstPhase < 0.50f)
+                    val flicker = 0.85f + 0.15f * sin(t * 3.2f + p.phase)
+                    val baseA = if (isBurst) 0.95f else (p.baseAlpha * flicker * (if (isConnected) 0.92f else 0.72f)).coerceIn(0.25f, 0.90f)
+
+                    val tailLen = (22f + p.sizeDp * 14f) * density.density * effectiveSpeed * (if (isConnected) 1.25f else 0.85f)
+
+                    val baseIdx = i * 6
+                    particleCoords[baseIdx] = px
+                    particleCoords[baseIdx + 1] = py
+                    particleCoords[baseIdx + 2] = baseA
+                    particleCoords[baseIdx + 3] = if (isBurst) 1f else 0f
+                    particleCoords[baseIdx + 4] = tailLen
+                }
+            }
+            ParticleStyle.STARFIELD_WARP -> {
+                val cx = width / 2f + parallaxOffsetX
+                val cy = height / 2f + parallaxOffsetY
+                val maxR = kotlin.math.sqrt(width * width + height * height) * 0.55f
+
+                for (i in 0 until effectiveCount) {
+                    val p = preparedParticles[i]
+                    val angle = (i * 2.399963f + p.phase) % 6.2831855f
+                    val warpRate = 0.20f * (0.6f + p.speedY * 0.8f) * effectiveSpeed * (if (isConnected) 1.45f else 0.8f)
+                    val prog = ((p.relY + t * warpRate) % 1.0f + 1.0f) % 1.0f
+
+                    val progSq = prog * prog
+                    val r = maxR * progSq
+                    val px = cx + cos(angle) * r
+                    val py = cy + sin(angle) * r
+
+                    val prevProg = (prog - (0.045f + 0.025f * prog) * p.speedY * effectiveSpeed).coerceAtLeast(0f)
+                    val prevR = maxR * (prevProg * prevProg)
+                    val prevX = cx + cos(angle) * prevR
+                    val prevY = cy + sin(angle) * prevR
+
+                    val curSize = p.sizePx * (0.40f + 2.4f * progSq)
+                    val fadeIn = (prog / 0.10f).coerceIn(0f, 1f)
+                    val fadeOut = ((1.0f - prog) / 0.14f).coerceIn(0f, 1f)
+                    val alpha = (p.baseAlpha * fadeIn * fadeOut * (if (isConnected) 1.0f else 0.78f)).coerceIn(0f, 1f)
+
+                    val baseIdx = i * 6
+                    particleCoords[baseIdx] = px
+                    particleCoords[baseIdx + 1] = py
+                    particleCoords[baseIdx + 2] = alpha
+                    particleCoords[baseIdx + 3] = prevX
+                    particleCoords[baseIdx + 4] = prevY
+                    particleCoords[baseIdx + 5] = curSize
+                }
+            }
         }
 
-        // Pass 2: Constellation Neural Mesh (Skipped when secondary tab / background blurred to save O(N^2) CPU overhead)
-        if (!isConstellationPaused) {
-            val particleCount = preparedParticles.size
+        // Pass 2: Constellation Neural Mesh (Active for Bokeh Dust mode only)
+        if (!isConstellationPaused && effectiveStyle == ParticleStyle.BOKEH_DUST) {
             val baseMeshAlpha = if (isVpnMode) 0.44f else if (isConnected) 0.38f else 0.28f
-            for (i in 0 until particleCount) {
-                val p1x = particleCoords[i * 3]
-                val p1y = particleCoords[i * 3 + 1]
-                val p1Alpha = particleCoords[i * 3 + 2]
+            for (i in 0 until effectiveCount) {
+                val p1x = particleCoords[i * 6]
+                val p1y = particleCoords[i * 6 + 1]
+                val p1Alpha = particleCoords[i * 6 + 2]
                 if (p1Alpha < 0.10f) continue
 
-                for (j in (i + 1) until particleCount) {
-                    val p2x = particleCoords[j * 3]
-                    val p2y = particleCoords[j * 3 + 1]
-                    val p2Alpha = particleCoords[j * 3 + 2]
+                for (j in (i + 1) until effectiveCount) {
+                    val p2x = particleCoords[j * 6]
+                    val p2y = particleCoords[j * 6 + 1]
+                    val p2Alpha = particleCoords[j * 6 + 2]
                     if (p2Alpha < 0.10f) continue
 
                     val dx = p1x - p2x
@@ -524,7 +629,7 @@ fun CyberEnergyCanvas(
                                 color = particleColor.copy(alpha = connAlpha),
                                 start = Offset(p1x, p1y),
                                 end = Offset(p2x, p2y),
-                                strokeWidth = connStrokeWidth
+                                strokeWidth = connStrokeWidth * effectiveSize.coerceIn(0.7f, 1.8f)
                             )
                         }
                     }
@@ -532,51 +637,146 @@ fun CyberEnergyCanvas(
             }
         }
 
-        // Pass 3: Draw Core Micro-Particles, Comet Trails & Glow Auroras (Zero Allocation)
-        for (i in preparedParticles.indices) {
-            val p = preparedParticles[i]
-            val px = particleCoords[i * 3]
-            val py = particleCoords[i * 3 + 1]
-            val alpha = particleCoords[i * 3 + 2]
-            val pSizePx = p.sizePx
+        // Pass 3: Draw Core Particles, Comet Trails & Physical Effects (Zero Heap Allocation)
+        when (effectiveStyle) {
+            ParticleStyle.BOKEH_DUST -> {
+                for (i in 0 until effectiveCount) {
+                    val p = preparedParticles[i]
+                    val px = particleCoords[i * 6]
+                    val py = particleCoords[i * 6 + 1]
+                    val alpha = particleCoords[i * 6 + 2]
+                    val pSizePx = p.sizePx * effectiveSize
 
-            // Comet trailing speed-tail for larger particles with tapered width and decaying alpha
-            if (p.sizeDp > 1.25f) {
-                val trailDeltaY = (baseSpeedY * 0.40f * p.speedY).coerceIn(-28f, -8f)
-                val tailAlphaBase = alpha * (if (isConnected) 0.40f else 0.22f)
-                val midY = py - trailDeltaY * 0.45f
-                val endY = py - trailDeltaY
+                    // Comet trailing speed-tail for larger particles
+                    if (p.sizeDp > 1.25f) {
+                        val trailDeltaY = (baseSpeedY * 0.40f * p.speedY * effectiveSpeed).coerceIn(-28f, -8f)
+                        val tailAlphaBase = alpha * (if (isConnected) 0.40f else 0.22f)
+                        val midY = py - trailDeltaY * 0.45f
+                        val endY = py - trailDeltaY
 
-                drawLine(
-                    color = particleColor.copy(alpha = tailAlphaBase * 0.85f),
-                    start = Offset(px, py),
-                    end = Offset(px, midY),
-                    strokeWidth = pSizePx * 0.70f
-                )
-                drawLine(
-                    color = particleColor.copy(alpha = tailAlphaBase * 0.25f),
-                    start = Offset(px, midY),
-                    end = Offset(px, endY),
-                    strokeWidth = pSizePx * 0.45f
-                )
+                        drawLine(
+                            color = particleColor.copy(alpha = tailAlphaBase * 0.85f),
+                            start = Offset(px, py),
+                            end = Offset(px, midY),
+                            strokeWidth = pSizePx * 0.70f
+                        )
+                        drawLine(
+                            color = particleColor.copy(alpha = tailAlphaBase * 0.25f),
+                            start = Offset(px, midY),
+                            end = Offset(px, endY),
+                            strokeWidth = pSizePx * 0.45f
+                        )
+                    }
+
+                    // Core micro-particle dot
+                    drawCircle(
+                        color = particleColor.copy(alpha = alpha),
+                        radius = pSizePx / 2f,
+                        center = Offset(px, py)
+                    )
+
+                    // Soft micro-glow halo for active protocol particles
+                    if (isConnected && p.sizeDp > 1.20f) {
+                        val glowRadius = pSizePx * 1.45f
+                        val glowAlpha = alpha * 0.22f * animatedEnergy
+                        drawCircle(
+                            color = particleColor.copy(alpha = glowAlpha),
+                            radius = glowRadius,
+                            center = Offset(px, py)
+                        )
+                    }
+                }
             }
+            ParticleStyle.BITSTREAM_MATRIX -> {
+                for (i in 0 until effectiveCount) {
+                    val p = preparedParticles[i]
+                    val px = particleCoords[i * 6]
+                    val py = particleCoords[i * 6 + 1]
+                    val alpha = particleCoords[i * 6 + 2]
+                    val isBurst = particleCoords[i * 6 + 3] > 0.5f
+                    val tailLen = particleCoords[i * 6 + 4]
+                    val pSizePx = p.sizePx * effectiveSize
 
-            // Core micro-particle dot
-            drawCircle(
-                color = particleColor.copy(alpha = alpha),
-                radius = pSizePx / 2f,
-                center = Offset(px, py)
-            )
+                    // Gradient decaying packet tail (downward packet trajectory)
+                    val midY1 = py - tailLen * 0.35f
+                    val midY2 = py - tailLen * 0.70f
+                    val endY = py - tailLen
 
-            // Soft micro-glow halo for active protocol particles
-            if (isConnected && p.sizeDp > 1.20f) {
-                val glowRadius = pSizePx * 1.45f
-                val glowAlpha = alpha * 0.22f * animatedEnergy
-                drawCircle(
-                    color = particleColor.copy(alpha = glowAlpha),
-                    radius = glowRadius,
-                    center = Offset(px, py)
-                )
+                    drawLine(
+                        color = (if (isBurst) Color.White else particleColor).copy(alpha = alpha * 0.75f),
+                        start = Offset(px, py),
+                        end = Offset(px, midY1),
+                        strokeWidth = pSizePx * 0.85f
+                    )
+                    drawLine(
+                        color = particleColor.copy(alpha = alpha * 0.35f),
+                        start = Offset(px, midY1),
+                        end = Offset(px, midY2),
+                        strokeWidth = pSizePx * 0.55f
+                    )
+                    drawLine(
+                        color = particleColor.copy(alpha = alpha * 0.12f),
+                        start = Offset(px, midY2),
+                        end = Offset(px, endY),
+                        strokeWidth = pSizePx * 0.30f
+                    )
+
+                    // Leading packet impulse
+                    val headColor = if (isBurst) Color.White else particleColor.copy(alpha = alpha)
+                    val headRadius = if (isBurst) pSizePx * 1.15f else pSizePx * 0.75f
+                    drawCircle(
+                        color = headColor,
+                        radius = headRadius,
+                        center = Offset(px, py)
+                    )
+
+                    // Micro-glow halo
+                    if (isBurst || (isConnected && p.sizeDp > 1.15f)) {
+                        val glowRadius = pSizePx * (if (isBurst) 2.2f else 1.5f)
+                        val glowAlpha = if (isBurst) 0.35f else alpha * 0.25f * animatedEnergy
+                        drawCircle(
+                            color = particleColor.copy(alpha = glowAlpha),
+                            radius = glowRadius,
+                            center = Offset(px, py)
+                        )
+                    }
+                }
+            }
+            ParticleStyle.STARFIELD_WARP -> {
+                for (i in 0 until effectiveCount) {
+                    val px = particleCoords[i * 6]
+                    val py = particleCoords[i * 6 + 1]
+                    val alpha = particleCoords[i * 6 + 2]
+                    val prevX = particleCoords[i * 6 + 3]
+                    val prevY = particleCoords[i * 6 + 4]
+                    val curSize = particleCoords[i * 6 + 5] * effectiveSize
+
+                    if (alpha > 0.01f) {
+                        // Radial acceleration warp streak
+                        drawLine(
+                            color = particleColor.copy(alpha = alpha * 0.55f),
+                            start = Offset(prevX, prevY),
+                            end = Offset(px, py),
+                            strokeWidth = curSize * 0.65f
+                        )
+
+                        // Star vector point
+                        drawCircle(
+                            color = if (isConnected && curSize > 3.5f) Color.White.copy(alpha = alpha) else particleColor.copy(alpha = alpha),
+                            radius = curSize * 0.55f,
+                            center = Offset(px, py)
+                        )
+
+                        // Outer radiant halo
+                        if (isConnected && curSize > 4.0f) {
+                            drawCircle(
+                                color = particleColor.copy(alpha = alpha * 0.22f),
+                                radius = curSize * 1.4f,
+                                center = Offset(px, py)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -585,12 +785,17 @@ fun CyberEnergyCanvas(
 /**
  * Lightweight overlay micro-particles and constellations for rendering over other screens and dialogs.
  * Does not intercept clicks and gestures, automatically adapts colors for active protocol (MTProto/SOCKS5).
- * note freezes ticks animations (timeState), when overlay hidden (alphaMultiplier <= 0f or isVisible = false).
+ * Freezes ticks animations (timeState), when overlay hidden (alphaMultiplier <= 0f or isVisible = false).
  */
 @Composable
 fun CyberParticlesOverlay(
     modifier: Modifier = Modifier,
-    particleCount: Int = 16,
+    particleStyle: ParticleStyle? = null,
+    particleCount: Int? = null,
+    particleSpeed: Float? = null,
+    particleSize: Float? = null,
+    parallaxOffsetX: Float = 0f,
+    parallaxOffsetY: Float = 0f,
     alphaMultiplier: Float = 0.85f,
     isVisible: Boolean = true,
     isPaused: Boolean = false
@@ -602,6 +807,33 @@ fun CyberParticlesOverlay(
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
     val proxyMode by app.prefsManager.proxyModeFlow.collectAsState()
     val isConnected = app.proxyServer.isRunning
+
+    val currentStyleName by app.prefsManager.wallpaperParticlesStyleFlow.collectAsState()
+    val currentCountPref by app.prefsManager.wallpaperParticlesCountFlow.collectAsState()
+    val currentSpeedPref by app.prefsManager.wallpaperParticlesSpeedFlow.collectAsState()
+    val currentSizePref by app.prefsManager.wallpaperParticlesSizeFlow.collectAsState()
+    val parallaxEnabled by app.prefsManager.wallpaperParallaxEnabledFlow.collectAsState()
+    val parallaxDepth by app.prefsManager.wallpaperParallaxDepthFlow.collectAsState()
+    val tiltOffset by rememberSensorTilt(
+        enabled = parallaxEnabled,
+        powerSaveActive = false,
+        depthMultiplier = parallaxDepth
+    )
+    val effParallaxX = if (parallaxOffsetX != 0f) parallaxOffsetX else if (parallaxEnabled) with(density) { tiltOffset.x * 24.dp.toPx() } else 0f
+    val effParallaxY = if (parallaxOffsetY != 0f) parallaxOffsetY else if (parallaxEnabled) with(density) { tiltOffset.y * 24.dp.toPx() } else 0f
+
+    val effectiveStyle = particleStyle ?: remember(currentStyleName) {
+        ParticleStyle.fromString(currentStyleName)
+    }
+    val effectiveCount = (particleCount ?: currentCountPref).coerceIn(
+        PreferencesManager.WALLPAPER_PARTICLES_COUNT_MIN,
+        PreferencesManager.WALLPAPER_PARTICLES_COUNT_MAX
+    )
+    val effectiveSpeed = (particleSpeed ?: currentSpeedPref).coerceIn(0.5f, 2.0f)
+    val effectiveSize = (particleSize ?: currentSizePref).coerceIn(
+        PreferencesManager.WALLPAPER_PARTICLES_SIZE_MIN,
+        PreferencesManager.WALLPAPER_PARTICLES_SIZE_MAX
+    )
 
     var isAppResumed by remember { mutableStateOf(true) }
     DisposableEffect(lifecycleOwner) {
@@ -639,10 +871,10 @@ fun CyberParticlesOverlay(
         label = "overlayParticleColor"
     )
 
-    val particles = remember(particleCount) {
+    val particles = remember {
         val list = mutableListOf<MicroParticle>()
         val random = java.util.Random(4096)
-        for (i in 0 until particleCount) {
+        for (i in 0 until PreferencesManager.WALLPAPER_PARTICLES_COUNT_MAX) {
             list.add(
                 MicroParticle(
                     relX = random.nextFloat(),
@@ -675,7 +907,7 @@ fun CyberParticlesOverlay(
         }
     }
 
-    val particleCoords = remember(particleCount) { FloatArray(particleCount * 3) }
+    val particleCoords = remember { FloatArray(PreferencesManager.WALLPAPER_PARTICLES_COUNT_MAX * 6) }
     val maxConnDistPx = remember(density) { with(density) { 50.dp.toPx() } }
     val maxConnDistSq = remember(maxConnDistPx) { maxConnDistPx * maxConnDistPx }
     val connStrokeWidth = remember(density) { with(density) { 0.75.dp.toPx() } }
@@ -691,97 +923,229 @@ fun CyberParticlesOverlay(
         val t = timeState.value / 1_000_000_000f
 
         // Pass 1: Compute particle coordinates
-        for (i in preparedParticles.indices) {
-            val p = preparedParticles[i]
-            val rawY = p.relY * height + t * baseSpeedY * p.speedY
-            val py = ((rawY % height) + height) % height
-            val rawX = p.relX * width + sin(t * p.freqX + p.phase) * p.driftXPx
-            val px = ((rawX % width) + width) % width
+        when (effectiveStyle) {
+            ParticleStyle.BOKEH_DUST -> {
+                for (i in 0 until effectiveCount) {
+                    val p = preparedParticles[i]
+                    val rawY = p.relY * height + t * baseSpeedY * p.speedY * effectiveSpeed + effParallaxY * 0.6f
+                    val py = ((rawY % height) + height) % height
+                    val rawX = p.relX * width + sin(t * p.freqX * effectiveSpeed + p.phase) * p.driftXPx + effParallaxX * 0.6f
+                    val px = ((rawX % width) + width) % width
 
-            val flicker = 0.82f + 0.18f * sin(t * 2.0f + p.phase)
-            val normalAlpha = (p.baseAlpha * flicker * alphaMultiplier).coerceIn(0.15f, 0.90f)
+                    val flicker = 0.82f + 0.18f * sin(t * 2.0f + p.phase)
+                    val normalAlpha = (p.baseAlpha * flicker * alphaMultiplier).coerceIn(0.15f, 0.90f)
 
-            particleCoords[i * 3] = px
-            particleCoords[i * 3 + 1] = py
-            particleCoords[i * 3 + 2] = normalAlpha
+                    val baseIdx = i * 6
+                    particleCoords[baseIdx] = px
+                    particleCoords[baseIdx + 1] = py
+                    particleCoords[baseIdx + 2] = normalAlpha
+                }
+            }
+            ParticleStyle.BITSTREAM_MATRIX -> {
+                val downwardSpeed = with(density) { 90.dp.toPx() } * effectiveSpeed * (if (isConnected) 1.4f else 0.85f)
+                for (i in 0 until effectiveCount) {
+                    val p = preparedParticles[i]
+                    val rawX = p.relX * width + effParallaxX * 0.7f
+                    val px = ((rawX % width) + width) % width
+                    val rawY = p.relY * height + t * downwardSpeed * (0.6f + p.speedY * 0.8f) + effParallaxY * 0.7f
+                    val py = ((rawY % height) + height) % height
+
+                    val burstPhase = ((t * 2.0f + i * 1.618f) % 3.5f)
+                    val isBurst = isConnected && (burstPhase < 0.45f)
+                    val flicker = 0.85f + 0.15f * sin(t * 3.0f + p.phase)
+                    val baseA = if (isBurst) 0.95f else (p.baseAlpha * flicker * alphaMultiplier).coerceIn(0.20f, 0.85f)
+                    val tailLen = (18f + p.sizeDp * 10f) * density.density * effectiveSpeed
+
+                    val baseIdx = i * 6
+                    particleCoords[baseIdx] = px
+                    particleCoords[baseIdx + 1] = py
+                    particleCoords[baseIdx + 2] = baseA
+                    particleCoords[baseIdx + 3] = if (isBurst) 1f else 0f
+                    particleCoords[baseIdx + 4] = tailLen
+                }
+            }
+            ParticleStyle.STARFIELD_WARP -> {
+                val cx = width / 2f + effParallaxX
+                val cy = height / 2f + effParallaxY
+                val maxR = kotlin.math.sqrt(width * width + height * height) * 0.55f
+
+                for (i in 0 until effectiveCount) {
+                    val p = preparedParticles[i]
+                    val angle = (i * 2.399963f + p.phase) % 6.2831855f
+                    val warpRate = 0.18f * (0.6f + p.speedY * 0.8f) * effectiveSpeed * (if (isConnected) 1.35f else 0.8f)
+                    val prog = ((p.relY + t * warpRate) % 1.0f + 1.0f) % 1.0f
+
+                    val progSq = prog * prog
+                    val r = maxR * progSq
+                    val px = cx + cos(angle) * r
+                    val py = cy + sin(angle) * r
+
+                    val prevProg = (prog - (0.04f + 0.02f * prog) * p.speedY * effectiveSpeed).coerceAtLeast(0f)
+                    val prevR = maxR * (prevProg * prevProg)
+                    val prevX = cx + cos(angle) * prevR
+                    val prevY = cy + sin(angle) * prevR
+
+                    val curSize = p.sizePx * (0.40f + 2.2f * progSq)
+                    val fadeIn = (prog / 0.10f).coerceIn(0f, 1f)
+                    val fadeOut = ((1.0f - prog) / 0.14f).coerceIn(0f, 1f)
+                    val alpha = (p.baseAlpha * fadeIn * fadeOut * alphaMultiplier).coerceIn(0f, 1f)
+
+                    val baseIdx = i * 6
+                    particleCoords[baseIdx] = px
+                    particleCoords[baseIdx + 1] = py
+                    particleCoords[baseIdx + 2] = alpha
+                    particleCoords[baseIdx + 3] = prevX
+                    particleCoords[baseIdx + 4] = prevY
+                    particleCoords[baseIdx + 5] = curSize
+                }
+            }
         }
 
-        // Pass 2: Constellation mesh
-        val n = preparedParticles.size
-        for (i in 0 until n) {
-            val p1x = particleCoords[i * 3]
-            val p1y = particleCoords[i * 3 + 1]
-            val p1Alpha = particleCoords[i * 3 + 2]
-            if (p1Alpha < 0.10f) continue
+        // Pass 2: Constellation mesh (Only for Bokeh Dust mode)
+        if (effectiveStyle == ParticleStyle.BOKEH_DUST) {
+            for (i in 0 until effectiveCount) {
+                val p1x = particleCoords[i * 6]
+                val p1y = particleCoords[i * 6 + 1]
+                val p1Alpha = particleCoords[i * 6 + 2]
+                if (p1Alpha < 0.10f) continue
 
-            for (j in (i + 1) until n) {
-                val p2x = particleCoords[j * 3]
-                val p2y = particleCoords[j * 3 + 1]
-                val p2Alpha = particleCoords[j * 3 + 2]
-                if (p2Alpha < 0.10f) continue
+                for (j in (i + 1) until effectiveCount) {
+                    val p2x = particleCoords[j * 6]
+                    val p2y = particleCoords[j * 6 + 1]
+                    val p2Alpha = particleCoords[j * 6 + 2]
+                    if (p2Alpha < 0.10f) continue
 
-                val dx = p1x - p2x
-                val dy = p1y - p2y
-                val distSq = dx * dx + dy * dy
+                    val dx = p1x - p2x
+                    val dy = p1y - p2y
+                    val distSq = dx * dx + dy * dy
 
-                if (distSq < maxConnDistSq) {
-                    val dist = kotlin.math.sqrt(distSq)
-                    val connAlpha = (1f - dist / maxConnDistPx) * 0.28f * kotlin.math.min(p1Alpha, p2Alpha)
-                    if (connAlpha > 0.01f) {
-                        drawLine(
-                            color = particleColor.copy(alpha = connAlpha),
-                            start = Offset(p1x, p1y),
-                            end = Offset(p2x, p2y),
-                            strokeWidth = connStrokeWidth
-                        )
+                    if (distSq < maxConnDistSq) {
+                        val dist = kotlin.math.sqrt(distSq)
+                        val connAlpha = (1f - dist / maxConnDistPx) * 0.28f * kotlin.math.min(p1Alpha, p2Alpha)
+                        if (connAlpha > 0.01f) {
+                            drawLine(
+                                color = particleColor.copy(alpha = connAlpha),
+                                start = Offset(p1x, p1y),
+                                end = Offset(p2x, p2y),
+                                strokeWidth = connStrokeWidth * effectiveSize.coerceIn(0.7f, 1.8f)
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Pass 3: Core dots & subtle glow (Zero Allocation)
-        for (i in preparedParticles.indices) {
-            val p = preparedParticles[i]
-            val px = particleCoords[i * 3]
-            val py = particleCoords[i * 3 + 1]
-            val alpha = particleCoords[i * 3 + 2]
-            val pSizePx = p.sizePx
+        // Pass 3: Core particles and visual effects
+        when (effectiveStyle) {
+            ParticleStyle.BOKEH_DUST -> {
+                for (i in 0 until effectiveCount) {
+                    val p = preparedParticles[i]
+                    val px = particleCoords[i * 6]
+                    val py = particleCoords[i * 6 + 1]
+                    val alpha = particleCoords[i * 6 + 2]
+                    val pSizePx = p.sizePx * effectiveSize
 
-            // Comet trail with tapered segments
-            if (p.sizeDp > 1.25f) {
-                val trailDeltaY = (baseSpeedY * 0.35f * p.speedY).coerceIn(-22f, -6f)
-                val tailAlphaBase = alpha * (if (isConnected) 0.35f else 0.20f)
-                val midY = py - trailDeltaY * 0.45f
-                val endY = py - trailDeltaY
+                    // Comet trail with tapered segments
+                    if (p.sizeDp > 1.25f) {
+                        val trailDeltaY = (baseSpeedY * 0.35f * p.speedY * effectiveSpeed).coerceIn(-22f, -6f)
+                        val tailAlphaBase = alpha * (if (isConnected) 0.35f else 0.20f)
+                        val midY = py - trailDeltaY * 0.45f
+                        val endY = py - trailDeltaY
 
-                drawLine(
-                    color = particleColor.copy(alpha = tailAlphaBase * 0.85f),
-                    start = Offset(px, py),
-                    end = Offset(px, midY),
-                    strokeWidth = pSizePx * 0.65f
-                )
-                drawLine(
-                    color = particleColor.copy(alpha = tailAlphaBase * 0.30f),
-                    start = Offset(px, midY),
-                    end = Offset(px, endY),
-                    strokeWidth = pSizePx * 0.45f
-                )
+                        drawLine(
+                            color = particleColor.copy(alpha = tailAlphaBase * 0.85f),
+                            start = Offset(px, py),
+                            end = Offset(px, midY),
+                            strokeWidth = pSizePx * 0.65f
+                        )
+                        drawLine(
+                            color = particleColor.copy(alpha = tailAlphaBase * 0.30f),
+                            start = Offset(px, midY),
+                            end = Offset(px, endY),
+                            strokeWidth = pSizePx * 0.45f
+                        )
+                    }
+
+                    // Core micro-particle
+                    drawCircle(
+                        color = particleColor.copy(alpha = alpha),
+                        radius = pSizePx / 2f,
+                        center = Offset(px, py)
+                    )
+
+                    // Micro-glow
+                    if (isConnected && p.sizeDp > 1.20f) {
+                        drawCircle(
+                            color = particleColor.copy(alpha = alpha * 0.20f),
+                            radius = pSizePx * 1.35f,
+                            center = Offset(px, py)
+                        )
+                    }
+                }
             }
+            ParticleStyle.BITSTREAM_MATRIX -> {
+                for (i in 0 until effectiveCount) {
+                    val p = preparedParticles[i]
+                    val px = particleCoords[i * 6]
+                    val py = particleCoords[i * 6 + 1]
+                    val alpha = particleCoords[i * 6 + 2]
+                    val isBurst = particleCoords[i * 6 + 3] > 0.5f
+                    val tailLen = particleCoords[i * 6 + 4]
+                    val pSizePx = p.sizePx * effectiveSize
 
-            // Core micro-particle
-            drawCircle(
-                color = particleColor.copy(alpha = alpha),
-                radius = pSizePx / 2f,
-                center = Offset(px, py)
-            )
+                    val midY1 = py - tailLen * 0.35f
+                    val midY2 = py - tailLen * 0.70f
+                    val endY = py - tailLen
 
-            // Micro-glow
-            if (isConnected && p.sizeDp > 1.20f) {
-                drawCircle(
-                    color = particleColor.copy(alpha = alpha * 0.20f),
-                    radius = pSizePx * 1.35f,
-                    center = Offset(px, py)
-                )
+                    drawLine(
+                        color = (if (isBurst) Color.White else particleColor).copy(alpha = alpha * 0.75f),
+                        start = Offset(px, py),
+                        end = Offset(px, midY1),
+                        strokeWidth = pSizePx * 0.80f
+                    )
+                    drawLine(
+                        color = particleColor.copy(alpha = alpha * 0.35f),
+                        start = Offset(px, midY1),
+                        end = Offset(px, midY2),
+                        strokeWidth = pSizePx * 0.50f
+                    )
+                    drawLine(
+                        color = particleColor.copy(alpha = alpha * 0.12f),
+                        start = Offset(px, midY2),
+                        end = Offset(px, endY),
+                        strokeWidth = pSizePx * 0.25f
+                    )
+
+                    drawCircle(
+                        color = if (isBurst) Color.White else particleColor.copy(alpha = alpha),
+                        radius = if (isBurst) pSizePx * 1.1f else pSizePx * 0.75f,
+                        center = Offset(px, py)
+                    )
+                }
+            }
+            ParticleStyle.STARFIELD_WARP -> {
+                for (i in 0 until effectiveCount) {
+                    val px = particleCoords[i * 6]
+                    val py = particleCoords[i * 6 + 1]
+                    val alpha = particleCoords[i * 6 + 2]
+                    val prevX = particleCoords[i * 6 + 3]
+                    val prevY = particleCoords[i * 6 + 4]
+                    val curSize = particleCoords[i * 6 + 5] * effectiveSize
+
+                    if (alpha > 0.01f) {
+                        drawLine(
+                            color = particleColor.copy(alpha = alpha * 0.55f),
+                            start = Offset(prevX, prevY),
+                            end = Offset(px, py),
+                            strokeWidth = curSize * 0.60f
+                        )
+                        drawCircle(
+                            color = if (isConnected && curSize > 3.0f) Color.White.copy(alpha = alpha) else particleColor.copy(alpha = alpha),
+                            radius = curSize * 0.50f,
+                            center = Offset(px, py)
+                        )
+                    }
+                }
             }
         }
     }

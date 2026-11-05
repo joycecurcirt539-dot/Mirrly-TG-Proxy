@@ -18,6 +18,8 @@
 
 package com.mirrly.tgproxy.ui
 
+import com.mirrly.tgproxy.MirrlyApplication
+
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -139,7 +141,8 @@ fun WorkerManagerScreen(
         mutableStateOf(initialProtocol ?: currentProxyMode)
     }
 
-    val activeProtoColor = if (targetProtocol == ProxyMode.MTPROTO) MtprotoAccent else Socks5Accent
+    val isCustomTheme = prefs.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
+    val activeProtoColor = if (isCustomTheme) LocalProtocolColors.current.primary else if (targetProtocol == ProxyMode.MTPROTO) MtprotoAccent else Socks5Accent
 
     val sections = remember { ManagerSection.values().toList() }
     val primarySections = remember {
@@ -927,7 +930,7 @@ fun WorkerManagerScreen(
                         ProxyMode.SOCKS5 to "SOCKS5"
                     ).forEach { (mode, label) ->
                         val isSel = targetProtocol == mode
-                        val modeColor = if (mode == ProxyMode.MTPROTO) MtprotoAccent else Socks5Accent
+                        val modeColor = if (isCustomTheme) LocalProtocolColors.current.primary else if (mode == ProxyMode.MTPROTO) MtprotoAccent else Socks5Accent
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color.Transparent,
@@ -1157,6 +1160,7 @@ private fun GlassWorkerCard(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
 
     val status = pingInfo?.first ?: WorkerStatus.UNKNOWN
     val pingMs = pingInfo?.second
@@ -1262,18 +1266,21 @@ private fun GlassWorkerCard(
                         overflow = TextOverflow.Ellipsis
                     )
 
+                    val mtBadgeColor = if (isCustomTheme) LocalProtocolColors.current.primary else MtprotoAccent
+                    val s5BadgeColor = if (isCustomTheme) LocalProtocolColors.current.primary else Socks5Accent
+
                     if (isActiveMtproto) {
                         Surface(
                             shape = RoundedCornerShape(5.dp),
                             color = Color.Transparent,
-                            border = BorderStroke(0.8.dp, MtprotoAccent)
+                            border = BorderStroke(0.8.dp, mtBadgeColor)
                         ) {
                             Text(
                                 text = "MTPROTO",
                                 fontSize = 8.5.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 0.4.sp,
-                                color = MtprotoAccent,
+                                color = mtBadgeColor,
                                 modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.5.dp)
                             )
                         }
@@ -1283,14 +1290,14 @@ private fun GlassWorkerCard(
                         Surface(
                             shape = RoundedCornerShape(5.dp),
                             color = Color.Transparent,
-                            border = BorderStroke(0.8.dp, Socks5Accent)
+                            border = BorderStroke(0.8.dp, s5BadgeColor)
                         ) {
                             Text(
                                 text = "SOCKS5",
                                 fontSize = 8.5.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 0.4.sp,
-                                color = Socks5Accent,
+                                color = s5BadgeColor,
                                 modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.5.dp)
                             )
                         }
@@ -2088,6 +2095,7 @@ private fun QrScannerSheet(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -2332,6 +2340,7 @@ private fun ShareWorkerContent(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
     val clipboardManager = LocalClipboardManager.current
 
     val currentWorker = selectedWorker
@@ -2604,6 +2613,7 @@ private fun ScannerWorkerContent(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -2770,6 +2780,7 @@ private fun ManualWorkerGuideContent(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
     var inputDomain by remember { mutableStateOf("") }
     var domainError by remember { mutableStateOf<String?>(null) }
 

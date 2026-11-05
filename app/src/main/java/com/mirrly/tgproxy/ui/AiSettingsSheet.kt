@@ -10,6 +10,8 @@
 
 package com.mirrly.tgproxy.ui
 
+import com.mirrly.tgproxy.MirrlyApplication
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -92,18 +94,23 @@ import kotlinx.coroutines.launch
 @Composable
 fun AiSettingsSheet(
     onDismiss: () -> Unit,
+    provider: String = MirrlyApplication.instance.prefsManager.getAiProvider(),
+    onProviderSelected: (String) -> Unit = {},
     selectedModel: String,
     onModelSelected: (String) -> Unit,
     temperature: Float,
     onTemperatureChanged: (Float) -> Unit,
     reasoningEnabled: Boolean,
     onReasoningToggled: (Boolean) -> Unit,
-    useSocks5: Boolean,
-    onUseSocks5Toggled: (Boolean) -> Unit,
+    useSmartDns: Boolean = false,
+    onUseSmartDnsToggled: (Boolean) -> Unit = {},
+    smartDnsProvider: String = MirrlyApplication.instance.prefsManager.getAiSmartDnsProvider(),
+    onSmartDnsProviderChanged: (String) -> Unit = {},
     promptMode: String,
     onPromptModeChanged: (String) -> Unit,
     customPrompt: String,
     onCustomPromptChanged: (String) -> Unit,
+    onOpenAiOnboarding: (() -> Unit)? = null,
     onClearHistory: () -> Unit
 ) {
     val context = LocalContext.current
@@ -139,6 +146,7 @@ fun AiSettingsSheet(
         "gemini-3.5-flash-lite",
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
+        "gemini-2.5-pro",
         "gemini-3.8-flash"
     )
 
@@ -151,7 +159,7 @@ fun AiSettingsSheet(
             val result = apiClient.fetchAvailableModels(
                 apiKey = key,
                 endpoint = "https://generativelanguage.googleapis.com/v1beta",
-                useSocks5 = useSocks5
+                useSmartDns = useSmartDns
             )
             isLoadingModels = false
             result.onSuccess { models ->
@@ -263,8 +271,13 @@ fun AiSettingsSheet(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            val currentProviderLabel = when (provider) {
+                                "Cloudflare" -> "Cloudflare Workers AI"
+                                "OpenRouter" -> "OpenRouter"
+                                else -> "Google Gemini (AI Studio BYOK)"
+                            }
                             Text(
-                                text = "Google Gemini (AI Studio BYOK)",
+                                text = currentProviderLabel,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.primary
@@ -292,60 +305,126 @@ fun AiSettingsSheet(
                                 thickness = 1.dp,
                                 modifier = Modifier.padding(vertical = 4.dp)
                             )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "Google Gemini",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Активен",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "Cloudflare Workers AI",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = "Скоро",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
-                            }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "OpenAI-compatible / OpenRouter",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = "Скоро",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline
-                                )
+                            val providers = listOf(
+                                "Gemini" to "Google Gemini (AI Studio BYOK)",
+                                "Cloudflare" to "Cloudflare Workers AI",
+                                "OpenRouter" to "OpenRouter"
+                            )
+                            providers.forEach { (pKey, pLabel) ->
+                                val isCurrent = provider == pKey
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            onProviderSelected(pKey)
+                                            isProviderAccordionOpen = false
+                                        }
+                                        .padding(vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = pLabel,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                    if (isCurrent) {
+                                        Text(
+                                            text = "Активен",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            var clearedDnsInfo by remember { mutableStateOf<String?>(null) }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                    .clickable {
+                        val count = com.mirrly.tgproxy.ai.AiSmartDns.clearCache()
+                        clearedDnsInfo = if (count > 0) "Кэш DNS очищен ($count записей)" else "Кэш DNS пуст"
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Кэш SmartDNS",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = clearedDnsInfo ?: "Очистить локальный in-memory кэш DNS-резолвинга",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Text(
+                        text = "Очистить",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // ── Пауза фоновых частиц в чате (Энергосбережение) ──
+            var pauseBgParticles by remember { mutableStateOf(MirrlyApplication.instance.prefsManager.isAiPauseBackgroundParticles()) }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            text = "Пауза фоновых частиц в чате",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Приостанавливает частицы и орбиты при открытом чате для снижения нагрева и нагрузки",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp
+                        )
+                    }
+                    Switch(
+                        checked = pauseBgParticles,
+                        onCheckedChange = {
+                            pauseBgParticles = it
+                            MirrlyApplication.instance.prefsManager.setAiPauseBackgroundParticles(it)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.primary,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                        )
+                    )
                 }
             }
 
@@ -1047,25 +1126,50 @@ fun AiSettingsSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Маршрутизация через SOCKS5 (:10808)",
+                        text = "SmartDNS / Защищенный резолвинг",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Пропускает обращения к Gemini через локальный рабочий прокси-туннель.",
+                        text = "Использует зашифрованный резолвинг для обхода блокировок API провайдеров.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Switch(
-                    checked = useSocks5,
-                    onCheckedChange = onUseSocks5Toggled,
+                    checked = useSmartDns,
+                    onCheckedChange = onUseSmartDnsToggled,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = MaterialTheme.colorScheme.primary,
                         checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
                     )
                 )
+            }
+
+            if (onOpenAiOnboarding != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                            RoundedCornerShape(10.dp)
+                        )
+                        .clickable {
+                            onOpenAiOnboarding()
+                        }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Вводное руководство по ИИ",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
 
             // Очистка истории

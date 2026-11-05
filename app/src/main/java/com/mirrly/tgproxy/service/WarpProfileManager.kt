@@ -78,19 +78,18 @@ data class WarpSavedProfile(
 
     companion object {
         fun fromJsonObject(json: JSONObject): WarpSavedProfile? = try {
-            val formatStr = json.optString("format", WarpGeneratorFormat.AWG_1_0.name)
+            val formatStr = json.optString("format", WarpGeneratorFormat.WARP_MASQUE.name)
             val format = when (formatStr) {
+                "WARP_MASQUE", "MASQUE" -> WarpGeneratorFormat.WARP_MASQUE
                 "AMNEZIA_WG", "AWG_1_0" -> WarpGeneratorFormat.AWG_1_0
                 "AWG_2_0" -> WarpGeneratorFormat.AWG_2_0
                 "AWG_3_0" -> WarpGeneratorFormat.AWG_3_0
                 "AWG_3_1" -> WarpGeneratorFormat.AWG_3_1
-                "WIREGUARD" -> WarpGeneratorFormat.WIREGUARD
-                "WIRESOCK" -> WarpGeneratorFormat.WIRESOCK
-                "CLASH_META" -> WarpGeneratorFormat.CLASH_META
+                "WIREGUARD", "WIRESOCK", "CLASH_META" -> WarpGeneratorFormat.WARP_MASQUE
                 else -> try {
                     WarpGeneratorFormat.valueOf(formatStr)
                 } catch (_: Exception) {
-                    WarpGeneratorFormat.AWG_1_0
+                    WarpGeneratorFormat.WARP_MASQUE
                 }
             }
             val originStr = json.optString("origin", WarpProfileOrigin.CONFIGURATOR.name)
@@ -245,15 +244,18 @@ class WarpProfileManager private constructor(private val context: Context) {
             config.warpPrivateKey = priv
             config.warpPublicKey = pub
             config.warpClientIpv4 = "172.16.0.2"
-            config.warpPeerEndpoint = "188.114.96.1:8095"
-            config.warpMeasuredWgEndpoint = "188.114.96.1:8095"
+            config.warpPeerEndpoint = "162.159.193.10:1701"
+            config.warpMeasuredWgEndpoint = "162.159.193.10:1701"
             app.prefsManager.saveConfig(config)
         }
 
-        val cleanEp = if (config.warpPeerEndpoint.isNotBlank() && !config.warpPeerEndpoint.endsWith(":2408") && !config.warpPeerEndpoint.endsWith(":0")) {
-            config.warpPeerEndpoint
+        val (rawHost, rawPort) = com.mirrly.tgproxy.core.WarpEndpointScanner.parseEndpoint(config.warpPeerEndpoint)
+        val cleanEp = if (rawHost.isNotBlank() && rawPort in listOf(500, 1701, 4500)) {
+            "$rawHost:$rawPort"
+        } else if (rawHost.isNotBlank()) {
+            "$rawHost:1701"
         } else {
-            "188.114.96.1:8095"
+            "162.159.193.10:1701"
         }
 
         val awgContent = config.getAmneziaWgConfig(cleanEndpoint = cleanEp)
@@ -280,10 +282,13 @@ class WarpProfileManager private constructor(private val context: Context) {
     fun updateDefaultProfileWithRegisteredAccount(profile: WarpProfile): WarpSavedProfile {
         val app = com.mirrly.tgproxy.MirrlyApplication.instance
         val config = app.config
-        val cleanEp = if (config.warpPeerEndpoint.isNotBlank() && !config.warpPeerEndpoint.endsWith(":2408") && !config.warpPeerEndpoint.endsWith(":0")) {
-            config.warpPeerEndpoint
+        val (rawHost, rawPort) = com.mirrly.tgproxy.core.WarpEndpointScanner.parseEndpoint(config.warpPeerEndpoint)
+        val cleanEp = if (rawHost.isNotBlank() && rawPort in listOf(500, 1701, 4500)) {
+            "$rawHost:$rawPort"
+        } else if (rawHost.isNotBlank()) {
+            "$rawHost:1701"
         } else {
-            "188.114.96.1:8095"
+            "162.159.193.10:1701"
         }
         val awgContent = config.getAmneziaWgConfig(cleanEndpoint = cleanEp)
         val updatedProfile = WarpSavedProfile(
@@ -383,11 +388,12 @@ class WarpProfileManager private constructor(private val context: Context) {
         makeActive: Boolean = false
     ): WarpSavedProfile {
         val format = when (type) {
+            ImportedProfileType.WARP_MASQUE -> WarpGeneratorFormat.WARP_MASQUE
+            ImportedProfileType.CLOUDFLARE_JSON -> if (warpProfile.isMasqueValid || warpProfile.p256PrivateKeyBase64.isNotBlank()) WarpGeneratorFormat.WARP_MASQUE else WarpGeneratorFormat.AWG_1_0
             ImportedProfileType.AMNEZIA_WG_CONF -> WarpGeneratorFormat.AWG_1_0
-            ImportedProfileType.WIREGUARD_CONF -> WarpGeneratorFormat.WIREGUARD
-            ImportedProfileType.CLASH_META_YAML -> WarpGeneratorFormat.CLASH_META
-            ImportedProfileType.CLOUDFLARE_JSON -> WarpGeneratorFormat.AWG_1_0
-            else -> WarpGeneratorFormat.AWG_1_0
+            ImportedProfileType.WIREGUARD_CONF -> WarpGeneratorFormat.AWG_1_0
+            ImportedProfileType.CLASH_META_YAML -> WarpGeneratorFormat.AWG_1_0
+            else -> WarpGeneratorFormat.WARP_MASQUE
         }
         val endpoint = warpProfile.effectivePeerEndpoint
         val dnsLine = warpProfile.dnsServers.ifBlank { "1.1.1.1, 1.0.0.1" }
@@ -571,12 +577,28 @@ class WarpProfileManager private constructor(private val context: Context) {
                 val baseName = p.name.replace("[^a-zA-Z0-9_.-]".toRegex(), "_")
                 val count = nameCounts.getOrDefault(baseName, 0)
                 nameCounts[baseName] = count + 1
-                val fileName = if (count == 0) "$baseName.${p.format.extension}" else "${baseName}_$count.${p.format.extension}"
+                val suffix = if (count == 0) "" else "_$count"
 
+                val fileName = "$baseName$suffix.${p.format.extension}"
                 val entry = ZipEntry(fileName)
                 zos.putNextEntry(entry)
                 zos.write(p.content.toByteArray(StandardCharsets.UTF_8))
                 zos.closeEntry()
+
+                // Для WARP MASQUE также добавляем в архив полный JSON-дамп
+                if (p.format == WarpGeneratorFormat.WARP_MASQUE) {
+                    val parsed = WarpProfileParser.parse(p.content)
+                    if (parsed is WarpImportResult.Success) {
+                        val jsonDump = com.mirrly.tgproxy.core.WarpConfigGeneratorEngine.buildMasqueJsonDump(
+                            profile = parsed.profile,
+                            endpoint = p.endpoint
+                        )
+                        val jsonEntry = ZipEntry("$baseName$suffix.json")
+                        zos.putNextEntry(jsonEntry)
+                        zos.write(jsonDump.toByteArray(StandardCharsets.UTF_8))
+                        zos.closeEntry()
+                    }
+                }
             }
             zos.finish()
         }

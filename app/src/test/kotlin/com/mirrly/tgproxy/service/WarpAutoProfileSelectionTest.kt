@@ -30,7 +30,7 @@ class WarpAutoProfileSelectionTest {
 
         val importedProfile = WarpSavedProfile(
             name = "Import 1",
-            format = WarpGeneratorFormat.WIREGUARD,
+            format = WarpGeneratorFormat.WARP_MASQUE,
             endpoint = "162.159.192.2:500",
             dnsLine = "1.1.1.1",
             content = "[Interface]\nPrivateKey = bbbb\n",

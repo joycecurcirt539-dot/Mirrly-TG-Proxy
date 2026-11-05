@@ -10,8 +10,6 @@ class ProxyStats {
     val totalWsConnections = AtomicLong(0)
     val totalMasqueConnections = AtomicLong(0)
     val totalAwgConnections = AtomicLong(0)
-    val totalVlessConnections = AtomicLong(0)
-    val totalOperaConnections = AtomicLong(0)
     val totalSocks5V2Sessions = AtomicLong(0)
     val totalSocks5V1Downgrades = AtomicLong(0)
     val lastActivityTimestamp = AtomicLong(System.currentTimeMillis())
@@ -217,8 +215,6 @@ class ProxyStats {
         totalWsConnections.set(0L)
         totalMasqueConnections.set(0L)
         totalAwgConnections.set(0L)
-        totalVlessConnections.set(0L)
-        totalOperaConnections.set(0L)
         lastBytesRecv = -1L
         lastBytesSent = -1L
         downloadSpeedBps = 0L
@@ -307,22 +303,6 @@ class ProxyStats {
                 val a = awgMatch.groupValues[1].toLongOrNull()
                 if (a != null && a > totalAwgConnections.get()) {
                     totalAwgConnections.set(a)
-                }
-            }
-
-            val vlessMatch = REGEX_VLESS.find(rawStr)
-            if (vlessMatch != null) {
-                val v = vlessMatch.groupValues[1].toLongOrNull()
-                if (v != null && v > totalVlessConnections.get()) {
-                    totalVlessConnections.set(v)
-                }
-            }
-
-            val operaMatch = REGEX_OPERA.find(rawStr)
-            if (operaMatch != null) {
-                val o = operaMatch.groupValues[1].toLongOrNull()
-                if (o != null && o > totalOperaConnections.get()) {
-                    totalOperaConnections.set(o)
                 }
             }
 
@@ -431,14 +411,6 @@ class ProxyStats {
         )
         private val REGEX_AWG = Regex(
             """(?:connections_awg|awg)[\s=:]+['"]?(\d+)""",
-            RegexOption.IGNORE_CASE
-        )
-        private val REGEX_VLESS = Regex(
-            """(?:connections_vless|vless)[\s=:]+['"]?(\d+)""",
-            RegexOption.IGNORE_CASE
-        )
-        private val REGEX_OPERA = Regex(
-            """(?:connections_opera|opera)[\s=:]+['"]?(\d+)""",
             RegexOption.IGNORE_CASE
         )
         private val REGEX_V2 = Regex(

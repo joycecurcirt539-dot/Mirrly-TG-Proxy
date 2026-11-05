@@ -22,6 +22,14 @@
     <string name="onboarding_lang_fa">فارسی (Persian)</string>
     <string name="onboarding_lang_fa_desc">زبان فارسی (Persian)</string>
 
+    <string name="onboarding_step_wallpaper_title">ВЫБЕРИТЕ ФОН ИНТЕРФЕЙСА</string>
+    <string name="onboarding_step_wallpaper_desc">Выберите визуальный стиль оформления. Фон можно настроить или сменить в любое время в настройках.</string>
+    <string name="onboarding_wallpaper_space_toilet_desc">Видео-обои · 70% затемнение</string>
+    <string name="onboarding_wallpaper_grass_desc">Фото-обои · Мягкий фокус</string>
+    <string name="onboarding_wallpaper_breeze_desc">Фото-обои · Бирюзовая глубина</string>
+    <string name="onboarding_wallpaper_amoled_title">Чистый AMOLED</string>
+    <string name="onboarding_wallpaper_amoled_desc">Глубокий черный фон · Энергосбережение</string>
+
     <string name="onboarding_step_about_title">О ПРОЕКТЕ MIRRLY TG PROXY</string>
     <string name="onboarding_step_about_desc">Локальный прокси-клиент для обхода блокировок и туннелирования трафика Telegram.</string>
     <string name="onboarding_feature_mtproto">MTProto прокси с маскировкой Fake-TLS</string>
@@ -577,6 +585,26 @@
     <string name="unofficial_dialog_desc">Приложение пересобрано или изменено сторонним ключом подписи. Рекомендуется использовать официальную сборку из репозитория GitHub.</string>
     <string name="unofficial_dialog_btn_download">Скачать с официального GitHub</string>
     <string name="unofficial_dialog_btn_dismiss">Я понимаю риск</string>
+    <string name="security_advisory_category_untrusted">ВНИМАНИЕ: ОБНАРУЖЕНА МОДИФИКАЦИЯ</string>
+    <string name="security_advisory_category_daily">ПАМЯТКА БЕЗОПАСНОСТИ: ОФИЦИАЛЬНЫЙ ИСТОЧНИК</string>
+    <string name="security_advisory_title">Остерегайтесь подделок и сторонних репаков!</string>
+    <string name="security_advisory_gateway_warn_title">Блокировка шлюза и защита данных</string>
+    <string name="security_advisory_gateway_warn_desc">Официальные версии Mirrly TG Proxy выходят исключительно в Telegram-канале @WhyOKyHb и на GitHub. В модифицированных сторонними лицами сборках сетевой шлюз блокируется встроенной защитой ядра для предотвращения перехвата трафика и кражи сессий — в репаках прокси работать НЕ БУДЕТ. После установки официального APK прокси сразу заработает штатно.</string>
+    <string name="security_advisory_free_title">100% БЕСПЛАТНО И БЕЗ РЕКЛАМЫ</string>
+    <string name="security_advisory_free_desc">Mirrly TG Proxy — некоммерческий проект. В официальной версии полностью отсутствует реклама, платные подписки или скрытые комиссии. Единственная финансовая поддержка серверов и разработки — добровольные донаты от пользователей.</string>
+    <string name="security_advisory_patterns_title">Как распознать подделку (паттерны взломщиков):</string>
+    <string name="security_advisory_pattern_popup_title">1. Всплывающие белые окна (Pop-up)</string>
+    <string name="security_advisory_pattern_popup_desc">В оригинальном дизайне MirrlyUI действует строгий стандарт Zero-Popup: здесь полностью запрещены белые всплывающие окна по центру экрана. Если при запуске приложения или на экране приветствия всплывает белое окно со ссылками на сторонние каналы (FreelySoft, моды, кнопки «Подписаться») — в APK внедрен сторонний рекламный вредоносный код.</string>
+    <string name="security_advisory_pattern_vpn_title">2. Реклама сторонних платных VPN</string>
+    <string name="security_advisory_pattern_vpn_desc">Появление баннеров или диалогов с предложением купить сторонний VPN (например, Soft Tunnel, «дешевый VPN») — 100% признак подделки. В настоящем Mirrly рекламы сторонних сервисов не существует.</string>
+    <string name="security_advisory_pattern_blocking_title">3. Сброс и зависание соединения</string>
+    <string name="security_advisory_pattern_blocking_desc">В пересобранных APK туннелирование блокируется: соединение бесконечно висит со статусом «Подключение...» или сразу обрывается из-за изоляции сетевого стека ядром.</string>
+    <string name="security_advisory_pattern_signature_title">4. Чужой отпечаток цифровой подписи</string>
+    <string name="security_advisory_pattern_signature_desc">Официальный релиз всегда подписан ключом разработчика (SHA-256):</string>
+    <string name="security_advisory_btn_telegram">Официальный Telegram (@WhyOKyHb)</string>
+    <string name="security_advisory_btn_github">Официальный GitHub Releases</string>
+    <string name="security_advisory_btn_timer_wait">Ознакомление (%1$d сек)</string>
+    <string name="security_advisory_btn_dismiss_ready">Я ознакомлен и понимаю риски</string>
     <string name="donation_banner_dialog_title">Поддержка разработки Mirrly</string>
     <string name="donation_banner_dialog_desc">Донаты идут на новый компьютер, розыгрыши в Telegram-канале и сок «Добрый» мандарин-апельсин для автора.</string>
     <string name="donation_banner_title">Поддержка проекта</string>
@@ -1062,6 +1090,8 @@
     <string name="fame_contrib_tg_channel">Активный участник Telegram-канала</string>
     <string name="fame_c_creeepeeer_role">Охотник за багами &amp; Диагностика сети</string>
     <string name="fame_c_creeepeeer_contrib">Автор Issue #30. Предоставил подробный диагностический отчёт в мобильной сети LTE/5G на Android 16 для калибровки метрик SQI и отказоустойчивости.</string>
+    <string name="fame_nikita_grishin_role">Автор первой работы в сообществе Mirrly</string>
+    <string name="fame_nikita_grishin_contrib">Создание концепции и оформление иконки приложения. Спасибо за то, что вкладываешь частичку себя в развитие проекта.</string>
     <string name="terms_full_legal_text_ru">        ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ И ДОПОЛНИТЕЛЬНЫЕ УСЛОВИЯ ИСПОЛЬЗОВАНИЯ
 
         Проект: Mirrly TG Proxy
@@ -2003,8 +2033,11 @@
     <string name="tg_channel_tag_handle">@WhyOKyHb</string>
     <string name="tg_channel_giveaway_note">Среди подписчиков канала регулярно проводятся розыгрыши Telegram Premium и Stars.</string>
     <string name="tg_action_open_channel">Открыть в Telegram</string>
+    <string name="tg_action_support_project">Поддержать проект</string>
     <string name="tg_action_copy_link">Скопировать ссылку</string>
     <string name="tg_toast_link_copied">Ссылка скопирована в буфер обмена</string>
+    <string name="tg_security_notice_title">Безопасность и подлинность сборки</string>
+    <string name="tg_security_notice_desc">Остерегайтесь подделок и сторонних репаков! Официальные версии Mirrly TG Proxy выходят исключительно в канале @WhyOKyHb и на GitHub. В модифицированных сторонними лицами сборках сетевой шлюз блокируется встроенной криптографической защитой для предотвращения перехвата трафика.</string>
 
     <!-- Task 03: Simple vs Advanced Settings UX & Expert Mode -->
     <string name="settings_advanced_mode_title">Режим опытного пользователя</string>
@@ -2098,8 +2131,8 @@
     <string name="diagnostic_report_issue_body">### Описание проблемы\n\n### Диагностический отчёт:\n```markdown\n%1$s\n```</string>
 
     <!-- Full UI and Components Localization Audit -->
-    <string name="tile_proxy_on">Mirrly Proxy: ВКЛ</string>
-    <string name="tile_proxy_off">Mirrly Proxy: ВЫКЛ</string>
+    <string name="tile_proxy_on">Mirrly</string>
+    <string name="tile_proxy_off">Mirrly</string>
     <string name="badge_top">ТОП</string>
     <string name="badge_beta">БЕТА</string>
     <string name="badge_expert">ЭКСПЕРТ</string>
@@ -2445,6 +2478,8 @@
     <string name="settings_warp_license_field_desc">26-значный лицензионный ключ WARP+</string>
     <string name="settings_vpn_onboarding_replay">Руководство по VPN</string>
     <string name="settings_vpn_onboarding_replay_desc">Повторный просмотр вводного гида по шифрованию и протоколам</string>
+    <string name="settings_ai_onboarding_replay">Вводное руководство по ИИ</string>
+    <string name="settings_ai_onboarding_replay_desc">Пошаговый гид по подключению нейросетей, ключам и диагностике</string>
 
     <!-- WARP Generator & Multi-Profile Manager -->
     <string name="warp_gen_title">Генератор профилей WARP</string>
@@ -2591,6 +2626,16 @@
     <string name="settings_customization_wallpaper_dim">Затемнение</string>
     <string name="settings_customization_wallpaper_particles">Фоновые частицы</string>
     <string name="settings_customization_wallpaper_particles_desc">Отображать парящие частицы и линии созвездий поверх фона</string>
+    <string name="settings_customization_wallpaper_particles_style">Стиль частиц</string>
+    <string name="settings_customization_wallpaper_particles_style_bokeh">Bokeh</string>
+    <string name="settings_customization_wallpaper_particles_style_matrix">Matrix</string>
+    <string name="settings_customization_wallpaper_particles_style_warp">Warp</string>
+    <string name="settings_customization_wallpaper_particles_count">Плотность частиц</string>
+    <string name="settings_customization_wallpaper_particles_speed">Скорость движения</string>
+    <string name="settings_customization_wallpaper_parallax">Гироскопический параллакс</string>
+    <string name="settings_customization_wallpaper_parallax_desc">Псевдо-3D сдвиг фона и слоёв частиц при физическом наклоне устройства</string>
+    <string name="settings_customization_home_rings">Орбитальные кольца</string>
+    <string name="settings_customization_home_rings_desc">Анимация кинетических вращающихся колец вокруг центральной кнопки</string>
     <string name="settings_customization_wallpaper_video_power_save">Энергосбережение видео</string>
     <string name="settings_customization_wallpaper_video_power_save_desc">Оптимизация кадров и автопауза в режиме экономии батареи</string>
     <string name="settings_customization_wallpaper_processing">Обработка медиафайла...</string>
@@ -2601,6 +2646,7 @@
     <string name="settings_customization_info_title">Кастомизация фона</string>
     <string name="settings_customization_info_desc">MirrlyUI поддерживает установку персональных фото- и видеообоев интерфейса. Медиафайл оптимизируется, нормализуется и сохраняется в защищенную песочницу приложения. При включенных обоях светящиеся сферы отключаются для сохранения читаемости, а частицы продолжают реагировать на физику касаний.</string>
     <string name="settings_customization_presets_title">Пресеты оформления</string>
+    <string name="settings_customization_preset_default_amoled">По умолчанию</string>
     <string name="settings_customization_preset_space_toilet">Space Toilet</string>
     <string name="settings_customization_preset_grass">Утренняя роса</string>
     <string name="settings_customization_preset_breeze">Морской бриз</string>
@@ -2688,4 +2734,179 @@
     <string name="logs_tab_toast_copied_format">Логи %1$s скопированы в формате Markdown</string>
     <string name="logs_tab_toast_disabled_format">Формирование логов %1$s отключено</string>
     <string name="logs_tab_toast_enabled_format">Формирование логов %1$s включено</string>
+    <!-- Theme Accent & Customization -->
+    <string name="settings_theme_accent_title">Цветовой профиль</string>
+    <string name="settings_theme_accent_desc">Выбор стиля подсветки, Stealth-монохром или свободная кастомизация неонового акцента</string>
+    <string name="settings_theme_mode_protocol">По протоколу</string>
+    <string name="settings_theme_mode_stealth">Stealth</string>
+    <string name="settings_theme_mode_preset">Пресеты</string>
+    <string name="settings_theme_mode_monet">Material You</string>
+    <string name="settings_theme_mode_custom">Свой цвет</string>
+    <string name="settings_theme_desc_protocol">Акцентный цвет автоматически адаптируется под выбранный протокол: MTProto, SOCKS5 или VPN</string>
+    <string name="settings_theme_desc_stealth">Чистый монохромный режим без цветных свечений для максимального энергосбережения AMOLED</string>
+    <string name="settings_theme_desc_preset">Фиксированные киберпанк-палитры с гармоничными переходами фоновых сфер</string>
+    <string name="settings_theme_desc_monet">Системный акцентный цвет устройства на базе обоев с глубоким черным AMOLED-фоном</string>
+    <string name="settings_theme_desc_monet_unsupported">Material You требует Android 12 или новее</string>
+    <string name="settings_theme_desc_custom">Интерактивный выбор оттенка и ручной ввод HEX-кода с автоматической генерацией палитры</string>
+    <string name="settings_theme_preset_cyber_ruby">Cyber Ruby</string>
+    <string name="settings_theme_preset_acid_lime">Acid Lime</string>
+    <string name="settings_theme_preset_electric_amber">Electric Amber</string>
+    <string name="settings_theme_preset_cobalt_blue">Cobalt Blue</string>
+    <string name="settings_theme_preset_matrix_green">Matrix Green</string>
+    <string name="settings_theme_custom_hex_label">HEX-код</string>
+    <string name="settings_theme_custom_hex_invalid">Некорректный HEX-код</string>
+    <string name="settings_theme_custom_palette_quick">Быстрые оттенки</string>
+    <string name="settings_theme_custom_hue_slider">Спектр оттенка</string>
+    <string name="settings_theme_custom_apply">Применить</string>
+    <string name="settings_theme_status_protocol">Автоматически по протоколу</string>
+    <string name="settings_theme_status_stealth">Чистый монохром</string>
+    <string name="settings_theme_status_preset">Киберпанк-пресет</string>
+    <string name="settings_theme_status_monet">Системный акцент</string>
+    <string name="settings_theme_status_custom">Пользовательский цвет</string>
+
+    <!-- UI Scaling & Dimensions -->
+    <string name="settings_customization_dimensions_title">Масштабирование</string>
+    <string name="settings_customization_dimensions_desc">Тонкая настройка размеров интерфейса, карточек, текста, орбитальных сфер и частиц</string>
+    <string name="settings_customization_ui_scale">Масштаб интерфейса</string>
+    <string name="settings_customization_ui_scale_desc">Пропорциональный размер всех карточек, панелей, кнопок и отступов</string>
+    <string name="settings_customization_text_scale">Масштаб текста</string>
+    <string name="settings_customization_text_scale_desc">Размер системных и интерфейсных шрифтов</string>
+    <string name="settings_customization_orbital_spheres_scale">Размер орбитальных сфер</string>
+    <string name="settings_customization_orbital_spheres_scale_desc">Диаметр центральных кинетических колец и плавающих фоновых сфер</string>
+    <string name="settings_customization_particles_size">Размер частиц</string>
+    <string name="settings_customization_particles_size_desc">Масштаб светящихся микро-сфер, матричных импульсов и звездных варп-точек</string>
+    <string name="settings_customization_dimensions_reset">Сбросить все размеры</string>
+    <string name="settings_customization_dimensions_reset_desc">Восстановить эталонные пропорции (1.00x)</string>
+    <string name="settings_customization_particles_disabled">Отключены</string>
+    <string name="settings_customization_dimensions_standard">Эталонные пропорции</string>
+
+    <!-- Central Buttons Customization -->
+    <string name="settings_customization_buttons_title">Центральные кнопки</string>
+    <string name="settings_customization_buttons_desc">Выбор кинетической иконки главной кнопки отдельно для MTProto, SOCKS5 и VPN, или создание своей через нейросеть</string>
+    <string name="settings_customization_buttons_tab_mtproto">MTProto</string>
+    <string name="settings_customization_buttons_tab_socks5">SOCKS5</string>
+    <string name="settings_customization_buttons_tab_vpn">VPN</string>
+    <string name="settings_customization_buttons_preview_title">Интерактивный предпросмотр</string>
+    <string name="settings_customization_buttons_state_idle">Выкл</string>
+    <string name="settings_customization_buttons_state_connecting">Подключение</string>
+    <string name="settings_customization_buttons_state_connected">В сети</string>
+    <string name="settings_customization_buttons_presets_title">Пресеты иконки</string>
+    <string name="settings_customization_buttons_preset_default">По умолчанию</string>
+    <string name="settings_customization_buttons_preset_cyber_plane">Кибер-самолёт</string>
+    <string name="settings_customization_buttons_preset_warp_glider">Стелс-перехватчик</string>
+    <string name="settings_customization_buttons_preset_crypto_shield">Крипто-щит</string>
+    <string name="settings_customization_buttons_preset_socket_matrix">Матрица сокетов</string>
+    <string name="settings_customization_buttons_preset_cyber_falcon">Кибер-сокол</string>
+    <string name="settings_customization_buttons_preset_quantum_beam">Квантовый луч</string>
+    <string name="settings_customization_buttons_preset_matrix_hex">Гексагон матрицы</string>
+    <string name="settings_customization_buttons_preset_warp_cloud">Облако WARP</string>
+    <string name="settings_customization_buttons_preset_cyber_aegis">Кибер-эгида</string>
+    <string name="settings_customization_buttons_preset_warp_portal">Варп-портал</string>
+    <string name="settings_customization_buttons_preset_custom">Своя иконка</string>
+    <string name="settings_customization_buttons_geometry_title">Геометрия и свечение</string>
+    <string name="settings_customization_buttons_scale_title">Масштаб иконки кнопки</string>
+    <string name="settings_customization_buttons_stroke_title">Толщина контура</string>
+    <string name="settings_customization_buttons_glow_title">Интенсивность неонового свечения</string>
+    <string name="settings_customization_buttons_stroke_thin">1.2dp Тонкий</string>
+    <string name="settings_customization_buttons_stroke_normal">1.5dp Стандарт</string>
+    <string name="settings_customization_buttons_stroke_bold">2.0dp Акцент</string>
+    <string name="settings_customization_buttons_stroke_cyber">2.4dp Кибер</string>
+    <string name="settings_customization_buttons_custom_title">Свой векторный код</string>
+    <string name="settings_customization_buttons_custom_desc">Вставьте код векторного сплайна SVG / pathData или сгенерируйте иконку через встроенную нейросеть</string>
+    <string name="settings_customization_buttons_btn_copy_prompt">Скопировать промпт</string>
+    <string name="settings_customization_buttons_btn_ai_generate">Создать в Mirrly AI</string>
+    <string name="settings_customization_buttons_btn_guide">Инструкция к коду</string>
+    <string name="settings_customization_buttons_prompt_copied">Системный промпт скопирован</string>
+    <string name="settings_customization_buttons_code_hint">Вставьте pathData (M... Z) или тег &lt;svg&gt;...</string>
+    <string name="settings_customization_buttons_code_apply">Применить код</string>
+    <string name="settings_customization_buttons_code_clear">Очистить</string>
+    <string name="settings_customization_buttons_code_applied">SVG иконка сохранена</string>
+    <string name="settings_customization_buttons_code_invalid">Некорректный векторный сплайн</string>
+    <string name="settings_customization_buttons_info_title">Центральные кнопки режимов</string>
+    <string name="settings_customization_buttons_info_desc">Раздел позволяет настроить центральные функциональные кнопки главного экрана отдельно для каждого протокола. Доступны фирменные кинетические пресеты и произвольный векторный код SVG/pathData. Движок MirrlyUI автоматически оживляет векторную геометрию, наделяя её аэродинамической левитацией, неоновым свечением и тактильной пружинной физикой.</string>
+    <string name="settings_customization_buttons_guide_title">Инструкция по созданию иконки</string>
+    <string name="settings_customization_buttons_guide_desc">Для создания иконки используйте чистые векторные сплайны SVG (атрибут d тега path) или полный тег svg. Рекомендуемый вьюпорт: 24x24 или 100x100. Используйте строгую контурную геометрию (Stroke) без сплошных непрозрачных заливок. Все пути должны быть замкнутыми (команда Z). Движок MirrlyUI отмасштабирует сплайн и добавит неоновую анимацию автоматически.</string>
+
+    <!-- Expanded Chat Input & SVG Tool -->
+    <string name="ai_chat_expand_editor_title">Редактор запроса</string>
+    <string name="ai_chat_expand_editor_apply">Применить в чат</string>
+    <string name="ai_chat_expand_editor_send">Отправить запрос</string>
+    <string name="ai_chat_expand_editor_placeholder">Введите или дополните ваш запрос к нейросети...</string>
+    <string name="ai_chat_expand_editor_char_count_fmt">Символов: %1$d</string>
+    <string name="ai_chat_expand_editor_resize_expand">Развернуть</string>
+    <string name="ai_chat_expand_editor_resize_collapse">Свернуть</string>
+    <string name="ai_chat_apply_svg_btn">Применить SVG код</string>
+    <string name="ai_chat_action_svg_applied">Применено к %1$s</string>
+    <string name="ai_chat_apply_svg_success">SVG код кнопки успешно применён</string>
+    <string name="ai_chat_apply_svg_invalid">Ошибка: некорректный векторный сплайн</string>
+
+    <!-- Customization Info Dialogs -->
+    <string name="settings_theme_accent_info_title">Цветовой профиль</string>
+    <string name="settings_theme_accent_info_desc">Персонализация цветовой схемы интерфейса MirrlyUI. Поддерживаются автоматическая синхронизация с цветом активного протокола (MTProto, SOCKS5, VPN), режим Stealth для экономии заряда AMOLED-экранов, готовые киберпанк-палитры, системные динамические цвета Material You (Android 12+) и свободный выбор любого HEX-оттенка со спектральным слайдером.</string>
+    <string name="settings_customization_particles_info_title">Динамика частиц и параллакс</string>
+    <string name="settings_customization_particles_info_desc">Аппаратный кинетический слой микро-частиц на базе Canvas и гироскопа устройства. Позволяет выбрать стиль частиц (Bokeh Dust, Bitstream Matrix, Starfield Warp), отрегулировать их плотность, скорость движения и физический размер, а также активировать пространственный параллакс при наклоне смартфона.</string>
+    <string name="settings_customization_dimensions_info_title">Масштабирование интерфейса</string>
+    <string name="settings_customization_dimensions_info_desc">Тонкая настройка пропорций интерфейса MirrlyUI. Позволяет независимо масштабировать размеры карточек и отступов, величину системных шрифтов, а также диаметр центральных кинетических сфер на главном экране.</string>
+
+    <!-- Theme Accent Adjustments: Brightness, Saturation, Alpha -->
+    <string name="settings_theme_adjustments_title">Тонкая настройка акцента</string>
+    <string name="settings_theme_brightness">Яркость</string>
+    <string name="settings_theme_brightness_desc">Регулировка интенсивности свечения и светлоты тонов</string>
+    <string name="settings_theme_saturation">Насыщенность</string>
+    <string name="settings_theme_saturation_desc">Глубина цвета (0% — монохромный режим)</string>
+    <string name="settings_theme_alpha">Прозрачность</string>
+    <string name="settings_theme_alpha_desc">Прозрачность акцентных элементов и обводок</string>
+    <string name="settings_theme_adjustments_reset">Сбросить настройки</string>
+
+    <!-- Community Showcase Section • About Screen -->
+    <string name="about_section_community">ТВОРЧЕСТВО СООБЩЕСТВА</string>
+    <string name="about_community_card_title">Творчество сообщества</string>
+    <string name="about_community_card_desc">Признание вклада участников в визуальный дизайн, авторские иконки и концепты</string>
+    <string name="about_community_badge_first">ПЕРВАЯ АВТОРСКАЯ РАБОТА</string>
+    <string name="about_community_author_name">Никита Гришин • Nikita Grishin</string>
+    <string name="about_community_work_status">Первая авторская работа, представленная в разделе сообщества Mirrly</string>
+    <string name="about_community_work_contribution_label">ВКЛАД В РАЗВИТИЕ</string>
+    <string name="about_community_work_contribution">Создание концепции и оформление иконки приложения: котик с самолётиком</string>
+    <string name="about_community_work_gratitude">Спасибо за то, что вкладываешь частичку себя в развитие проекта.</string>
+    <string name="about_community_artwork_desc">Превью авторской иконки: котик с самолётиком</string>
+
+    <!-- Liquid Glass Settings -->
+    <string name="settings_customization_liquid_glass_title">Эффекты жидкого стекла • Liquid Glass</string>
+    <string name="settings_customization_liquid_glass_desc">Аппаратное преломление света и хроматическая дисперсия для карточек сообщества на Android 13+</string>
+
+    <!-- Procedural AGSL Shaders (Android 13+) -->
+    <string name="settings_customization_wallpaper_mode_photo">Фото</string>
+    <string name="settings_customization_wallpaper_mode_video">Видео</string>
+    <string name="settings_customization_wallpaper_mode_shader">Процедурный шейдер</string>
+    <string name="settings_customization_wallpaper_shader_title">Процедурные AGSL шейдеры</string>
+    <string name="settings_customization_wallpaper_shader_notice">Доступно на Android 13 и новее</string>
+    <string name="settings_customization_wallpaper_shader_grid">Horizon Grid</string>
+    <string name="settings_customization_wallpaper_shader_stream">Terminal Stream</string>
+    <string name="settings_customization_wallpaper_shader_scanlines">Cathode Scanlines</string>
+    <string name="settings_customization_wallpaper_shader_active">Установлен шейдер</string>
+    <string name="settings_customization_wallpaper_shader_speed">Скорость анимации</string>
+    <string name="settings_customization_wallpaper_shader_legacy_unsupported">Требуется Android 13 или новее для запуска SkSL/AGSL шейдеров на GPU</string>
+
+    <!-- Gyro Parallax Depth -->
+    <string name="settings_customization_wallpaper_parallax_depth">Глубина гироскопа</string>
+    <string name="settings_customization_wallpaper_parallax_depth_desc">Амплитуда смещения слоев от 0.2x до 2.5x</string>
+
+    <!-- Card Corner Geometry -->
+    <string name="settings_customization_corner_geometry_title">Форма карточек</string>
+    <string name="settings_customization_corner_geometry_desc">Геометрия контуров и скосов карточек</string>
+    <string name="settings_customization_corner_style_rounded">Скругленные</string>
+    <string name="settings_customization_corner_style_sharp">Острые</string>
+    <string name="settings_customization_corner_style_chisel">Скошенные</string>
+    <string name="settings_customization_corner_radius">Радиус скругления</string>
+
+    <!-- Haptic Profiles -->
+    <string name="settings_customization_haptic_title">Тактильный отклик</string>
+    <string name="settings_customization_haptic_desc">Аппаратные профили вибрации для жестов и переключателей</string>
+    <string name="settings_customization_haptic_mechanical">Тумблер</string>
+    <string name="settings_customization_haptic_subbass">Саб-бас</string>
+    <string name="settings_customization_haptic_double_tick">Двойной клик</string>
+    <string name="settings_customization_haptic_stealth">Стелс</string>
+    <string name="settings_customization_haptic_test">Тест отклика</string>
+    <string name="settings_customization_haptic_info_title">Профили виброотклика</string>
+    <string name="settings_customization_haptic_info_desc">Аппаратные профили тактильной отдачи MirrlyUI на базе низкочастотных вибромоторов и примитивов Android. Позволяют выбрать между четким механическим щелчком, глубоким саб-басовым импульсом, двойным кибернетическим микро-тиком или бесшумным стелс-режимом.</string>
 </resources>

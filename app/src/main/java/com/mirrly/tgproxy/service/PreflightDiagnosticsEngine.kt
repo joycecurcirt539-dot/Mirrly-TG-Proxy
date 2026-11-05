@@ -187,7 +187,6 @@ object PreflightDiagnosticsEngine {
                     val activeWorker = prefsManager.getActiveWorker()
                     "Worker: ${activeWorker.name}"
                 }
-                UplinkMode.VLESS -> "VLESS over WSS"
                 else -> "WARP: ${config.warpPeerEndpoint.ifBlank { "Anycast" }}"
             }
         }

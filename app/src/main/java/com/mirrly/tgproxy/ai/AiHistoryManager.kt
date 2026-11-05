@@ -17,6 +17,12 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
+data class ProposedSvgAction(
+    val protocol: String,
+    val pathData: String,
+    val iconName: String
+)
+
 /**
  * Модель сообщения в AI-диалоге с Gemini.
  */
@@ -28,7 +34,8 @@ data class AiChatMessage(
     val toolName: String? = null,
     val timestamp: Long = System.currentTimeMillis(),
     val isError: Boolean = false,
-    val isExecutingTool: Boolean = false
+    val isExecutingTool: Boolean = false,
+    val proposedSvgAction: ProposedSvgAction? = null
 ) {
     val isUser: Boolean get() = role == "user"
     val isModel: Boolean get() = role == "model"
@@ -65,7 +72,14 @@ object AiHistoryManager {
                         toolName = if (obj.has("toolName")) obj.optString("toolName") else null,
                         timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
                         isError = obj.optBoolean("isError", false),
-                        isExecutingTool = false
+                        isExecutingTool = false,
+                        proposedSvgAction = if (obj.has("action_protocol") && obj.has("action_path_data")) {
+                            ProposedSvgAction(
+                                protocol = obj.optString("action_protocol", "mtproto"),
+                                pathData = obj.optString("action_path_data", ""),
+                                iconName = obj.optString("action_icon_name", "Кастомная иконка")
+                            )
+                        } else null
                     )
                 )
             }
@@ -91,6 +105,11 @@ object AiHistoryManager {
                     if (msg.toolName != null) put("toolName", msg.toolName)
                     put("timestamp", msg.timestamp)
                     put("isError", msg.isError)
+                    msg.proposedSvgAction?.let { act ->
+                        put("action_protocol", act.protocol)
+                        put("action_path_data", act.pathData)
+                        put("action_icon_name", act.iconName)
+                    }
                 }
                 array.put(obj)
             }

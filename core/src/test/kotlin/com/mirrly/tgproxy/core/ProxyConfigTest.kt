@@ -215,29 +215,9 @@ class ProxyConfigTest {
         config.vpnUplinkModeName = UplinkMode.MASQUE.name
         assertTrue(config.isVpnMasqueUplink)
 
-        config.vpnUplinkModeName = UplinkMode.VLESS.name
-        assertTrue(config.isVpnVlessUplink)
-        assertEquals(UplinkMode.VLESS, config.vpnUplinkMode)
-    }
-
-    @Test
-    fun testVlessShareUrlGeneration() {
-        val config = ProxyConfig(
-            customCfDomain = "my-custom-worker.workers.dev",
-            vlessUuid = "d342d11e-d424-4583-b36e-524ab1f0afa4",
-            vlessPath = "/"
-        )
-        val url = config.getVlessShareUrl()
-        assertTrue(url.startsWith("vless://d342d11e-d424-4583-b36e-524ab1f0afa4@my-custom-worker.workers.dev:443"))
-        assertTrue(url.contains("type=ws"))
-        assertTrue(url.contains("security=tls"))
-        assertTrue(url.contains("sni=my-custom-worker.workers.dev"))
-        assertTrue(url.contains("host=my-custom-worker.workers.dev"))
-        assertTrue(url.contains("#Mirrly-TG-Proxy"))
-
-        val newUuid = ProxyConfig.generateVlessUuid()
-        assertTrue(newUuid.isNotBlank())
-        assertEquals(36, newUuid.length)
+        config.vpnUplinkModeName = UplinkMode.AWG.name
+        assertTrue(config.isVpnAwgUplink)
+        assertEquals(UplinkMode.AWG, config.vpnUplinkMode)
     }
 
     @Test

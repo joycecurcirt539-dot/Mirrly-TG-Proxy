@@ -96,8 +96,8 @@ pub fn reset_active_cascade_stage() {
 // Cloudflare WARP MASQUE Configuration
 pub const MASQUE_L4_SNI: &str = "consumer-masque-proxy.cloudflareclient.com";
 pub const MASQUE_IP_SNI: &str = "cdnjs.cloudflare.com";
-pub const MASQUE_SNI_CONSUMER_PROXY: &str = "consumer-masque-proxy.cloudflareclient.com";
-pub const MASQUE_DEFAULT_URI_PATH: &str = "/.well-known/masque/ip/";
+pub const MASQUE_SNI_CONSUMER_PROXY: &str = "consumer-masque.cloudflareclient.com";
+pub const MASQUE_DEFAULT_URI_PATH: &str = "/";
 pub const MASQUE_CONNECT_IP_PROTO: &str = "cf-connect-ip";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -241,7 +241,7 @@ impl WarpMasqueConfig {
         };
 
         if has_mtls {
-            if _is_explicit_gateway && !clean_token.is_empty() {
+            if !clean_token.is_empty() {
                 MasqueCredentials {
                     scheme: MasqueAuthScheme::MtlsWithGatewayBearer,
                     client_cert_der: cert_der,
@@ -300,8 +300,8 @@ pub static WARP_CONFIG: Lazy<RwLock<WarpMasqueConfig>> = Lazy::new(|| {
 // Addresses operate via Anycast BGP routing; geographic PoP location and network capabilities
 // are established dynamically through protocol handshakes, not assumed statically.
 pub static CF_MASQUE_ENDPOINTS: &[&str] = &[
-    "188.114.96.1:8095",
     "188.114.97.1:8443",
+    "188.114.96.1:8095",
     "162.159.192.1:8095",
     "162.159.193.1:8443",
     "188.114.96.1:4443",
@@ -760,14 +760,53 @@ pub fn is_cert_rejection_error(err: &str) -> bool {
     classify_tls_auth_error(err).is_some()
 }
 
+#[derive(Debug)]
+struct SkipServerVerification;
+
+impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
 pub fn create_quic_client_config(
     client_cert_der: Option<Vec<u8>>,
     client_key_der: Option<Vec<u8>>,
 ) -> Result<quinn::ClientConfig, String> {
-    let mut root_store = RootCertStore::empty();
-    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-
-    let crypto_builder = rustls::ClientConfig::builder().with_root_certificates(root_store);
+    let crypto_builder = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(SkipServerVerification));
 
     let mut client_crypto =
         if let (Some(cert_bytes), Some(key_bytes)) = (client_cert_der, client_key_der) {
@@ -780,8 +819,6 @@ pub fn create_quic_client_config(
             crypto_builder.with_no_client_auth()
         };
     client_crypto.alpn_protocols = vec![
-        b"cf-connect-ip".to_vec(),
-        b"connect-ip".to_vec(),
         b"h3".to_vec(),
     ];
 
@@ -2299,7 +2336,10 @@ fn qpack_encode_literal(buf: &mut Vec<u8>, name: &str, value: &str) {
 pub fn build_connect_ip_path(target_addr: &str, custom_path: Option<&str>) -> String {
     if let Some(p) = custom_path {
         let trimmed = p.trim();
-        if !trimmed.is_empty() && trimmed != "/" {
+        if trimmed == "/" {
+            return "/".to_string();
+        }
+        if !trimmed.is_empty() {
             let mut resolved = trimmed.to_string();
             if !target_addr.is_empty() {
                 let (host, port) = if let Some(colon_pos) = target_addr.rfind(':') {
@@ -2332,12 +2372,12 @@ pub fn build_connect_ip_path(target_addr: &str, custom_path: Option<&str>) -> St
                     .replace("{port}", "*")
                     .replace("{ipproto}", "*");
             }
-            if resolved != "/" && !resolved.is_empty() {
+            if !resolved.is_empty() {
                 return resolved;
             }
         }
     }
-    MASQUE_DEFAULT_URI_PATH.to_string()
+    "/".to_string()
 }
 
 pub fn build_h3_connect_headers(
@@ -2365,18 +2405,15 @@ pub fn build_h3_connect_headers(
 
         // 4. :authority = MASQUE Gateway Host (RFC 9484 Section 4)
         // If outer TLS SNI is cdnjs.cloudflare.com (for DPI circumvention), internal
-        // HTTP/3 :authority must point to legitimate Cloudflare MASQUE gateway
-        // (consumer-masque-proxy.cloudflareclient.com), otherwise Cloudflare Edge drops the tunnel.
+        // HTTP/3 :authority must point to legitimate Cloudflare MASQUE gateway (cloudflareaccess.com)
         let auth = if !sni.is_empty() && sni != "cdnjs.cloudflare.com" {
             sni
         } else {
-            MASQUE_SNI_CONSUMER_PROXY
+            "cloudflareaccess.com"
         };
         qpack_encode_name_ref(&mut qpack, 0, auth);
 
-        // 5. :path = URI template path (RFC 9484 Section 3 & 4)
-        // For CONNECT-IP, :path MUST NEVER be "/"! Passing "/" causes Cloudflare Anycast server
-        // to not recognize the IP tunnel context and drop the connection.
+        // 5. :path = URI path (RFC 9484 / Cloudflare WARP CONNECT-IP expects "/")
         let resolved_path = build_connect_ip_path(target_addr, path);
 
         // Static Table Name Reference Index 1: :path
@@ -4587,11 +4624,15 @@ pub async fn masque_acquire_tunnel(
         return None;
     }
 
+    let is_masque_mode = get_uplink_mode() == UPLINK_MASQUE
+        || get_uplink_mode() == UPLINK_WARP_CASCADE
+        || crate::vpn::get_vpn_uplink_mode() == crate::vpn::VpnUplinkMode::WarpMasque;
+
     let overall_start = tokio::time::Instant::now();
-    let overall_budget = if get_uplink_mode() == UPLINK_MASQUE || get_uplink_mode() == UPLINK_WARP_CASCADE {
-        Duration::from_millis(5000)
+    let overall_budget = if is_masque_mode {
+        Duration::from_millis(15000)
     } else {
-        Duration::from_millis(3500)
+        Duration::from_millis(6000)
     };
     let overall_deadline = overall_start + overall_budget;
 
@@ -4611,10 +4652,8 @@ pub async fn masque_acquire_tunnel(
     };
 
     let sticky_ep_opt = get_sticky_endpoint();
-    let max_candidates = if get_uplink_mode() == UPLINK_MASQUE {
+    let max_candidates = if is_masque_mode {
         4
-    } else if get_uplink_mode() == UPLINK_WARP_CASCADE {
-        2
     } else {
         2
     };
@@ -4899,10 +4938,10 @@ pub async fn masque_acquire_tunnel(
         preferred_family
     );
 
-    let dial_timeout_per_ep = if get_uplink_mode() == UPLINK_MASQUE {
-        Duration::from_millis(2500)
+    let dial_timeout_per_ep = if is_masque_mode {
+        Duration::from_millis(5000)
     } else {
-        Duration::from_millis(1500)
+        Duration::from_millis(3000)
     };
 
     let quic_client_config = match creds.scheme {
@@ -4993,7 +5032,7 @@ pub async fn masque_acquire_tunnel(
             }
         };
 
-        ldebug!("MASQUE: dialing QUIC Anycast {} (SNI: {}, family: {:?})", sock_addr, sni, ep_family);
+        linfo!("MASQUE: dialing QUIC Anycast {} (SNI: {}, family: {:?})", sock_addr, sni, ep_family);
 
         let creds_clone = creds.clone();
         let qcfg = quic_client_config.clone();
@@ -5003,9 +5042,9 @@ pub async fn masque_acquire_tunnel(
         let cancel_token_clone = cancel_token.clone();
 
         let dial_fut = async move {
-            let handshake_budget = (ep_budget / 2)
-                .min(Duration::from_millis(1200))
-                .max(Duration::from_millis(350));
+            let handshake_budget = (ep_budget * 3 / 4)
+                .min(Duration::from_millis(3500))
+                .max(Duration::from_millis(1500));
 
             let conn = {
                 let connect_start = tokio::time::Instant::now();
@@ -5031,7 +5070,7 @@ pub async fn masque_acquire_tunnel(
                     res = connecting => {
                         match res {
                             Ok(c) => {
-                                ldebug!("MASQUE: QUIC handshake successful with {} in {:?}", sock_addr, connect_start.elapsed());
+                                linfo!("MASQUE: QUIC handshake successful with {} in {:?}", sock_addr, connect_start.elapsed());
                                 c
                             }
                             Err(e) => {
@@ -5052,7 +5091,7 @@ pub async fn masque_acquire_tunnel(
             // 1. Send HTTP/3 Control Stream SETTINGS (RFC 9114 Section 6.2.1)
             let ctrl_open_budget = ep_deadline
                 .saturating_duration_since(tokio::time::Instant::now())
-                .min(Duration::from_millis(400));
+                .min(Duration::from_millis(1500));
             let mut ctrl_stream = match tokio::select! {
                 _ = cancel_token_clone.cancelled() => return DialResult::Cancelled,
                 _ = session_cancel_dial.cancelled() => return DialResult::Cancelled,
@@ -5107,7 +5146,7 @@ pub async fn masque_acquire_tunnel(
 
             let ctrl_write_budget = ep_deadline
                 .saturating_duration_since(tokio::time::Instant::now())
-                .min(Duration::from_millis(400));
+                .min(Duration::from_millis(1500));
             let write_res = tokio::select! {
                 _ = cancel_token_clone.cancelled() => return DialResult::Cancelled,
                 _ = session_cancel_dial.cancelled() => return DialResult::Cancelled,
@@ -5133,8 +5172,8 @@ pub async fn masque_acquire_tunnel(
             // Await server SETTINGS frame and verify capabilities
             let settings_budget = ep_deadline
                 .saturating_duration_since(tokio::time::Instant::now())
-                .min(Duration::from_millis(600))
-                .max(Duration::from_millis(200));
+                .min(Duration::from_millis(2500))
+                .max(Duration::from_millis(1000));
 
             let server_settings = match tokio::select! {
                 _ = cancel_token_clone.cancelled() => return DialResult::Cancelled,
@@ -5211,8 +5250,8 @@ pub async fn masque_acquire_tunnel(
                 let step_budget = allocate_connect_step_budget(
                     remaining_for_connect,
                     remaining_fallbacks,
-                    Duration::from_millis(350),
                     Duration::from_millis(1000),
+                    Duration::from_millis(3000),
                 );
                 let step_deadline = tokio::time::Instant::now() + step_budget;
 
@@ -5398,7 +5437,7 @@ pub async fn masque_acquire_tunnel(
             }
             DialResult::NetworkFailure(e) => {
                 session_cancel.cancel();
-                ldebug!("MASQUE endpoint {} dial error: {}", sock_addr, e);
+                linfo!("MASQUE endpoint {} dial error: {}", sock_addr, e);
                 if sticky_ep_opt.as_deref() == Some(&ep_str) {
                     record_sticky_timeout();
                 }
@@ -5410,10 +5449,10 @@ pub async fn masque_acquire_tunnel(
         return None;
     }
 
-    let cooldown_secs = if get_uplink_mode() == UPLINK_MASQUE {
+    let cooldown_secs = if is_masque_mode {
         5
     } else {
-        60
+        10
     };
     set_masque_cooldown(cooldown_secs);
     lwarn!(

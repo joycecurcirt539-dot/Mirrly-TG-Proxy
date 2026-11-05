@@ -76,9 +76,9 @@ class ProxyTileService : TileService() {
 
         tile.state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = if (isRunning) {
-            if (isVpn) "Mirrly VPN • ВКЛ" else getString(R.string.tile_proxy_on)
+            "Mirrly"
         } else {
-            getString(R.string.tile_proxy_off)
+            "Mirrly"
         }
         tile.icon = Icon.createWithResource(this, if (isVpn) R.drawable.ic_vpn else R.drawable.ic_qs_proxy)
         tile.updateTile()

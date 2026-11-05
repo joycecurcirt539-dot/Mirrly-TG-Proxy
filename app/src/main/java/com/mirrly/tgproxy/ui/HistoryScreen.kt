@@ -482,7 +482,8 @@ private fun SessionCard(
     modifier: Modifier = Modifier
 ) {
     val isSocks5 = session.proxyMode.equals("SOCKS5", ignoreCase = true)
-    val protoAccent = if (isSocks5) Socks5Accent else MtprotoAccent
+    val isCustomTheme = com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
+    val protoAccent = if (isCustomTheme) LocalProtocolColors.current.primary else if (isSocks5) Socks5Accent else MtprotoAccent
     val protoName = if (isSocks5) "SOCKS5" else "MTProto"
 
     val isActive = session.status == SessionStatus.ACTIVE

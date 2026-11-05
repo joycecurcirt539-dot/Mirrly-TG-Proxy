@@ -73,6 +73,8 @@ import com.mirrly.tgproxy.service.WarpProfileManager
 import com.mirrly.tgproxy.service.WarpSavedProfile
 import com.mirrly.tgproxy.ui.theme.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
@@ -96,15 +98,16 @@ fun WarpGeneratorScreen(
     val app = MirrlyApplication.instance
     val profileManager = app.warpProfileManager
 
-    // Dynamic VPN Palette (Warm Electric Amber / system VPN theme, never MTProto cyan!)
+    // Dynamic VPN Palette (Warm Electric Amber / system VPN theme, or custom global accent)
+    val isCustomTheme = app.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
     val vpnColors = remember { VpnThemeManager.getSystemVpnPalette(context) }
-    val vpnAccent = vpnColors.primary
+    val vpnAccent = if (isCustomTheme) LocalProtocolColors.current.primary else vpnColors.primary
 
     val savedProfiles by profileManager.profilesFlow.collectAsState()
     val activeProfileId by profileManager.activeProfileIdFlow.collectAsState()
 
-    var selectedFormats by remember { mutableStateOf<Set<WarpGeneratorFormat>>(setOf(WarpGeneratorFormat.AWG_1_0)) }
-    var selectedEndpoints by remember { mutableStateOf(listOf(WarpEndpointPresetOption.FRA_1)) }
+    var selectedFormats by remember { mutableStateOf<Set<WarpGeneratorFormat>>(setOf(WarpGeneratorFormat.WARP_MASQUE)) }
+    var selectedEndpoints by remember { mutableStateOf(listOf(WarpEndpointPresetOption.MASQUE_FRA_8443)) }
     var customEndpointText by remember { mutableStateOf("") }
     var selectedDnsPresets by remember { mutableStateOf(listOf(WarpDnsPresetOption.CLOUDFLARE)) }
     var customDnsText by remember { mutableStateOf("") }
@@ -142,11 +145,13 @@ fun WarpGeneratorScreen(
     // Modals & Expanded Configuration State
     var qrDialogProfile by remember { mutableStateOf<WarpGeneratedProfileItem?>(null) }
     var showSavedProfilesDialog by remember { mutableStateOf(false) }
+    var showMasqueExportFormatSheet by remember { mutableStateOf<WarpGeneratedProfileItem?>(null) }
     val revealedSecretProfileIds = remember { mutableStateListOf<String>() }
     var activeHelpTopic by remember { mutableStateOf<WarpHelpTopic?>(null) }
 
     // File Export Launchers
     var pendingExportItem by remember { mutableStateOf<WarpGeneratedProfileItem?>(null) }
+    var pendingExportIsJsonDump by remember { mutableStateOf(false) }
     val singleFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/plain")
     ) { uri: Uri? ->
@@ -154,8 +159,13 @@ fun WarpGeneratorScreen(
         if (uri != null && item != null) {
             scope.launch(Dispatchers.IO) {
                 try {
+                    val contentToWrite = if (pendingExportIsJsonDump && item.format == WarpGeneratorFormat.WARP_MASQUE) {
+                        WarpConfigGeneratorEngine.buildMasqueJsonDump(item.associatedWarpProfile, item.endpoint)
+                    } else {
+                        item.content
+                    }
                     context.contentResolver.openOutputStream(uri)?.use { stream: OutputStream ->
-                        stream.write(item.content.toByteArray(StandardCharsets.UTF_8))
+                        stream.write(contentToWrite.toByteArray(StandardCharsets.UTF_8))
                         stream.flush()
                     }
                     withContext(Dispatchers.Main) {
@@ -167,10 +177,12 @@ fun WarpGeneratorScreen(
                     }
                 } finally {
                     pendingExportItem = null
+                    pendingExportIsJsonDump = false
                 }
             }
         } else {
             pendingExportItem = null
+            pendingExportIsJsonDump = false
         }
     }
 
@@ -211,48 +223,81 @@ fun WarpGeneratorScreen(
         }
     }
 
-    // Ping Probing Execution
+    // True-RTT Native Ping Probing Execution (via Native Rust Engine)
     val runPingProbes: () -> Unit = {
         if (!isPingingEndpoints) {
             isPingingEndpoints = true
             scope.launch(Dispatchers.IO) {
-                val targets = selectedEndpoints
-                for (opt in targets) {
-                    val ep = if (opt.isCustom) customEndpointText.trim().ifBlank { WarpConfigGeneratorEngine.DEFAULT_CF_ENDPOINT }
-                    else opt.endpoint.ifBlank { WarpConfigGeneratorEngine.DEFAULT_CF_ENDPOINT }
-                    val (host, port) = WarpEndpointScanner.parseEndpoint(ep)
-                    val rtt = try {
-                        val wgCand = WarpEndpointScanner.probeEndpoint(
-                            endpoint = ep,
-                            timeoutMs = 750,
-                            useFragmentation = true,
-                            protocol = WarpProbeProtocol.WIREGUARD
+                val targets = WarpEndpointPresetOption.forFormats(selectedFormats)
+                val targetEndpointMap = targets.mapNotNull { opt ->
+                    val ep = when {
+                        opt.isCustom -> customEndpointText.trim().ifBlank { null }
+                        opt.isRandom -> null
+                        else -> opt.endpoint.ifBlank { null }
+                    }
+                    if (ep != null) opt to ep else null
+                }
+
+                val endpointsCsv = targetEndpointMap.map { it.second }.distinct().joinToString(",")
+                val isWireguardMode = selectedFormats.firstOrNull()?.isAwg == true
+                val protoCode = if (isWireguardMode) 1 else 0
+
+                val rttMap = mutableMapOf<String, Long>()
+                if (endpointsCsv.isNotBlank()) {
+                    try {
+                        val jsonStr = NativeProxy.probeWarpEndpoints(
+                            endpointsCsv = endpointsCsv,
+                            protocol = protoCode,
+                            timeoutMs = 600
                         )
-                        if (wgCand.isAlive && wgCand.rttMs > 0) {
-                            wgCand.rttMs
-                        } else {
-                            val tcpStart = System.currentTimeMillis()
-                            val tcpSocket = java.net.Socket()
-                            try {
-                                val targetPort = if (port in listOf(500, 1701, 4500)) port else 443
-                                tcpSocket.connect(java.net.InetSocketAddress(host, targetPort), 900)
-                                (System.currentTimeMillis() - tcpStart).coerceAtLeast(1L)
-                            } finally {
-                                try { tcpSocket.close() } catch (_: Exception) {}
+                        val arr = org.json.JSONArray(jsonStr)
+                        for (i in 0 until arr.length()) {
+                            val obj = arr.getJSONObject(i)
+                            val ep = obj.optString("endpoint", "")
+                            val isAlive = obj.optBoolean("is_alive", false)
+                            val rtt = obj.optLong("rtt_ms", -1L)
+                            if (ep.isNotBlank()) {
+                                rttMap[ep] = if (isAlive && rtt > 0) rtt else -1L
                             }
                         }
-                    } catch (_: Exception) {
+                    } catch (_: Throwable) {}
+                }
+
+                val probedResults = mutableListOf<Pair<WarpEndpointPresetOption, Long>>()
+                for (opt in targets) {
+                    val ep = when {
+                        opt.isCustom -> customEndpointText.trim().ifBlank { null }
+                        opt.isRandom -> null
+                        else -> opt.endpoint.ifBlank { null }
+                    }
+                    val latency = if (ep != null) {
+                        rttMap[ep] ?: -1L
+                    } else {
                         -1L
                     }
-                    withContext(Dispatchers.Main) {
-                        endpointLatencies[opt.id] = rtt
-                    }
+                    probedResults.add(opt to latency)
                 }
+
                 withContext(Dispatchers.Main) {
+                    probedResults.forEach { (opt, rtt) ->
+                        if (!opt.isRandom && (!opt.isCustom || customEndpointText.isNotBlank())) {
+                            endpointLatencies[opt.id] = rtt
+                        }
+                    }
+                    val best = probedResults
+                        .filter { it.second > 0 && !it.first.isCustom && !it.first.isRandom }
+                        .minByOrNull { it.second }
+                    if (best != null) {
+                        selectedEndpoints = listOf(best.first)
+                    }
                     isPingingEndpoints = false
                 }
             }
         }
+    }
+
+    LaunchedEffect(Unit) {
+        runPingProbes()
     }
 
     // Generation Execution
@@ -272,7 +317,6 @@ fun WarpGeneratorScreen(
                     val effectiveProfile: WarpProfile = if (accountMode == WarpAccountGenerationMode.NEW_ACCOUNT) {
                         logTerm("Регистрация нового аккаунта Cloudflare WARP...")
                         val regResult = WarpAccountManager.registerAndActivate(
-                            workerDomain = app.config.warpWorkerDomain.ifBlank { null },
                             licenseKey = licenseKeyText.trim().ifBlank { null },
                             sniCamouflage = app.config.warpMasqueSni.ifBlank { null },
                             onProgress = { step ->
@@ -293,7 +337,6 @@ fun WarpGeneratorScreen(
                         } else {
                             logTerm("Аккаунт не найден. Авторегистрация нового...")
                             val regResult = WarpAccountManager.registerAndActivate(
-                                workerDomain = app.config.warpWorkerDomain.ifBlank { null },
                                 licenseKey = licenseKeyText.trim().ifBlank { null },
                                 sniCamouflage = app.config.warpMasqueSni.ifBlank { null },
                                 onProgress = { step ->
@@ -328,8 +371,8 @@ fun WarpGeneratorScreen(
 
                     val customNameArg = customProfileNameText.trim().ifBlank { null }
                     val buildSettings = WarpGeneratorBuildSettings(
-                        formats = if (selectedFormats.isNotEmpty()) selectedFormats else setOf(WarpGeneratorFormat.AWG_1_0),
-                        endpoints = if (selectedEndpoints.isNotEmpty()) selectedEndpoints else listOf(WarpEndpointPresetOption.FRA_1),
+                        formats = if (selectedFormats.isNotEmpty()) selectedFormats else setOf(WarpGeneratorFormat.WARP_MASQUE),
+                        endpoints = if (selectedEndpoints.isNotEmpty()) selectedEndpoints else listOf(WarpEndpointPresetOption.FRA_4500),
                         customEndpoint = customEndpointText,
                         dnsPresets = if (selectedDnsPresets.isNotEmpty()) selectedDnsPresets else listOf(WarpDnsPresetOption.CLOUDFLARE),
                         customDns = customDnsText,
@@ -445,7 +488,7 @@ fun WarpGeneratorScreen(
                                                 val isSelected = selectedFormats.contains(fmt)
                                                 CompactSelectableChip(
                                                     label = fmt.title,
-                                                    subLabel = fmt.extension.uppercase(),
+                                                    subLabel = if (fmt == WarpGeneratorFormat.WARP_MASQUE) "MASQUE • РЕКОМЕНДУЕТСЯ" else fmt.extension.uppercase(),
                                                     isSelected = isSelected,
                                                     accent = vpnAccent,
                                                     onClick = {
@@ -527,8 +570,9 @@ fun WarpGeneratorScreen(
                                     Spacer(modifier = Modifier.height(2.dp))
 
                                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        val availablePresets = remember(selectedFormats) { WarpEndpointPresetOption.forFormats(selectedFormats) }
                                         val hasCustomSelected = selectedEndpoints.any { it.isCustom }
-                                        WarpEndpointPresetOption.ACTIVE_PRESETS.chunked(2).forEach { pair ->
+                                        availablePresets.chunked(2).forEach { pair ->
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1006,7 +1050,8 @@ fun WarpGeneratorScreen(
                                         else revealedSecretProfileIds.add(item.id)
                                     },
                                     onActivate = {
-                                        if (item.format.extension != "conf") {
+                                        val ext = item.format.extension
+                                        if (ext != "conf" && ext != "masque" && ext != "json" && item.format != WarpGeneratorFormat.WARP_MASQUE) {
                                             Toast.makeText(context, context.getString(R.string.warp_gen_err_export_only_format), Toast.LENGTH_SHORT).show()
                                         } else {
                                             profileManager.saveGeneratedProfile(item, makeActive = true)
@@ -1020,8 +1065,13 @@ fun WarpGeneratorScreen(
                                         Toast.makeText(context, "Конфигурация скопирована в буфер", Toast.LENGTH_SHORT).show()
                                     },
                                     onSaveFile = {
-                                        pendingExportItem = item
-                                        singleFileLauncher.launch("${item.name}.${item.format.extension}")
+                                        if (item.format == WarpGeneratorFormat.WARP_MASQUE) {
+                                            showMasqueExportFormatSheet = item
+                                        } else {
+                                            pendingExportItem = item
+                                            pendingExportIsJsonDump = false
+                                            singleFileLauncher.launch("${item.name}.${item.format.extension}")
+                                        }
                                     }
                                 )
                             }
@@ -1213,6 +1263,119 @@ fun WarpGeneratorScreen(
                             fontFamily = FontFamily.Monospace,
                             letterSpacing = 0.5.sp
                         )
+                    }
+                }
+            }
+        }
+
+        // ── MASQUE EXPORT FORMAT SELECTION SHEET (MirrlyModalBottomSheet) ──
+        showMasqueExportFormatSheet?.let { item ->
+            MirrlyModalBottomSheet(
+                onDismissRequest = { showMasqueExportFormatSheet = null },
+                maxTabletWidth = 460.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 4.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "// ВЫБОР ФОРМАТА ЭКСПОРТА MASQUE",
+                        color = vpnAccent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "Выберите целевой формат файла для сохранения профиля:",
+                        color = TextMuted,
+                        fontSize = 12.sp
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .springPress(onClick = {
+                                showMasqueExportFormatSheet = null
+                                pendingExportItem = item
+                                pendingExportIsJsonDump = false
+                                singleFileLauncher.launch("${item.name}.masque")
+                            })
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = ".MASQUE",
+                                color = Color(0xFF00E676),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Column {
+                                Text(
+                                    text = "Нативный профиль Mirrly",
+                                    color = TextWhite,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Компактный кодированный профиль для Mirrly TG Proxy",
+                                    color = TextMuted,
+                                    fontSize = 10.5.sp
+                                )
+                            }
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, AmoledBorder),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .springPress(onClick = {
+                                showMasqueExportFormatSheet = null
+                                pendingExportItem = item
+                                pendingExportIsJsonDump = true
+                                singleFileLauncher.launch("${item.name}.json")
+                            })
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = ".JSON",
+                                color = Color(0xFFFFB703),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Column {
+                                Text(
+                                    text = "Полный дамп конфигурации",
+                                    color = TextWhite,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Ключи P-256, mTLS сертификат, токен и эндпоинты",
+                                    color = TextMuted,
+                                    fontSize = 10.5.sp
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1787,9 +1950,10 @@ private fun CompactEndpointCard(
         animationSpec = tween(220),
         label = "epText"
     )
+    val cardShape = LocalCardShape.current
 
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = cardShape,
         color = Color.Transparent,
         border = BorderStroke(1.dp, animatedBorderColor),
         modifier = Modifier
@@ -1798,7 +1962,7 @@ private fun CompactEndpointCard(
                 scaleX = animatedScale
                 scaleY = animatedScale
             }
-            .clip(RoundedCornerShape(10.dp))
+            .clip(cardShape)
             .springPress(onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 onToggle()
@@ -1859,8 +2023,9 @@ private fun CompactEndpointCard(
                 if (latency != null) {
                     val badgeColor = when {
                         latency < 0 -> Color(0xFFFF5252)
-                        latency < 100 -> Color(0xFF00E676)
-                        else -> Color(0xFFFFB703)
+                        latency < 60 -> Color(0xFF00E676)
+                        latency < 120 -> Color(0xFFFFB703)
+                        else -> Color(0xFFFF5252)
                     }
                     val badgeText = if (latency < 0) "ТАЙМАУТ" else "$latency МС"
                     Box(
@@ -1943,11 +2108,12 @@ private fun CompactProfileCard(
         animationSpec = tween(250),
         label = "cardBorder"
     )
+    val cardShape = LocalCardShape.current
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = cardShape,
         color = Color.Transparent,
         border = BorderStroke(1.dp, animatedBorderColor),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().clip(cardShape)
     ) {
         Column(
             modifier = Modifier.padding(12.dp),

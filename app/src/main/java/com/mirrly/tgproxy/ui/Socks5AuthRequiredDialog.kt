@@ -66,6 +66,9 @@ fun Socks5AuthRequiredDialog(
     var showPassword by remember { mutableStateOf(false) }
     var showError by remember { mutableStateOf(false) }
 
+    val isCustomTheme = app.prefsManager.getThemeAccentMode() != ThemeAccentMode.PROTOCOL_DEFAULT
+    val s5Accent = if (isCustomTheme) LocalProtocolColors.current.primary else Socks5Accent
+
     MirrlyModalBottomSheet(
         onDismissRequest = onDismiss,
         maxTabletWidth = 460.dp
@@ -132,7 +135,7 @@ fun Socks5AuthRequiredDialog(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
                                 unfocusedContainerColor = Color.Transparent,
-                                focusedBorderColor = Socks5Accent,
+                                focusedBorderColor = s5Accent,
                                 unfocusedBorderColor = AmoledBorder,
                                 focusedTextColor = TextWhite,
                                 unfocusedTextColor = TextWhite,
@@ -174,7 +177,7 @@ fun Socks5AuthRequiredDialog(
                                         Icon(
                                             painter = painterResource(id = if (isVisible) R.drawable.ic_eye_slash else R.drawable.ic_eye),
                                             contentDescription = null,
-                                            tint = if (isVisible) Socks5Accent else TextMuted,
+                                            tint = if (isVisible) s5Accent else TextMuted,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -186,7 +189,7 @@ fun Socks5AuthRequiredDialog(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
                                 unfocusedContainerColor = Color.Transparent,
-                                focusedBorderColor = Socks5Accent,
+                                focusedBorderColor = s5Accent,
                                 unfocusedBorderColor = AmoledBorder,
                                 focusedTextColor = TextWhite,
                                 unfocusedTextColor = TextWhite,
@@ -202,7 +205,7 @@ fun Socks5AuthRequiredDialog(
                             .fillMaxWidth()
                             .height(40.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .border(1.dp, Socks5Accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                            .border(1.dp, s5Accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
                             .springPress(onClick = {
                                 val (u, p) = ProxyConfig.generateRandomSocks5Credentials()
                                 username = u
@@ -216,7 +219,7 @@ fun Socks5AuthRequiredDialog(
                             text = stringResource(R.string.socks5_auth_btn_generate_random),
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Socks5Accent
+                            color = s5Accent
                         )
                     }
                 }
@@ -252,7 +255,7 @@ fun Socks5AuthRequiredDialog(
                         .weight(1.5f)
                         .height(46.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .border(1.dp, Socks5Accent, RoundedCornerShape(14.dp))
+                        .border(1.dp, s5Accent, RoundedCornerShape(14.dp))
                         .springPress(onClick = {
                             val u = username.trim()
                             val p = password.trim()
@@ -270,7 +273,7 @@ fun Socks5AuthRequiredDialog(
                         text = stringResource(R.string.socks5_auth_btn_save_and_start),
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 13.5.sp,
-                        color = Socks5Accent
+                        color = s5Accent
                     )
                 }
             }

@@ -23,13 +23,16 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import com.mirrly.tgproxy.MirrlyApplication
+import com.mirrly.tgproxy.service.HapticProfile
 
 /**
  * Advanced Hardware Haptic Feedback Controller.
  * Provides distinct, richly textured tactile vibration profiles for UI gestures:
- * - Tap: Crisp, short, and snappy click.
- * - Swipe: Smooth, elongated, multi-amplitude wave texture corresponding to the physical glide.
- * - Tick: Subtle soft detent tick.
+ * - Mechanical Click: Crisp, short, and snappy mechanical toggle click.
+ * - Sub-bass Pulse: Deep low-frequency tactile rumble.
+ * - Cybernetic Double-Tick: Rapid dual micro-ticks in close succession.
+ * - Stealth: Silent mode (disabled).
  */
 object HapticHelper {
 
@@ -47,21 +50,76 @@ object HapticHelper {
         }
     }
 
+    private fun getActiveProfile(): HapticProfile {
+        return try {
+            MirrlyApplication.instance.prefsManager.getHapticProfile()
+        } catch (_: Throwable) {
+            HapticProfile.MECHANICAL_CLICK
+        }
+    }
+
     /**
-     * Crisp, snappy haptic click for standard taps and switches.
+     * Executes tap/click vibration according to the active [HapticProfile].
+     * An [overrideProfile] can be supplied to preview a specific profile without saving it.
      */
-    fun performTapClick(context: Context) {
+    fun performTapClick(context: Context, overrideProfile: HapticProfile? = null) {
+        val profile = overrideProfile ?: getActiveProfile()
+        if (profile == HapticProfile.STEALTH) return
+
         try {
             val vibrator = getVibrator(context) ?: return
             if (!vibrator.hasVibrator()) return
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(12, 110))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(12)
+            when (profile) {
+                HapticProfile.STEALTH -> return
+
+                HapticProfile.MECHANICAL_CLICK -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator.vibrate(VibrationEffect.createOneShot(14, 180))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vibrator.vibrate(14)
+                    }
+                }
+
+                HapticProfile.SUBBASS_PULSE -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && vibrator.areAllPrimitivesSupported(
+                            VibrationEffect.Composition.PRIMITIVE_LOW_TICK
+                        )) {
+                        val composition = VibrationEffect.startComposition()
+                            .addPrimitive(VibrationEffect.Composition.PRIMITIVE_LOW_TICK, 1.0f)
+                            .compose()
+                        vibrator.vibrate(composition)
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        val timings = longArrayOf(0, 32, 12, 28)
+                        val amplitudes = intArrayOf(0, 255, 0, 170)
+                        vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vibrator.vibrate(longArrayOf(0, 32, 12, 28), -1)
+                    }
+                }
+
+                HapticProfile.CYBERNETIC_DOUBLE_TICK -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && vibrator.areAllPrimitivesSupported(
+                            VibrationEffect.Composition.PRIMITIVE_TICK
+                        )) {
+                        val composition = VibrationEffect.startComposition()
+                            .addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, 0.60f)
+                            .addPrimitive(VibrationEffect.Composition.PRIMITIVE_TICK, 1.0f, 32)
+                            .compose()
+                        vibrator.vibrate(composition)
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        val timings = longArrayOf(0, 10, 28, 12)
+                        val amplitudes = intArrayOf(0, 160, 0, 240)
+                        vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vibrator.vibrate(longArrayOf(0, 10, 25, 12), -1)
+                    }
+                }
             }
         } catch (_: Exception) {
             // Ignore if vibration service is unavailable or muted by system policy
@@ -70,9 +128,11 @@ object HapticHelper {
 
     /**
      * Rich, elongated, silky-smooth waveform haptic texture for tactile swipe gestures.
-     * Uses hardware primitive composition on modern devices (Android 12+) or smooth wave envelopes.
+     * Silent in [HapticProfile.STEALTH].
      */
     fun performSwipeGlide(context: Context) {
+        if (getActiveProfile() == HapticProfile.STEALTH) return
+
         try {
             val vibrator = getVibrator(context) ?: return
             if (!vibrator.hasVibrator()) return
@@ -89,7 +149,6 @@ object HapticHelper {
                     .compose()
                 vibrator.vibrate(composition)
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                // Smooth envelope wave: Soft start -> Mid swell -> Soft decay
                 val timings = longArrayOf(0, 16, 22, 28, 20, 16)
                 val amplitudes = intArrayOf(0, 35, 75, 125, 70, 35)
                 vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
@@ -98,14 +157,17 @@ object HapticHelper {
                 vibrator.vibrate(longArrayOf(0, 20, 25, 20), -1)
             }
         } catch (_: Exception) {
-            // Ignore if vibration service is unavailable or muted by system policy
+            // Ignore
         }
     }
 
     /**
      * Subtle micro tick for drag boundary contact.
+     * Silent in [HapticProfile.STEALTH].
      */
     fun performSoftTick(context: Context) {
+        if (getActiveProfile() == HapticProfile.STEALTH) return
+
         try {
             val vibrator = getVibrator(context) ?: return
             if (!vibrator.hasVibrator()) return

@@ -54,9 +54,9 @@ class WarpAccountManagerTest {
         val start = System.currentTimeMillis()
         // Pass a dummy unreachable domain with no prior existing profile
         val result = WarpAccountManager.registerAndActivate(
-            workerDomain = "invalid-test-domain-123456789.workers.dev",
             existingProfile = null,
-            fallbackToBootstrap = false
+            fallbackToBootstrap = false,
+            apiBase = "https://unreachable.invalid"
         )
         val elapsed = System.currentTimeMillis() - start
 
@@ -91,9 +91,9 @@ class WarpAccountManagerTest {
         assertTrue(validExisting.isUsable(), "Pre-condition: validExisting must be usable")
 
         val result = WarpAccountManager.registerAndActivate(
-            workerDomain = "invalid-test-domain-123456789.workers.dev",
             existingProfile = validExisting,
-            fallbackToBootstrap = false
+            fallbackToBootstrap = false,
+            apiBase = "https://unreachable.invalid"
         )
 
         assertTrue(result.isSuccess, "Must fallback to existing profile in offline-cached mode")
@@ -133,7 +133,6 @@ class WarpAccountManagerTest {
         )
 
         val result = WarpAccountManager.registerAndActivate(
-            workerDomain = "invalid-test-domain-987654321.workers.dev",
             licenseKey = testKey,
             existingProfile = existingFree,
             fallbackToBootstrap = false
@@ -542,7 +541,7 @@ class WarpAccountManagerTest {
             masqueApiEndpoint = "162.159.192.1:2408",
             masqueUserOverride = "198.51.100.88:8443", // User customized MASQUE port
             measuredWgEndpoint = "188.114.96.1:500",
-            measuredMasqueEndpoint = "188.114.97.1:1701"
+            measuredMasqueEndpoint = "188.114.97.1:8443"
         )
 
         // User override must have absolute top priority and preserve user port
@@ -555,14 +554,14 @@ class WarpAccountManagerTest {
             masqueUserOverride = null
         )
         assertEquals("188.114.96.1:500", measuredProfile.effectivePeerEndpoint)
-        assertEquals("188.114.97.1:1701", measuredProfile.effectiveMasquePeerEndpoint)
+        assertEquals("188.114.97.1:8443", measuredProfile.effectiveMasquePeerEndpoint)
 
         // Without measured, API endpoint takes precedence (with blocked 2408 port normalized to working Anycast port)
         val apiOnlyProfile = measuredProfile.copy(
             measuredWgEndpoint = null,
             measuredMasqueEndpoint = null
         )
-        assertEquals("162.159.193.10:8095", apiOnlyProfile.effectivePeerEndpoint)
+        assertEquals("162.159.193.10:1701", apiOnlyProfile.effectivePeerEndpoint)
         assertEquals("162.159.192.1:8443", apiOnlyProfile.effectiveMasquePeerEndpoint)
 
         // Verify JSON roundtrip preserves all separate endpoint fields
@@ -633,7 +632,6 @@ class WarpAccountManagerTest {
         runBlocking {
             println("Testing live registration via warp-reg.rbmkyuw.workers.dev...")
             val res = WarpAccountManager.registerAndActivate(
-                workerDomain = WarpAccountManager.REGISTRATION_WORKER_DOMAIN,
                 existingProfile = null,
                 fallbackToBootstrap = false
             ) { step ->

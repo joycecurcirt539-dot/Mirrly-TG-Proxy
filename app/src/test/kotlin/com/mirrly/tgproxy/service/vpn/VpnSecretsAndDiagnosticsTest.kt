@@ -22,7 +22,6 @@ class VpnSecretsAndDiagnosticsTest {
         val rawPrivateKey = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v="
         val rawToken = "cf_super_secret_bearer_token_xyz9876543210"
         val rawPassword = "UltraSecurePassword123!"
-        val rawVlessUuid = "e7b1a2c3-4d5e-6f7a-8b9c-0d1e2f3a4b5c"
         val rawLicenseKey = "12345678-abcd-ef01-2345-6789abcdef01"
 
         val config = ProxyConfig(
@@ -30,7 +29,6 @@ class VpnSecretsAndDiagnosticsTest {
             warpToken = rawToken,
             warpPrivateKey = rawPrivateKey,
             warpLicenseKey = rawLicenseKey,
-            vlessUuid = rawVlessUuid,
             socks5Password = rawPassword
         )
 
@@ -40,7 +38,6 @@ class VpnSecretsAndDiagnosticsTest {
         assertFalse("Raw private key leaked in diagnostic report", reportJson.contains(rawPrivateKey))
         assertFalse("Raw token leaked in diagnostic report", reportJson.contains(rawToken))
         assertFalse("Raw socks5 password leaked in diagnostic report", reportJson.contains(rawPassword))
-        assertFalse("Raw full VLESS UUID leaked in diagnostic report", reportJson.contains(rawVlessUuid))
         assertFalse("Raw full WARP license key leaked in diagnostic report", reportJson.contains(rawLicenseKey))
 
         val json = JSONObject(reportJson)
@@ -49,11 +46,6 @@ class VpnSecretsAndDiagnosticsTest {
         assertEquals("***REDACTED_KEY***", json.getString("warp_private_key_redacted"))
         assertTrue(json.getBoolean("warp_has_token"))
         assertTrue(json.getBoolean("warp_has_private_key"))
-
-        // Masked abbreviations
-        val maskedVlessUuid = json.getString("vless_uuid_redacted")
-        assertTrue(maskedVlessUuid.startsWith("e7b1..."))
-        assertTrue(maskedVlessUuid.endsWith("4b5c"))
 
         val maskedLicenseKey = json.getString("warp_license_key_redacted")
         assertTrue(maskedLicenseKey.startsWith("1234..."))

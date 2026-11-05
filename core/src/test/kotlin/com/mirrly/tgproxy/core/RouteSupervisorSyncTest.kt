@@ -31,55 +31,45 @@ class RouteSupervisorSyncTest {
     fun testParseNativeStatsExtractsRouteSpecificMetrics() {
         val stats = ProxyStats()
 
-        val rawStats = "total=50 active=4 ws=2 cf=2 masque=15 awg=10 vless=20 opera=3 bad=0 err=0 pool=4/8 up=1MB down=10MB"
+        val rawStats = "total=50 active=4 ws=2 cf=2 masque=15 awg=10 bad=0 err=0 pool=4/8 up=1MB down=10MB"
         stats.parseNativeStats(rawStats)
 
         assertEquals(4, stats.activeConnections.get())
         assertEquals(2L, stats.totalWsConnections.get())
         assertEquals(15L, stats.totalMasqueConnections.get())
         assertEquals(10L, stats.totalAwgConnections.get())
-        assertEquals(20L, stats.totalVlessConnections.get())
-        assertEquals(3L, stats.totalOperaConnections.get())
     }
 
     @Test
     fun testParseNativeStatsRussianFormatExtractsRouteMetrics() {
         val stats = ProxyStats()
 
-        val rawRu = "акт:2 ws:5 cf:5 masque:7 awg:3 vless:12 opera:1 ош:0 ↑10KB ↓250KB"
+        val rawRu = "акт:2 ws:5 cf:5 masque:7 awg:3 ош:0 ↑10KB ↓250KB"
         stats.parseNativeStats(rawRu)
 
         assertEquals(2, stats.activeConnections.get())
         assertEquals(5L, stats.totalWsConnections.get())
         assertEquals(7L, stats.totalMasqueConnections.get())
         assertEquals(3L, stats.totalAwgConnections.get())
-        assertEquals(12L, stats.totalVlessConnections.get())
-        assertEquals(1L, stats.totalOperaConnections.get())
     }
 
     @Test
     fun testRouteMetricsMonotonicIncrease() {
         val stats = ProxyStats()
 
-        stats.parseNativeStats("masque=5 awg=3 vless=2 opera=1")
+        stats.parseNativeStats("masque=5 awg=3")
         assertEquals(5L, stats.totalMasqueConnections.get())
         assertEquals(3L, stats.totalAwgConnections.get())
-        assertEquals(2L, stats.totalVlessConnections.get())
-        assertEquals(1L, stats.totalOperaConnections.get())
 
         // Lower numbers must not decrease counters
-        stats.parseNativeStats("masque=3 awg=2 vless=1 opera=0")
+        stats.parseNativeStats("masque=3 awg=2")
         assertEquals(5L, stats.totalMasqueConnections.get())
         assertEquals(3L, stats.totalAwgConnections.get())
-        assertEquals(2L, stats.totalVlessConnections.get())
-        assertEquals(1L, stats.totalOperaConnections.get())
 
         // Higher numbers increment counters
-        stats.parseNativeStats("masque=8 awg=7 vless=6 opera=4")
+        stats.parseNativeStats("masque=8 awg=7")
         assertEquals(8L, stats.totalMasqueConnections.get())
         assertEquals(7L, stats.totalAwgConnections.get())
-        assertEquals(6L, stats.totalVlessConnections.get())
-        assertEquals(4L, stats.totalOperaConnections.get())
     }
 
     @Test
@@ -124,34 +114,6 @@ class RouteSupervisorSyncTest {
     }
 
     @Test
-    fun testUserProfilePreservationDuringCascadeFailover() {
-        // User configures a custom VLESS profile
-        val customConfig = ProxyConfig(
-            vlessDomain = "my-custom-vless.example.com",
-            vlessServerAddress = "my-custom-vless.example.com",
-            vlessServerPort = 8443,
-            vlessUuid = "11111111-2222-3333-4444-555555555555",
-            vlessPublicKey = "abcdef0123456789abcdef0123456789abcdef01234=",
-            vlessTlsSni = "cdn.custom.domain",
-            vlessFlow = "xtls-rprx-vision"
-        )
-
-        assertNotEquals(customConfig.vlessDomain, "default.example.com")
-        assertNotEquals(customConfig.vlessUuid, "default-uuid")
-
-        // Under the single supervisor model, probe failovers report route failures to native
-        // instead of calling applyVlessPreset(getDefaultPreset()).
-        // The user's configuration MUST remain unchanged:
-        assertEquals("my-custom-vless.example.com", customConfig.vlessDomain)
-        assertEquals("my-custom-vless.example.com", customConfig.vlessServerAddress)
-        assertEquals(8443, customConfig.vlessServerPort)
-        assertEquals("11111111-2222-3333-4444-555555555555", customConfig.vlessUuid)
-        assertEquals("abcdef0123456789abcdef0123456789abcdef01234=", customConfig.vlessPublicKey)
-        assertEquals("cdn.custom.domain", customConfig.vlessTlsSni)
-        assertEquals("xtls-rprx-vision", customConfig.vlessFlow)
-    }
-
-    @Test
     fun testStageCodeConsistencyAcrossAllComponents() {
         // Unified stage codes across Rust, Kotlin LocalProxyServer, and ProxyForegroundService
         val stageCodes = mapOf(
@@ -159,16 +121,12 @@ class RouteSupervisorSyncTest {
             1 to "WARP MASQUE",
             2 to "WARP AmneziaWG",
             3 to "Cloudflare Worker",
-            4 to "VLESS",
-            5 to "Opera VPN",
             6 to "Direct TCP"
         )
 
         assertEquals("WARP MASQUE", stageCodes[1])
         assertEquals("WARP AmneziaWG", stageCodes[2])
         assertEquals("Cloudflare Worker", stageCodes[3])
-        assertEquals("VLESS", stageCodes[4])
-        assertEquals("Opera VPN", stageCodes[5])
         assertEquals("Direct TCP", stageCodes[6])
     }
 
@@ -187,8 +145,6 @@ class RouteSupervisorSyncTest {
             "is_private": false,
             "trust_boundary_maintained": true,
             "allow_public_relay_fallback": true,
-            "allow_opera_direct_exit": false,
-            "allow_opera_transport_hop": false,
             "transport_ready": true,
             "app_ready": true,
             "last_app_error": "",
@@ -239,7 +195,7 @@ class RouteSupervisorSyncTest {
         stats.isUdpSupported = jobjWorker.optBoolean("supports_udp", true)
         assertFalse(stats.isUdpSupported)
 
-        // Test supported UDP (e.g. WARP MASQUE / AWG / VLESS)
+        // Test supported UDP (e.g. WARP MASQUE / AWG)
         val warpJson = """
         {
             "route_id": "warp_masque",

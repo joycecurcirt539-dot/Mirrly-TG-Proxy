@@ -331,7 +331,6 @@ fun VpnInfoWidget(
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = Color.Transparent,
-        border = BorderStroke(1.dp, if (isActive) vpnColors.primary.copy(alpha = 0.30f) else AmoledBorder),
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 2.dp)

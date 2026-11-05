@@ -253,6 +253,7 @@ internal fun CustomWallpaperBackground(
     blurDp: Float,
     dim: Float,
     powerSaveEnabled: Boolean = true,
+    shaderSpeed: Float = 1.0f,
     modifier: Modifier = Modifier
 ) {
     val edgeScrim = remember {
@@ -265,7 +266,17 @@ internal fun CustomWallpaperBackground(
     }
 
     Box(modifier = modifier) {
-        if (wallpaperType == PreferencesManager.WALLPAPER_TYPE_VIDEO && !wallpaperPath.isNullOrBlank()) {
+        if (wallpaperType == PreferencesManager.WALLPAPER_TYPE_SHADER) {
+            val presetId = wallpaperPath?.removePrefix("shader://") ?: com.mirrly.tgproxy.service.AgslShaderPreset.PERSPECTIVE_GRID.id
+            val preset = com.mirrly.tgproxy.service.AgslShaderPreset.fromString(presetId)
+            val accentColor = com.mirrly.tgproxy.ui.theme.LocalProtocolColors.current.primary
+            AgslWallpaperShader(
+                preset = preset,
+                accentColor = accentColor,
+                speed = shaderSpeed,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (wallpaperType == PreferencesManager.WALLPAPER_TYPE_VIDEO && !wallpaperPath.isNullOrBlank()) {
             WallpaperVideoPlayer(
                 videoPath = wallpaperPath,
                 previewImage = image,

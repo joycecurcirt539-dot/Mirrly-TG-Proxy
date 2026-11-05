@@ -32,7 +32,9 @@ import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import com.mirrly.tgproxy.ui.theme.LocalCardShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -183,7 +185,8 @@ data class Contributor(
     @StringRes val contributionRes: Int,
     val tier: ContributorTier,
     val githubUrl: String? = null,
-    val bugHunterSubclass: BugHunterSubclass? = null
+    val bugHunterSubclass: BugHunterSubclass? = null,
+    val customBadge: String? = null
 ) {
     val fingerprint: DigitalFingerprint by lazy {
         computeFingerprint(name, id, id)
@@ -382,7 +385,8 @@ private val ContributorsList = listOf(
         handle = "Lucifer",
         roleRes = R.string.fame_c_linar_role,
         contributionRes = R.string.fame_c_linar_contrib,
-        tier = ContributorTier.BETA_TESTER
+        tier = ContributorTier.BETA_TESTER,
+        customBadge = "admin"
     ),
     Contributor(
         id = "dalison",
@@ -780,11 +784,11 @@ private val ContributorsList = listOf(
         tier = ContributorTier.TG_SUBSCRIBER
     ),
     Contributor(
-        id = "nikita",
-        name = "Никита",
-        handle = "Никита",
-        roleRes = R.string.fame_role_tg_participant,
-        contributionRes = R.string.fame_contrib_tg_channel,
+        id = "nikita_grishin",
+        name = "Nikita Grishin",
+        handle = "Nikita Grishin",
+        roleRes = R.string.fame_nikita_grishin_role,
+        contributionRes = R.string.fame_nikita_grishin_contrib,
         tier = ContributorTier.TG_SUBSCRIBER
     ),
     Contributor(
@@ -1188,6 +1192,17 @@ fun HallOfFameScreen(
                         subtitle = stringResource(R.string.fame_section_community_subtitle),
                         count = communityList.size,
                         accentColor = Color(0xFF26A5E4)
+                    )
+
+                    // ── Featured Community Author Card (Nikita Grishin) ──
+                    NikitaGrishinLiquidGlassCard(
+                        onCardClick = {
+                            val nikita = communityList.firstOrNull { it.id == "nikita_grishin" }
+                                ?: ContributorsList.firstOrNull { it.id == "nikita_grishin" }
+                            if (nikita != null) {
+                                selectedContributor = nikita
+                            }
+                        }
                     )
 
                     val chunkedCommunity = remember(communityList) { communityList.chunked(2) }
@@ -1642,6 +1657,33 @@ private fun PioneerLegendCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        if (contributor.customBadge != null) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, Color(0xFFFF2A6D).copy(alpha = 0.75f))
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_shield),
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF2A6D),
+                                        modifier = Modifier.size(8.dp)
+                                    )
+                                    Text(
+                                        text = contributor.customBadge.uppercase(),
+                                        fontSize = 7.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFFF2A6D),
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     Text(
@@ -1852,14 +1894,47 @@ private fun BugHunterMinimalRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = contributor.name,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    Text(
+                        text = contributor.name,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (contributor.customBadge != null) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, Color(0xFFFF2A6D).copy(alpha = 0.75f))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_shield),
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF2A6D),
+                                    modifier = Modifier.size(8.dp)
+                                )
+                                Text(
+                                    text = contributor.customBadge.uppercase(),
+                                    fontSize = 7.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFFF2A6D),
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                        }
+                    }
+                }
                 Text(
                     text = "#${fp.formattedHash}",
                     fontSize = 9.sp,
@@ -1893,6 +1968,137 @@ private fun BugHunterMinimalRow(
             tint = TextMuted,
             modifier = Modifier.size(14.dp)
         )
+    }
+}
+
+/**
+ * Liquid Glass персональная карточка автора сообщества Nikita Grishin.
+ * Включает матовое стекло (alpha 50%), тонкий контур 1dp с акцентным градиентом
+ * и векторную иконку кота с бумажным самолётиком.
+ */
+@Composable
+private fun NikitaGrishinLiquidGlassCard(
+    onCardClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    val cardShape = LocalCardShape.current
+
+    val outlineGradient = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFF26A5E4).copy(alpha = 0.85f),
+            Color(0xFF00E676).copy(alpha = 0.65f),
+            Color(0xFF26A5E4).copy(alpha = 0.25f)
+        )
+    )
+
+    Surface(
+        shape = cardShape,
+        color = Color.Black.copy(alpha = 0.50f),
+        border = BorderStroke(1.dp, outlineGradient),
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(cardShape)
+            .springPress(onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onCardClick()
+            })
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF26A5E4))
+                    )
+                    Text(
+                        text = "АВТОРСКИЙ КОНЦЕПТ · СООБЩЕСТВО",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 0.8.sp,
+                        color = Color(0xFF26A5E4)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .border(1.dp, Color(0xFF00E676).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .background(Color(0xFF00E676).copy(alpha = 0.08f))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "1-Я АВТОРСКАЯ РАБОТА",
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFF00E676)
+                    )
+                }
+            }
+
+            // Central Cat Vector Icon Section with subtle glass pedestal
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF26A5E4).copy(alpha = 0.12f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                    .border(1.dp, AmoledBorder.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                    .padding(vertical = 18.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_community_cat_plane),
+                    contentDescription = "Nikita Grishin Cat Paper Plane",
+                    modifier = Modifier.size(96.dp)
+                )
+            }
+
+            // Author Info & Description
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Nikita Grishin",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite
+                )
+                Text(
+                    text = stringResource(R.string.fame_nikita_grishin_role),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF26A5E4)
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = stringResource(R.string.fame_nikita_grishin_contrib),
+                    fontSize = 11.5.sp,
+                    color = TextMuted,
+                    lineHeight = 16.sp
+                )
+            }
+        }
     }
 }
 
@@ -1939,14 +2145,47 @@ private fun CommunityMemberCard(
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = contributor.name,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextWhite,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = contributor.name,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextWhite,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (contributor.customBadge != null) {
+                            Surface(
+                                shape = RoundedCornerShape(3.dp),
+                                color = Color.Transparent,
+                                border = BorderStroke(1.dp, Color(0xFFFF2A6D).copy(alpha = 0.75f))
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier.padding(horizontal = 3.5.dp, vertical = 0.5.dp)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_shield),
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF2A6D),
+                                        modifier = Modifier.size(7.dp)
+                                    )
+                                    Text(
+                                        text = contributor.customBadge.uppercase(),
+                                        fontSize = 7.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.4.sp,
+                                        color = Color(0xFFFF2A6D)
+                                    )
+                                }
+                            }
+                        }
+                    }
                     Text(
                         text = stringResource(tier.badgeLabelRes),
                         fontSize = 8.5.sp,
@@ -1998,20 +2237,53 @@ private fun ContributorPassportSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 6.dp)
         ) {
-            // Tier Badge Pill
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color.Transparent,
-                border = BorderStroke(1.dp, tier.primaryColor.copy(alpha = 0.50f))
+            // Tier Badge Pill & Custom Badge
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = stringResource(tier.titleRes).uppercase(),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp,
-                    color = tier.primaryColor,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
-                )
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, tier.primaryColor.copy(alpha = 0.50f))
+                ) {
+                    Text(
+                        text = stringResource(tier.titleRes).uppercase(),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        color = tier.primaryColor,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
+                }
+
+                if (contributor.customBadge != null) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, Color(0xFFFF2A6D).copy(alpha = 0.75f))
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_shield),
+                                contentDescription = null,
+                                tint = Color(0xFFFF2A6D),
+                                modifier = Modifier.size(11.dp)
+                            )
+                            Text(
+                                text = contributor.customBadge.uppercase(),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp,
+                                color = Color(0xFFFF2A6D)
+                            )
+                        }
+                    }
+                }
             }
 
             // Generative Identicon Showcase with ring & glow
@@ -2036,13 +2308,45 @@ private fun ContributorPassportSheet(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Text(
-                    text = contributor.name,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextWhite,
-                    textAlign = TextAlign.Center
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = contributor.name,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextWhite,
+                        textAlign = TextAlign.Center
+                    )
+                    if (contributor.customBadge != null) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, Color(0xFFFF2A6D).copy(alpha = 0.75f))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_shield),
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF2A6D),
+                                    modifier = Modifier.size(10.dp)
+                                )
+                                Text(
+                                    text = contributor.customBadge.uppercase(),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFFF2A6D),
+                                    letterSpacing = 0.6.sp
+                                )
+                            }
+                        }
+                    }
+                }
                 Text(
                     text = stringResource(contributor.roleRes),
                     fontSize = 12.5.sp,

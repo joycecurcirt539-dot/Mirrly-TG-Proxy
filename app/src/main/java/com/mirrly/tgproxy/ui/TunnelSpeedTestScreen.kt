@@ -71,6 +71,12 @@ import kotlin.math.sin
  * Спроектирован строго по дизайн-системе MirrlyUI (Zero Background / Outline-Only, Zero-Popup, springPress).
  */
 @Composable
+private fun rememberSpeedTestAccent(isSocks5: Boolean): Color {
+    val isCustomTheme = com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
+    return if (isCustomTheme) LocalProtocolColors.current.primary else if (isSocks5) Socks5Accent else MtprotoAccent
+}
+
+@Composable
 fun TunnelSpeedTestScreen(
     onBack: () -> Unit
 ) {
@@ -130,7 +136,7 @@ fun TunnelSpeedTestScreen(
         }
     }
 
-    val accentColor = if (isSocks5) Socks5Accent else MtprotoAccent
+    val accentColor = rememberSpeedTestAccent(isSocks5)
     val scrollState = rememberScrollState()
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -310,7 +316,7 @@ private fun SpeedTestTopBar(
     isSocks5: Boolean
 ) {
     val haptic = LocalHapticFeedback.current
-    val accentColor = if (isSocks5) Socks5Accent else MtprotoAccent
+    val accentColor = rememberSpeedTestAccent(isSocks5)
 
     Surface(
         modifier = Modifier
@@ -383,7 +389,7 @@ private fun SpeedTestHeaderCard(
     isSocks5: Boolean,
     compact: Boolean = false
 ) {
-    val accentColor = if (isSocks5) Socks5Accent else MtprotoAccent
+    val accentColor = rememberSpeedTestAccent(isSocks5)
 
     Row(
         modifier = Modifier
@@ -457,7 +463,7 @@ private fun SpeedTestPhaseStepper(
     isSocks5: Boolean,
     compact: Boolean = false
 ) {
-    val accentColor = if (isSocks5) Socks5Accent else MtprotoAccent
+    val accentColor = rememberSpeedTestAccent(isSocks5)
 
     val phases = listOf(
         Pair(1, stringResource(R.string.speed_test_phase_dc)),
@@ -575,9 +581,10 @@ private fun SpeedometerGauge(
     compact: Boolean = false,
     onClick: () -> Unit
 ) {
-    val primaryAccent = if (isSocks5) Socks5Accent else MtprotoAccent
-    val secondaryAccent = if (isSocks5) Color(0xFF7C4DFF) else Color(0xFF00FF87)
-    val hotAccent = if (isSocks5) Color(0xFFFF4FD8) else Color(0xFF00E5FF)
+    val isCustomTheme = com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
+    val primaryAccent = rememberSpeedTestAccent(isSocks5)
+    val secondaryAccent = if (isCustomTheme) LocalProtocolColors.current.secondary else if (isSocks5) Color(0xFF7C4DFF) else Color(0xFF00FF87)
+    val hotAccent = if (isCustomTheme) LocalProtocolColors.current.light else if (isSocks5) Color(0xFFFF4FD8) else Color(0xFF00E5FF)
 
     val isTesting = stage == SpeedTestStage.DC_BENCHMARK ||
         stage == SpeedTestStage.DOWNLOAD ||
@@ -785,7 +792,7 @@ private fun TelegramDcMatrixCard(
     isSocks5: Boolean,
     compact: Boolean = false
 ) {
-    val accentColor = if (isSocks5) Socks5Accent else MtprotoAccent
+    val accentColor = rememberSpeedTestAccent(isSocks5)
 
     Column(
         modifier = Modifier
@@ -998,7 +1005,7 @@ private fun SpeedMetricsGrid(
     isSocks5: Boolean,
     compact: Boolean = false
 ) {
-    val accentColor = if (isSocks5) Socks5Accent else MtprotoAccent
+    val accentColor = rememberSpeedTestAccent(isSocks5)
 
     Row(
         modifier = Modifier
@@ -1121,7 +1128,7 @@ private fun SpeedWaveformCard(
     isSocks5: Boolean,
     compact: Boolean = false
 ) {
-    val accentColor = if (isSocks5) Socks5Accent else MtprotoAccent
+    val accentColor = rememberSpeedTestAccent(isSocks5)
     val safePoints = points.filter { it.isFinite() && it >= 0f }
 
     Box(
@@ -1224,7 +1231,7 @@ private fun SpeedTestSummaryReportCard(
     compact: Boolean,
     onRetry: () -> Unit
 ) {
-    val accentColor = if (isSocks5) Socks5Accent else MtprotoAccent
+    val accentColor = rememberSpeedTestAccent(isSocks5)
 
     Column(
         modifier = Modifier

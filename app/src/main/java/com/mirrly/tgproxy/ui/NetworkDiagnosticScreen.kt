@@ -76,6 +76,8 @@ fun NetworkDiagnosticScreen(
     val server = app.proxyServer
 
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
+    val isCustomTheme = app.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
+    val customAccentColor = LocalProtocolColors.current.primary
     val activeWorker = remember(app.prefsManager.getActiveWorkerId()) { app.prefsManager.getActiveWorker() }
 
     val isProxyActive = server.isRunning
@@ -347,7 +349,7 @@ fun NetworkDiagnosticScreen(
                             }
                         } else {
                             val poolScore = if (isProxyActive) (poolSize * 25).coerceIn(25, 100) else 0
-                            val poolColor = if (isProxyActive) Color(0xFF00FF87) else TextMuted
+                            val poolColor = if (isProxyActive) (if (isCustomTheme) customAccentColor else Color(0xFF00FF87)) else TextMuted
                             LiquidWaveQualityCircle(
                                 score = poolScore,
                                 isProxyActive = isProxyActive,
@@ -382,7 +384,7 @@ fun NetworkDiagnosticScreen(
 
             // ── TUNNEL SPEED TEST PROMO CARD ──
             if (onOpenSpeedTest != null) {
-                val speedTestAccent = if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
+                val speedTestAccent = if (isCustomTheme) customAccentColor else if (isSocks5) Color(0xFFB388FF) else ActiveGreenLed
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -830,6 +832,7 @@ private fun NetworkDiagnosticTopBar(
     onOpenDiagnosticReport: (() -> Unit)? = null
 ) {
     val haptic = LocalHapticFeedback.current
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -920,6 +923,7 @@ fun DiagnosticMetricRow(
     onInfoClick: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1004,7 +1008,10 @@ fun LiveLatencySparklineCard(
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
-    val primaryColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87)
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
+    val customAccent = LocalProtocolColors.current.primary
+    val okColor = if (isCustomTheme) customAccent else Color(0xFF00FF87)
+    val primaryColor = if (isCustomTheme) customAccent else if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87)
     var selectedIndex by remember { mutableStateOf<Int?>(null) }
 
     val validPoints = remember(rttHistory) {
@@ -1528,6 +1535,7 @@ private fun ContentReadinessItem(
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
@@ -1610,7 +1618,10 @@ fun HopByHopBottleneckRadar(
     onHopClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val primaryColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87)
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
+    val customAccent = LocalProtocolColors.current.primary
+    val okColor = if (isCustomTheme) customAccent else Color(0xFF00FF87)
+    val primaryColor = if (isCustomTheme) customAccent else if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87)
 
     // Hop States: 0 = Off, 1 = Ok, 2 = Warn, 3 = Error
     val hop1State = if (isProxyActive) 1 else 0
@@ -1651,7 +1662,7 @@ fun HopByHopBottleneckRadar(
         bufferbloatMs >= 100L -> Pair(stringResource(R.string.nd_bn_bufferbloat, bufferbloatMs), Color(0xFFFFB703))
         pingMs > 250L -> Pair(stringResource(R.string.nd_bn_rtt, pingMs), Color(0xFFFFB703))
         successRate < 85 -> Pair(stringResource(R.string.nd_bn_loss), Color(0xFFFFB703))
-        else -> Pair(stringResource(R.string.nd_bn_clean), Color(0xFF00FF87))
+        else -> Pair(stringResource(R.string.nd_bn_clean), okColor)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1682,7 +1693,7 @@ fun HopByHopBottleneckRadar(
                     .padding(horizontal = 7.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = if (isProxyActive) (if (bottleneckColor == Color(0xFF00FF87)) stringResource(R.string.nd_radar_route_ok) else stringResource(R.string.nd_radar_diagnose)) else stringResource(R.string.nd_stopped),
+                    text = if (isProxyActive) (if (bottleneckColor == okColor) stringResource(R.string.nd_radar_route_ok) else stringResource(R.string.nd_radar_diagnose)) else stringResource(R.string.nd_stopped),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = bottleneckColor
@@ -1787,8 +1798,10 @@ private fun HopNode(
     onClick: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
+    val customAccent = LocalProtocolColors.current.primary
     val nodeColor = when (state) {
-        1 -> Color(0xFF00FF87)
+        1 -> if (isCustomTheme) customAccent else Color(0xFF00FF87)
         2 -> Color(0xFFFFB703)
         3 -> Color(0xFFFF0055)
         else -> TextMuted.copy(alpha = 0.35f)
@@ -1838,10 +1851,12 @@ private fun HopLink(
     isActive: Boolean,
     isAlert: Boolean
 ) {
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
+    val customAccent = LocalProtocolColors.current.primary
     val lineColor = when {
         !isActive -> Color(0xFF1E2333)
         isAlert -> Color(0xFFFFB703).copy(alpha = 0.5f)
-        else -> Color(0xFF00FF87).copy(alpha = 0.35f)
+        else -> (if (isCustomTheme) customAccent else Color(0xFF00FF87)).copy(alpha = 0.35f)
     }
     Box(
         modifier = Modifier
@@ -1867,6 +1882,7 @@ fun SmartNetworkInsightsCard(
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
+    val isCustomTheme = MirrlyApplication.instance.prefsManager.getThemeAccentMode() != com.mirrly.tgproxy.ui.theme.ThemeAccentMode.PROTOCOL_DEFAULT
 
     val (badgeText, insightText, accentColor) = when {
         !isProxyActive -> Triple(
@@ -1915,7 +1931,7 @@ fun SmartNetworkInsightsCard(
             stringResource(R.string.nd_insight_ideal_title),
             if (isSocks5) stringResource(R.string.nd_insight_ideal_desc, healthScore)
             else stringResource(R.string.nd_insight_ideal_desc, healthScore).replace(" и кристально чистым звонкам", ""),
-            Color(0xFF00FF87)
+            if (isCustomTheme) LocalProtocolColors.current.primary else Color(0xFF00FF87)
         )
     }
 

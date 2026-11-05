@@ -214,9 +214,9 @@ class MirrlyVpnService : VpnService() {
                                 AppLogger.i(TAG, "DeviceSleepWakeReceiver: активная физическая сеть $physical, обновление underlying networks и сброс внешних сокетов")
                                 broker.applyUnderlyingNetworks(physical)
                                 try {
-                                    NativeProxy.resetNetworkSockets()
+                                    NativeProxy.resetVpnSockets()
                                 } catch (e: Exception) {
-                                    AppLogger.w(TAG, "DeviceSleepWakeReceiver: сбой сброса сокетов: ${e.message}")
+                                    AppLogger.w(TAG, "DeviceSleepWakeReceiver: сбой сброса VPN сокетов: ${e.message}")
                                 }
                             } else {
                                 AppLogger.w(TAG, "DeviceSleepWakeReceiver: физическая сеть пока не доступна")
@@ -325,6 +325,15 @@ class MirrlyVpnService : VpnService() {
             return
         }
 
+        if (packageName != "com.mirrly.tgproxy" || !NativeProxy.isEngineAuthorized()) {
+            val isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            if (!isDebug) {
+                updateState(VpnInternalState.FAILED, VpnFailureReason.ESTABLISH_FAILED)
+                stopSelf()
+                return
+            }
+        }
+
         startJob?.cancel()
         val gen = vpnGeneration.incrementAndGet()
         startTimeMs = System.currentTimeMillis()
@@ -417,7 +426,16 @@ class MirrlyVpnService : VpnService() {
                     config.warpPeerEndpoint = effectiveProfile.endpoint
                     config.warpMeasuredWgEndpoint = effectiveProfile.endpoint
                 }
-                if (effectiveProfile.format.extension == "conf") {
+                val ext = effectiveProfile.format.extension.lowercase()
+                val isMasqueProfile = effectiveProfile.format == com.mirrly.tgproxy.core.WarpGeneratorFormat.WARP_MASQUE ||
+                    ext == "masque" || ext == "json"
+
+                if (isMasqueProfile) {
+                    config.vpnUplinkMode = com.mirrly.tgproxy.core.UplinkMode.MASQUE
+                    if (effectiveProfile.endpoint.isNotBlank()) {
+                        config.warpMasquePeerEndpoint = effectiveProfile.endpoint
+                    }
+                } else if (ext == "conf") {
                     config.awgCustomIni = effectiveProfile.content
                     config.awgStrategyName = com.mirrly.tgproxy.core.AwgObfuscationStrategy.CUSTOM.name
                     config.vpnUplinkMode = com.mirrly.tgproxy.core.UplinkMode.AWG
@@ -449,32 +467,30 @@ class MirrlyVpnService : VpnService() {
                     rawHost.startsWith("188.114.") ||
                     WarpEndpointScanner.CLEAN_IPV4_POOL.contains(rawHost)
 
-                // Порт 2408 в РФ блокируется ТСПУ на большинстве провайдеров. Автоматически заменяем его на чистый WireGuard Anycast порт 1701 или 500
+                // Анти-блокировка для РФ: раздельный выбор чистых Anycast эндпоинтов ДО поднятия TUN
                 val cleanAwgEp = when {
                     isCustomAwgProfileActive && !isCloudflareHost && awgPort > 0 -> {
                         // Кастомный VPS пользователя: сохраняем указанный эндпоинт и порт полностью
                         currentAwgEp
                     }
-                    awgPort == 2408 || awgPort == 0 -> {
+                    isAwgPortValid -> currentAwgEp
+                    sticky != null && sticky.port in listOf(500, 4500, 1701) -> sticky.endpoint
+                    else -> {
                         val host = if (rawHost.isNotBlank()) rawHost else "162.159.193.10"
-                        AppLogger.i(TAG, "VPN: порт 2408 заблокирован ТСПУ в РФ, автоматическое переключение на чистый WireGuard Anycast порт $host:1701")
+                        AppLogger.i(TAG, "VPN: порт $awgPort не поддерживается WireGuard Anycast, переключение на чистый порт $host:1701")
                         "$host:1701"
                     }
-                    sticky != null && sticky.port in listOf(500, 4500, 1701) -> sticky.endpoint
-                    isAwgPortValid -> currentAwgEp
-                    config.warpPeerEndpoint.isNotBlank() && !config.warpPeerEndpoint.endsWith(":2408") && !config.warpPeerEndpoint.endsWith(":0") -> config.warpPeerEndpoint
-                    else -> "162.159.193.10:1701"
                 }
 
                 val currentMasqueEp = if (config.warpMasquePeerEndpoint.isNotBlank()) config.warpMasquePeerEndpoint else config.warpPeerEndpoint
-                val (_, masquePort) = WarpEndpointScanner.parseEndpoint(currentMasqueEp)
+                val (rawMasqueHost, masquePort) = WarpEndpointScanner.parseEndpoint(currentMasqueEp)
                 val isMasquePortValid = masquePort in listOf(443, 8095, 8443, 4443)
 
                 val cleanMasqueEp = when {
+                    isMasquePortValid && masquePort !in listOf(500, 1701, 4500, 2408) -> currentMasqueEp
                     sticky != null && sticky.port in listOf(443, 8095, 8443, 4443) -> sticky.endpoint
-                    isMasquePortValid && masquePort != 500 && masquePort != 1701 && masquePort != 4500 && masquePort != 2408 -> currentMasqueEp
-                    config.warpMasquePeerEndpoint.isNotBlank() && !config.warpMasquePeerEndpoint.endsWith(":0") && !config.warpMasquePeerEndpoint.endsWith(":2408") -> config.warpMasquePeerEndpoint
-                    else -> "188.114.96.1:8095"
+                    rawMasqueHost.isNotBlank() -> "$rawMasqueHost:443"
+                    else -> "188.114.96.1:443"
                 }
 
                 if (!isCustomAwgProfileActive || isCloudflareHost) {
@@ -527,6 +543,12 @@ class MirrlyVpnService : VpnService() {
                     peerPublicKey = config.effectiveMasquePeerPublicKey,
                     uriTemplate = config.warpUriTemplate
                 )
+                try {
+                    val dohList = "https://common.dot.dns.yandex.net/dns-query,https://dns.adguard-dns.com/dns-query,https://188.114.96.1/dns-query"
+                    NativeProxy.setDohEndpoints(dohList)
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Не удалось настроить нативные DoH эндпоинты: ${e.message}")
+                }
 
                 if (!isActive || vpnGeneration.get() != gen) {
                     AppLogger.w(TAG, "Старт VPN прерван новым поколением жизненного цикла перед созданием TUN")
@@ -542,10 +564,16 @@ class MirrlyVpnService : VpnService() {
                     packageNames = app.prefsManager.getVpnSplitTunnelPackages()
                 )
 
-                val effectiveDnsList = if (effectiveProfile.dnsLine.isNotBlank()) {
-                    com.mirrly.tgproxy.core.ProxyConfig.parseCustomDnsIps(effectiveProfile.dnsLine)
-                } else {
-                    config.getEffectiveVpnDnsIpv4()
+                val effectiveDnsList = when (config.vpnDnsMode) {
+                    com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS -> com.mirrly.tgproxy.core.ProxyConfig.COMSS_DNS_IPV4
+                    com.mirrly.tgproxy.core.VpnDnsMode.CUSTOM -> {
+                        if (config.vpnCustomDnsIps.isNotBlank()) com.mirrly.tgproxy.core.ProxyConfig.parseCustomDnsIps(config.vpnCustomDnsIps)
+                        else com.mirrly.tgproxy.core.ProxyConfig.CLOUDFLARE_DNS_IPV4
+                    }
+                    com.mirrly.tgproxy.core.VpnDnsMode.CLOUDFLARE -> {
+                        if (effectiveProfile.dnsLine.isNotBlank()) com.mirrly.tgproxy.core.ProxyConfig.parseCustomDnsIps(effectiveProfile.dnsLine)
+                        else com.mirrly.tgproxy.core.ProxyConfig.CLOUDFLARE_DNS_IPV4
+                    }
                 }
 
                 val tunResult = VpnTunManager.establish(

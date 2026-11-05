@@ -22,7 +22,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import com.mirrly.tgproxy.BuildConfig
 import com.mirrly.tgproxy.core.AppLogger
+import com.mirrly.tgproxy.ui.icon.CentralButtonView
 import com.mirrly.tgproxy.util.findActivity
 import android.net.Uri
 import android.os.Build
@@ -168,6 +170,8 @@ fun HomeScreen(
     val isSocks5 by app.prefsManager.isSocks5Flow.collectAsState()
     val socks5UplinkMode by app.prefsManager.socks5UplinkModeFlow.collectAsState(initial = app.config.socks5UplinkMode)
     val isAnimationsDisabled by app.prefsManager.animationsDisabledFlow.collectAsState()
+    val homeRingsEnabled by app.prefsManager.homeRingsEnabledFlow.collectAsState()
+    val orbitalSpheresScale by app.prefsManager.orbitalSpheresScaleFlow.collectAsState()
     val activeWorkerIdMtproto by app.prefsManager.activeWorkerIdMtprotoFlow.collectAsState()
     val activeWorkerIdSocks5 by app.prefsManager.activeWorkerIdSocks5Flow.collectAsState()
     val activeWorkerMtproto = remember(activeWorkerIdMtproto) { app.prefsManager.getActiveWorker(com.mirrly.tgproxy.core.ProxyMode.MTPROTO, activeWorkerIdMtproto) }
@@ -196,6 +200,8 @@ fun HomeScreen(
         vpnPalette = systemVpnColors
     )
     val protoColors = currentTabColors
+    val isCustomTheme by app.prefsManager.isCustomThemeEnabledFlow.collectAsState()
+    val effectiveVpnColors = if (isCustomTheme) currentTabColors else systemVpnColors
     var showVpnProtocolDialog by rememberSaveable { mutableStateOf(false) }
     var showSplitTunnelAppsDialog by rememberSaveable { mutableStateOf(false) }
     var showUplinkSwitcherSheet by rememberSaveable { mutableStateOf(false) }
@@ -426,6 +432,12 @@ fun HomeScreen(
 
     val updateInfo by com.mirrly.tgproxy.service.UpdateManager.updateState.collectAsState()
     val timerState by com.mirrly.tgproxy.service.SleepTimerManager.timerState.collectAsState()
+    val centralButtonIconMtproto by app.prefsManager.centralButtonIconMtprotoFlow.collectAsState()
+    val centralButtonIconSocks5 by app.prefsManager.centralButtonIconSocks5Flow.collectAsState()
+    val centralButtonIconVpn by app.prefsManager.centralButtonIconVpnFlow.collectAsState()
+    val customIconCodeMtproto by app.prefsManager.customIconCodeMtprotoFlow.collectAsState()
+    val customIconCodeSocks5 by app.prefsManager.customIconCodeSocks5Flow.collectAsState()
+    val customIconCodeVpn by app.prefsManager.customIconCodeVpnFlow.collectAsState()
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showConnectDialog by remember { mutableStateOf(false) }
     var showSocks5AuthRequiredDialog by remember { mutableStateOf(false) }
@@ -558,16 +570,27 @@ fun HomeScreen(
                         }
                     }
 
-                    // Strictly by center: title «Mirrly» (to same  height and horizontal axis, as and icons)
-                    Text(
-                        text = "Mirrly",
-                        color = TextWhite,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 0.6.sp,
-                        textAlign = TextAlign.Center,
+                    // Strictly by center: title «Mirrly» + subtle cyber version badge
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.align(Alignment.Center)
-                    )
+                    ) {
+                        Text(
+                            text = "Mirrly",
+                            color = TextWhite,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.6.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        HomeScreenVersionBadge(
+                            version = BuildConfig.VERSION_NAME,
+                            accentColor = protoColors.primary,
+                            hasUpdate = updateInfo?.isUpdateAvailable == true,
+                            onClick = onOpenUpdate
+                        )
+                    }
 
                     // Actions (Right) - AI Chat, Update, Settings
                     Row(
@@ -657,7 +680,7 @@ fun HomeScreen(
                     activeWorkerMtproto = activeWorkerMtproto,
                     activeWorkerSocks5 = activeWorkerSocks5,
                     protoColors = protoColors,
-                    vpnColors = systemVpnColors,
+                    vpnColors = effectiveVpnColors,
                     isSwitching = isSwitching,
                     onSwitchProtocol = { target ->
                         switchProtocol(target)
@@ -725,12 +748,13 @@ fun HomeScreen(
             val isCompactHeight = screenHeight < 720.dp
             val isVeryCompactHeight = screenHeight < 620.dp
 
-            val ringSize = when {
+            val baseRingSize = when {
                 isVeryCompactHeight -> 165.dp
                 isCompactHeight -> 190.dp
                 else -> 215.dp
             }
-            val powerIconSize = ringSize * (155f / 220f)
+            val ringSize = baseRingSize * orbitalSpheresScale
+            val powerIconSize = ringSize * (175f / 220f)
 
             val testBanner = context.findActivity<MainActivity>()?.testBannerState?.value
             var showDonationBanner by remember(testBanner) {
@@ -769,6 +793,12 @@ fun HomeScreen(
                 targetValue = if (isSheetOpen) 1f else 0f,
                 animationSpec = tween(durationMillis = 240, easing = LinearOutSlowInEasing),
                 label = "homeBodySheetBlur"
+            )
+
+            val ringsAlpha by animateFloatAsState(
+                targetValue = if (homeRingsEnabled) 1f else 0f,
+                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                label = "homeRingsAlpha"
             )
             val density = LocalDensity.current.density
             val bodySheetBlurModifier = if (sheetBlurProgress > 0.005f) {
@@ -1033,26 +1063,25 @@ fun HomeScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         if (activeTab == HomeScreenTab.VPN) {
-                            RotatingVpnRing(
-                                vpnColors = systemVpnColors,
-                                state = vpnState,
-                                modifier = Modifier.size(ringSize)
-                            )
-
-                            AnimatedWarpCloud(
-                                vpnColors = systemVpnColors,
-                                state = vpnState,
+                            CentralButtonView(
+                                protocol = "vpn",
+                                presetId = centralButtonIconVpn,
+                                customCode = customIconCodeVpn,
+                                state = when (vpnState) {
+                                    VpnUiState.CONNECTED -> ProxyUiState.CONNECTED
+                                    VpnUiState.CONNECTING -> ProxyUiState.CONNECTING
+                                    VpnUiState.DISCONNECTING -> ProxyUiState.DISCONNECTING
+                                    VpnUiState.DISCONNECTED -> ProxyUiState.DISCONNECTED
+                                },
+                                isSocks5 = false,
+                                customColors = effectiveVpnColors,
                                 modifier = Modifier.size(powerIconSize)
                             )
                         } else {
-                            RotatingProxyRing(
-                                state = currentState,
-                                isSocks5 = isSocks5,
-                                customColors = currentTabColors,
-                                modifier = Modifier.size(ringSize)
-                            )
-
-                            AnimatedWarpGlider(
+                            CentralButtonView(
+                                protocol = if (isSocks5) "socks5" else "mtproto",
+                                presetId = if (isSocks5) centralButtonIconSocks5 else centralButtonIconMtproto,
+                                customCode = if (isSocks5) customIconCodeSocks5 else customIconCodeMtproto,
                                 state = currentState,
                                 isSocks5 = isSocks5,
                                 customColors = currentTabColors,
@@ -1184,7 +1213,6 @@ fun HomeScreen(
                             Surface(
                                 shape = RoundedCornerShape(16.dp),
                                 color = Color.Transparent,
-                                border = BorderStroke(1.dp, if (vpnState == VpnUiState.CONNECTED) systemVpnColors.primary.copy(alpha = 0.40f) else AmoledBorder),
                                 modifier = Modifier.springPress(onClick = {
                                     val now = System.currentTimeMillis()
                                     if (now - lastPowerClickMs < 450L) return@springPress
@@ -1227,7 +1255,7 @@ fun HomeScreen(
                                     Surface(
                                         shape = CircleShape,
                                         color = when (vpnState) {
-                                            VpnUiState.CONNECTED -> systemVpnColors.primary
+                                            VpnUiState.CONNECTED -> effectiveVpnColors.primary
                                             VpnUiState.CONNECTING, VpnUiState.DISCONNECTING -> Color(0xFFFF9E00)
                                             VpnUiState.DISCONNECTED -> Color(0xFF353C4F)
                                         },
@@ -1254,12 +1282,12 @@ fun HomeScreen(
                                             modifier = Modifier
                                                 .width(1.dp)
                                                 .height(13.dp)
-                                                .background(systemVpnColors.primary.copy(alpha = 0.35f))
+                                                .background(effectiveVpnColors.primary.copy(alpha = 0.35f))
                                         )
 
                                         RollingNumberText(
                                             text = formatUptime(vpnStatus.uptimeMs / 1000L),
-                                            color = systemVpnColors.primary,
+                                            color = effectiveVpnColors.primary,
                                             fontSize = if (isCompactHeight) 13.5.sp else 14.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             letterSpacing = 1.1.sp
@@ -1284,7 +1312,7 @@ fun HomeScreen(
                         VpnInfoWidget(
                             isCompact = isCompactHeight,
                             vpnState = vpnState,
-                            vpnColors = systemVpnColors,
+                            vpnColors = effectiveVpnColors,
                             vpnUplinkMode = vpnUplinkMode,
                             onTapProfile = { showVpnProfileSelectorDialog = true },
                             onTapDns = { showVpnProtocolDialog = true }
@@ -1384,10 +1412,6 @@ fun HomeScreen(
                             },
                             shape = RoundedCornerShape(16.dp),
                             color = Color.Transparent,
-                            border = BorderStroke(
-                                1.dp,
-                                if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.35f) else AmoledBorder
-                            ),
                             modifier = Modifier
                                 .animateContentSize(
                                     animationSpec = spring(
@@ -1561,10 +1585,6 @@ fun HomeScreen(
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = Color.Transparent,
-                        border = BorderStroke(
-                            1.dp,
-                            if (currentState == ProxyUiState.CONNECTED) protoColors.primary.copy(alpha = 0.25f) else AmoledBorder
-                        ),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 2.dp)
@@ -2104,7 +2124,7 @@ fun HomeScreen(
 
             if (showVpnProfileSelectorDialog) {
                 VpnProfileSelectorDialog(
-                    vpnColors = systemVpnColors,
+                    vpnColors = effectiveVpnColors,
                     onDismiss = { showVpnProfileSelectorDialog = false }
                 )
             }
@@ -2128,8 +2148,7 @@ fun HomeScreen(
                                 val result = com.mirrly.tgproxy.core.WarpAccountManager.attachLicenseKey(
                                     accountId = currentProf.accountId,
                                     token = currentProf.token,
-                                    licenseKey = key,
-                                    workerDomain = app.config.getEffectiveWarpWorkerDomain()
+                                    licenseKey = key
                                 )
                                 result.onSuccess {
                                     val updated = currentProf.copy(
@@ -2183,14 +2202,14 @@ fun HomeScreen(
 
             if (showVpnProtocolDialog) {
                 VpnProtocolSelectorDialog(
-                    vpnColors = systemVpnColors,
+                    vpnColors = effectiveVpnColors,
                     onDismiss = { showVpnProtocolDialog = false }
                 )
             }
 
             if (showSplitTunnelAppsDialog) {
                 SplitTunnelAppsDialog(
-                    vpnColors = systemVpnColors,
+                    vpnColors = effectiveVpnColors,
                     selectedPackages = vpnSplitTunnelPackages,
                     onSave = { newSelection ->
                         app.prefsManager.setVpnSplitTunnelPackages(newSelection)
@@ -2526,6 +2545,7 @@ fun AnimatedWarpGlider(
     state: ProxyUiState,
     isSocks5: Boolean = false,
     customColors: ProtocolColors? = null,
+    strokeWidthDp: Float = 2.0f,
     modifier: Modifier = Modifier
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -2613,9 +2633,9 @@ fun AnimatedWarpGlider(
     )
 
     val density = LocalDensity.current
-    val strokeWidthPx = remember(density) { with(density) { 2.dp.toPx() } }
-    val spineStrokePx = remember(density) { with(density) { 2.2.dp.toPx() } }
-    val dotRadiusPx = remember(density) { with(density) { 2.2.dp.toPx() } }
+    val strokeWidthPx = remember(density, strokeWidthDp) { with(density) { strokeWidthDp.dp.toPx() } }
+    val spineStrokePx = remember(density, strokeWidthDp) { with(density) { (strokeWidthDp * 1.1f).dp.toPx() } }
+    val dotRadiusPx = remember(density, strokeWidthDp) { with(density) { (strokeWidthDp * 1.1f).dp.toPx() } }
     val liftPx = with(density) { animatedLiftDp.toPx() }
 
     // Reusable Path instances to prevent frame GC allocations
@@ -3562,10 +3582,16 @@ fun ProtocolSwitcherHeader(
     val capsuleHeight = 31.dp
     val tabWidth = capsuleWidth / 3
 
-    val targetPillColor = when (currentTab) {
-        HomeScreenTab.MTPROTO -> MtprotoAccent
-        HomeScreenTab.SOCKS5 -> Socks5Accent
-        HomeScreenTab.VPN -> vpnColors.primary
+    val prefs = remember { com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager }
+    val isCustomTheme by prefs.isCustomThemeEnabledFlow.collectAsState()
+    val targetPillColor = if (isCustomTheme) {
+        protoColors.primary
+    } else {
+        when (currentTab) {
+            HomeScreenTab.MTPROTO -> MtprotoAccent
+            HomeScreenTab.SOCKS5 -> Socks5Accent
+            HomeScreenTab.VPN -> vpnColors.primary
+        }
     }
 
     val switcherAccentColor by animateColorAsState(
@@ -3605,11 +3631,6 @@ fun ProtocolSwitcherHeader(
                     .height(capsuleHeight)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color.Transparent)
-                    .border(
-                        width = 1.dp,
-                        color = Color(0xFF1E283D),
-                        shape = RoundedCornerShape(16.dp)
-                    )
                     .pointerInput(Unit) {
                         detectHorizontalDragGestures(
                             onDragStart = {
@@ -3786,7 +3807,7 @@ fun ProtocolSwitcherHeader(
         // Active Uplink Indicator Badge
         val isWarpActive = warpProfile != null && warpProfile.isWarpEnabled
 
-        val (badgeText, badgeBaseColor, badgeClick) = when (currentTab) {
+        val (badgeText, rawBadgeColor, badgeClick) = when (currentTab) {
             HomeScreenTab.MTPROTO -> {
                 if (useWorkerMtproto && activeWorkerMtproto.domain.isNotBlank()) {
                     Triple(
@@ -3836,6 +3857,7 @@ fun ProtocolSwitcherHeader(
                 )
             }
         }
+        val badgeBaseColor = if (isCustomTheme) protoColors.primary else rawBadgeColor
 
         val animatedBadgeColor by animateColorAsState(
             targetValue = badgeBaseColor,
@@ -3849,7 +3871,6 @@ fun ProtocolSwitcherHeader(
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.Transparent)
-                .border(1.dp, animatedBadgeColor.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
                 .springPress(onClick = {
                     HapticHelper.performSoftTick(context)
                     badgeClick()
@@ -3890,7 +3911,9 @@ fun TelegramChannelCapsuleButton(
 ) {
     val context = LocalContext.current
     val capsuleHeight = 24.dp
-    val cyanAccent = Color(0xFF26A5E4)
+    val prefs = remember { com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager }
+    val isCustomTheme by prefs.isCustomThemeEnabledFlow.collectAsState()
+    val activeAccent = if (isCustomTheme) LocalProtocolColors.current.primary else Color(0xFF26A5E4)
 
     Box(
         modifier = modifier
@@ -3900,7 +3923,7 @@ fun TelegramChannelCapsuleButton(
             .background(Color.Transparent)
             .border(
                 width = 1.dp,
-                color = cyanAccent.copy(alpha = 0.55f),
+                color = activeAccent.copy(alpha = 0.55f),
                 shape = RoundedCornerShape(12.dp)
             )
             .springPress(onClick = {
@@ -3917,7 +3940,7 @@ fun TelegramChannelCapsuleButton(
             Icon(
                 painter = painterResource(id = R.drawable.ic_telegram),
                 contentDescription = null,
-                tint = cyanAccent,
+                tint = activeAccent,
                 modifier = Modifier.size(11.5.dp)
             )
             Spacer(modifier = Modifier.width(5.dp))
@@ -3934,7 +3957,7 @@ fun TelegramChannelCapsuleButton(
             Icon(
                 painter = painterResource(id = R.drawable.ic_chevron_right),
                 contentDescription = null,
-                tint = cyanAccent.copy(alpha = 0.70f),
+                tint = activeAccent.copy(alpha = 0.70f),
                 modifier = Modifier.size(10.dp)
             )
         }
@@ -4401,6 +4424,76 @@ private fun UplinkStateRow(label: String, value: String, isAlert: Boolean = fals
         )
     }
 }
+
+/**
+ * Subtle cyber-styled version badge for the top bar.
+ * Follows MirrlyUI principles: Outline-Only, Zero Background, breathing LED pulse,
+ * running light sweep shimmer, and spring physics.
+ */
+@Composable
+private fun HomeScreenVersionBadge(
+    version: String,
+    accentColor: Color,
+    hasUpdate: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    val infiniteTransition = rememberInfiniteTransition(label = "versionBadgeLed")
+    val ledAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.95f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "versionLedAlpha"
+    )
+
+    val activeColor = if (hasUpdate) Color(0xFFFFB703) else accentColor
+
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = Color.Black.copy(alpha = 0.20f),
+        border = BorderStroke(1.dp, activeColor.copy(alpha = if (hasUpdate) 0.50f else 0.25f)),
+        modifier = modifier
+            .lightSweep(
+                isEnabled = true,
+                shape = RoundedCornerShape(6.dp),
+                borderWidth = 1.dp,
+                sweepColor = activeColor.copy(alpha = 0.40f)
+            )
+            .springPress(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onClick()
+                },
+                pressScale = 0.94f
+            )
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(4.dp)
+                    .clip(CircleShape)
+                    .background(activeColor.copy(alpha = ledAlpha))
+            )
+            Text(
+                text = "v$version",
+                color = if (hasUpdate) Color(0xFFFFB703).copy(alpha = 0.85f) else TextWhite.copy(alpha = 0.55f),
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.4.sp
+            )
+        }
+    }
+}
+
 
 
 

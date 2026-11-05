@@ -8,6 +8,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -78,6 +79,10 @@ val MtprotoEmerald = Color(0xFF00E676)
 // SOCKS5 Protocol Theme (Neon Violet / Purple)
 val Socks5Accent = Color(0xFFB388FF)
 val Socks5Glow = Color(0x3DB388FF)
+
+// VPN Protocol Theme (Electric Amber / Gold)
+val VpnAccent = Color(0xFFFFA000)
+val VpnGlow = Color(0x3DFFA000)
 val Socks5Secondary = Color(0xFF7C4DFF)
 val Socks5Light = Color(0xFFC084FC)
 val Socks5Indigo = Color(0xFF818CF8)
@@ -124,17 +129,31 @@ fun rememberAnimatedProtocolColors(
     isVpn: Boolean = false,
     vpnPalette: ProtocolColors? = null
 ): ProtocolColors {
-    val isTargetSocks5 = when {
-        proxyMode != null -> proxyMode == com.mirrly.tgproxy.core.ProxyMode.SOCKS5
-        else -> isSocks5
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val prefs = com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager
+    val accentMode by prefs.themeAccentModeFlow.collectAsState()
+    val presetId by prefs.themePresetIdFlow.collectAsState()
+    val customColorHex by prefs.themeCustomColorHexFlow.collectAsState()
+    val brightness by prefs.themeBrightnessFlow.collectAsState()
+    val saturation by prefs.themeSaturationFlow.collectAsState()
+    val alpha by prefs.themeAlphaFlow.collectAsState()
+
+    val target = remember(accentMode, presetId, customColorHex, brightness, saturation, alpha, proxyMode, isSocks5, isVpn, vpnPalette) {
+        calculateEffectiveProtocolColors(
+            mode = accentMode,
+            presetId = presetId,
+            customColorHex = customColorHex,
+            context = context,
+            proxyMode = proxyMode,
+            isSocks5 = isSocks5,
+            isVpn = isVpn,
+            vpnPalette = vpnPalette,
+            brightness = brightness,
+            saturation = saturation,
+            alpha = alpha
+        )
     }
-    val target = when {
-        isVpn && vpnPalette != null -> vpnPalette
-        isVpn -> VpnElectricAmberPalette
-        isTargetSocks5 -> Socks5Palette
-        else -> MtprotoPalette
-    }
-    val spec = tween<Color>(durationMillis = 750, easing = FastOutSlowInEasing)
+    val spec = tween<Color>(durationMillis = 650, easing = FastOutSlowInEasing)
 
     val primary by androidx.compose.animation.animateColorAsState(target.primary, spec, label = "protoPrimary")
     val glow by androidx.compose.animation.animateColorAsState(target.glow, spec, label = "protoGlow")
@@ -156,6 +175,25 @@ fun rememberAnimatedProtocolColors(
             orb3 = orb3,
             orb4 = orb4
         )
+    }
+}
+
+val LocalCardShape = androidx.compose.runtime.compositionLocalOf<Shape> {
+    RoundedCornerShape(16.dp)
+}
+
+@Composable
+fun rememberEffectiveCardShape(): Shape {
+    val prefs = com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager
+    val cornerStyle by prefs.cardCornerStyleFlow.collectAsState()
+    val radiusDp by prefs.cardCornerRadiusDpFlow.collectAsState()
+
+    return remember(cornerStyle, radiusDp) {
+        when (cornerStyle) {
+            com.mirrly.tgproxy.service.CardCornerStyle.ROUNDED -> RoundedCornerShape(radiusDp.dp)
+            com.mirrly.tgproxy.service.CardCornerStyle.SHARP -> RoundedCornerShape(2.dp)
+            com.mirrly.tgproxy.service.CardCornerStyle.CYBER_CHISEL -> CutCornerShape(12.dp)
+        }
     }
 }
 
@@ -216,7 +254,12 @@ fun MirrlyTheme(
         vpnPalette = vpnPalette
     )
 
-    androidx.compose.runtime.CompositionLocalProvider(LocalProtocolColors provides protoColors) {
+    val cardShape = rememberEffectiveCardShape()
+
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalProtocolColors provides protoColors,
+        LocalCardShape provides cardShape
+    ) {
         ProvideAdaptiveMetrics {
             MaterialTheme(
                 colorScheme = AmoledDarkColorScheme.copy(tertiary = protoColors.primary),

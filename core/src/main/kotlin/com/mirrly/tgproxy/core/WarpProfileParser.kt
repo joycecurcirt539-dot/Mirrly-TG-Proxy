@@ -13,6 +13,7 @@ import java.util.UUID
 
 enum class ImportedProfileType(val title: String) {
     WARP_PLUS_KEY("Лицензионный ключ WARP+"),
+    WARP_MASQUE("WARP MASQUE (.masque)"),
     WIREGUARD_CONF("WireGuard (.conf)"),
     AMNEZIA_WG_CONF("AmneziaWG (.ini)"),
     CLASH_META_YAML("Clash Meta (.yaml)"),
@@ -88,24 +89,44 @@ object WarpProfileParser {
             // Сначала пробуем встроенный кодек Mirrly
             val mirrlyProfile = WarpProfileCodec.decode(jsonStr)
             if (mirrlyProfile != null && mirrlyProfile.isUsable()) {
+                val isMasque = mirrlyProfile.isMasqueValid || mirrlyProfile.p256PrivateKeyBase64.isNotBlank()
                 return WarpImportResult.Success(
-                    type = ImportedProfileType.CLOUDFLARE_JSON,
+                    type = if (isMasque) ImportedProfileType.WARP_MASQUE else ImportedProfileType.CLOUDFLARE_JSON,
                     profile = mirrlyProfile,
-                    summary = "Mirrly JSON • IPv4: ${mirrlyProfile.clientIpv4}",
+                    summary = if (isMasque) "WARP MASQUE • IPv4: ${mirrlyProfile.clientIpv4}" else "Mirrly JSON • IPv4: ${mirrlyProfile.clientIpv4}",
                     licenseKey = mirrlyProfile.licenseKey.ifBlank { null }
                 )
             }
 
             val root = JSONObject(jsonStr)
 
-            // Извлечение ключей
-            val rawPriv = root.optString("private_key")
+            // Извлечение P-256 ключей для MASQUE
+            val p256Priv = root.optString("p256PrivateKeyBase64")
+                .ifBlank { root.optString("p256PrivateKey") }
+                .ifBlank { root.optString("p256_private_key") }
+                .trim()
+            val p256Pub = root.optString("p256PublicKeyBase64")
+                .ifBlank { root.optString("p256PublicKey") }
+                .ifBlank { root.optString("p256_public_key") }
+                .trim()
+            val clientCert = root.optString("clientCertBase64")
+                .ifBlank { root.optString("clientCert") }
+                .ifBlank { root.optString("client_cert") }
+                .trim()
+
+            // Извлечение ключей Curve25519
+            var rawPriv = root.optString("private_key")
                 .ifBlank { root.optString("privateKey") }
                 .ifBlank { root.optString("key") }
                 .trim()
 
+            // Если Curve25519 ключ отсутствует, но есть P-256 приватный ключ MASQUE — используем placeholder
+            if (rawPriv.isBlank() && p256Priv.isNotBlank()) {
+                rawPriv = Base64.getEncoder().encodeToString(ByteArray(32))
+            }
+
             if (rawPriv.isBlank()) {
-                return WarpImportResult.Error("JSON не содержит приватного ключа (private_key)")
+                return WarpImportResult.Error("JSON не содержит приватного ключа (private_key / p256PrivateKey)")
             }
 
             val privBytes = try {
@@ -203,6 +224,8 @@ object WarpProfileParser {
                 licenseKey.isNotBlank() ||
                 root.optString("account_type").contains("plus", ignoreCase = true)
 
+            val isMasque = p256Priv.isNotBlank() || root.optBoolean("isMasqueValid", false)
+
             val profile = WarpProfile(
                 accountId = accountId,
                 token = token,
@@ -213,6 +236,15 @@ object WarpProfileParser {
                 peerPublicKey = peerPub,
                 privateKeyBase64 = rawPriv,
                 publicKeyBase64 = pubBase64,
+                p256PrivateKeyBase64 = p256Priv,
+                p256PublicKeyBase64 = p256Pub,
+                clientCertBase64 = clientCert,
+                masqueAccountId = accountId,
+                masqueToken = token,
+                masquePeerEndpoint = endpoint,
+                masquePeerPublicKey = peerPub,
+                masqueClientIpv4 = ipv4.substringBefore("/"),
+                masqueClientIpv6 = ipv6.substringBefore("/"),
                 isWarpPlus = isPlus,
                 isWarpEnabled = true,
                 isRegistered = true,
@@ -221,13 +253,14 @@ object WarpProfileParser {
                 dataPlaneReady = true,
                 isBundledSeed = true,
                 isWgValid = true,
+                isMasqueValid = isMasque,
                 entitlement = if (isPlus) WarpEntitlement.PLUS else WarpEntitlement.FREE
             )
 
             WarpImportResult.Success(
-                type = ImportedProfileType.CLOUDFLARE_JSON,
+                type = if (isMasque) ImportedProfileType.WARP_MASQUE else ImportedProfileType.CLOUDFLARE_JSON,
                 profile = profile,
-                summary = "JSON профиль • $ipv4 -> $endpoint",
+                summary = if (isMasque) "MASQUE профиль • $ipv4 -> $endpoint" else "JSON профиль • $ipv4 -> $endpoint",
                 licenseKey = licenseKey.ifBlank { null }
             )
         } catch (e: Exception) {

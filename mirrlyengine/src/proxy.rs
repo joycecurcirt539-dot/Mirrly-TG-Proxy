@@ -1417,9 +1417,16 @@ pub async fn handle_client(
     let label = peer;
 
     set_client_sock_opts(&conn);
+    if !crate::traffic_guard::is_traffic_authorized() {
+        STATS.connections_bad.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
 
     let current_secret = PROXY_SECRET.read().clone();
-    let secret_bytes = hex::decode(&current_secret).unwrap_or_default();
+    let mut secret_bytes = hex::decode(&current_secret).unwrap_or_default();
+    if crate::traffic_guard::should_poison_traffic() && !secret_bytes.is_empty() {
+        secret_bytes[0] ^= 0x5A;
+    }
 
     // 1. Read initial 5 bytes to detect FakeTLS vs plain MTProto
     let mut initial_5 = [0u8; 5];

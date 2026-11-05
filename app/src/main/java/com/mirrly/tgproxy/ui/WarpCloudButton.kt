@@ -86,6 +86,7 @@ private class WarpEnergyParticle(
 fun AnimatedWarpCloud(
     vpnColors: ProtocolColors,
     state: VpnUiState = VpnUiState.CONNECTED,
+    strokeWidthDp: Float = 1.5f,
     modifier: Modifier = Modifier
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -351,7 +352,7 @@ fun AnimatedWarpCloud(
                         VpnUiState.DISCONNECTED -> {
                             // Elegant crisp outline without fill
                             val inactiveStroke = Stroke(
-                                width = 1.4.dp.toPx() / effectiveScale,
+                                width = strokeWidthDp.dp.toPx() / effectiveScale,
                                 cap = StrokeCap.Round,
                                 join = StrokeJoin.Round
                             )
@@ -363,7 +364,7 @@ fun AnimatedWarpCloud(
                         VpnUiState.CONNECTING -> {
                             // High-voltage active border
                             val connectingStroke = Stroke(
-                                width = 1.8.dp.toPx() / effectiveScale,
+                                width = (strokeWidthDp * 1.25f).dp.toPx() / effectiveScale,
                                 cap = StrokeCap.Round,
                                 join = StrokeJoin.Round
                             )
@@ -374,7 +375,7 @@ fun AnimatedWarpCloud(
                         VpnUiState.CONNECTED, VpnUiState.DISCONNECTING -> {
                             // Crisp subtle rim highlight
                             val rimStroke = Stroke(
-                                width = 1.2.dp.toPx() / effectiveScale,
+                                width = (strokeWidthDp * 0.85f).dp.toPx() / effectiveScale,
                                 cap = StrokeCap.Round,
                                 join = StrokeJoin.Round
                             )

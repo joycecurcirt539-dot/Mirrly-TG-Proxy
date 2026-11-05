@@ -25,7 +25,7 @@ object WarpConfigGeneratorEngine {
     val WARP_SAFE_S = listOf(0, 0, 0, 0)
     val WARP_SAFE_H = listOf(1L, 2L, 3L, 4L)
     const val DEFAULT_CF_PEER_KEY = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
-    const val DEFAULT_CF_ENDPOINT = "188.114.96.1:8095"
+    const val DEFAULT_CF_ENDPOINT = "162.159.193.10:1701"
 
     /**
      * Безопасное маскирование приватного ключа для предпросмотра в UI.
@@ -90,30 +90,27 @@ object WarpConfigGeneratorEngine {
     }
 
     /**
-     * Сборка конфигурации WireGuard (.conf).
+     * Сборка конфигурации WARP MASQUE (.masque или .json).
      */
-    fun buildWireguardConf(
-        privateKey: String,
-        addressLine: String,
-        dnsLine: String,
-        peerPublicKey: String,
+    fun buildWarpMasqueProfile(
+        profile: WarpProfile,
         endpoint: String,
-        mtu: Int = 1280,
-        keepalive: Int = 25
+        dnsLine: String = "",
+        asJsonDump: Boolean = false
     ): String {
-        val sb = StringBuilder()
-        sb.appendLine("[Interface]")
-        sb.appendLine("PrivateKey = $privateKey")
-        sb.appendLine("Address = $addressLine")
-        if (dnsLine.isNotBlank()) sb.appendLine("DNS = $dnsLine")
-        sb.appendLine("MTU = $mtu")
-        sb.appendLine()
-        sb.appendLine("[Peer]")
-        sb.appendLine("PublicKey = $peerPublicKey")
-        sb.appendLine("AllowedIPs = 0.0.0.0/0, ::/0")
-        sb.appendLine("Endpoint = $endpoint")
-        if (keepalive > 0) sb.appendLine("PersistentKeepalive = $keepalive")
-        return sb.toString().trim()
+        val masqueProf = profile.copy(
+            peerEndpoint = endpoint,
+            userEndpointOverride = endpoint,
+            masquePeerEndpoint = endpoint,
+            masqueUserOverride = endpoint,
+            dnsServers = dnsLine.ifBlank { profile.dnsServers },
+            isMasqueValid = true
+        )
+        return if (asJsonDump) {
+            buildMasqueJsonDump(masqueProf, endpoint)
+        } else {
+            WarpProfileCodec.encode(masqueProf)
+        }
     }
 
     /**
@@ -298,76 +295,6 @@ object WarpConfigGeneratorEngine {
     }
 
     /**
-     * Сборка конфигурации Clash Meta / Mihomo (.yaml).
-     */
-    fun buildClashMetaYaml(
-        profileName: String,
-        privateKey: String,
-        ipv4: String,
-        ipv6: String,
-        includeIPv6: Boolean,
-        dnsList: List<String>,
-        peerPublicKey: String,
-        endpoint: String,
-        mtu: Int = 1280,
-        keepalive: Int = 25
-    ): String {
-        val (server, port) = WarpEndpointScanner.parseEndpoint(endpoint)
-        val safePort = if (port <= 0) 8095 else port
-        val cleanV4 = ipv4.substringBefore("/").trim().ifBlank { "172.16.0.2" }
-        val cleanV6 = ipv6.substringBefore("/").trim()
-        val dnsEntries = if (dnsList.isNotEmpty()) dnsList.joinToString(", ") { "\"$it\"" } else "\"1.1.1.1\", \"1.0.0.1\""
-
-        val sb = StringBuilder()
-        sb.appendLine("proxies:")
-        sb.appendLine("  - name: \"$profileName\"")
-        sb.appendLine("    type: wireguard")
-        sb.appendLine("    server: $server")
-        sb.appendLine("    port: $safePort")
-        sb.appendLine("    ip: $cleanV4")
-        if (includeIPv6 && cleanV6.isNotBlank()) {
-            sb.appendLine("    ipv6: $cleanV6")
-        }
-        sb.appendLine("    public-key: $peerPublicKey")
-        sb.appendLine("    private-key: $privateKey")
-        sb.appendLine("    udp: true")
-        sb.appendLine("    remote-dns-resolve: true")
-        sb.appendLine("    dns: [$dnsEntries]")
-        sb.appendLine("    mtu: $mtu")
-        if (keepalive > 0) {
-            sb.appendLine("    keepalive: $keepalive")
-        }
-        return sb.toString().trim()
-    }
-
-    /**
-     * Сборка конфигурации WireSock (.conf).
-     */
-    fun buildWiresockConf(
-        privateKey: String,
-        addressLine: String,
-        dnsLine: String,
-        peerPublicKey: String,
-        endpoint: String,
-        mtu: Int = 1280,
-        keepalive: Int = 25
-    ): String {
-        val sb = StringBuilder()
-        sb.appendLine("[Interface]")
-        sb.appendLine("PrivateKey = $privateKey")
-        sb.appendLine("Address = $addressLine")
-        if (dnsLine.isNotBlank()) sb.appendLine("DNS = $dnsLine")
-        sb.appendLine("MTU = $mtu")
-        sb.appendLine()
-        sb.appendLine("[Peer]")
-        sb.appendLine("PublicKey = $peerPublicKey")
-        sb.appendLine("AllowedIPs = 0.0.0.0/0, ::/0")
-        sb.appendLine("Endpoint = $endpoint")
-        if (keepalive > 0) sb.appendLine("PersistentKeepalive = $keepalive")
-        return sb.toString().trim()
-    }
-
-    /**
      * Валидация совместимости настроек с Cloudflare WARP.
      */
     fun validateWarpSafety(
@@ -375,6 +302,10 @@ object WarpConfigGeneratorEngine {
         params: WarpAwgConfigParams
     ): Pair<Boolean, List<String>> {
         val warnings = mutableListOf<String>()
+
+        if (format == WarpGeneratorFormat.WARP_MASQUE) {
+            return Pair(true, emptyList())
+        }
 
         if (format.isAwg) {
             if (params.s1 != 0 || params.s2 != 0 || params.s3 != 0 || params.s4 != 0) {
@@ -389,6 +320,30 @@ object WarpConfigGeneratorEngine {
     }
 
     /**
+     * Генерация полного JSON-дампа MASQUE со всеми учетными данными.
+     */
+    fun buildMasqueJsonDump(
+        profile: WarpProfile,
+        endpoint: String,
+        sni: String = "consumer-masque-proxy.cloudflareclient.com",
+        uriTemplate: String = "/.well-known/masque/ip/"
+    ): String {
+        return org.json.JSONObject().apply {
+            put("accountId", profile.accountId)
+            put("token", profile.token)
+            put("p256PrivateKeyBase64", profile.p256PrivateKeyBase64)
+            put("p256PublicKeyBase64", profile.p256PublicKeyBase64)
+            put("clientCertBase64", profile.clientCertBase64)
+            put("endpoint", endpoint)
+            put("clientIpv4", profile.clientIpv4)
+            put("clientIpv6", profile.clientIpv6)
+            put("sni", sni)
+            put("uriTemplate", uriTemplate)
+            put("isWarpPlus", profile.isWarpPlus)
+        }.toString(2)
+    }
+
+    /**
      * Генерация пакета конфигураций на основе выбранных параметров.
      * Не выполняет повторных сетевых вызовов в Cloudflare — использует уже зарегистрированную
      * идентичность из baseProfile.
@@ -399,8 +354,8 @@ object WarpConfigGeneratorEngine {
     ): List<WarpGeneratedProfileItem> {
         val results = mutableListOf<WarpGeneratedProfileItem>()
 
-        val effectiveFormats = if (settings.formats.isNotEmpty()) settings.formats.toList() else listOf(WarpGeneratorFormat.AWG_1_0)
-        val effectiveEndpoints = if (settings.endpoints.isNotEmpty()) settings.endpoints else listOf(WarpEndpointPresetOption.CLEAN_8095)
+        val effectiveFormats = if (settings.formats.isNotEmpty()) settings.formats.toList() else listOf(WarpGeneratorFormat.WARP_MASQUE)
+        val effectiveEndpoints = if (settings.endpoints.isNotEmpty()) settings.endpoints else listOf(WarpEndpointPresetOption.FRA_4500)
         val effectiveDnsPresets = if (settings.dnsPresets.isNotEmpty()) settings.dnsPresets else listOf(WarpDnsPresetOption.CLOUDFLARE)
 
         // Защита от чрезмерного декартова произведения (максимум 64 комбинации)
@@ -412,16 +367,31 @@ object WarpConfigGeneratorEngine {
                 for (dnsOpt in effectiveDnsPresets) {
                     if (generatedCount >= maxBatchLimit) break
 
-                    val endpointStr = when {
+                    val rawEp = when {
                         endpointOpt.isCustom -> settings.customEndpoint.trim().ifBlank { DEFAULT_CF_ENDPOINT }
                         endpointOpt.isRandom -> {
-                            val pool = listOf(
-                                "162.159.192.1:2408", "162.159.195.5:2408", "188.114.96.1:8095",
-                                "188.114.97.1:8095", "188.114.96.1:500", "188.114.97.1:4500"
-                            )
-                            pool[secureRandom.nextInt(pool.size)]
+                            if (format == WarpGeneratorFormat.WARP_MASQUE) {
+                                val masquePool = listOf(
+                                    "188.114.97.1:8443", "162.159.198.2:8095", "188.114.96.1:443", "engage.cloudflareclient.com:8443"
+                                )
+                                masquePool[secureRandom.nextInt(masquePool.size)]
+                            } else {
+                                val wgPool = listOf(
+                                    "188.114.97.66:4500", "188.114.96.125:500", "162.159.193.10:1701",
+                                    "162.159.192.1:500", "162.159.195.1:4500"
+                                )
+                                wgPool[secureRandom.nextInt(wgPool.size)]
+                            }
                         }
                         else -> endpointOpt.endpoint.ifBlank { DEFAULT_CF_ENDPOINT }
+                    }
+                    val (epHost, epPort) = WarpEndpointScanner.parseEndpoint(rawEp)
+                    val endpointStr = if (format == WarpGeneratorFormat.WARP_MASQUE) {
+                        val safePort = if (epPort <= 0 || epPort == 2408 || epPort in listOf(500, 1701, 4500)) 8443 else epPort
+                        "$epHost:$safePort"
+                    } else {
+                        val safePort = if (epPort <= 0 || epPort == 2408 || epPort !in listOf(500, 1701, 4500)) 1701 else epPort
+                        "$epHost:$safePort"
                     }
 
                     val (dnsLine, dnsList) = when {
@@ -456,13 +426,11 @@ object WarpConfigGeneratorEngine {
                         }
                     } else {
                         val fmtCode = when (format) {
+                            WarpGeneratorFormat.WARP_MASQUE -> "MASQUE"
                             WarpGeneratorFormat.AWG_1_0 -> "AWG1"
                             WarpGeneratorFormat.AWG_2_0 -> "AWG2"
                             WarpGeneratorFormat.AWG_3_0 -> "AWG3"
                             WarpGeneratorFormat.AWG_3_1 -> "AWG31"
-                            WarpGeneratorFormat.WIREGUARD -> "WG"
-                            WarpGeneratorFormat.CLASH_META -> "CLASH"
-                            WarpGeneratorFormat.WIRESOCK -> "WSOCK"
                         }
                         val epCode = when {
                             endpointOpt.id.contains("8095") -> "8095"
@@ -481,14 +449,11 @@ object WarpConfigGeneratorEngine {
                     }
 
                     val content = when (format) {
-                        WarpGeneratorFormat.WIREGUARD -> buildWireguardConf(
-                            privateKey = baseProfile.privateKeyBase64,
-                            addressLine = addressLine,
-                            dnsLine = dnsLine,
-                            peerPublicKey = baseProfile.peerPublicKey.ifBlank { DEFAULT_CF_PEER_KEY },
+                        WarpGeneratorFormat.WARP_MASQUE -> buildWarpMasqueProfile(
+                            profile = baseProfile,
                             endpoint = endpointStr,
-                            mtu = settings.mtu,
-                            keepalive = settings.persistentKeepalive
+                            dnsLine = dnsLine,
+                            asJsonDump = false
                         )
                         WarpGeneratorFormat.AWG_1_0 -> buildAwg1Conf(
                             privateKey = baseProfile.privateKeyBase64,
@@ -534,35 +499,25 @@ object WarpConfigGeneratorEngine {
                             keepalive = settings.persistentKeepalive,
                             randomize = settings.randomizeRanges
                         )
-                        WarpGeneratorFormat.CLASH_META -> buildClashMetaYaml(
-                            profileName = profileName,
-                            privateKey = baseProfile.privateKeyBase64,
-                            ipv4 = baseProfile.clientIpv4,
-                            ipv6 = baseProfile.clientIpv6,
-                            includeIPv6 = settings.includeIPv6,
-                            dnsList = dnsList,
-                            peerPublicKey = baseProfile.peerPublicKey.ifBlank { DEFAULT_CF_PEER_KEY },
-                            endpoint = endpointStr,
-                            mtu = settings.mtu,
-                            keepalive = settings.persistentKeepalive
-                        )
-                        WarpGeneratorFormat.WIRESOCK -> buildWiresockConf(
-                            privateKey = baseProfile.privateKeyBase64,
-                            addressLine = addressLine,
-                            dnsLine = dnsLine,
-                            peerPublicKey = baseProfile.peerPublicKey.ifBlank { DEFAULT_CF_PEER_KEY },
-                            endpoint = endpointStr,
-                            mtu = settings.mtu,
-                            keepalive = settings.persistentKeepalive
-                        )
                     }
 
                     // Формируем связанный WarpProfile с настроенным эндпоинтом
-                    val associatedProfile = baseProfile.copy(
-                        peerEndpoint = endpointStr,
-                        userEndpointOverride = endpointStr,
-                        awgRawConfig = content
-                    )
+                    val associatedProfile = if (format == WarpGeneratorFormat.WARP_MASQUE) {
+                        baseProfile.copy(
+                            peerEndpoint = endpointStr,
+                            userEndpointOverride = endpointStr,
+                            masquePeerEndpoint = endpointStr,
+                            masqueUserOverride = endpointStr,
+                            dnsServers = dnsLine,
+                            isMasqueValid = true
+                        )
+                    } else {
+                        baseProfile.copy(
+                            peerEndpoint = endpointStr,
+                            userEndpointOverride = endpointStr,
+                            awgRawConfig = content
+                        )
+                    }
 
                     results.add(
                         WarpGeneratedProfileItem(

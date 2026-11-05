@@ -188,6 +188,7 @@ fun OfficialSourceCard(
     // 1. Unofficial Build Warning Sheet (Opens if signature is modified)
     if (showUnofficialWarningDialog) {
         UnofficialBuildDialog(
+            isUnofficialDetected = true,
             onDismiss = { showUnofficialWarningDialog = false }
         )
     }
@@ -195,8 +196,7 @@ fun OfficialSourceCard(
     // 2. Security Bottom Sheet (Zero-Popup MirrlyModalBottomSheet)
     if (showSecurityDialog) {
         val currentSha256 = remember { SignatureVerifier.getSignatureSha256(context) }
-        val isMatchesOfficial = currentSha256.equals(SignatureVerifier.OFFICIAL_RELEASE_SHA256, ignoreCase = true) ||
-            SignatureVerifier.OFFICIAL_RELEASE_SHA256.replace(":", "").equals(currentSha256.replace(":", ""), ignoreCase = true)
+        val isMatchesOfficial = signatureStatus == SignatureStatus.OFFICIAL_RELEASE
 
         MirrlyModalBottomSheet(
             onDismissRequest = { showSecurityDialog = false },

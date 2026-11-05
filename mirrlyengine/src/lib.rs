@@ -20,6 +20,7 @@ pub mod supervisor;
 pub mod tls_observability;
 pub mod vpn;
 pub mod ws;
+pub mod traffic_guard;
 
 pub use cfproxy::ProtoScope;
 
@@ -114,6 +115,7 @@ fn init_crypto_and_panic_hook() {
             crate::lerror!("RUST ENGINE PANIC: {}", info);
         }));
     });
+    traffic_guard::ensure_traffic_guard_audited();
 }
 
 pub(crate) fn runtime() -> &'static Runtime {

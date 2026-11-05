@@ -144,6 +144,10 @@ async fn handle_socks5_client(
     let _guard = ActiveGuard;
 
     set_sock_opts(&client);
+    if !crate::traffic_guard::is_traffic_authorized() {
+        let _ = client.write_all(&[0x05, 0xFF]).await;
+        return;
+    }
 
     // 1. Handshake: Auth methods (RFC 1928 / RFC 1929)
     let mut header = [0u8; 2];

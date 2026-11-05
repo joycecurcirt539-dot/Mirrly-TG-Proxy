@@ -1222,6 +1222,48 @@ pub fn validate_endpoint_format(endpoint: &str) -> Result<(String, u16), String>
     Ok((trimmed.to_string(), port))
 }
 
+fn parse_awg_i1(val: &str, line_num: usize) -> Result<Vec<u8>, String> {
+    let s = val.trim();
+    if !s.starts_with('<') {
+        let clean_hex = s.trim_start_matches("0x").trim();
+        return hex::decode(clean_hex).map_err(|e| {
+            format!("line {}: invalid I1 hex format '{}': {}", line_num, val, e)
+        });
+    }
+    let mut out = Vec::new();
+    let mut rest = s;
+    while !rest.is_empty() {
+        if let Some(start) = rest.find('<') {
+            if let Some(end) = rest[start..].find('>') {
+                let tag = rest[start + 1..start + end].trim();
+                if let Some(r_str) = tag.strip_prefix('r') {
+                    let count: usize = r_str.trim().parse().map_err(|_| {
+                        format!("line {}: invalid random count in I1 tag '<{}>'", line_num, tag)
+                    })?;
+                    let mut rng_buf = vec![0u8; count];
+                    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut rng_buf);
+                    out.extend_from_slice(&rng_buf);
+                } else if let Some(b_str) = tag.strip_prefix('b') {
+                    let hex_str = b_str.trim().trim_start_matches("0x").trim();
+                    let decoded = hex::decode(hex_str).map_err(|e| {
+                        format!("line {}: invalid hex in I1 tag '<{}>': {}", line_num, tag, e)
+                    })?;
+                    out.extend_from_slice(&decoded);
+                }
+                rest = rest[start + end + 1..].trim();
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    if out.is_empty() {
+        return Err(format!("line {}: empty or invalid I1 sequence '{}'", line_num, val));
+    }
+    Ok(out)
+}
+
 impl AwgConfig {
     pub fn parse_ini(ini_str: &str) -> Result<Self, String> {
         use base64::engine::general_purpose::STANDARD as B64;
@@ -1523,14 +1565,7 @@ impl AwgConfig {
                         })?;
                     }
                     "i1" => {
-                        let clean_hex = val
-                            .trim_start_matches("0x")
-                            .trim_start_matches("<b 0x")
-                            .trim_end_matches('>')
-                            .trim();
-                        let bytes = hex::decode(clean_hex).map_err(|e| {
-                            format!("line {}: invalid I1 hex format '{}': {}", line_num, val, e)
-                        })?;
+                        let bytes = parse_awg_i1(val, line_num)?;
                         awg_params.i1 = Some(bytes);
                     }
                     "i2" | "i3" | "i4" | "i5" => {
@@ -1719,14 +1754,7 @@ impl AwgConfig {
                         awg_params.h4 = h;
                     }
                     "i1" => {
-                        let clean_hex = val
-                            .trim_start_matches("0x")
-                            .trim_start_matches("<b 0x")
-                            .trim_end_matches('>')
-                            .trim();
-                        let bytes = hex::decode(clean_hex).map_err(|e| {
-                            format!("line {}: invalid I1 hex format '{}': {}", line_num, val, e)
-                        })?;
+                        let bytes = parse_awg_i1(val, line_num)?;
                         awg_params.i1 = Some(bytes);
                     }
                     "s3" | "s4" => {
@@ -3786,6 +3814,18 @@ impl AwgPeerSession {
                 let _ = socket.send(&junk).await;
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }
+        }
+
+        // 1b. Obfuscation Initial Packet (I1 CPS camouflage)
+        if let Some(ref i1_pkt) = config.awg_params.i1 {
+            ldebug!(
+                "[profile='{}', stage='send_i1', endpoint='{}'] sending {} bytes I1 initial camouflage packet",
+                profile,
+                endpoint,
+                i1_pkt.len()
+            );
+            let _ = socket.send(i1_pkt).await;
+            tokio::time::sleep(Duration::from_millis(2)).await;
         }
 
         // 2. Send Handshake Initiation with Cookie Support & Retransmissions

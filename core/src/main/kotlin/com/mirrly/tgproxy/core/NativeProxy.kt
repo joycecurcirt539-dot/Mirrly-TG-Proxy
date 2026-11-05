@@ -117,6 +117,8 @@ interface ProxyLibrary : Library {
     fun ProbeWarpEndpoints(endpointsCsv: String, protocol: Int, timeoutMs: Int): Pointer?
     fun PingHost(host: String, port: Int, timeoutMs: Int): Pointer?
     fun PingWorker(domain: String, timeoutMs: Int): Pointer?
+    fun GetEngineSecurityState(): Int
+    fun GetSecurityPostureReportJson(): Pointer?
 }
 
 fun interface ProtectCallback : com.sun.jna.Callback {
@@ -201,7 +203,6 @@ object NativeProxy {
         val nativeMode = when (mode) {
             UplinkMode.AWG -> 0
             UplinkMode.MASQUE -> 1
-            UplinkMode.VLESS -> 4
             else -> 0
         }
         return try {
@@ -292,24 +293,6 @@ object NativeProxy {
             AppLogger.d("NativeProxy", "FFI [PingWorker] error: ${t.message}")
             Pair("ERR_EXCEPTION", null)
         }
-    }
-
-    fun setProtonConfig(
-        serverIp: String,
-        serverPort: Int,
-        peerPubKey: String,
-        privateKey: String,
-        clientIp: String = "10.2.0.2",
-        dnsIp: String = "10.2.0.1",
-        nodeName: String = "Proton Node"
-    ): Int {
-        // Proton VPN integration removed in favor of WireGuard/AmneziaWG
-        return -1
-    }
-
-    fun setOperaVpnEndpoint(endpoint: String): Int {
-        // Opera VPN relay removed in favor of Cloudflare Worker WSS
-        return -1
     }
 
     fun startProxy(host: String, port: Int, dcIps: String, secret: String, verbose: Int): Int {
@@ -498,7 +481,6 @@ object NativeProxy {
             val modeInt = when (mode) {
                 UplinkMode.WORKER -> 0
                 UplinkMode.MASQUE -> 1
-                UplinkMode.VLESS -> 3
                 UplinkMode.AWG -> 4
                 else -> 0
             }
@@ -577,51 +559,6 @@ object NativeProxy {
         } catch (_: Throwable) {
             0
         }
-    }
-
-    fun setVlessConfigJson(json: String): Boolean {
-        // VLESS removed in v2.1.0 in favor of Cloudflare Worker WSS & WireGuard/AmneziaWG
-        return false
-    }
-
-    fun getVlessConfigJson(): String? {
-        return null
-    }
-
-    fun setVlessConfig(uuid: String, path: String, domain: String = "") {
-        // VLESS removed in v2.1.0
-    }
-
-    fun setVlessExtendedConfig(
-        uuid: String,
-        path: String = "",
-        domain: String = "",
-        serverAddress: String = "",
-        serverPort: Int = 443,
-        tlsSni: String = "",
-        hostHeader: String = "",
-        transport: String = "ws",
-        security: String = "tls",
-        publicKey: String = "",
-        shortId: String = "",
-        fingerprint: String = "",
-        spiderX: String = "",
-        flow: String = "",
-        headerType: String = ""
-    ) {
-        // VLESS removed in v2.1.0
-    }
-
-    fun setVlessNetworkConfig(
-        uuid: String,
-        path: String,
-        domain: String = "",
-        serverAddress: String = "",
-        serverPort: Int = 443,
-        tlsSni: String = "",
-        hostHeader: String = ""
-    ) {
-        // VLESS removed in v2.1.0
     }
 
     fun setWarpConfig(
@@ -766,23 +703,6 @@ object NativeProxy {
         } catch (t: Throwable) {
             false
         }
-    }
-
-    fun getVlessStatus(): String? {
-        return null
-    }
-
-    fun setVlessFallbackPool(domainsCsv: String) {
-        // VLESS removed in v2.1.0
-    }
-
-    fun setVlessFallbackProfilesJson(json: String): Boolean {
-        // VLESS removed in v2.1.0
-        return false
-    }
-
-    fun setOperaVpnConfig(vlessEnabled: Boolean, warpEnabled: Boolean, endpoint: String) {
-        // Opera VPN removed in v2.1.0
     }
 
     fun getSecretWithPrefix(): String? {
@@ -968,17 +888,15 @@ object NativeProxy {
     }
 
     fun setTrustPolicy(
-        isPrivateNode: Boolean,
-        allowPublicRelayFallback: Boolean,
-        allowOperaDirectExit: Boolean,
-        allowOperaTransportHop: Boolean
+        isPrivateNode: Boolean = false,
+        allowPublicRelayFallback: Boolean = false
     ) {
         try {
             ProxyLibrary.INSTANCE.SetTrustPolicy(
                 if (isPrivateNode) 1 else 0,
                 if (allowPublicRelayFallback) 1 else 0,
-                if (allowOperaDirectExit) 1 else 0,
-                if (allowOperaTransportHop) 1 else 0
+                0,
+                0
             )
         } catch (t: Throwable) {
             AppLogger.w("NativeProxy", "Сбой вызова FFI [SetTrustPolicy]: ${t.message}")
@@ -1141,6 +1059,29 @@ object NativeProxy {
         } catch (t: Throwable) {
             AppLogger.e("NativeProxy", "FFI call failed [IsTlsClientHelloSplitEnabled]: ${t.message}", t)
             true
+        }
+    }
+
+    fun getEngineSecurityState(): Int {
+        return try {
+            ProxyLibrary.INSTANCE.GetEngineSecurityState()
+        } catch (_: Throwable) {
+            0
+        }
+    }
+
+    fun isEngineAuthorized(): Boolean {
+        return getEngineSecurityState() == 1
+    }
+
+    fun getSecurityPostureReportJson(): String? {
+        return try {
+            val ptr = ProxyLibrary.INSTANCE.GetSecurityPostureReportJson() ?: return null
+            val str = ptr.getString(0)
+            ProxyLibrary.INSTANCE.FreeString(ptr)
+            str
+        } catch (_: Throwable) {
+            null
         }
     }
 }

@@ -26,6 +26,8 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +52,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,6 +74,7 @@ import androidx.compose.ui.unit.sp
 import com.mirrly.tgproxy.R
 import com.mirrly.tgproxy.ui.theme.ActiveGreenLed
 import com.mirrly.tgproxy.ui.theme.AmoledBorder
+import com.mirrly.tgproxy.ui.theme.LocalProtocolColors
 import com.mirrly.tgproxy.ui.theme.TextMuted
 import com.mirrly.tgproxy.ui.theme.TextWhite
 import com.mirrly.tgproxy.ui.theme.adaptiveContainerWidth
@@ -80,11 +88,22 @@ private const val TELEGRAM_CHANNEL_HANDLE = "@WhyOKyHb"
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TelegramChannelScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onDonateClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val cyanAccent = Color(0xFF26A5E4)
+    val prefs = remember { com.mirrly.tgproxy.MirrlyApplication.instance.prefsManager }
+    val isCustomTheme by prefs.isCustomThemeEnabledFlow.collectAsState()
+    val customAccent = LocalProtocolColors.current.primary
+    val cyanAccent = if (isCustomTheme) customAccent else Color(0xFF26A5E4)
+    var showDonationDialog by remember { mutableStateOf(false) }
+
+    if (showDonationDialog) {
+        DonationDialog(
+            onDismiss = { showDonationDialog = false }
+        )
+    }
 
     val onOpenChannel: () -> Unit = {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -97,6 +116,15 @@ fun TelegramChannelScreen(
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TELEGRAM_CHANNEL_URL)).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             })
+        }
+    }
+
+    val onDonate: () -> Unit = {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        if (onDonateClick != null) {
+            onDonateClick()
+        } else {
+            showDonationDialog = true
         }
     }
 
@@ -123,7 +151,7 @@ fun TelegramChannelScreen(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // Centered Content (adaptiveContainerWidth 440.dp, fits entirely within single screen without scroll)
+        // Centered Content (adaptiveContainerWidth 440.dp with vertical scroll safety)
         Column(
             modifier = Modifier
                 .adaptiveContainerWidth(440.dp)
@@ -137,7 +165,8 @@ fun TelegramChannelScreen(
                 .padding(
                     top = topInset + 56.dp,
                     bottom = bottomInset + 16.dp
-                ),
+                )
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -151,7 +180,13 @@ fun TelegramChannelScreen(
             TelegramActionDock(
                 cyanAccent = cyanAccent,
                 onOpenChannel = onOpenChannel,
+                onDonate = onDonate,
                 onCopyLink = onCopyLink
+            )
+
+            // ── 3. OFFICIAL SOURCE & INTEGRITY NOTICE ──
+            TelegramSecurityNoticeCard(
+                accentColor = cyanAccent
             )
         }
 
@@ -301,6 +336,7 @@ private fun TelegramBusinessCard(
 private fun TelegramActionDock(
     cyanAccent: Color,
     onOpenChannel: () -> Unit,
+    onDonate: () -> Unit,
     onCopyLink: () -> Unit
 ) {
     Column(
@@ -345,6 +381,44 @@ private fun TelegramActionDock(
             }
         }
 
+        // Support Project Action
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Transparent)
+                .border(1.dp, ActiveGreenLed.copy(alpha = 0.50f), RoundedCornerShape(12.dp))
+                .springPress(onClick = onDonate),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_donate),
+                    contentDescription = null,
+                    tint = ActiveGreenLed,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.tg_action_support_project),
+                    color = TextWhite,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.5.sp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_chevron_right),
+                    contentDescription = null,
+                    tint = ActiveGreenLed.copy(alpha = 0.70f),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+
         // Secondary Action: Copy Link
         Box(
             modifier = Modifier
@@ -372,6 +446,59 @@ private fun TelegramActionDock(
                     color = TextMuted,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.5.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TelegramSecurityNoticeCard(
+    accentColor: Color
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Transparent)
+            .border(1.dp, AmoledBorder, RoundedCornerShape(16.dp))
+            .padding(14.dp)
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color.Transparent)
+                    .border(1.dp, accentColor.copy(alpha = 0.5f), CircleShape)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_shield),
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.tg_security_notice_title),
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextWhite
+                )
+                Text(
+                    text = stringResource(R.string.tg_security_notice_desc),
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    color = TextMuted
                 )
             }
         }

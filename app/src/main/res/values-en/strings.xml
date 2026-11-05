@@ -22,6 +22,14 @@
     <string name="onboarding_lang_fa">فارسی (Persian)</string>
     <string name="onboarding_lang_fa_desc">Persian language</string>
 
+    <string name="onboarding_step_wallpaper_title">SELECT BACKGROUND THEME</string>
+    <string name="onboarding_step_wallpaper_desc">Choose visual interface styling. You can customize dimming, blur, or upload custom media anytime in settings.</string>
+    <string name="onboarding_wallpaper_space_toilet_desc">Video wallpaper · 70% dimming</string>
+    <string name="onboarding_wallpaper_grass_desc">Photo wallpaper · Soft focus</string>
+    <string name="onboarding_wallpaper_breeze_desc">Photo wallpaper · Deep turquoise</string>
+    <string name="onboarding_wallpaper_amoled_title">Pure AMOLED</string>
+    <string name="onboarding_wallpaper_amoled_desc">True black background · Power saving</string>
+
     <string name="onboarding_step_about_title">ABOUT MIRRLY TG PROXY</string>
     <string name="onboarding_step_about_desc">Local proxy client for bypassing restrictions and tunneling Telegram traffic.</string>
     <string name="onboarding_feature_mtproto">MTProto proxy with Fake-TLS cloaking</string>
@@ -572,6 +580,26 @@ AVAILABLE PROFILES:
     <string name="unofficial_dialog_desc">This application build was recompiled or modified by third parties. Recommended to install the official release from GitHub.</string>
     <string name="unofficial_dialog_btn_download">Download from Official GitHub</string>
     <string name="unofficial_dialog_btn_dismiss">I Understand the Risks</string>
+    <string name="security_advisory_category_untrusted">WARNING: MODIFIED BUILD DETECTED</string>
+    <string name="security_advisory_category_daily">SECURITY ADVISORY: OFFICIAL SOURCE</string>
+    <string name="security_advisory_title">Beware of fakes and third-party repacks!</string>
+    <string name="security_advisory_gateway_warn_title">Gateway Lockdown and Data Protection</string>
+    <string name="security_advisory_gateway_warn_desc">Official Mirrly TG Proxy releases are published exclusively on the @WhyOKyHb Telegram channel and GitHub. In unauthorized or modified builds, the network gateway is blocked by built-in cryptographic integrity checks to prevent traffic interception — modified builds will NOT connect. After installing the authentic APK, the proxy connects immediately.</string>
+    <string name="security_advisory_free_title">100% FREE AND ZERO ADS</string>
+    <string name="security_advisory_free_desc">Mirrly TG Proxy is a non-commercial project. Authentic releases contain zero ads, no paid subscriptions, and no hidden fees. The only financial support for servers and development is voluntary user donations.</string>
+    <string name="security_advisory_patterns_title">How to Identify Counterfeits (Modder Patterns):</string>
+    <string name="security_advisory_pattern_popup_title">1. Floating White Pop-up Dialogs</string>
+    <string name="security_advisory_pattern_popup_desc">MirrlyUI strictly forbids white floating pop-up dialogs in the center of the screen (Zero-Popup doctrine). If a white dialog appears promoting third-party channels (FreelySoft, mod channels, Subscribe buttons), the APK has been injected with unauthorized adware.</string>
+    <string name="security_advisory_pattern_vpn_title">2. Commercial Third-Party VPN Ads</string>
+    <string name="security_advisory_pattern_vpn_desc">Dialogs or banners promoting third-party commercial VPNs (such as Soft Tunnel, cheap VPNs) are guaranteed signs of a fake repack. Authentic Mirrly never advertises external VPN services.</string>
+    <string name="security_advisory_pattern_blocking_title">3. Connection Freezes and Drops</string>
+    <string name="security_advisory_pattern_blocking_desc">In recompiled APKs, network routing is isolated: the connection hangs indefinitely on connecting or disconnects immediately.</string>
+    <string name="security_advisory_pattern_signature_title">4. Foreign Signing Certificate Hash</string>
+    <string name="security_advisory_pattern_signature_desc">Authentic builds are always signed with the official developer key (SHA-256):</string>
+    <string name="security_advisory_btn_telegram">Official Telegram (@WhyOKyHb)</string>
+    <string name="security_advisory_btn_github">Official GitHub Releases</string>
+    <string name="security_advisory_btn_timer_wait">Reading advisory (%1$d s)</string>
+    <string name="security_advisory_btn_dismiss_ready">I have read and understand the risks</string>
     <string name="donation_banner_dialog_title">Support Mirrly Development</string>
     <string name="donation_banner_dialog_desc">Donations go toward a new PC, Telegram channel giveaways, and Dobry mandarin-orange juice for the developer.</string>
     <string name="donation_banner_title">Support Project</string>
@@ -1057,6 +1085,8 @@ Traffic routes directly between the device and Telegram data centers with no int
     <string name="fame_contrib_tg_channel">Active Telegram channel participant</string>
     <string name="fame_c_creeepeeer_role">Bug Hunter &amp; Network Diagnostics</string>
     <string name="fame_c_creeepeeer_contrib">Author of Issue #30. Provided detailed diagnostic report on mobile LTE/5G network under Android 16 for SQI metrics and failover calibration.</string>
+    <string name="fame_nikita_grishin_role">Author of the first Mirrly community artwork</string>
+    <string name="fame_nikita_grishin_contrib">Designed app icon concept and artwork. Thank you for contributing a piece of yourself to the project.</string>
     <string name="terms_full_legal_text_ru">        ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ И ДОПОЛНИТЕЛЬНЫЕ УСЛОВИЯ ИСПОЛЬЗОВАНИЯ
 
         Проект: Mirrly TG Proxy
@@ -1998,8 +2028,11 @@ Download latest Mirrly TG Proxy build:
     <string name="tg_channel_tag_handle">@WhyOKyHb</string>
     <string name="tg_channel_giveaway_note">Regular Telegram Premium and Stars giveaways are held among channel subscribers.</string>
     <string name="tg_action_open_channel">Open in Telegram</string>
+    <string name="tg_action_support_project">Support Project</string>
     <string name="tg_action_copy_link">Copy Link</string>
     <string name="tg_toast_link_copied">Link copied to clipboard</string>
+    <string name="tg_security_notice_title">Security &amp; Build Authenticity</string>
+    <string name="tg_security_notice_desc">Beware of fakes and third-party repacks! Official releases of Mirrly TG Proxy are published exclusively on the @WhyOKyHb channel and GitHub. In packages modified by third parties, the network gateway is automatically blocked by built-in cryptographic protection to prevent traffic interception.</string>
 
     <!-- Task 03: Simple vs Advanced Settings UX & Expert Mode -->
     <string name="settings_advanced_mode_title">Expert Mode</string>
@@ -2093,8 +2126,8 @@ Download latest Mirrly TG Proxy build:
     <string name="diagnostic_report_issue_body">### Issue Description\n\n### Diagnostic Report:\n```markdown\n%1$s\n```</string>
 
     <!-- Full UI and Components Localization Audit -->
-    <string name="tile_proxy_on">Mirrly Proxy: ON</string>
-    <string name="tile_proxy_off">Mirrly Proxy: OFF</string>
+    <string name="tile_proxy_on">Mirrly</string>
+    <string name="tile_proxy_off">Mirrly</string>
     <string name="badge_top">TOP</string>
     <string name="badge_beta">BETA</string>
     <string name="badge_expert">EXPERT</string>
@@ -2440,6 +2473,8 @@ Download latest Mirrly TG Proxy build:
     <string name="settings_warp_license_field_desc">26-character WARP+ license key</string>
     <string name="settings_vpn_onboarding_replay">VPN Guide</string>
     <string name="settings_vpn_onboarding_replay_desc">Replay introductory guide on encryption and protocols</string>
+    <string name="settings_ai_onboarding_replay">AI Guide</string>
+    <string name="settings_ai_onboarding_replay_desc">Step-by-step guide on connecting AI models, keys, and diagnostics</string>
 
     <!-- WARP Generator & Multi-Profile Manager -->
     <string name="warp_gen_title">WARP Profile Generator</string>
@@ -2586,6 +2621,16 @@ Download latest Mirrly TG Proxy build:
     <string name="settings_customization_wallpaper_dim">Dimming</string>
     <string name="settings_customization_wallpaper_particles">Background particles</string>
     <string name="settings_customization_wallpaper_particles_desc">Display floating particles and constellation lines over background</string>
+    <string name="settings_customization_wallpaper_particles_style">Particle style</string>
+    <string name="settings_customization_wallpaper_particles_style_bokeh">Bokeh</string>
+    <string name="settings_customization_wallpaper_particles_style_matrix">Matrix</string>
+    <string name="settings_customization_wallpaper_particles_style_warp">Warp</string>
+    <string name="settings_customization_wallpaper_particles_count">Particle density</string>
+    <string name="settings_customization_wallpaper_particles_speed">Movement speed</string>
+    <string name="settings_customization_wallpaper_parallax">Gyroscopic parallax</string>
+    <string name="settings_customization_wallpaper_parallax_desc">Pseudo-3D tilt shift of wallpaper and particle layers using device sensors</string>
+    <string name="settings_customization_home_rings">Orbital rings</string>
+    <string name="settings_customization_home_rings_desc">Animated kinetic rotating rings around the central power button</string>
     <string name="settings_customization_wallpaper_video_power_save">Video battery saver</string>
     <string name="settings_customization_wallpaper_video_power_save_desc">Optimize frame rate and auto-pause in system battery saver mode</string>
     <string name="settings_customization_wallpaper_processing">Processing media file...</string>
@@ -2596,6 +2641,7 @@ Download latest Mirrly TG Proxy build:
     <string name="settings_customization_info_title">Background customization</string>
     <string name="settings_customization_info_desc">MirrlyUI supports personal image and live video wallpapers. Media is optimized, normalized and stored in the application sandbox. When custom wallpaper is active, glowing spheres are disabled to preserve readability while particles keep reacting to touch physics.</string>
     <string name="settings_customization_presets_title">Wallpaper Presets</string>
+    <string name="settings_customization_preset_default_amoled">Default AMOLED</string>
     <string name="settings_customization_preset_space_toilet">Space Toilet</string>
     <string name="settings_customization_preset_grass">Morning Dew</string>
     <string name="settings_customization_preset_breeze">Ocean Breeze</string>
@@ -2683,4 +2729,179 @@ Download latest Mirrly TG Proxy build:
     <string name="logs_tab_toast_copied_format">%1$s logs copied in Markdown format</string>
     <string name="logs_tab_toast_disabled_format">Log generation for %1$s disabled</string>
     <string name="logs_tab_toast_enabled_format">Log generation for %1$s enabled</string>
+    <!-- Theme Accent & Customization -->
+    <string name="settings_theme_accent_title">Color Profile</string>
+    <string name="settings_theme_accent_desc">Select accent lighting style, Stealth monochrome, or custom neon color</string>
+    <string name="settings_theme_mode_protocol">Protocol</string>
+    <string name="settings_theme_mode_stealth">Stealth</string>
+    <string name="settings_theme_mode_preset">Presets</string>
+    <string name="settings_theme_mode_monet">Material You</string>
+    <string name="settings_theme_mode_custom">Custom</string>
+    <string name="settings_theme_desc_protocol">Accent dynamically adapts to active protocol: MTProto, SOCKS5, or VPN</string>
+    <string name="settings_theme_desc_stealth">Pure monochrome without colored glow for maximum AMOLED energy efficiency</string>
+    <string name="settings_theme_desc_preset">Curated cyberpunk palettes with harmonic background transitions</string>
+    <string name="settings_theme_desc_monet">System accent color derived from wallpaper with deep true black AMOLED background</string>
+    <string name="settings_theme_desc_monet_unsupported">Material You requires Android 12 or newer</string>
+    <string name="settings_theme_desc_custom">Interactive hue selector and manual HEX code input with algorithmic palette generation</string>
+    <string name="settings_theme_preset_cyber_ruby">Cyber Ruby</string>
+    <string name="settings_theme_preset_acid_lime">Acid Lime</string>
+    <string name="settings_theme_preset_electric_amber">Electric Amber</string>
+    <string name="settings_theme_preset_cobalt_blue">Cobalt Blue</string>
+    <string name="settings_theme_preset_matrix_green">Matrix Green</string>
+    <string name="settings_theme_custom_hex_label">HEX Code</string>
+    <string name="settings_theme_custom_hex_invalid">Invalid HEX code</string>
+    <string name="settings_theme_custom_palette_quick">Quick Swatches</string>
+    <string name="settings_theme_custom_hue_slider">Hue Spectrum</string>
+    <string name="settings_theme_custom_apply">Apply</string>
+    <string name="settings_theme_status_protocol">Automatic by protocol</string>
+    <string name="settings_theme_status_stealth">Pure monochrome</string>
+    <string name="settings_theme_status_preset">Cyberpunk preset</string>
+    <string name="settings_theme_status_monet">System accent</string>
+    <string name="settings_theme_status_custom">Custom color</string>
+
+    <!-- UI Scaling & Dimensions -->
+    <string name="settings_customization_dimensions_title">Scaling</string>
+    <string name="settings_customization_dimensions_desc">Fine-tune dimensions of the interface, cards, text, orbital spheres, and particles</string>
+    <string name="settings_customization_ui_scale">Interface scale</string>
+    <string name="settings_customization_ui_scale_desc">Proportional scale of all cards, panels, buttons, and padding</string>
+    <string name="settings_customization_text_scale">Text scale</string>
+    <string name="settings_customization_text_scale_desc">Size of interface typography and labels</string>
+    <string name="settings_customization_orbital_spheres_scale">Orbital spheres size</string>
+    <string name="settings_customization_orbital_spheres_scale_desc">Diameter of central rotating rings and floating background energy spheres</string>
+    <string name="settings_customization_particles_size">Particle size</string>
+    <string name="settings_customization_particles_size_desc">Scale of glowing micro-spheres, matrix pulses, and starfield warp dots</string>
+    <string name="settings_customization_dimensions_reset">Reset all dimensions</string>
+    <string name="settings_customization_dimensions_reset_desc">Restore baseline proportions (1.00x)</string>
+    <string name="settings_customization_particles_disabled">Disabled</string>
+    <string name="settings_customization_dimensions_standard">Baseline proportions</string>
+
+    <!-- Central Buttons Customization -->
+    <string name="settings_customization_buttons_title">Central buttons</string>
+    <string name="settings_customization_buttons_desc">Choose a kinetic icon for the main button separately for MTProto, SOCKS5, and VPN, or generate your own via AI</string>
+    <string name="settings_customization_buttons_tab_mtproto">MTProto</string>
+    <string name="settings_customization_buttons_tab_socks5">SOCKS5</string>
+    <string name="settings_customization_buttons_tab_vpn">VPN</string>
+    <string name="settings_customization_buttons_preview_title">Interactive preview</string>
+    <string name="settings_customization_buttons_state_idle">Off</string>
+    <string name="settings_customization_buttons_state_connecting">Connecting</string>
+    <string name="settings_customization_buttons_state_connected">Online</string>
+    <string name="settings_customization_buttons_presets_title">Icon presets</string>
+    <string name="settings_customization_buttons_preset_default">Default</string>
+    <string name="settings_customization_buttons_preset_cyber_plane">Cyber Plane</string>
+    <string name="settings_customization_buttons_preset_warp_glider">Stealth Interceptor</string>
+    <string name="settings_customization_buttons_preset_crypto_shield">Crypto Shield</string>
+    <string name="settings_customization_buttons_preset_socket_matrix">Socket Matrix</string>
+    <string name="settings_customization_buttons_preset_cyber_falcon">Cyber Falcon</string>
+    <string name="settings_customization_buttons_preset_quantum_beam">Quantum Beam</string>
+    <string name="settings_customization_buttons_preset_matrix_hex">Matrix Hex</string>
+    <string name="settings_customization_buttons_preset_warp_cloud">WARP Cloud</string>
+    <string name="settings_customization_buttons_preset_cyber_aegis">Cyber Aegis</string>
+    <string name="settings_customization_buttons_preset_warp_portal">WARP Portal</string>
+    <string name="settings_customization_buttons_preset_custom">Custom icon</string>
+    <string name="settings_customization_buttons_geometry_title">Geometry &amp; glow</string>
+    <string name="settings_customization_buttons_scale_title">Button icon scale</string>
+    <string name="settings_customization_buttons_stroke_title">Stroke width</string>
+    <string name="settings_customization_buttons_glow_title">Neon glow intensity</string>
+    <string name="settings_customization_buttons_stroke_thin">1.2dp Thin</string>
+    <string name="settings_customization_buttons_stroke_normal">1.5dp Standard</string>
+    <string name="settings_customization_buttons_stroke_bold">2.0dp Accent</string>
+    <string name="settings_customization_buttons_stroke_cyber">2.4dp Cyber</string>
+    <string name="settings_customization_buttons_custom_title">Custom vector code</string>
+    <string name="settings_customization_buttons_custom_desc">Paste an SVG / pathData spline vector or generate an icon using the built-in AI assistant</string>
+    <string name="settings_customization_buttons_btn_copy_prompt">Copy prompt</string>
+    <string name="settings_customization_buttons_btn_ai_generate">Create in Mirrly AI</string>
+    <string name="settings_customization_buttons_btn_guide">Code guidelines</string>
+    <string name="settings_customization_buttons_prompt_copied">System prompt copied</string>
+    <string name="settings_customization_buttons_code_hint">Paste pathData (M... Z) or &lt;svg&gt; tag...</string>
+    <string name="settings_customization_buttons_code_apply">Apply code</string>
+    <string name="settings_customization_buttons_code_clear">Clear</string>
+    <string name="settings_customization_buttons_code_applied">SVG icon saved</string>
+    <string name="settings_customization_buttons_code_invalid">Invalid vector spline</string>
+    <string name="settings_customization_buttons_info_title">Central mode buttons</string>
+    <string name="settings_customization_buttons_info_desc">This section allows customizing the main central buttons for each protocol independently. Built-in kinetic presets and arbitrary SVG/pathData vector code are supported. The MirrlyUI engine automatically brings custom geometry to life with levitation, neon glow, and tactile spring physics.</string>
+    <string name="settings_customization_buttons_guide_title">Icon creation guidelines</string>
+    <string name="settings_customization_buttons_guide_desc">Use clean SVG vector splines (the d attribute of a path tag) or a complete svg tag. Recommended viewport: 24x24 or 100x100. Use stroke-based outline geometry without solid opaque fills. All paths should be closed (Z command). MirrlyUI scales splines and applies neon animations automatically.</string>
+
+    <!-- Expanded Chat Input & SVG Tool -->
+    <string name="ai_chat_expand_editor_title">Prompt editor</string>
+    <string name="ai_chat_expand_editor_apply">Apply to chat</string>
+    <string name="ai_chat_expand_editor_send">Send prompt</string>
+    <string name="ai_chat_expand_editor_placeholder">Enter or refine your AI prompt...</string>
+    <string name="ai_chat_expand_editor_char_count_fmt">Characters: %1$d</string>
+    <string name="ai_chat_expand_editor_resize_expand">Expand</string>
+    <string name="ai_chat_expand_editor_resize_collapse">Collapse</string>
+    <string name="ai_chat_apply_svg_btn">Apply SVG code</string>
+    <string name="ai_chat_action_svg_applied">Applied to %1$s</string>
+    <string name="ai_chat_apply_svg_success">Button SVG code applied successfully</string>
+    <string name="ai_chat_apply_svg_invalid">Error: invalid vector spline</string>
+
+    <!-- Customization Info Dialogs -->
+    <string name="settings_theme_accent_info_title">Color Profile</string>
+    <string name="settings_theme_accent_info_desc">Personalization of MirrlyUI color scheme. Supports protocol synchronization (MTProto, SOCKS5, VPN), stealth mode for AMOLED power efficiency, cyberpunk presets, system Material You dynamic palette (Android 12+), and arbitrary HEX color input.</string>
+    <string name="settings_customization_particles_info_title">Particle Dynamics &amp; Parallax</string>
+    <string name="settings_customization_particles_info_desc">Hardware-accelerated kinetic particles layer rendered on Canvas with gyroscope parallax. Select particle style (Bokeh Dust, Bitstream Matrix, Starfield Warp), customize density, velocity, and size.</string>
+    <string name="settings_customization_dimensions_info_title">Interface Scaling</string>
+    <string name="settings_customization_dimensions_info_desc">Fine-tune MirrlyUI geometric proportions. Adjust overall UI scale, typography scale, and home screen orbital spheres dimensions.</string>
+
+    <!-- Theme Accent Adjustments: Brightness, Saturation, Alpha -->
+    <string name="settings_theme_adjustments_title">Fine-tune accent</string>
+    <string name="settings_theme_brightness">Brightness</string>
+    <string name="settings_theme_brightness_desc">Adjust glow intensity and tone lightness</string>
+    <string name="settings_theme_saturation">Saturation</string>
+    <string name="settings_theme_saturation_desc">Color depth (0% is monochrome mode)</string>
+    <string name="settings_theme_alpha">Transparency</string>
+    <string name="settings_theme_alpha_desc">Opacity of accent elements and borders</string>
+    <string name="settings_theme_adjustments_reset">Reset adjustments</string>
+
+    <!-- Community Showcase Section • About Screen -->
+    <string name="about_section_community">COMMUNITY SHOWCASE</string>
+    <string name="about_community_card_title">Community Showcase</string>
+    <string name="about_community_card_desc">Contributions of community members in visual design, custom icons and concepts</string>
+    <string name="about_community_badge_first">FIRST COMMUNITY WORK</string>
+    <string name="about_community_author_name">Nikita Grishin</string>
+    <string name="about_community_work_status">First community artwork featured in the Mirrly showcase section</string>
+    <string name="about_community_work_contribution_label">COMMUNITY CONTRIBUTION</string>
+    <string name="about_community_work_contribution">Concept creation and design of the application icon: cat with paper airplane</string>
+    <string name="about_community_work_gratitude">Thank you for putting a piece of your heart into the project.</string>
+    <string name="about_community_artwork_desc">Preview of community artwork: cat with paper airplane</string>
+
+    <!-- Liquid Glass Settings -->
+    <string name="settings_customization_liquid_glass_title">Liquid Glass Effects</string>
+    <string name="settings_customization_liquid_glass_desc">Hardware light refraction and chromatic dispersion for community cards on Android 13+</string>
+
+    <!-- Procedural AGSL Shaders (Android 13+) -->
+    <string name="settings_customization_wallpaper_mode_photo">Photo</string>
+    <string name="settings_customization_wallpaper_mode_video">Video</string>
+    <string name="settings_customization_wallpaper_mode_shader">Procedural Shader</string>
+    <string name="settings_customization_wallpaper_shader_title">Procedural AGSL Shaders</string>
+    <string name="settings_customization_wallpaper_shader_notice">Android 13+ Only · AGSL RuntimeShader</string>
+    <string name="settings_customization_wallpaper_shader_grid">Perspective Grid</string>
+    <string name="settings_customization_wallpaper_shader_stream">Digital Stream</string>
+    <string name="settings_customization_wallpaper_shader_scanlines">Scanlines</string>
+    <string name="settings_customization_wallpaper_shader_active">Active Shader</string>
+    <string name="settings_customization_wallpaper_shader_speed">Animation Speed</string>
+    <string name="settings_customization_wallpaper_shader_legacy_unsupported">Android 13 or higher required for GPU runtime shaders</string>
+
+    <!-- Gyro Parallax Depth -->
+    <string name="settings_customization_wallpaper_parallax_depth">Gyro Parallax Depth</string>
+    <string name="settings_customization_wallpaper_parallax_depth_desc">Layer displacement amplitude from 0.2x to 2.5x</string>
+
+    <!-- Card Corner Geometry -->
+    <string name="settings_customization_corner_geometry_title">Card Shape</string>
+    <string name="settings_customization_corner_geometry_desc">Border contour geometry and bevels</string>
+    <string name="settings_customization_corner_style_rounded">Rounded</string>
+    <string name="settings_customization_corner_style_sharp">Sharp</string>
+    <string name="settings_customization_corner_style_chisel">Cyber Cut</string>
+    <string name="settings_customization_corner_radius">Corner Radius</string>
+
+    <!-- Haptic Profiles -->
+    <string name="settings_customization_haptic_title">Haptic Feedback</string>
+    <string name="settings_customization_haptic_desc">Hardware vibration profiles for gestures and switches</string>
+    <string name="settings_customization_haptic_mechanical">Mechanical Click</string>
+    <string name="settings_customization_haptic_subbass">Sub-bass Pulse</string>
+    <string name="settings_customization_haptic_double_tick">Cybernetic Double-Tick</string>
+    <string name="settings_customization_haptic_stealth">Silent</string>
+    <string name="settings_customization_haptic_test">Test Response</string>
+    <string name="settings_customization_haptic_info_title">Haptic Profiles</string>
+    <string name="settings_customization_haptic_info_desc">MirrlyUI tactile feedback profiles using low-frequency haptic actuators and modern Android primitives. Choose between mechanical switch click, deep sub-bass pulse, cybernetic double-tick, or silent stealth mode.</string>
 </resources>

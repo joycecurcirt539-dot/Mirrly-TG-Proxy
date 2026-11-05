@@ -58,7 +58,6 @@ enum class IpFamilyPreference {
 enum class UplinkMode(val displayName: String, val subtitle: String) {
     WORKER("Cloudflare Worker · WSS", "Классический режим туннелирования. Надежный WebSocket-транспорт через Cloudflare Workers"),
     MASQUE("WARP MASQUE", "Прямой Anycast HTTP/3 через QUIC без прокси-воркеров и AmneziaWG"),
-    VLESS("VLESS Reality", "Прямой VLESS/Reality туннель с маскировкой под TLS 1.3"),
     AWG("WARP AmneziaWG", "Замаскированный протокол WireGuard Anycast с защитой от блокировок через QUIC")
 }
 
@@ -125,8 +124,8 @@ data class ProxyConfig(
     var warpLicenseKey: String = "",
     var warpClientIpv4: String = "172.16.0.2",
     var warpClientIpv6: String = "",
-    var warpPeerEndpoint: String = "162.159.192.1:500",
-    var warpUriTemplate: String = "/.well-known/masque/ip/",
+    var warpPeerEndpoint: String = "162.159.193.10:1701",
+    var warpUriTemplate: String = "/",
     var warpPeerPublicKey: String = "",
     var warpPrivateKey: String = "",
     var warpPublicKey: String = "",
@@ -149,33 +148,7 @@ data class ProxyConfig(
     var warpMasqueUserOverride: String = "",
     var warpMeasuredWgEndpoint: String = "",
     var warpMeasuredMasqueEndpoint: String = "",
-    var warpMasqueSni: String = WARP_MASQUE_SNI_CONSUMER_PROXY,
-    // Параметры VLESS over WebSocket & Reality
-    var vlessUuid: String = "d342d11e-d424-4583-b36e-524ab1f0afa4",
-    var vlessPath: String = "/vless-ws?ed=2048",
-    var vlessDomain: String = "",
-    var vlessPresetId: String = "cf_pages_global",
-    var vlessSecurity: String = "tls",
-    var vlessPublicKey: String = "",
-    var vlessShortId: String = "",
-    var vlessFingerprint: String = "chrome",
-    var vlessSpiderX: String = "",
-    var vlessTransport: String = "ws",
-    var vlessFlow: String = "",
-    var vlessHeaderType: String = "",
-    var vlessServerAddress: String = "",
-    var vlessServerPort: Int = 443,
-    var vlessTlsSni: String = "",
-    var vlessHostHeader: String = "",
-    // Настройки Opera VPN как прокси для VLESS и WARP
-    var useOperaVpnForVless: Boolean = false,
-    var useOperaVpnForWarp: Boolean = false,
-    var operaVpnEndpoint: String = "77.111.247.139:443",
-    var operaVpnNodeId: String = "opera_eu_central",
-    // Выделенный домен Cloudflare Worker для WARP
-    var warpWorkerDomain: String = "",
-    // Регистрация и обновление профиля WARP через Cloudflare Worker Relay (false = прямой канал со spoofing SNI)
-    var isRegisterWarpViaWorker: Boolean = true,
+    var warpMasqueSni: String = WARP_MASQUE_SNI_CONSUMER,
 
     // Стратегия обфускации AmneziaWG (FAST, BALANCED, DEEP_STEALTH, CUSTOM)
     var awgStrategyName: String = AwgObfuscationStrategy.BALANCED.name,
@@ -183,19 +156,9 @@ data class ProxyConfig(
     var awgCustomIni: String = "",
     // Явная политика доверия для fallback (O02)
     var allowPublicRelayFallbackForPrivateVps: Boolean = false,
-    var allowOperaDirectExit: Boolean = false,
     var isLivenessProbeEnabled: Boolean = false,
     var livenessProbeTimeoutMs: Int = 1500,
     var livenessProbeFailoverThreshold: Int = 2,
-    // Параметры Proton VPN
-    var protonServerIp: String = "91.229.23.180",
-    var protonServerPort: Int = 51820,
-    var protonServerPublicKey: String = "jbTC1lYeHxiz1LNSJHQMKDTq6sHgcWxkBwXvt7GWo1E=",
-    var protonPrivateKey: String = "",
-    var protonClientIp: String = "10.2.0.2",
-    var protonDnsIp: String = "10.2.0.1",
-    var protonNodeCountry: String = "NL",
-    var protonNodeName: String = "NL-FREE#1",
     // Режим DNS для VPN (Cloudflare, XboxDNS SmartDNS, Custom)
     var vpnDnsModeName: String = VpnDnsMode.CLOUDFLARE.name,
     var vpnCustomDnsIps: String = ""
@@ -310,9 +273,6 @@ data class ProxyConfig(
             vpnUplinkModeName = if (value == UplinkMode.WORKER) UplinkMode.MASQUE.name else value.name
         }
 
-    val isVpnVlessUplink: Boolean
-        get() = vpnUplinkMode == UplinkMode.VLESS
-
     val isVpnAwgUplink: Boolean
         get() = vpnUplinkMode == UplinkMode.AWG
 
@@ -324,9 +284,6 @@ data class ProxyConfig(
 
     // Свойства аплинка для прокси: всегда false, так как эти туннели принадлежат исключительно Mirrly VPN
     val isMasqueUplink: Boolean
-        get() = false
-
-    val isVlessUplink: Boolean
         get() = false
 
     val isAwgUplink: Boolean
@@ -387,99 +344,6 @@ data class ProxyConfig(
 
     val effectiveMasqueClientIpv6: String
         get() = warpMasqueClientIpv6.ifBlank { warpClientIpv6 }
-
-    val isVlessReality: Boolean
-        get() = vlessSecurity.equals("reality", ignoreCase = true) || vlessPublicKey.isNotBlank()
-
-    val isVlessTcpDirect: Boolean
-        get() = vlessTransport.equals("tcp", ignoreCase = true)
-
-    val isVlessVision: Boolean
-        get() = vlessFlow.contains("vision", ignoreCase = true)
-
-    val isPrivateVpsNode: Boolean
-        get() {
-            if (!isVpnVlessUplink && uplinkMode != UplinkMode.VLESS) return false
-            if (isVlessReality) return true
-            val ep = getEffectiveVlessServerAddress().trim()
-            if (ep.isEmpty()) return false
-            val d = ep.lowercase()
-            return !(d.endsWith(".workers.dev") || d.endsWith(".pages.dev") || d.endsWith(".cloudflare.com"))
-        }
-
-    fun getEffectiveVlessDomain(): String {
-        return vlessDomain.trim().ifEmpty {
-            if (customCfDomain.isNotBlank()) customCfDomain.trim()
-            else "free-vless.pages.dev"
-        }
-    }
-
-    fun getEffectiveVlessServerAddress(): String {
-        return vlessServerAddress.trim().ifEmpty { getEffectiveVlessDomain() }
-    }
-
-    fun getEffectiveVlessServerPort(): Int {
-        return if (vlessServerPort > 0) vlessServerPort else 443
-    }
-
-    fun getEffectiveVlessSni(): String {
-        return vlessTlsSni.trim().ifEmpty { getEffectiveVlessDomain() }
-    }
-
-    fun getEffectiveVlessHost(): String {
-        return vlessHostHeader.trim().ifEmpty { getEffectiveVlessSni() }
-    }
-
-    /**
-     * Возвращает готовую ссылку VLESS для импорта в сторонние клиенты (Xray, v2rayNG, Sing-box, Nekobox).
-     */
-    fun getVlessShareUrl(workerDomain: String = ""): String {
-        val serverAddr = if (workerDomain.isNotBlank()) workerDomain.trim() else getEffectiveVlessServerAddress()
-        val serverPort = getEffectiveVlessServerPort()
-        val sni = getEffectiveVlessSni()
-        val host = getEffectiveVlessHost()
-
-        if (isVlessReality) {
-            val sb = StringBuilder("vless://$vlessUuid@$serverAddr:$serverPort?encryption=none&security=reality&sni=$sni")
-            if (vlessPublicKey.isNotBlank()) {
-                sb.append("&pbk=").append(java.net.URLEncoder.encode(vlessPublicKey, "UTF-8"))
-            }
-            if (vlessShortId.isNotBlank()) {
-                sb.append("&sid=").append(java.net.URLEncoder.encode(vlessShortId, "UTF-8"))
-            }
-            if (vlessFingerprint.isNotBlank()) {
-                sb.append("&fp=").append(java.net.URLEncoder.encode(vlessFingerprint, "UTF-8"))
-            }
-            if (vlessSpiderX.isNotBlank()) {
-                sb.append("&spx=").append(java.net.URLEncoder.encode(vlessSpiderX, "UTF-8"))
-            }
-            if (vlessFlow.isNotBlank()) {
-                sb.append("&flow=").append(java.net.URLEncoder.encode(vlessFlow, "UTF-8"))
-            }
-            if (vlessHeaderType.isNotBlank()) {
-                sb.append("&headerType=").append(java.net.URLEncoder.encode(vlessHeaderType, "UTF-8"))
-            }
-            sb.append("&type=").append(if (vlessTransport.isNotBlank()) vlessTransport else "tcp")
-            sb.append("#Mirrly-TG-Proxy")
-            return sb.toString()
-        }
-
-        if (isVlessTcpDirect) {
-            val sb = StringBuilder("vless://$vlessUuid@$serverAddr:$serverPort?encryption=none&security=$vlessSecurity&sni=$sni&type=tcp")
-            if (vlessFlow.isNotBlank()) {
-                sb.append("&flow=").append(java.net.URLEncoder.encode(vlessFlow, "UTF-8"))
-            }
-            if (vlessHeaderType.isNotBlank()) {
-                sb.append("&headerType=").append(java.net.URLEncoder.encode(vlessHeaderType, "UTF-8"))
-            }
-            sb.append("#Mirrly-TG-Proxy")
-            return sb.toString()
-        }
-
-        val cleanPath = if (vlessPath.startsWith("/")) vlessPath else "/$vlessPath"
-        val encodedPath = java.net.URLEncoder.encode(cleanPath, "UTF-8")
-        return "vless://$vlessUuid@$serverAddr:$serverPort?encryption=none&security=tls&sni=$sni&type=ws&host=$host&path=$encodedPath#Mirrly-TG-Proxy"
-    }
 
     val isAutoSpeedPreset: Boolean
         get() = speedPreset == SpeedPreset.AUTO
@@ -635,13 +499,6 @@ data class ProxyConfig(
         return sanitizeDomain(customCfDomain)
     }
 
-    /** Возвращает эффективный домен Cloudflare Worker для WARP. */
-    fun getEffectiveWarpWorkerDomain(): String {
-        val domain = sanitizeDomain(warpWorkerDomain)
-        if (domain.isNotEmpty()) return domain
-        return getEffectiveCfDomain()
-    }
-
     val rawSecret32: String
         get() {
             var clean = secretHex.trim().lowercase()
@@ -728,8 +585,6 @@ data class ProxyConfig(
             val pass = hex.substring(6)
             return Pair(user, pass)
         }
-
-        fun generateVlessUuid(): String = java.util.UUID.randomUUID().toString()
     }
 }
 

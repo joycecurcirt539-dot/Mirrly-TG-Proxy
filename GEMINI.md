@@ -14,7 +14,7 @@
 3. **Публикация только Release APK**:
    - На GitHub в артефакты релиза загружаются **ТОЛЬКО** файлы из папки `release` (публикация `app-debug.apk` запрещена).
 4. **Контрольные отпечатки SHA-256 для КАЖДОЙ версии**:
-   - Для **КАЖДОЙ** новой версии приложения необходимо рассчитать и опубликовать в секции контрольных сумм отпечатки SHA-256 для **ВСЕХ** сборок пакетов (`app-universal-release.apk`, `app-arm64-v8a-release.apk`, `app-armeabi-v7a-release.apk`, `app-x86_64-release.apk`, `app-x86-release.apk`), а также официальный отпечаток ключа подписи (Keystore SHA-256).
+   - Для **КАЖДОЙ** новой версии приложения необходимо рассчитать и опубликовать в секции контрольных сумм отпечатки SHA-256 для **ВСЕХ** сборок пакетов (`MTGP [v+code] [universal].apk`, `MTGP [v+code] [arm64-v8a].apk`, `MTGP [v+code] [armeabi-v7a].apk`, `MTGP [v+code] [x86_64].apk`, `MTGP [v+code] [x86].apk`), а также официальный отпечаток ключа подписи (Keystore SHA-256).
    - **Официальный отпечаток ключа подписи (Keystore SHA-256)**:
      `00:32:69:CB:70:12:DF:37:61:E7:D3:92:79:5C:C3:55:02:43:39:A4:B2:1B:3F:B5:75:A4:C9:2B:CC:DD:25:16`
      **КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО** указывать в релизе отпечаток debug-ключа (`97:73:5C...`) или любой другой непроизводственный отпечаток. Все релизные сборки должны быть подписаны исключительно релизным ключом `mirrly-release.jks`.
@@ -28,20 +28,20 @@
 
 ---
 ## 1. Контрольные отпечатки SHA-256
-* **app-universal-release.apk SHA-256**: `2C01ABCADF11F71F9D7E055E1C9C3B2D8D17A5BD3CEB753F5FBCC166A5E00D88`
-* **app-arm64-v8a-release.apk SHA-256**: `08E202BBF8AF134C8F26F58F0D94197F6CAB07350347A195C4A89DDFC0EFB127`
-* **app-armeabi-v7a-release.apk SHA-256**: `DD236A9A4412FFE97242EA1416A90DBB0AAF8418EDC953F7C8220BC02180CC9F`
-* **app-x86_64-release.apk SHA-256**: `F613B66828D7366B1C43A647FE6294FE501C37411923951AAE55FFBA3D55C3C6`
-* **app-x86-release.apk SHA-256**: `CCB4F0F8AC3E0C25F98AE0229AD0241D8AAA647DF523A1B36D7D905E1E2F9AAF`
+* **MTGP [2.1.1+31] [universal].apk SHA-256**: `2C01ABCADF11F71F9D7E055E1C9C3B2D8D17A5BD3CEB753F5FBCC166A5E00D88`
+* **MTGP [2.1.1+31] [arm64-v8a].apk SHA-256**: `08E202BBF8AF134C8F26F58F0D94197F6CAB07350347A195C4A89DDFC0EFB127`
+* **MTGP [2.1.1+31] [armeabi-v7a].apk SHA-256**: `DD236A9A4412FFE97242EA1416A90DBB0AAF8418EDC953F7C8220BC02180CC9F`
+* **MTGP [2.1.1+31] [x86_64].apk SHA-256**: `F613B66828D7366B1C43A647FE6294FE501C37411923951AAE55FFBA3D55C3C6`
+* **MTGP [2.1.1+31] [x86].apk SHA-256**: `CCB4F0F8AC3E0C25F98AE0229AD0241D8AAA647DF523A1B36D7D905E1E2F9AAF`
 * **SHA-256 подписи (Release)**: `00:32:69:CB:70:12:DF:37:61:E7:D3:92:79:5C:C3:55:02:43:39:A4:B2:1B:3F:B5:75:A4:C9:2B:CC:DD:25:16`
 
 ---
 ## 2. Назначение установочных пакетов (APK)
-* **app-universal-release.apk**: Универсальная сборка. Содержит нативные библиотеки под все архитектуры (ARM64, ARMv7, x86, x86_64). Гарантированно подходит для любого Android-устройства. Единый основной файл для автообновлений и публикации.
-* **app-arm64-v8a-release.apk**: Сборка ARM64. Оптимизирована для большинства современных смартфонов и планшетов (64-битные процессоры ARM). Обладает меньшим размером.
-* **app-armeabi-v7a-release.apk**: Сборка ARMv7. Для старых 32-битных Android-устройств.
-* **app-x86_64-release.apk**: Сборка x86_64. Для 64-битных эмуляторов Android (Android Studio, LDPlayer, BlueStacks) и устройств на базах процессоров Intel/AMD.
-* **app-x86-release.apk**: Сборка x86. Для 32-битных эмуляторов Android x86.
+* **MTGP [2.1.1+31] [universal].apk**: Универсальная сборка. Содержит нативные библиотеки под все архитектуры (ARM64, ARMv7, x86, x86_64). Гарантированно подходит для любого Android-устройства. Единый основной файл для автообновлений и публикации.
+* **MTGP [2.1.1+31] [arm64-v8a].apk**: Сборка ARM64. Оптимизирована для большинства современных смартфонов и планшетов (64-битные процессоры ARM). Обладает меньшим размером.
+* **MTGP [2.1.1+31] [armeabi-v7a].apk**: Сборка ARMv7. Для старых 32-битных Android-устройств.
+* **MTGP [2.1.1+31] [x86_64].apk**: Сборка x86_64. Для 64-битных эмуляторов Android (Android Studio, LDPlayer, BlueStacks) и устройств на базах процессоров Intel/AMD.
+* **MTGP [2.1.1+31] [x86].apk**: Сборка x86. Для 32-битных эмуляторов Android x86.
 
 ---
 ## 3. Ключевые изменения
@@ -74,18 +74,18 @@
 1. **КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО** публиковать `debug` версию APK (`app-debug.apk`) или файлы, подписанные debug-ключом. Сборка релизов производится **ТОЛЬКО** с использованием официального хранилища ключей (`mirrly-release.jks`):
    - `./gradlew assembleRelease`
 2. **Файлы установочных пакетов в `app/build/outputs/apk/release/`**:
-   - `app-universal-release.apk`: **Универсальная сборка**. Содержит нативные библиотеки под все архитектуры (ARM64, ARMv7, x86, x86_64). Гарантированно подходит для любого Android-устройства. Единый основной файл для автообновлений и публикации.
-   - `app-arm64-v8a-release.apk`: **Сборка ARM64**. Оптимизирована для большинства современных смартфонов и планшетов (64-битные процессоры ARM). Обладает меньшим размером.
-   - `app-armeabi-v7a-release.apk`: **Сборка ARMv7**. Для старых 32-битных Android-устройств.
-   - `app-x86_64-release.apk`: **Сборка x86_64**. Для 64-битных эмуляторов Android (Android Studio, LDPlayer, BlueStacks) и устройств на базах процессоров Intel/AMD.
-   - `app-x86-release.apk`: **Сборка x86**. Для 32-битных эмуляторов Android x86.
+   - `MTGP [v+code] [universal].apk`: **Универсальная сборка**. Содержит нативные библиотеки под все архитектуры (ARM64, ARMv7, x86, x86_64). Гарантированно подходит для любого Android-устройства. Единый основной файл для автообновлений и публикации.
+   - `MTGP [v+code] [arm64-v8a].apk`: **Сборка ARM64**. Оптимизирована для большинства современных смартфонов и планшетов (64-битные процессоры ARM). Обладает меньшим размером.
+   - `MTGP [v+code] [armeabi-v7a].apk`: **Сборка ARMv7**. Для старых 32-битных Android-устройств.
+   - `MTGP [v+code] [x86_64].apk`: **Сборка x86_64**. Для 64-битных эмуляторов Android (Android Studio, LDPlayer, BlueStacks) и устройств на базах процессоров Intel/AMD.
+   - `MTGP [v+code] [x86].apk`: **Сборка x86**. Для 32-битных эмуляторов Android x86.
 3. **Расчет SHA-256 файлов пакетов (выполняется для каждого APK перед публикацией)**:
-   - В PowerShell: `Get-FileHash -Algorithm SHA256 'app\build\outputs\apk\release\app-universal-release.apk'`
-   - В Bash/Linux: `sha256sum app/build/outputs/apk/release/app-universal-release.apk`
+   - В PowerShell: `Get-FileHash -Algorithm SHA256 'app\build\outputs\apk\release\MTGP [2.1.1+31] [universal].apk'`
+   - В Bash/Linux: `sha256sum app/build/outputs/apk/release/MTGP\ \[2.1.1+31\]\ \[universal\].apk`
 4. **Обязательная валидация цифровой подписи перед релизом**:
    - Перед публикацией обязательно проверить отпечаток сертификата собранного APK:
      - В Gradle: `./gradlew signingReport`
-     - или через keytool: `keytool -printcert -jarfile app/build/outputs/apk/release/app-universal-release.apk`
+     - или через keytool: `keytool -printcert -jarfile 'app/build/outputs/apk/release/MTGP [2.1.1+31] [universal].apk'`
    - Отпечаток сертификата **ОБЯЗАН** быть равен:
      `00:32:69:CB:70:12:DF:37:61:E7:D3:92:79:5C:C3:55:02:43:39:A4:B2:1B:3F:B5:75:A4:C9:2B:CC:DD:25:16`
    - Если отпечаток не совпадает (например, содержит старый `97:73:5C...`), публикация такого APK категорически запрещена.

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Mirrly TG Proxy - Native MTProto & Cloudflare WebSocket Proxy for Android
+  Copyright (C) 2026 R1Xern (Mirrly Dev)
+-->
+<resources>
+    <!-- Community Showcase Section • About Screen -->
+    <string name="about_section_community">ТВОРЧЕСТВО СООБЩЕСТВА</string>
+    <string name="about_community_card_title">Творчество сообщества</string>
+    <string name="about_community_card_desc">Признание вклада участников в визуальный дизайн, авторские иконки и концепты</string>
+    <string name="about_community_badge_first">ПЕРВАЯ АВТОРСКАЯ РАБОТА</string>
+    <string name="about_community_author_name">Никита Гришин • Nikita Grishin</string>
+    <string name="about_community_work_status">Первая авторская работа, представленная в разделе сообщества Mirrly</string>
+    <string name="about_community_work_contribution_label">ВКЛАД В РАЗВИТИЕ</string>
+    <string name="about_community_work_contribution">Создание концепции и оформление иконки приложения: котик с самолётиком</string>
+    <string name="about_community_work_gratitude">Спасибо за то, что вкладываешь частичку себя в развитие проекта.</string>
+    <string name="about_community_artwork_desc">Превью авторской иконки: котик с самолётиком</string>
+
+    <!-- Liquid Glass Settings -->
+    <string name="settings_customization_liquid_glass_title">Эффекты жидкого стекла • Liquid Glass</string>
+    <string name="settings_customization_liquid_glass_desc">Аппаратное преломление света и хроматическая дисперсия для карточек сообщества на Android 13+</string>
+</resources>

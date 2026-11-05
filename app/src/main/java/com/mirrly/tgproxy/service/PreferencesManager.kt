@@ -11,6 +11,7 @@ import com.mirrly.tgproxy.core.ProxyConfig
 import com.mirrly.tgproxy.core.ProxyMode
 import com.mirrly.tgproxy.core.WarpKeystoreEncryption
 import com.mirrly.tgproxy.core.WorkerProfile
+import com.mirrly.tgproxy.ui.theme.ThemeAccentMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -137,6 +138,9 @@ class PreferencesManager(private val context: Context) {
     private val _aiTemperatureFlow = MutableStateFlow(getAiTemperature())
     val aiTemperatureFlow: StateFlow<Float> = _aiTemperatureFlow.asStateFlow()
 
+    private val _aiPauseBackgroundParticlesFlow = MutableStateFlow(isAiPauseBackgroundParticles())
+    val aiPauseBackgroundParticlesFlow: StateFlow<Boolean> = _aiPauseBackgroundParticlesFlow.asStateFlow()
+
     private val _forceMobileModeFlow = MutableStateFlow(isForceMobileModeEnabled())
     val forceMobileModeFlow: StateFlow<Boolean> = _forceMobileModeFlow.asStateFlow()
 
@@ -181,7 +185,7 @@ class PreferencesManager(private val context: Context) {
     private val _customBackgroundRevisionFlow = MutableStateFlow(prefs.getLong(KEY_WALLPAPER_REVISION, 0L))
     val customBackgroundRevisionFlow: StateFlow<Long> = _customBackgroundRevisionFlow.asStateFlow()
 
-    /** Media type: [WALLPAPER_TYPE_IMAGE] or [WALLPAPER_TYPE_VIDEO]. */
+    /** Media type: [WALLPAPER_TYPE_IMAGE], [WALLPAPER_TYPE_VIDEO], or [WALLPAPER_TYPE_SHADER]. */
     private val _customBackgroundTypeFlow = MutableStateFlow(
         prefs.getString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_IMAGE) ?: WALLPAPER_TYPE_IMAGE
     )
@@ -215,6 +219,103 @@ class PreferencesManager(private val context: Context) {
     private val _customBackgroundParticlesFlow = MutableStateFlow(prefs.getBoolean(KEY_WALLPAPER_PARTICLES, true))
     val customBackgroundParticlesFlow: StateFlow<Boolean> = _customBackgroundParticlesFlow.asStateFlow()
 
+    /** Particle dynamics behavior style: [ParticleStyle.BOKEH_DUST], [ParticleStyle.BITSTREAM_MATRIX], [ParticleStyle.STARFIELD_WARP]. */
+    private val _wallpaperParticlesStyleFlow = MutableStateFlow(
+        prefs.getString(KEY_WALLPAPER_PARTICLES_STYLE, ParticleStyle.BOKEH_DUST.name) ?: ParticleStyle.BOKEH_DUST.name
+    )
+    val wallpaperParticlesStyleFlow: StateFlow<String> = _wallpaperParticlesStyleFlow.asStateFlow()
+
+    /** Particle count / density in range [WALLPAPER_PARTICLES_COUNT_MIN]..[WALLPAPER_PARTICLES_COUNT_MAX]. */
+    private val _wallpaperParticlesCountFlow = MutableStateFlow(
+        prefs.getInt(KEY_WALLPAPER_PARTICLES_COUNT, WALLPAPER_PARTICLES_COUNT_DEFAULT).coerceIn(WALLPAPER_PARTICLES_COUNT_MIN, WALLPAPER_PARTICLES_COUNT_MAX)
+    )
+    val wallpaperParticlesCountFlow: StateFlow<Int> = _wallpaperParticlesCountFlow.asStateFlow()
+
+    /** Particle movement speed multiplier in range [WALLPAPER_PARTICLES_SPEED_MIN]..[WALLPAPER_PARTICLES_SPEED_MAX]. */
+    private val _wallpaperParticlesSpeedFlow = MutableStateFlow(
+        prefs.getFloat(KEY_WALLPAPER_PARTICLES_SPEED, WALLPAPER_PARTICLES_SPEED_DEFAULT).coerceIn(WALLPAPER_PARTICLES_SPEED_MIN, WALLPAPER_PARTICLES_SPEED_MAX)
+    )
+    val wallpaperParticlesSpeedFlow: StateFlow<Float> = _wallpaperParticlesSpeedFlow.asStateFlow()
+
+    /** Hardware gyroscopic 3D parallax toggle. */
+    private val _wallpaperParallaxEnabledFlow = MutableStateFlow(
+        prefs.getBoolean(KEY_WALLPAPER_PARALLAX_ENABLED, false)
+    )
+    val wallpaperParallaxEnabledFlow: StateFlow<Boolean> = _wallpaperParallaxEnabledFlow.asStateFlow()
+
+    /** Hardware gyroscopic 3D parallax depth in range [WALLPAPER_PARALLAX_DEPTH_MIN]..[WALLPAPER_PARALLAX_DEPTH_MAX]. */
+    private val _wallpaperParallaxDepthFlow = MutableStateFlow(
+        prefs.getFloat(KEY_WALLPAPER_PARALLAX_DEPTH, WALLPAPER_PARALLAX_DEPTH_DEFAULT).coerceIn(WALLPAPER_PARALLAX_DEPTH_MIN, WALLPAPER_PARALLAX_DEPTH_MAX)
+    )
+    val wallpaperParallaxDepthFlow: StateFlow<Float> = _wallpaperParallaxDepthFlow.asStateFlow()
+
+    /** Selected AGSL procedural GPU shader preset: [AgslShaderPreset.PERSPECTIVE_GRID], etc. */
+    private val _wallpaperShaderPresetFlow = MutableStateFlow(
+        AgslShaderPreset.fromString(prefs.getString(KEY_WALLPAPER_SHADER_PRESET, AgslShaderPreset.PERSPECTIVE_GRID.id))
+    )
+    val wallpaperShaderPresetFlow: StateFlow<AgslShaderPreset> = _wallpaperShaderPresetFlow.asStateFlow()
+
+    /** Animation playback speed multiplier for AGSL procedural shaders [WALLPAPER_SHADER_SPEED_MIN]..[WALLPAPER_SHADER_SPEED_MAX]. */
+    private val _wallpaperShaderSpeedFlow = MutableStateFlow(
+        prefs.getFloat(KEY_WALLPAPER_SHADER_SPEED, WALLPAPER_SHADER_SPEED_DEFAULT)
+            .coerceIn(WALLPAPER_SHADER_SPEED_MIN, WALLPAPER_SHADER_SPEED_MAX)
+    )
+    val wallpaperShaderSpeedFlow: StateFlow<Float> = _wallpaperShaderSpeedFlow.asStateFlow()
+
+    /** Geometric corner style for MirrlyUI cards: [CardCornerStyle.ROUNDED], [CardCornerStyle.SHARP], [CardCornerStyle.CYBER_CHISEL]. */
+    private val _cardCornerStyleFlow = MutableStateFlow(
+        CardCornerStyle.fromString(prefs.getString(KEY_CARD_CORNER_STYLE, CardCornerStyle.ROUNDED.id))
+    )
+    val cardCornerStyleFlow: StateFlow<CardCornerStyle> = _cardCornerStyleFlow.asStateFlow()
+
+    /** Corner radius in dp when [CardCornerStyle.ROUNDED] is active in range [CARD_CORNER_RADIUS_DP_MIN]..[CARD_CORNER_RADIUS_DP_MAX]. */
+    private val _cardCornerRadiusDpFlow = MutableStateFlow(
+        prefs.getFloat(KEY_CARD_CORNER_RADIUS_DP, CARD_CORNER_RADIUS_DP_DEFAULT).coerceIn(CARD_CORNER_RADIUS_DP_MIN, CARD_CORNER_RADIUS_DP_MAX)
+    )
+    val cardCornerRadiusDpFlow: StateFlow<Float> = _cardCornerRadiusDpFlow.asStateFlow()
+
+    /** Tactile hardware haptic vibration profile: [HapticProfile.MECHANICAL_CLICK], etc. */
+    private val _hapticProfileFlow = MutableStateFlow(
+        HapticProfile.fromString(prefs.getString(KEY_HAPTIC_PROFILE, HapticProfile.MECHANICAL_CLICK.id))
+    )
+    val hapticProfileFlow: StateFlow<HapticProfile> = _hapticProfileFlow.asStateFlow()
+
+    /** Central orbital rings visibility on the home screen. */
+    private val _homeRingsEnabledFlow = MutableStateFlow(
+        prefs.getBoolean(KEY_HOME_RINGS_ENABLED, true)
+    )
+    val homeRingsEnabledFlow: StateFlow<Boolean> = _homeRingsEnabledFlow.asStateFlow()
+
+    /** Liquid Glass hardware lens refraction & chromatic dispersion effects for community cards. */
+    private val _liquidGlassEnabledFlow = MutableStateFlow(
+        prefs.getBoolean(KEY_LIQUID_GLASS_ENABLED, true)
+    )
+    val liquidGlassEnabledFlow: StateFlow<Boolean> = _liquidGlassEnabledFlow.asStateFlow()
+
+    /** Master UI scale multiplier for all cards, panels, and layouts in range [UI_SCALE_MIN]..[UI_SCALE_MAX]. */
+    private val _uiScaleFlow = MutableStateFlow(
+        prefs.getFloat(KEY_UI_SCALE, UI_SCALE_DEFAULT).coerceIn(UI_SCALE_MIN, UI_SCALE_MAX)
+    )
+    val uiScaleFlow: StateFlow<Float> = _uiScaleFlow.asStateFlow()
+
+    /** Typography text scale multiplier in range [TEXT_SCALE_MIN]..[TEXT_SCALE_MAX]. */
+    private val _textScaleFlow = MutableStateFlow(
+        prefs.getFloat(KEY_TEXT_SCALE, TEXT_SCALE_DEFAULT).coerceIn(TEXT_SCALE_MIN, TEXT_SCALE_MAX)
+    )
+    val textScaleFlow: StateFlow<Float> = _textScaleFlow.asStateFlow()
+
+    /** Central orbital rings and background energy spheres scale in range [ORBITAL_SPHERES_SCALE_MIN]..[ORBITAL_SPHERES_SCALE_MAX]. */
+    private val _orbitalSpheresScaleFlow = MutableStateFlow(
+        prefs.getFloat(KEY_ORBITAL_SPHERES_SCALE, ORBITAL_SPHERES_SCALE_DEFAULT).coerceIn(ORBITAL_SPHERES_SCALE_MIN, ORBITAL_SPHERES_SCALE_MAX)
+    )
+    val orbitalSpheresScaleFlow: StateFlow<Float> = _orbitalSpheresScaleFlow.asStateFlow()
+
+    /** Micro-particle size scale in range [WALLPAPER_PARTICLES_SIZE_MIN]..[WALLPAPER_PARTICLES_SIZE_MAX]. */
+    private val _wallpaperParticlesSizeFlow = MutableStateFlow(
+        prefs.getFloat(KEY_WALLPAPER_PARTICLES_SIZE, WALLPAPER_PARTICLES_SIZE_DEFAULT).coerceIn(WALLPAPER_PARTICLES_SIZE_MIN, WALLPAPER_PARTICLES_SIZE_MAX)
+    )
+    val wallpaperParticlesSizeFlow: StateFlow<Float> = _wallpaperParticlesSizeFlow.asStateFlow()
+
     /** Active preset ID if the current background corresponds to a preset (or null if ad-hoc custom file). */
     private val _customBackgroundActivePresetIdFlow = MutableStateFlow<String?>(
         prefs.getString(KEY_WALLPAPER_ACTIVE_PRESET_ID, null)
@@ -225,9 +326,142 @@ class PreferencesManager(private val context: Context) {
     private val _customBackgroundUserPresetsFlow = MutableStateFlow<List<WallpaperPreset>>(emptyList())
     val customBackgroundUserPresetsFlow: StateFlow<List<WallpaperPreset>> = _customBackgroundUserPresetsFlow.asStateFlow()
 
+    // ── Theme Accent & Customization Flows ──
+    private val _themeAccentModeFlow = MutableStateFlow(getThemeAccentMode())
+    val themeAccentModeFlow: StateFlow<ThemeAccentMode> = _themeAccentModeFlow.asStateFlow()
+
+    private val _isCustomThemeEnabledFlow = MutableStateFlow(getThemeAccentMode() != ThemeAccentMode.PROTOCOL_DEFAULT)
+    val isCustomThemeEnabledFlow: StateFlow<Boolean> = _isCustomThemeEnabledFlow.asStateFlow()
+
+    private val _themePresetIdFlow = MutableStateFlow(getThemePresetId())
+    val themePresetIdFlow: StateFlow<String> = _themePresetIdFlow.asStateFlow()
+
+    private val _themeCustomColorHexFlow = MutableStateFlow(getThemeCustomColorHex())
+    val themeCustomColorHexFlow: StateFlow<String> = _themeCustomColorHexFlow.asStateFlow()
+
+    private val _themeBrightnessFlow = MutableStateFlow(getThemeBrightness())
+    val themeBrightnessFlow: StateFlow<Float> = _themeBrightnessFlow.asStateFlow()
+
+    private val _themeSaturationFlow = MutableStateFlow(getThemeSaturation())
+    val themeSaturationFlow: StateFlow<Float> = _themeSaturationFlow.asStateFlow()
+
+    private val _themeAlphaFlow = MutableStateFlow(getThemeAlpha())
+    val themeAlphaFlow: StateFlow<Float> = _themeAlphaFlow.asStateFlow()
+
+    // ── Central Button Icon & Custom Code Flows ──
+    private val _centralButtonIconMtprotoFlow = MutableStateFlow(getCentralButtonIcon("mtproto"))
+    val centralButtonIconMtprotoFlow: StateFlow<String> = _centralButtonIconMtprotoFlow.asStateFlow()
+
+    private val _centralButtonIconSocks5Flow = MutableStateFlow(getCentralButtonIcon("socks5"))
+    val centralButtonIconSocks5Flow: StateFlow<String> = _centralButtonIconSocks5Flow.asStateFlow()
+
+    private val _centralButtonIconVpnFlow = MutableStateFlow(getCentralButtonIcon("vpn"))
+    val centralButtonIconVpnFlow: StateFlow<String> = _centralButtonIconVpnFlow.asStateFlow()
+
+    private val _customIconCodeMtprotoFlow = MutableStateFlow(getCustomIconCode("mtproto"))
+    val customIconCodeMtprotoFlow: StateFlow<String> = _customIconCodeMtprotoFlow.asStateFlow()
+
+    private val _customIconCodeSocks5Flow = MutableStateFlow(getCustomIconCode("socks5"))
+    val customIconCodeSocks5Flow: StateFlow<String> = _customIconCodeSocks5Flow.asStateFlow()
+
+    private val _customIconCodeVpnFlow = MutableStateFlow(getCustomIconCode("vpn"))
+    val customIconCodeVpnFlow: StateFlow<String> = _customIconCodeVpnFlow.asStateFlow()
+
+    private val _centralButtonScaleFlow = MutableStateFlow(getCentralButtonScale())
+    val centralButtonScaleFlow: StateFlow<Float> = _centralButtonScaleFlow.asStateFlow()
+
+    private val _centralButtonStrokeWidthFlow = MutableStateFlow(getCentralButtonStrokeWidth())
+    val centralButtonStrokeWidthFlow: StateFlow<Float> = _centralButtonStrokeWidthFlow.asStateFlow()
+
+    private val _centralButtonGlowIntensityFlow = MutableStateFlow(getCentralButtonGlowIntensity())
+    val centralButtonGlowIntensityFlow: StateFlow<Float> = _centralButtonGlowIntensityFlow.asStateFlow()
+
+    private val _aiChatDraftFlow = MutableStateFlow(getAiChatDraft())
+    val aiChatDraftFlow: StateFlow<String> = _aiChatDraftFlow.asStateFlow()
+
     private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
+        if (key == KEY_THEME_ACCENT_MODE) {
+            val mode = getThemeAccentMode()
+            _themeAccentModeFlow.value = mode
+            _isCustomThemeEnabledFlow.value = (mode != ThemeAccentMode.PROTOCOL_DEFAULT)
+        }
+        if (key == KEY_THEME_PRESET_ID) {
+            _themePresetIdFlow.value = getThemePresetId()
+        }
+        if (key == KEY_THEME_CUSTOM_COLOR_HEX) {
+            _themeCustomColorHexFlow.value = getThemeCustomColorHex()
+        }
+        if (key == KEY_THEME_BRIGHTNESS) {
+            _themeBrightnessFlow.value = getThemeBrightness()
+        }
+        if (key == KEY_THEME_SATURATION) {
+            _themeSaturationFlow.value = getThemeSaturation()
+        }
+        if (key == KEY_THEME_ALPHA) {
+            _themeAlphaFlow.value = getThemeAlpha()
+        }
+        if (key == KEY_CENTRAL_BUTTON_ICON_MTPROTO) {
+            _centralButtonIconMtprotoFlow.value = getCentralButtonIcon("mtproto")
+        }
+        if (key == KEY_CENTRAL_BUTTON_ICON_SOCKS5) {
+            _centralButtonIconSocks5Flow.value = getCentralButtonIcon("socks5")
+        }
+        if (key == KEY_CENTRAL_BUTTON_ICON_VPN) {
+            _centralButtonIconVpnFlow.value = getCentralButtonIcon("vpn")
+        }
+        if (key == KEY_CUSTOM_ICON_CODE_MTPROTO) {
+            _customIconCodeMtprotoFlow.value = getCustomIconCode("mtproto")
+        }
+        if (key == KEY_CUSTOM_ICON_CODE_SOCKS5) {
+            _customIconCodeSocks5Flow.value = getCustomIconCode("socks5")
+        }
+        if (key == KEY_CUSTOM_ICON_CODE_VPN) {
+            _customIconCodeVpnFlow.value = getCustomIconCode("vpn")
+        }
+        if (key == KEY_CENTRAL_BUTTON_SCALE) {
+            _centralButtonScaleFlow.value = getCentralButtonScale()
+        }
+        if (key == KEY_CENTRAL_BUTTON_STROKE_WIDTH) {
+            _centralButtonStrokeWidthFlow.value = getCentralButtonStrokeWidth()
+        }
+        if (key == KEY_CENTRAL_BUTTON_GLOW_INTENSITY) {
+            _centralButtonGlowIntensityFlow.value = getCentralButtonGlowIntensity()
+        }
+        if (key == KEY_AI_CHAT_DRAFT) {
+            _aiChatDraftFlow.value = getAiChatDraft()
+        }
         if (key == "disable_animations_particles") {
             _animationsDisabledFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+        if (key == KEY_WALLPAPER_PARTICLES_STYLE) {
+            _wallpaperParticlesStyleFlow.value = sharedPreferences.getString(key, ParticleStyle.BOKEH_DUST.name) ?: ParticleStyle.BOKEH_DUST.name
+        }
+        if (key == KEY_WALLPAPER_PARTICLES_COUNT) {
+            _wallpaperParticlesCountFlow.value = sharedPreferences.getInt(key, WALLPAPER_PARTICLES_COUNT_DEFAULT).coerceIn(WALLPAPER_PARTICLES_COUNT_MIN, WALLPAPER_PARTICLES_COUNT_MAX)
+        }
+        if (key == KEY_WALLPAPER_PARTICLES_SPEED) {
+            _wallpaperParticlesSpeedFlow.value = sharedPreferences.getFloat(key, WALLPAPER_PARTICLES_SPEED_DEFAULT).coerceIn(WALLPAPER_PARTICLES_SPEED_MIN, WALLPAPER_PARTICLES_SPEED_MAX)
+        }
+        if (key == KEY_WALLPAPER_PARALLAX_ENABLED) {
+            _wallpaperParallaxEnabledFlow.value = sharedPreferences.getBoolean(key, false)
+        }
+        if (key == KEY_HOME_RINGS_ENABLED) {
+            _homeRingsEnabledFlow.value = sharedPreferences.getBoolean(key, true)
+        }
+        if (key == KEY_LIQUID_GLASS_ENABLED) {
+            _liquidGlassEnabledFlow.value = sharedPreferences.getBoolean(key, true)
+        }
+        if (key == KEY_UI_SCALE) {
+            _uiScaleFlow.value = sharedPreferences.getFloat(key, UI_SCALE_DEFAULT).coerceIn(UI_SCALE_MIN, UI_SCALE_MAX)
+        }
+        if (key == KEY_TEXT_SCALE) {
+            _textScaleFlow.value = sharedPreferences.getFloat(key, TEXT_SCALE_DEFAULT).coerceIn(TEXT_SCALE_MIN, TEXT_SCALE_MAX)
+        }
+        if (key == KEY_ORBITAL_SPHERES_SCALE) {
+            _orbitalSpheresScaleFlow.value = sharedPreferences.getFloat(key, ORBITAL_SPHERES_SCALE_DEFAULT).coerceIn(ORBITAL_SPHERES_SCALE_MIN, ORBITAL_SPHERES_SCALE_MAX)
+        }
+        if (key == KEY_WALLPAPER_PARTICLES_SIZE) {
+            _wallpaperParticlesSizeFlow.value = sharedPreferences.getFloat(key, WALLPAPER_PARTICLES_SIZE_DEFAULT).coerceIn(WALLPAPER_PARTICLES_SIZE_MIN, WALLPAPER_PARTICLES_SIZE_MAX)
         }
         if (key == KEY_ECH_ENABLED) {
             _isEchEnabledFlow.value = sharedPreferences.getBoolean(key, false)
@@ -479,29 +713,6 @@ class PreferencesManager(private val context: Context) {
         val warpMasqueSni = prefs.getString("warp_masque_sni", defaults.warpMasqueSni)?.takeIf { it.isNotBlank() } ?: defaults.warpMasqueSni
         val isWarpPlus = prefs.getBoolean("is_warp_plus", defaults.isWarpPlus)
         val isWarpAccountActive = prefs.getBoolean("is_warp_account_active", defaults.isWarpAccountActive)
-        val vlessUuidRaw = secretPrefs.getString("vless_uuid", null) ?: prefs.getString("vless_uuid", defaults.vlessUuid) ?: defaults.vlessUuid
-        val vlessUuid = WarpKeystoreEncryption.decrypt(vlessUuidRaw)
-        val vlessPath = prefs.getString("vless_path", defaults.vlessPath) ?: defaults.vlessPath
-        val vlessDomain = prefs.getString("vless_domain", defaults.vlessDomain) ?: defaults.vlessDomain
-        val vlessPresetId = prefs.getString("vless_preset_id", defaults.vlessPresetId) ?: defaults.vlessPresetId
-        val vlessSecurity = prefs.getString("vless_security", defaults.vlessSecurity) ?: defaults.vlessSecurity
-        val vlessPublicKey = prefs.getString("vless_public_key", defaults.vlessPublicKey) ?: defaults.vlessPublicKey
-        val vlessShortId = prefs.getString("vless_short_id", defaults.vlessShortId) ?: defaults.vlessShortId
-        val vlessFingerprint = prefs.getString("vless_fingerprint", defaults.vlessFingerprint) ?: defaults.vlessFingerprint
-        val vlessSpiderX = prefs.getString("vless_spider_x", defaults.vlessSpiderX) ?: defaults.vlessSpiderX
-        val vlessTransport = prefs.getString("vless_transport", defaults.vlessTransport) ?: defaults.vlessTransport
-        val vlessFlow = prefs.getString("vless_flow", defaults.vlessFlow) ?: defaults.vlessFlow
-        val vlessHeaderType = prefs.getString("vless_header_type", defaults.vlessHeaderType) ?: defaults.vlessHeaderType
-        val vlessServerAddress = prefs.getString("vless_server_address", defaults.vlessServerAddress) ?: defaults.vlessServerAddress
-        val vlessServerPort = prefs.getInt("vless_server_port", defaults.vlessServerPort)
-        val vlessTlsSni = prefs.getString("vless_tls_sni", defaults.vlessTlsSni) ?: defaults.vlessTlsSni
-        val vlessHostHeader = prefs.getString("vless_host_header", defaults.vlessHostHeader) ?: defaults.vlessHostHeader
-        val useOperaVpnForVless = prefs.getBoolean("use_opera_vpn_for_vless", defaults.useOperaVpnForVless)
-        val useOperaVpnForWarp = false
-        val operaVpnEndpoint = prefs.getString("opera_vpn_endpoint", defaults.operaVpnEndpoint) ?: defaults.operaVpnEndpoint
-        val operaVpnNodeId = prefs.getString("opera_vpn_node_id", defaults.operaVpnNodeId) ?: defaults.operaVpnNodeId
-        val warpWorkerDomain = prefs.getString("warp_worker_domain", defaults.warpWorkerDomain) ?: defaults.warpWorkerDomain
-        val isRegisterWarpViaWorker = prefs.getBoolean("is_register_warp_via_worker", defaults.isRegisterWarpViaWorker)
         val awgStrategyName = prefs.getString("awg_strategy_name", defaults.awgStrategyName) ?: defaults.awgStrategyName
         val awgCustomIni = prefs.getString("awg_custom_ini", defaults.awgCustomIni) ?: defaults.awgCustomIni
 
@@ -565,28 +776,6 @@ class PreferencesManager(private val context: Context) {
             isWgValid = isWgValid,
             isMasqueValid = isMasqueValid,
             warpMasqueSni = warpMasqueSni,
-            vlessUuid = vlessUuid,
-            vlessPath = vlessPath,
-            vlessDomain = vlessDomain,
-            vlessPresetId = vlessPresetId,
-            vlessSecurity = vlessSecurity,
-            vlessPublicKey = vlessPublicKey,
-            vlessShortId = vlessShortId,
-            vlessFingerprint = vlessFingerprint,
-            vlessSpiderX = vlessSpiderX,
-            vlessTransport = vlessTransport,
-            vlessFlow = vlessFlow,
-            vlessHeaderType = vlessHeaderType,
-            vlessServerAddress = vlessServerAddress,
-            vlessServerPort = vlessServerPort,
-            vlessTlsSni = vlessTlsSni,
-            vlessHostHeader = vlessHostHeader,
-            useOperaVpnForVless = useOperaVpnForVless,
-            useOperaVpnForWarp = useOperaVpnForWarp,
-            operaVpnEndpoint = operaVpnEndpoint,
-            operaVpnNodeId = operaVpnNodeId,
-            warpWorkerDomain = warpWorkerDomain,
-            isRegisterWarpViaWorker = isRegisterWarpViaWorker,
             awgStrategyName = awgStrategyName,
             awgCustomIni = awgCustomIni,
             vpnDnsModeName = vpnDnsModeName,
@@ -623,7 +812,6 @@ class PreferencesManager(private val context: Context) {
             .putString("warp_private_key", WarpKeystoreEncryption.encrypt(config.warpPrivateKey))
             .putString("warp_p256_private_key", WarpKeystoreEncryption.encrypt(config.warpP256PrivateKey))
             .putString("warp_masque_token", WarpKeystoreEncryption.encrypt(config.warpMasqueToken))
-            .putString("vless_uuid", WarpKeystoreEncryption.encrypt(config.vlessUuid))
             .putString("socks5_password", WarpKeystoreEncryption.encrypt(config.socks5Password))
             .putString("warp_license_key", WarpKeystoreEncryption.encrypt(config.warpLicenseKey))
             .apply()
@@ -634,7 +822,6 @@ class PreferencesManager(private val context: Context) {
             .remove("warp_private_key")
             .remove("warp_p256_private_key")
             .remove("warp_masque_token")
-            .remove("vless_uuid")
             .remove("socks5_password")
             .remove("warp_license_key")
             .putString("bind_host", config.bindHost)
@@ -685,27 +872,6 @@ class PreferencesManager(private val context: Context) {
             .putBoolean("is_masque_valid", config.isMasqueValid)
             .putBoolean("is_warp_plus", config.isWarpPlus)
             .putBoolean("is_warp_account_active", config.isWarpAccountActive)
-            .putString("vless_path", config.vlessPath)
-            .putString("vless_domain", config.vlessDomain)
-            .putString("vless_preset_id", config.vlessPresetId)
-            .putString("vless_security", config.vlessSecurity)
-            .putString("vless_public_key", config.vlessPublicKey)
-            .putString("vless_short_id", config.vlessShortId)
-            .putString("vless_fingerprint", config.vlessFingerprint)
-            .putString("vless_spider_x", config.vlessSpiderX)
-            .putString("vless_transport", config.vlessTransport)
-            .putString("vless_flow", config.vlessFlow)
-            .putString("vless_header_type", config.vlessHeaderType)
-            .putString("vless_server_address", config.vlessServerAddress)
-            .putInt("vless_server_port", config.vlessServerPort)
-            .putString("vless_tls_sni", config.vlessTlsSni)
-            .putString("vless_host_header", config.vlessHostHeader)
-            .putBoolean("use_opera_vpn_for_vless", config.useOperaVpnForVless)
-            .putBoolean("use_opera_vpn_for_warp", config.useOperaVpnForWarp)
-            .putString("opera_vpn_endpoint", config.operaVpnEndpoint)
-            .putString("opera_vpn_node_id", config.operaVpnNodeId)
-            .putString("warp_worker_domain", config.warpWorkerDomain)
-            .putBoolean("is_register_warp_via_worker", config.isRegisterWarpViaWorker)
             .putString("awg_strategy_name", config.awgStrategyName)
             .putString("awg_custom_ini", config.awgCustomIni)
             .putString("vpn_uplink_mode", config.vpnUplinkModeName)
@@ -930,15 +1096,6 @@ class PreferencesManager(private val context: Context) {
 
     fun getVpnCustomDnsIps(): String = _vpnCustomDnsIpsFlow.value
 
-    fun isWarpRegisterViaWorker(): Boolean {
-        return prefs.getBoolean("is_register_warp_via_worker", true)
-    }
-
-    fun setWarpRegisterViaWorker(enabled: Boolean) {
-        prefs.edit().putBoolean("is_register_warp_via_worker", enabled).apply()
-        com.mirrly.tgproxy.core.WarpAccountManager.isRegisterViaWorker = enabled
-    }
-
     fun getEnabledDohProviderIds(): Set<String> = emptySet()
 
     fun setEnabledDohProviderIds(ids: Set<String>) {
@@ -991,6 +1148,7 @@ class PreferencesManager(private val context: Context) {
 
     fun getWallpaperPreviewFile(): File? {
         val type = _customBackgroundTypeFlow.value
+        if (type == WALLPAPER_TYPE_SHADER) return null
         return if (type == WALLPAPER_TYPE_VIDEO) {
             val f = wallpaperVideoPreviewFile()
             if (f.isFile && f.length() > 0L) f else null
@@ -1003,6 +1161,11 @@ class PreferencesManager(private val context: Context) {
     private fun resolveStoredWallpaperPath(): String? {
         if (!prefs.getBoolean(KEY_WALLPAPER_ENABLED, false)) return null
         val type = prefs.getString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_IMAGE) ?: WALLPAPER_TYPE_IMAGE
+        if (type == WALLPAPER_TYPE_SHADER) {
+            val preset = prefs.getString(KEY_WALLPAPER_SHADER_PRESET, AgslShaderPreset.PERSPECTIVE_GRID.id)
+                ?: AgslShaderPreset.PERSPECTIVE_GRID.id
+            return "shader://$preset"
+        }
         val file = if (type == WALLPAPER_TYPE_VIDEO) wallpaperVideoFile() else wallpaperFile()
         return if (file.isFile && file.length() > 0L) file.absolutePath else null
     }
@@ -1205,6 +1368,165 @@ class PreferencesManager(private val context: Context) {
         prefs.edit().putBoolean(KEY_WALLPAPER_VIDEO_POWER_SAVE, enabled).apply()
     }
 
+    fun getWallpaperParticlesStyle(): ParticleStyle {
+        return ParticleStyle.fromString(_wallpaperParticlesStyleFlow.value)
+    }
+
+    fun setWallpaperParticlesStyle(style: ParticleStyle) {
+        _wallpaperParticlesStyleFlow.value = style.name
+        prefs.edit().putString(KEY_WALLPAPER_PARTICLES_STYLE, style.name).apply()
+    }
+
+    fun setWallpaperParticlesCount(count: Int, persist: Boolean = true) {
+        val clamped = count.coerceIn(WALLPAPER_PARTICLES_COUNT_MIN, WALLPAPER_PARTICLES_COUNT_MAX)
+        _wallpaperParticlesCountFlow.value = clamped
+        if (persist) prefs.edit().putInt(KEY_WALLPAPER_PARTICLES_COUNT, clamped).apply()
+    }
+
+    fun setWallpaperParticlesSpeed(speed: Float, persist: Boolean = true) {
+        val clamped = speed.coerceIn(WALLPAPER_PARTICLES_SPEED_MIN, WALLPAPER_PARTICLES_SPEED_MAX)
+        _wallpaperParticlesSpeedFlow.value = clamped
+        if (persist) prefs.edit().putFloat(KEY_WALLPAPER_PARTICLES_SPEED, clamped).apply()
+    }
+
+    fun setWallpaperParallaxEnabled(enabled: Boolean) {
+        _wallpaperParallaxEnabledFlow.value = enabled
+        prefs.edit().putBoolean(KEY_WALLPAPER_PARALLAX_ENABLED, enabled).apply()
+    }
+
+    fun isHomeRingsEnabled(): Boolean = _homeRingsEnabledFlow.value
+
+    fun setHomeRingsEnabled(enabled: Boolean) {
+        _homeRingsEnabledFlow.value = enabled
+        prefs.edit().putBoolean(KEY_HOME_RINGS_ENABLED, enabled).apply()
+    }
+
+    fun isLiquidGlassEnabled(): Boolean = _liquidGlassEnabledFlow.value
+
+    fun setLiquidGlassEnabled(enabled: Boolean) {
+        _liquidGlassEnabledFlow.value = enabled
+        prefs.edit().putBoolean(KEY_LIQUID_GLASS_ENABLED, enabled).apply()
+    }
+
+    fun getUiScale(): Float = _uiScaleFlow.value
+
+    fun setUiScale(scale: Float, persist: Boolean = true) {
+        val clamped = scale.coerceIn(UI_SCALE_MIN, UI_SCALE_MAX)
+        _uiScaleFlow.value = clamped
+        if (persist) prefs.edit().putFloat(KEY_UI_SCALE, clamped).apply()
+    }
+
+    fun getTextScale(): Float = _textScaleFlow.value
+
+    fun setTextScale(scale: Float, persist: Boolean = true) {
+        val clamped = scale.coerceIn(TEXT_SCALE_MIN, TEXT_SCALE_MAX)
+        _textScaleFlow.value = clamped
+        if (persist) prefs.edit().putFloat(KEY_TEXT_SCALE, clamped).apply()
+    }
+
+    fun getOrbitalSpheresScale(): Float = _orbitalSpheresScaleFlow.value
+
+    fun setOrbitalSpheresScale(scale: Float, persist: Boolean = true) {
+        val clamped = scale.coerceIn(ORBITAL_SPHERES_SCALE_MIN, ORBITAL_SPHERES_SCALE_MAX)
+        _orbitalSpheresScaleFlow.value = clamped
+        if (persist) prefs.edit().putFloat(KEY_ORBITAL_SPHERES_SCALE, clamped).apply()
+    }
+
+    fun getWallpaperParticlesSize(): Float = _wallpaperParticlesSizeFlow.value
+
+    fun setWallpaperParticlesSize(size: Float, persist: Boolean = true) {
+        val clamped = size.coerceIn(WALLPAPER_PARTICLES_SIZE_MIN, WALLPAPER_PARTICLES_SIZE_MAX)
+        _wallpaperParticlesSizeFlow.value = clamped
+        if (persist) prefs.edit().putFloat(KEY_WALLPAPER_PARTICLES_SIZE, clamped).apply()
+    }
+
+    fun resetAllUiDimensions() {
+        _uiScaleFlow.value = UI_SCALE_DEFAULT
+        _textScaleFlow.value = TEXT_SCALE_DEFAULT
+        _orbitalSpheresScaleFlow.value = ORBITAL_SPHERES_SCALE_DEFAULT
+        _wallpaperParticlesSizeFlow.value = WALLPAPER_PARTICLES_SIZE_DEFAULT
+        prefs.edit()
+            .putFloat(KEY_UI_SCALE, UI_SCALE_DEFAULT)
+            .putFloat(KEY_TEXT_SCALE, TEXT_SCALE_DEFAULT)
+            .putFloat(KEY_ORBITAL_SPHERES_SCALE, ORBITAL_SPHERES_SCALE_DEFAULT)
+            .putFloat(KEY_WALLPAPER_PARTICLES_SIZE, WALLPAPER_PARTICLES_SIZE_DEFAULT)
+            .apply()
+    }
+
+    // ── Parallax Depth Slider ────────────────────────────────────────────────
+
+    fun getWallpaperParallaxDepth(): Float = _wallpaperParallaxDepthFlow.value
+    fun getParallaxDepth(): Float = getWallpaperParallaxDepth()
+
+    fun setWallpaperParallaxDepth(depth: Float, persist: Boolean = true) {
+        val clamped = depth.coerceIn(WALLPAPER_PARALLAX_DEPTH_MIN, WALLPAPER_PARALLAX_DEPTH_MAX)
+        _wallpaperParallaxDepthFlow.value = clamped
+        if (persist) prefs.edit().putFloat(KEY_WALLPAPER_PARALLAX_DEPTH, clamped).apply()
+    }
+    fun setParallaxDepth(depth: Float, persist: Boolean = true) = setWallpaperParallaxDepth(depth, persist)
+
+    // ── AGSL Procedural Shaders (Android 13+) ────────────────────────────────
+
+    fun getWallpaperShaderPreset(): AgslShaderPreset = _wallpaperShaderPresetFlow.value
+
+    fun setWallpaperShaderPreset(preset: AgslShaderPreset) {
+        _wallpaperShaderPresetFlow.value = preset
+        prefs.edit().putString(KEY_WALLPAPER_SHADER_PRESET, preset.id).apply()
+    }
+
+    fun activateShaderWallpaper(preset: AgslShaderPreset) {
+        val revision = System.currentTimeMillis()
+        prefs.edit()
+            .putBoolean(KEY_WALLPAPER_ENABLED, true)
+            .putLong(KEY_WALLPAPER_REVISION, revision)
+            .putString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_SHADER)
+            .putString(KEY_WALLPAPER_SHADER_PRESET, preset.id)
+            .remove(KEY_WALLPAPER_ACTIVE_PRESET_ID)
+            .apply()
+        _customBackgroundActivePresetIdFlow.value = null
+        _customBackgroundRevisionFlow.value = revision
+        _customBackgroundTypeFlow.value = WALLPAPER_TYPE_SHADER
+        _wallpaperShaderPresetFlow.value = preset
+        _customBackgroundVideoMetadataFlow.value = null
+        _customBackgroundUriFlow.value = "shader://${preset.id}"
+    }
+
+    fun getWallpaperShaderSpeed(): Float = _wallpaperShaderSpeedFlow.value
+
+    fun setWallpaperShaderSpeed(speed: Float, persist: Boolean = true) {
+        val clamped = speed.coerceIn(WALLPAPER_SHADER_SPEED_MIN, WALLPAPER_SHADER_SPEED_MAX)
+        _wallpaperShaderSpeedFlow.value = clamped
+        if (persist) {
+            prefs.edit().putFloat(KEY_WALLPAPER_SHADER_SPEED, clamped).apply()
+        }
+    }
+
+    // ── Card Corner Geometry & Cyber Chisel ──────────────────────────────────
+
+    fun getCardCornerStyle(): CardCornerStyle = _cardCornerStyleFlow.value
+
+    fun setCardCornerStyle(style: CardCornerStyle) {
+        _cardCornerStyleFlow.value = style
+        prefs.edit().putString(KEY_CARD_CORNER_STYLE, style.id).apply()
+    }
+
+    fun getCardCornerRadiusDp(): Float = _cardCornerRadiusDpFlow.value
+
+    fun setCardCornerRadiusDp(radius: Float, persist: Boolean = true) {
+        val clamped = radius.coerceIn(CARD_CORNER_RADIUS_DP_MIN, CARD_CORNER_RADIUS_DP_MAX)
+        _cardCornerRadiusDpFlow.value = clamped
+        if (persist) prefs.edit().putFloat(KEY_CARD_CORNER_RADIUS_DP, clamped).apply()
+    }
+
+    // ── Haptic Profiles ──────────────────────────────────────────────────────
+
+    fun getHapticProfile(): HapticProfile = _hapticProfileFlow.value
+
+    fun setHapticProfile(profile: HapticProfile) {
+        _hapticProfileFlow.value = profile
+        prefs.edit().putString(KEY_HAPTIC_PROFILE, profile.id).apply()
+    }
+
     // ── Wallpaper Presets Engine ─────────────────────────────────────────────
 
     fun ensureDefaultWallpaperInitialized() {
@@ -1237,7 +1559,7 @@ class PreferencesManager(private val context: Context) {
                     .putString(KEY_WALLPAPER_TYPE, WALLPAPER_TYPE_VIDEO)
                     .putString(KEY_WALLPAPER_ACTIVE_PRESET_ID, WallpaperPreset.PRESET_ID_SPACE_TOILET)
                     .putFloat(KEY_WALLPAPER_BLUR, 0f)
-                    .putFloat(KEY_WALLPAPER_DIM, 0.50f)
+                    .putFloat(KEY_WALLPAPER_DIM, 0.70f)
                     .putInt(KEY_WALLPAPER_VIDEO_WIDTH, 1080)
                     .putInt(KEY_WALLPAPER_VIDEO_HEIGHT, 1920)
                     .putInt(KEY_WALLPAPER_VIDEO_DURATION, 10)
@@ -1249,12 +1571,19 @@ class PreferencesManager(private val context: Context) {
                 _customBackgroundUriFlow.value = targetVideo.absolutePath
                 _customBackgroundActivePresetIdFlow.value = WallpaperPreset.PRESET_ID_SPACE_TOILET
                 _customBackgroundBlurFlow.value = 0f
-                _customBackgroundDimFlow.value = 0.50f
+                _customBackgroundDimFlow.value = 0.70f
                 _customBackgroundVideoMetadataFlow.value = resolveStoredVideoMetadata()
 
                 AppLogger.i("Wallpaper", "Default Space Toilet wallpaper initialized successfully.")
             } catch (e: Throwable) {
                 AppLogger.w("Wallpaper", "Failed to initialize default space toilet wallpaper: ${e.message}")
+            }
+        } else {
+            val activePreset = prefs.getString(KEY_WALLPAPER_ACTIVE_PRESET_ID, null)
+            val currentDim = prefs.getFloat(KEY_WALLPAPER_DIM, -1f)
+            if (activePreset == WallpaperPreset.PRESET_ID_SPACE_TOILET && (currentDim == 0.50f || currentDim == -1f)) {
+                prefs.edit().putFloat(KEY_WALLPAPER_DIM, 0.70f).apply()
+                _customBackgroundDimFlow.value = 0.70f
             }
         }
     }
@@ -1262,6 +1591,12 @@ class PreferencesManager(private val context: Context) {
     suspend fun applyPreset(preset: WallpaperPreset): Result<Unit> = withContext(Dispatchers.IO) {
         wallpaperMutex.lock()
         try {
+            if (preset.id == WallpaperPreset.PRESET_ID_DEFAULT_AMOLED) {
+                clearCustomWallpaper()
+                prefs.edit().putString(KEY_WALLPAPER_ACTIVE_PRESET_ID, WallpaperPreset.PRESET_ID_DEFAULT_AMOLED).apply()
+                _customBackgroundActivePresetIdFlow.value = WallpaperPreset.PRESET_ID_DEFAULT_AMOLED
+                return@withContext Result.success(Unit)
+            }
             val revision = System.currentTimeMillis()
             if (preset.isBuiltIn) {
                 if (preset.type == WALLPAPER_TYPE_VIDEO) {
@@ -1484,9 +1819,199 @@ class PreferencesManager(private val context: Context) {
         prefs.edit().putString(KEY_WALLPAPER_USER_PRESETS, array.toString()).apply()
     }
 
+    // ── Theme Accent Management ──
+
+    fun getThemeAccentMode(): ThemeAccentMode {
+        val raw = prefs.getString(KEY_THEME_ACCENT_MODE, ThemeAccentMode.PROTOCOL_DEFAULT.storageKey)
+        return ThemeAccentMode.fromStorageKey(raw)
+    }
+
+    fun setThemeAccentMode(mode: ThemeAccentMode) {
+        prefs.edit().putString(KEY_THEME_ACCENT_MODE, mode.storageKey).apply()
+        _themeAccentModeFlow.value = mode
+        _isCustomThemeEnabledFlow.value = (mode != ThemeAccentMode.PROTOCOL_DEFAULT)
+    }
+
+    fun getThemePresetId(): String {
+        return prefs.getString(KEY_THEME_PRESET_ID, "CYBER_RUBY") ?: "CYBER_RUBY"
+    }
+
+    fun setThemePresetId(presetId: String) {
+        prefs.edit().putString(KEY_THEME_PRESET_ID, presetId).apply()
+        _themePresetIdFlow.value = presetId
+    }
+
+    fun getThemeCustomColorHex(): String {
+        return prefs.getString(KEY_THEME_CUSTOM_COLOR_HEX, "#00F5D4") ?: "#00F5D4"
+    }
+
+    fun setThemeCustomColorHex(hex: String) {
+        val clean = if (hex.startsWith("#")) hex.uppercase() else "#${hex.uppercase()}"
+        prefs.edit().putString(KEY_THEME_CUSTOM_COLOR_HEX, clean).apply()
+        _themeCustomColorHexFlow.value = clean
+    }
+
+    fun getThemeBrightness(): Float {
+        return prefs.getFloat(KEY_THEME_BRIGHTNESS, 1.0f).coerceIn(0.2f, 1.5f)
+    }
+
+    fun setThemeBrightness(value: Float) {
+        val clamped = value.coerceIn(0.2f, 1.5f)
+        prefs.edit().putFloat(KEY_THEME_BRIGHTNESS, clamped).apply()
+        _themeBrightnessFlow.value = clamped
+    }
+
+    fun getThemeSaturation(): Float {
+        return prefs.getFloat(KEY_THEME_SATURATION, 1.0f).coerceIn(0.0f, 1.5f)
+    }
+
+    fun setThemeSaturation(value: Float) {
+        val clamped = value.coerceIn(0.0f, 1.5f)
+        prefs.edit().putFloat(KEY_THEME_SATURATION, clamped).apply()
+        _themeSaturationFlow.value = clamped
+    }
+
+    fun getThemeAlpha(): Float {
+        return prefs.getFloat(KEY_THEME_ALPHA, 1.0f).coerceIn(0.2f, 1.0f)
+    }
+
+    fun setThemeAlpha(value: Float) {
+        val clamped = value.coerceIn(0.2f, 1.0f)
+        prefs.edit().putFloat(KEY_THEME_ALPHA, clamped).apply()
+        _themeAlphaFlow.value = clamped
+    }
+
+    fun resetThemeAdjustments() {
+        prefs.edit()
+            .putFloat(KEY_THEME_BRIGHTNESS, 1.0f)
+            .putFloat(KEY_THEME_SATURATION, 1.0f)
+            .putFloat(KEY_THEME_ALPHA, 1.0f)
+            .apply()
+        _themeBrightnessFlow.value = 1.0f
+        _themeSaturationFlow.value = 1.0f
+        _themeAlphaFlow.value = 1.0f
+    }
+
+    // ── Central Buttons Icon Customization ──
+
+    fun getCentralButtonIcon(protocol: String): String {
+        return when (protocol.lowercase()) {
+            "mtproto" -> prefs.getString(KEY_CENTRAL_BUTTON_ICON_MTPROTO, "default") ?: "default"
+            "socks5" -> prefs.getString(KEY_CENTRAL_BUTTON_ICON_SOCKS5, "default") ?: "default"
+            "vpn" -> prefs.getString(KEY_CENTRAL_BUTTON_ICON_VPN, "default") ?: "default"
+            else -> "default"
+        }
+    }
+
+    fun setCentralButtonIcon(protocol: String, iconId: String) {
+        val key = when (protocol.lowercase()) {
+            "mtproto" -> KEY_CENTRAL_BUTTON_ICON_MTPROTO
+            "socks5" -> KEY_CENTRAL_BUTTON_ICON_SOCKS5
+            "vpn" -> KEY_CENTRAL_BUTTON_ICON_VPN
+            else -> return
+        }
+        prefs.edit().putString(key, iconId).apply()
+        when (protocol.lowercase()) {
+            "mtproto" -> _centralButtonIconMtprotoFlow.value = iconId
+            "socks5" -> _centralButtonIconSocks5Flow.value = iconId
+            "vpn" -> _centralButtonIconVpnFlow.value = iconId
+        }
+    }
+
+    fun getCustomIconCode(protocol: String): String {
+        val key = when (protocol.lowercase()) {
+            "mtproto" -> KEY_CUSTOM_ICON_CODE_MTPROTO
+            "socks5" -> KEY_CUSTOM_ICON_CODE_SOCKS5
+            "vpn" -> KEY_CUSTOM_ICON_CODE_VPN
+            else -> return ""
+        }
+        return prefs.getString(key, "") ?: ""
+    }
+
+    fun setCustomIconCode(protocol: String, code: String) {
+        val key = when (protocol.lowercase()) {
+            "mtproto" -> KEY_CUSTOM_ICON_CODE_MTPROTO
+            "socks5" -> KEY_CUSTOM_ICON_CODE_SOCKS5
+            "vpn" -> KEY_CUSTOM_ICON_CODE_VPN
+            else -> return
+        }
+        prefs.edit().putString(key, code).apply()
+        when (protocol.lowercase()) {
+            "mtproto" -> _customIconCodeMtprotoFlow.value = code
+            "socks5" -> _customIconCodeSocks5Flow.value = code
+            "vpn" -> _customIconCodeVpnFlow.value = code
+        }
+    }
+
+    fun getAiChatDraft(): String {
+        return prefs.getString(KEY_AI_CHAT_DRAFT, "") ?: ""
+    }
+
+    fun setAiChatDraft(text: String) {
+        prefs.edit().putString(KEY_AI_CHAT_DRAFT, text).apply()
+        _aiChatDraftFlow.value = text
+    }
+
+    fun getCentralButtonScale(): Float {
+        return prefs.getFloat(KEY_CENTRAL_BUTTON_SCALE, CENTRAL_BUTTON_SCALE_DEFAULT).coerceIn(0.70f, 1.30f)
+    }
+
+    fun setCentralButtonScale(scale: Float, persist: Boolean = true) {
+        val clamped = scale.coerceIn(0.70f, 1.30f)
+        _centralButtonScaleFlow.value = clamped
+        if (persist) {
+            prefs.edit().putFloat(KEY_CENTRAL_BUTTON_SCALE, clamped).apply()
+        }
+    }
+
+    fun getCentralButtonStrokeWidth(): Float {
+        return prefs.getFloat(KEY_CENTRAL_BUTTON_STROKE_WIDTH, CENTRAL_BUTTON_STROKE_WIDTH_DEFAULT).coerceIn(1.0f, 3.0f)
+    }
+
+    fun setCentralButtonStrokeWidth(stroke: Float, persist: Boolean = true) {
+        val clamped = stroke.coerceIn(1.0f, 3.0f)
+        _centralButtonStrokeWidthFlow.value = clamped
+        if (persist) {
+            prefs.edit().putFloat(KEY_CENTRAL_BUTTON_STROKE_WIDTH, clamped).apply()
+        }
+    }
+
+    fun getCentralButtonGlowIntensity(): Float {
+        return prefs.getFloat(KEY_CENTRAL_BUTTON_GLOW_INTENSITY, CENTRAL_BUTTON_GLOW_INTENSITY_DEFAULT).coerceIn(0.0f, 2.0f)
+    }
+
+    fun setCentralButtonGlowIntensity(glow: Float, persist: Boolean = true) {
+        val clamped = glow.coerceIn(0.0f, 2.0f)
+        _centralButtonGlowIntensityFlow.value = clamped
+        if (persist) {
+            prefs.edit().putFloat(KEY_CENTRAL_BUTTON_GLOW_INTENSITY, clamped).apply()
+        }
+    }
+
     // ── Worker Profiles Management ──────────────────────────────────────────
 
     companion object {
+        const val KEY_THEME_ACCENT_MODE = "theme_accent_mode"
+        const val KEY_THEME_PRESET_ID = "theme_preset_id"
+        const val KEY_THEME_CUSTOM_COLOR_HEX = "theme_custom_color_hex"
+        const val KEY_THEME_BRIGHTNESS = "theme_brightness"
+        const val KEY_THEME_SATURATION = "theme_saturation"
+        const val KEY_THEME_ALPHA = "theme_alpha"
+
+        const val KEY_CENTRAL_BUTTON_ICON_MTPROTO = "central_button_icon_mtproto"
+        const val KEY_CENTRAL_BUTTON_ICON_SOCKS5 = "central_button_icon_socks5"
+        const val KEY_CENTRAL_BUTTON_ICON_VPN = "central_button_icon_vpn"
+        const val KEY_CUSTOM_ICON_CODE_MTPROTO = "custom_icon_code_mtproto"
+        const val KEY_CUSTOM_ICON_CODE_SOCKS5 = "custom_icon_code_socks5"
+        const val KEY_CUSTOM_ICON_CODE_VPN = "custom_icon_code_vpn"
+        const val KEY_CENTRAL_BUTTON_SCALE = "central_button_scale"
+        const val KEY_CENTRAL_BUTTON_STROKE_WIDTH = "central_button_stroke_width"
+        const val KEY_CENTRAL_BUTTON_GLOW_INTENSITY = "central_button_glow_intensity"
+        const val CENTRAL_BUTTON_SCALE_DEFAULT = 1.0f
+        const val CENTRAL_BUTTON_STROKE_WIDTH_DEFAULT = 1.5f
+        const val CENTRAL_BUTTON_GLOW_INTENSITY_DEFAULT = 1.0f
+        const val KEY_AI_CHAT_DRAFT = "ai_chat_draft"
+
         const val KEY_ECH_ENABLED = "ech_enabled"
         const val KEY_WS_RANDOMIZATION_ENABLED = "ws_randomization_enabled"
         const val KEY_TLS_RECORD_PADDING_ENABLED = "tls_record_padding_enabled"
@@ -1510,9 +2035,15 @@ class PreferencesManager(private val context: Context) {
         const val WALLPAPER_DIM_DEFAULT = 0.45f
         const val WALLPAPER_TYPE_IMAGE = "image"
         const val WALLPAPER_TYPE_VIDEO = "video"
+        const val WALLPAPER_TYPE_SHADER = "shader"
+        const val KEY_WALLPAPER_SHADER_PRESET = "custom_wallpaper_shader_preset"
+        const val KEY_WALLPAPER_SHADER_SPEED = "custom_wallpaper_shader_speed"
+        const val WALLPAPER_SHADER_SPEED_MIN = 0.20f
+        const val WALLPAPER_SHADER_SPEED_MAX = 2.50f
+        const val WALLPAPER_SHADER_SPEED_DEFAULT = 1.00f
         const val KEY_WALLPAPER_ACTIVE_PRESET_ID = "custom_wallpaper_active_preset_id"
         const val KEY_WALLPAPER_USER_PRESETS = "custom_wallpaper_user_presets"
-        private const val KEY_WALLPAPER_DEFAULT_SPACE_TOILET_INIT = "wallpaper_default_space_toilet_v2"
+        private const val KEY_WALLPAPER_DEFAULT_SPACE_TOILET_INIT = "wallpaper_default_space_toilet_v3"
         private const val KEY_WALLPAPER_ENABLED = "custom_wallpaper_enabled"
         private const val KEY_WALLPAPER_REVISION = "custom_wallpaper_revision"
         private const val KEY_WALLPAPER_TYPE = "custom_wallpaper_type"
@@ -1524,6 +2055,58 @@ class PreferencesManager(private val context: Context) {
         private const val KEY_WALLPAPER_VIDEO_HEIGHT = "custom_wallpaper_video_height"
         private const val KEY_WALLPAPER_VIDEO_DURATION = "custom_wallpaper_video_duration"
         private const val KEY_WALLPAPER_VIDEO_SIZE = "custom_wallpaper_video_size"
+
+        // Particle Dynamics & Parallax Engine Keys
+        const val KEY_WALLPAPER_PARTICLES_STYLE = "wallpaper_particles_style"
+        const val KEY_WALLPAPER_PARTICLES_COUNT = "wallpaper_particles_count"
+        const val KEY_WALLPAPER_PARTICLES_SPEED = "wallpaper_particles_speed"
+        const val KEY_WALLPAPER_PARALLAX_ENABLED = "wallpaper_parallax_enabled"
+        const val KEY_WALLPAPER_PARALLAX_DEPTH = "wallpaper_parallax_depth"
+        const val WALLPAPER_PARALLAX_DEPTH_MIN = 0.20f
+        const val WALLPAPER_PARALLAX_DEPTH_MAX = 2.50f
+        const val WALLPAPER_PARALLAX_DEPTH_DEFAULT = 1.00f
+        const val KEY_HOME_RINGS_ENABLED = "home_rings_enabled"
+        const val KEY_LIQUID_GLASS_ENABLED = "liquid_glass_enabled"
+
+        // Card Corner Geometry Keys
+        const val KEY_CARD_CORNER_STYLE = "card_corner_style"
+        const val KEY_CARD_CORNER_RADIUS_DP = "card_corner_radius_dp"
+        const val CARD_CORNER_RADIUS_DP_MIN = 8.0f
+        const val CARD_CORNER_RADIUS_DP_MAX = 24.0f
+        const val CARD_CORNER_RADIUS_DP_DEFAULT = 16.0f
+
+        // Haptic Profile Keys
+        const val KEY_HAPTIC_PROFILE = "haptic_profile"
+
+        // UI Scaling & Dimensions Keys
+        const val KEY_UI_SCALE = "ui_scale"
+        const val KEY_TEXT_SCALE = "text_scale"
+        const val KEY_ORBITAL_SPHERES_SCALE = "orbital_spheres_scale"
+        const val KEY_WALLPAPER_PARTICLES_SIZE = "wallpaper_particles_size"
+
+        const val UI_SCALE_MIN = 0.80f
+        const val UI_SCALE_MAX = 1.25f
+        const val UI_SCALE_DEFAULT = 1.00f
+
+        const val TEXT_SCALE_MIN = 0.80f
+        const val TEXT_SCALE_MAX = 1.30f
+        const val TEXT_SCALE_DEFAULT = 1.00f
+
+        const val ORBITAL_SPHERES_SCALE_MIN = 0.70f
+        const val ORBITAL_SPHERES_SCALE_MAX = 1.30f
+        const val ORBITAL_SPHERES_SCALE_DEFAULT = 1.00f
+
+        const val WALLPAPER_PARTICLES_SIZE_MIN = 0.50f
+        const val WALLPAPER_PARTICLES_SIZE_MAX = 2.50f
+        const val WALLPAPER_PARTICLES_SIZE_DEFAULT = 1.00f
+
+        const val WALLPAPER_PARTICLES_COUNT_MIN = 8
+        const val WALLPAPER_PARTICLES_COUNT_MAX = 100
+        const val WALLPAPER_PARTICLES_COUNT_DEFAULT = 20
+
+        const val WALLPAPER_PARTICLES_SPEED_MIN = 0.5f
+        const val WALLPAPER_PARTICLES_SPEED_MAX = 2.0f
+        const val WALLPAPER_PARTICLES_SPEED_DEFAULT = 1.0f
 
         /**
          * Создает диагностический отчет для службы поддержки, строго исключая
@@ -1551,12 +2134,6 @@ class PreferencesManager(private val context: Context) {
             report.put("warp_client_ipv6", config.warpClientIpv6)
             report.put("warp_peer_endpoint", config.warpPeerEndpoint)
             report.put("is_warp_plus", config.isWarpPlus)
-
-            // VLESS Diagnostics (без полного UUID)
-            report.put("vless_domain", config.vlessDomain)
-            report.put("vless_transport", config.vlessTransport)
-            report.put("vless_security", config.vlessSecurity)
-            report.put("vless_uuid_redacted", if (config.vlessUuid.length >= 8) "${config.vlessUuid.take(4)}...${config.vlessUuid.takeLast(4)}" else "EMPTY")
 
             // VPN Subsystem
             report.put("vpn_is_running", MirrlyVpnService.isRunning)
@@ -1930,6 +2507,14 @@ class PreferencesManager(private val context: Context) {
         prefs.edit().putBoolean("has_seen_vpn_onboarding", seen).apply()
     }
 
+    fun hasSeenAiOnboarding(): Boolean {
+        return prefs.getBoolean("has_seen_ai_onboarding", false)
+    }
+
+    fun setHasSeenAiOnboarding(seen: Boolean = true) {
+        prefs.edit().putBoolean("has_seen_ai_onboarding", seen).apply()
+    }
+
     fun getAppLanguage(): String {
         return prefs.getString("app_language", "system") ?: "system"
     }
@@ -2023,6 +2608,28 @@ class PreferencesManager(private val context: Context) {
 
     fun setCloudflareSubdomain(subdomain: String) {
         prefs.edit().putString("cf_subdomain", subdomain).apply()
+    }
+
+    fun setCloudflareToken(token: String) {
+        if (token.isBlank()) {
+            secretPrefs.edit().remove("cf_access_token").apply()
+        } else {
+            secretPrefs.edit().putString("cf_access_token", WarpKeystoreEncryption.encrypt(token)).apply()
+        }
+    }
+
+    fun setCloudflareAccountId(accountId: String) {
+        if (accountId.isBlank()) {
+            prefs.edit().remove("cf_account_id").apply()
+        } else {
+            prefs.edit().putString("cf_account_id", accountId).apply()
+        }
+    }
+
+    fun setCloudflareAuthorized(authorized: Boolean) {
+        if (!authorized) {
+            clearCloudflareSession()
+        }
     }
 
     fun saveCloudflareSession(
@@ -2165,14 +2772,6 @@ class PreferencesManager(private val context: Context) {
         _isWsRandomizationEnabledFlow.value = enabled
     }
 
-    fun getVlessUuid(): String {
-        return prefs.getString("vless_uuid", null) ?: com.mirrly.tgproxy.core.ProxyConfig().vlessUuid
-    }
-
-    fun setVlessUuid(uuid: String) {
-        prefs.edit().putString("vless_uuid", uuid).apply()
-    }
-
     fun isTlsRecordPaddingEnabled(): Boolean = prefs.getBoolean(KEY_TLS_RECORD_PADDING_ENABLED, true)
 
     fun setTlsRecordPaddingEnabled(enabled: Boolean) {
@@ -2234,13 +2833,26 @@ class PreferencesManager(private val context: Context) {
     }
 
     fun getAiModel(): String {
-        val model = prefs.getString("ai_model", "gemini-3.6-flash") ?: "gemini-3.6-flash"
-        return if (model.startsWith("gemini-2.0") || model == "gemini-3.8-flash" || model.isEmpty()) {
-            prefs.edit().putString("ai_model", "gemini-3.6-flash").apply()
-            "gemini-3.6-flash"
-        } else {
-            model
+        val provider = getAiProvider()
+        val defaultModel = when (provider) {
+            "Cloudflare" -> "@cf/meta/llama-3.3-70b-instruct"
+            "OpenRouter" -> "deepseek/deepseek-r1"
+            else -> "gemini-3.6-flash"
         }
+        val model = prefs.getString("ai_model", defaultModel) ?: defaultModel
+        if (provider == "Gemini" && (model.startsWith("@cf/") || model.contains("/") || model.startsWith("gemini-2.0") || model == "gemini-3.8-flash" || model.isEmpty())) {
+            prefs.edit().putString("ai_model", "gemini-3.6-flash").apply()
+            return "gemini-3.6-flash"
+        }
+        if (provider == "Cloudflare" && (!model.startsWith("@cf/") || model.isEmpty())) {
+            prefs.edit().putString("ai_model", "@cf/meta/llama-3.3-70b-instruct").apply()
+            return "@cf/meta/llama-3.3-70b-instruct"
+        }
+        if (provider == "OpenRouter" && (model.startsWith("@cf/") || !model.contains("/") || model.isEmpty())) {
+            prefs.edit().putString("ai_model", "deepseek/deepseek-r1").apply()
+            return "deepseek/deepseek-r1"
+        }
+        return model
     }
     fun setAiModel(model: String) {
         prefs.edit().putString("ai_model", model).apply()
@@ -2318,9 +2930,27 @@ class PreferencesManager(private val context: Context) {
         prefs.edit().putString("ai_custom_system_prompt", prompt).apply()
     }
 
-    fun isAiUseSocks5(): Boolean = prefs.getBoolean("ai_use_socks5", false)
+    fun isAiPauseBackgroundParticles(): Boolean = prefs.getBoolean("ai_pause_background_particles", true)
+    fun setAiPauseBackgroundParticles(pause: Boolean) {
+        prefs.edit().putBoolean("ai_pause_background_particles", pause).apply()
+        _aiPauseBackgroundParticlesFlow.value = pause
+    }
+
+    fun isAiUseSmartDns(): Boolean = prefs.getBoolean("ai_use_smart_dns", true)
+    fun setAiUseSmartDns(use: Boolean) {
+        prefs.edit().putBoolean("ai_use_smart_dns", use).apply()
+    }
+
+    fun getAiSmartDnsProvider(): String = prefs.getString("ai_smart_dns_provider", "geohide") ?: "geohide"
+    fun setAiSmartDnsProvider(provider: String) {
+        prefs.edit().putString("ai_smart_dns_provider", provider).apply()
+    }
+
+    @Deprecated("Superseded by isAiUseSmartDns")
+    fun isAiUseSocks5(): Boolean = isAiUseSmartDns()
+    @Deprecated("Superseded by setAiUseSmartDns")
     fun setAiUseSocks5(use: Boolean) {
-        prefs.edit().putBoolean("ai_use_socks5", use).apply()
+        setAiUseSmartDns(use)
     }
 
     fun isProxyActive(): Boolean = prefs.getBoolean("proxy_service_active", false)

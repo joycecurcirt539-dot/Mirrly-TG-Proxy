@@ -29,6 +29,13 @@ enum class WarpGeneratorFormat(
     val isAwg: Boolean = false,
     val awgVersion: String = ""
 ) {
+    WARP_MASQUE(
+        id = "warp_masque",
+        title = "WARP MASQUE",
+        extension = "masque",
+        description = "HTTP/3 CONNECT-IP через QUIC с маскировкой SNI и резервом AWG",
+        isAwg = false
+    ),
     AWG_3_1(
         id = "awg31",
         title = "AWG 3.1",
@@ -60,24 +67,6 @@ enum class WarpGeneratorFormat(
         description = "AWG 1.0: обфускация мусорными пакетами Jc, Jmin, Jmax",
         isAwg = true,
         awgVersion = "1.0"
-    ),
-    WIREGUARD(
-        id = "wireguard",
-        title = "WireGuard",
-        extension = "conf",
-        description = "Классический профиль WireGuard без параметров обфускации"
-    ),
-    WIRESOCK(
-        id = "wiresock",
-        title = "WireSock",
-        extension = "conf",
-        description = "Профиль WireSock с маскировкой под QUIC и TLS трафик"
-    ),
-    CLASH_META(
-        id = "clash",
-        title = "Clash Meta",
-        extension = "yaml",
-        description = "Конфигурация прокси для клиентов Clash Meta / Mihomo"
     )
 }
 
@@ -94,41 +83,60 @@ data class WarpEndpointPresetOption(
     val isBlocked: Boolean = false
 ) {
     companion object {
-        // Активные эндпоинты Cloudflare (порты 4500, 8443, 2408, 500)
-        val FRA_1 = WarpEndpointPresetOption("fra1", "Франкфурт 1", "188.114.97.66:4500", countryCode = "DE")
-        val FRA_2 = WarpEndpointPresetOption("fra2", "Франкфурт 2", "188.114.96.125:4500", countryCode = "DE")
-        val AMS_1 = WarpEndpointPresetOption("ams1", "Амстердам", "188.114.96.2:8443", countryCode = "NL")
-        val USA_1 = WarpEndpointPresetOption("usa1", "США Edge", "162.159.192.1:2408", countryCode = "US")
-        val ANYCAST_DEFAULT = WarpEndpointPresetOption("default", "Anycast", "162.159.195.1:500", countryCode = "GLOBAL")
-        val ENGAGE_ALT = WarpEndpointPresetOption("engage", "Cloudflare Edge", "engage.cloudflareclient.com:2408", countryCode = "GLOBAL")
+        // Проверенные Anycast эндпоинты Cloudflare WireGuard / AmneziaWG (незаблокированные порты 4500, 500, 1701)
+        val WG_FRA_4500 = WarpEndpointPresetOption("wg_fra_4500", "WG Франкфурт 4500", "188.114.97.66:4500", countryCode = "DE")
+        val WG_FRA_500 = WarpEndpointPresetOption("wg_fra_500", "WG Франкфурт 500", "188.114.96.125:500", countryCode = "DE")
+        val WG_EDGE_1701 = WarpEndpointPresetOption("wg_edge_1701", "WG Anycast 1701", "162.159.193.10:1701", countryCode = "GLOBAL")
+        val WG_EDGE_500 = WarpEndpointPresetOption("wg_edge_500", "WG Anycast 500", "162.159.192.1:500", countryCode = "GLOBAL")
+        val WG_EDGE_4500 = WarpEndpointPresetOption("wg_edge_4500", "WG Anycast 4500", "162.159.195.1:4500", countryCode = "GLOBAL")
+
+        // Проверенные Anycast эндпоинты Cloudflare MASQUE HTTP/3 (порты 8443, 8095, 443)
+        val MASQUE_FRA_8443 = WarpEndpointPresetOption("masque_fra_8443", "MASQUE Франкфурт 8443", "188.114.97.1:8443", countryCode = "DE")
+        val MASQUE_ANYCAST_8095 = WarpEndpointPresetOption("masque_anycast_8095", "MASQUE Anycast 8095", "162.159.198.2:8095", countryCode = "GLOBAL")
+        val MASQUE_ANYCAST_443 = WarpEndpointPresetOption("masque_anycast_443", "MASQUE Anycast 443", "188.114.96.1:443", countryCode = "GLOBAL")
+        val MASQUE_EDGE_8443 = WarpEndpointPresetOption("masque_edge_8443", "MASQUE Edge 8443", "engage.cloudflareclient.com:8443", countryCode = "GLOBAL")
+
         val RANDOM_POOL = WarpEndpointPresetOption("random", "Случайный узел", "", countryCode = "RANDOM", isRandom = true)
         val CUSTOM = WarpEndpointPresetOption("custom", "Свой эндпоинт", "", countryCode = "CUSTOM", isCustom = true)
 
-        // Заблокированные в РФ порты 8095 ТСПУ
-        val CLEAN_8095 = WarpEndpointPresetOption("clean8095", "Германия 8095", "188.114.96.1:8095", countryCode = "DE", isBlocked = true)
-        val HEL_1 = WarpEndpointPresetOption("hel1", "Хельсинки", "188.114.96.3:8095", countryCode = "FI", isBlocked = true)
-        val STO_1 = WarpEndpointPresetOption("sto1", "Стокгольм", "188.114.97.15:8095", countryCode = "SE", isBlocked = true)
-        val LON_1 = WarpEndpointPresetOption("lon1", "Лондон", "188.114.96.10:8095", countryCode = "GB", isBlocked = true)
+        // Совместимость с существующим кодом
+        val FRA_4500 get() = WG_FRA_4500
+        val FRA_500 get() = WG_FRA_500
+        val AMS_443 get() = MASQUE_ANYCAST_443
+        val USA_2408 get() = WG_EDGE_1701
+        val ANYCAST_443 get() = MASQUE_ANYCAST_443
+        val ENGAGE_500 get() = WG_EDGE_500
+        val ENGAGE_1701 get() = WG_EDGE_1701
+        val FRA_1 get() = WG_FRA_4500
+        val FRA_2 get() = WG_FRA_500
+        val AMS_1 get() = MASQUE_ANYCAST_443
+        val USA_1 get() = WG_EDGE_1701
+        val ANYCAST_DEFAULT get() = MASQUE_FRA_8443
+        val ENGAGE_ALT get() = WG_EDGE_500
 
         val ACTIVE_PRESETS = listOf(
-            FRA_1,
-            FRA_2,
-            AMS_1,
-            USA_1,
-            ANYCAST_DEFAULT,
-            ENGAGE_ALT,
+            MASQUE_ANYCAST_443,
+            WG_EDGE_1701,
+            WG_FRA_500,
+            WG_EDGE_500,
+            MASQUE_ANYCAST_8095,
+            MASQUE_FRA_8443,
+            WG_FRA_4500,
             RANDOM_POOL,
             CUSTOM
         )
 
-        val BLOCKED_8095_PRESETS = listOf(
-            CLEAN_8095,
-            HEL_1,
-            STO_1,
-            LON_1
-        )
+        val ALL_PRESETS = ACTIVE_PRESETS
 
-        val ALL_PRESETS = ACTIVE_PRESETS + BLOCKED_8095_PRESETS
+        fun forFormats(formats: Set<WarpGeneratorFormat>): List<WarpEndpointPresetOption> {
+            val hasMasque = formats.any { it == WarpGeneratorFormat.WARP_MASQUE }
+            val hasAwg = formats.any { it.isAwg }
+            return when {
+                hasMasque && !hasAwg -> listOf(MASQUE_ANYCAST_443, MASQUE_ANYCAST_8095, MASQUE_FRA_8443, MASQUE_EDGE_8443, RANDOM_POOL, CUSTOM)
+                hasAwg && !hasMasque -> listOf(WG_EDGE_1701, WG_FRA_500, WG_EDGE_500, WG_FRA_4500, WG_EDGE_4500, RANDOM_POOL, CUSTOM)
+                else -> listOf(MASQUE_ANYCAST_443, WG_EDGE_1701, WG_FRA_500, WG_EDGE_500, MASQUE_ANYCAST_8095, MASQUE_FRA_8443, WG_FRA_4500, RANDOM_POOL, CUSTOM)
+            }
+        }
     }
 }
 
@@ -257,7 +265,7 @@ data class WarpAwgConfigParams(
     val h2: Long = 2L, // WARP Safe: strictly 2
     val h3: Long = 3L, // WARP Safe: strictly 3
     val h4: Long = 4L, // WARP Safe: strictly 4
-    val i1: String = "",
+    val i1: String = DEFAULT_I1,
     val contentPaddingAddition: String = "10-100",
     val rekeyAfterTime: String = "100-120",
     val rekeyTimeout: String = "3-7",
@@ -268,6 +276,7 @@ data class WarpAwgConfigParams(
     val maskDomain: String = "gosuslugi.ru"
 ) {
     companion object {
+        const val DEFAULT_I1 = "<r 2><b 0x858000010001000000000669636c6f756403636f6d0000010001c00c000100010000105a00044d583737>"
         fun defaultWarpSafe(): WarpAwgConfigParams = WarpAwgConfigParams()
     }
 }
@@ -276,8 +285,8 @@ data class WarpAwgConfigParams(
  * Параметры сборки профиля генератором.
  */
 data class WarpGeneratorBuildSettings(
-    val formats: Set<WarpGeneratorFormat> = setOf(WarpGeneratorFormat.AWG_3_1),
-    val endpoints: List<WarpEndpointPresetOption> = listOf(WarpEndpointPresetOption.FRA_1),
+    val formats: Set<WarpGeneratorFormat> = setOf(WarpGeneratorFormat.WARP_MASQUE),
+    val endpoints: List<WarpEndpointPresetOption> = listOf(WarpEndpointPresetOption.MASQUE_ANYCAST_443),
     val customEndpoint: String = "",
     val dnsPresets: List<WarpDnsPresetOption> = listOf(WarpDnsPresetOption.CLOUDFLARE),
     val customDns: String = "",
