@@ -8,18 +8,19 @@ class Socks5ProtocolTest {
     @Test
     fun testProxyConfigSocks5Defaults() {
         val config = ProxyConfig()
-        assertEquals(10808, config.socks5Port)
+        assertEquals(10888, config.socks5Port)
+        assertEquals(1443, config.bindPort)
         assertEquals(ProxyMode.MTPROTO, config.proxyMode)
         assertFalse(config.isSocks5Mode)
     }
 
     @Test
     fun testLocalProxyServerUrlGenerators() {
-        val config = ProxyConfig(bindHost = "127.0.0.1", bindPort = 1443, socks5Port = 10808, proxyModeName = ProxyMode.SOCKS5.name)
+        val config = ProxyConfig(bindHost = "127.0.0.1", bindPort = 1443, socks5Port = 10888, proxyModeName = ProxyMode.SOCKS5.name)
         val server = LocalProxyServer(config)
 
         val socksUrl = server.getTelegramSocks5Url()
-        assertEquals("tg://socks?server=127.0.0.1&port=10808&user=&pass=", socksUrl)
+        assertEquals("tg://socks?server=127.0.0.1&port=10888&user=&pass=", socksUrl)
 
         val mtprotoUrl = server.getTelegramProxyUrl()
         assertTrue(mtprotoUrl.startsWith("tg://proxy?server=127.0.0.1&port=1443&secret="))
@@ -29,7 +30,7 @@ class Socks5ProtocolTest {
     fun testSocks5AuthenticationUrlGeneration() {
         val config = ProxyConfig(
             bindHost = "127.0.0.1",
-            socks5Port = 10808,
+            socks5Port = 10888,
             socks5Username = "admin_user",
             socks5Password = "secret@123!",
             proxyModeName = ProxyMode.SOCKS5.name
@@ -38,7 +39,7 @@ class Socks5ProtocolTest {
         assertTrue(config.hasSocks5Auth)
 
         val socksUrl = server.getTelegramSocks5Url()
-        assertEquals("tg://socks?server=127.0.0.1&port=10808&user=admin_user&pass=secret%40123%21", socksUrl)
+        assertEquals("tg://socks?server=127.0.0.1&port=10888&user=admin_user&pass=secret%40123%21", socksUrl)
     }
 
     @Test

@@ -491,11 +491,11 @@
     <string name="info_ports_title">Локальные порты прокси</string>
     <string name="info_ports_body">НАЗНАЧЕНИЕ ПОРТОВ:
 • Локальный порт прослушивания — это сетевой сокет (127.0.0.1) на вашем устройстве, к которому подключается клиент Telegram.
-• Порт 1080: стандартный порт режима MTProto (нативный протокол Telegram с Fake-TLS).
-• Порт 10808: стандартный порт режима SOCKS5 (универсальный прокси для всех типов данных).
+• Порт 1443: стандартный порт режима MTProto (нативный протокол Telegram с Fake-TLS).
+• Порт 10888: стандартный порт режима SOCKS5 (универсальный прокси для всех типов данных).
 
 РЕКОМЕНДАЦИИ ПО НАСТРОЙКЕ:
-• Рекомендованные порты: 1080 (MTProto) и 10808 (SOCKS5). Они не требуют прав root и стандартизированы для прокси-серверов.
+• Рекомендованные порты: 1443 (MTProto) и 10888 (SOCKS5). Они не требуют прав root и стандартизированы для прокси-серверов.
 • Допустимый диапазон: от 1024 до 65535.
 • Если указанный порт занят другой службой на устройстве, ядро прокси не сможет запустить слушатель (Bind Error).
 • При изменении порта не забудьте обновить параметры прокси в Telegram по кнопке «Подключить Telegram».</string>
@@ -548,11 +548,11 @@
 • Снижение энергопотребления на экранах 90–120 Гц и продление времени автономной работы устройства.</string>
     <string name="info_protocols_title">Протоколы подключения Telegram</string>
     <string name="info_protocols_body">СРАВНЕНИЕ РЕЖИМОВ РАБОТЫ:
-• MTProto (порт 1080): нативный протокол Telegram с Fake-TLS и Anycast Flowseal CDN.
-• SOCKS5 (порт 10808): универсальный сетевой прокси, сквозное шифрование Telegram, голосовые и видеозвонки без задержек, поддержка внешних серверов (Cloudflare Worker, WARP MASQUE, VLESS).</string>
+• MTProto (порт 1443): нативный протокол Telegram с Fake-TLS и Anycast Flowseal CDN.
+• SOCKS5 (порт 10888): универсальный сетевой прокси, сквозное шифрование Telegram, голосовые и видеозвонки без задержек, поддержка внешних серверов (Cloudflare Worker, WARP MASQUE, VLESS).</string>
     <string name="info_socks5_auth_title">Аутентификация SOCKS5 (RFC 1929)</string>
     <string name="info_socks5_auth_body">ЗАЩИТА ЛОКАЛЬНОГО ИНТЕРФЕЙСА:
-• По умолчанию сокет 127.0.0.1:10808 открыт для всех процессов.
+• По умолчанию сокет 127.0.0.1:10888 открыт для всех процессов.
 • Настройка логина и пароля активирует RFC 1929 аутентификацию, блокируя доступ посторонним приложениям.
 • Учетные данные автоматически добавляются в ссылку tg://socks при копировании или переходе в Telegram.</string>
     <string name="info_battery_guard_title">Защита батареи и температурный контроль</string>
@@ -585,26 +585,17 @@
     <string name="unofficial_dialog_desc">Приложение пересобрано или изменено сторонним ключом подписи. Рекомендуется использовать официальную сборку из репозитория GitHub.</string>
     <string name="unofficial_dialog_btn_download">Скачать с официального GitHub</string>
     <string name="unofficial_dialog_btn_dismiss">Я понимаю риск</string>
-    <string name="security_advisory_category_untrusted">ВНИМАНИЕ: ОБНАРУЖЕНА МОДИФИКАЦИЯ</string>
-    <string name="security_advisory_category_daily">ПАМЯТКА БЕЗОПАСНОСТИ: ОФИЦИАЛЬНЫЙ ИСТОЧНИК</string>
-    <string name="security_advisory_title">Остерегайтесь подделок и сторонних репаков!</string>
-    <string name="security_advisory_gateway_warn_title">Блокировка шлюза и защита данных</string>
-    <string name="security_advisory_gateway_warn_desc">Официальные версии Mirrly TG Proxy выходят исключительно в Telegram-канале @WhyOKyHb и на GitHub. В модифицированных сторонними лицами сборках сетевой шлюз блокируется встроенной защитой ядра для предотвращения перехвата трафика и кражи сессий — в репаках прокси работать НЕ БУДЕТ. После установки официального APK прокси сразу заработает штатно.</string>
-    <string name="security_advisory_free_title">100% БЕСПЛАТНО И БЕЗ РЕКЛАМЫ</string>
-    <string name="security_advisory_free_desc">Mirrly TG Proxy — некоммерческий проект. В официальной версии полностью отсутствует реклама, платные подписки или скрытые комиссии. Единственная финансовая поддержка серверов и разработки — добровольные донаты от пользователей.</string>
-    <string name="security_advisory_patterns_title">Как распознать подделку (паттерны взломщиков):</string>
-    <string name="security_advisory_pattern_popup_title">1. Всплывающие белые окна (Pop-up)</string>
-    <string name="security_advisory_pattern_popup_desc">В оригинальном дизайне MirrlyUI действует строгий стандарт Zero-Popup: здесь полностью запрещены белые всплывающие окна по центру экрана. Если при запуске приложения или на экране приветствия всплывает белое окно со ссылками на сторонние каналы (FreelySoft, моды, кнопки «Подписаться») — в APK внедрен сторонний рекламный вредоносный код.</string>
-    <string name="security_advisory_pattern_vpn_title">2. Реклама сторонних платных VPN</string>
-    <string name="security_advisory_pattern_vpn_desc">Появление баннеров или диалогов с предложением купить сторонний VPN (например, Soft Tunnel, «дешевый VPN») — 100% признак подделки. В настоящем Mirrly рекламы сторонних сервисов не существует.</string>
-    <string name="security_advisory_pattern_blocking_title">3. Сброс и зависание соединения</string>
-    <string name="security_advisory_pattern_blocking_desc">В пересобранных APK туннелирование блокируется: соединение бесконечно висит со статусом «Подключение...» или сразу обрывается из-за изоляции сетевого стека ядром.</string>
-    <string name="security_advisory_pattern_signature_title">4. Чужой отпечаток цифровой подписи</string>
-    <string name="security_advisory_pattern_signature_desc">Официальный релиз всегда подписан ключом разработчика (SHA-256):</string>
-    <string name="security_advisory_btn_telegram">Официальный Telegram (@WhyOKyHb)</string>
-    <string name="security_advisory_btn_github">Официальный GitHub Releases</string>
-    <string name="security_advisory_btn_timer_wait">Ознакомление (%1$d сек)</string>
-    <string name="security_advisory_btn_dismiss_ready">Я ознакомлен и понимаю риски</string>
+    <string name="security_advisory_category_untrusted">ОБНАРУЖЕНА МОДИФИКАЦИЯ</string>
+    <string name="security_advisory_category_daily">ПАМЯТКА БЕЗОПАСНОСТИ</string>
+    <string name="security_advisory_title">Остерегайтесь подделок и репаков</string>
+    <string name="security_advisory_bullet_official">Официальные версии выходят только в @WhyOKyHb и на GitHub.</string>
+    <string name="security_advisory_bullet_gateway">В модах сетевой шлюз блокируется и прокси не работает. В оригинале запуск мгновенный.</string>
+    <string name="security_advisory_bullet_free">Mirrly бесплатен и без рекламы. Единственная поддержка проекта — добровольный донат.</string>
+    <string name="security_advisory_bullet_patterns">Признаки подделки: белые всплывающие окна (FreelySoft), реклама VPN (Soft Tunnel), чужая подпись.</string>
+    <string name="security_advisory_btn_telegram">Telegram @WhyOKyHb</string>
+    <string name="security_advisory_btn_github">GitHub Releases</string>
+    <string name="security_advisory_btn_timer_wait">Подождите (%1$d с)</string>
+    <string name="security_advisory_btn_dismiss_ready">Понятно</string>
     <string name="donation_banner_dialog_title">Поддержка разработки Mirrly</string>
     <string name="donation_banner_dialog_desc">Донаты идут на новый компьютер, розыгрыши в Telegram-канале и сок «Добрый» мандарин-апельсин для автора.</string>
     <string name="donation_banner_title">Поддержка проекта</string>
@@ -678,7 +669,7 @@
     <string name="tg_connect_mtproto_desc">Оптимизирован для текстовых сообщений, каналов и файлов. Использует пул WsPool и минимально расходует заряд аккумулятора.</string>
     <string name="tg_connect_btn_open_tg">В Telegram</string>
     <string name="tg_connect_toast_mtproto_copied">MTProto ссылка скопирована!</string>
-    <string name="tg_connect_socks5_desc">Туннелирует голосовые и видеозвонки через локальный TCP-релей :10808. Режим тестируется.</string>
+    <string name="tg_connect_socks5_desc">Туннелирует голосовые и видеозвонки через локальный TCP-релей :10888. Режим тестируется.</string>
     <string name="tg_connect_socks5_login_prefix">Логин: %1$s</string>
     <string name="tg_connect_socks5_pass_prefix">Пароль: %1$s</string>
     <string name="tg_connect_toast_socks5_copied">SOCKS5 ссылка скопирована!</string>
@@ -2231,7 +2222,7 @@
     <string name="vpn_protocol_masque_action_use_awg">Выбрать AWG (рекомендуется)</string>
     <string name="vpn_protocol_masque_action_continue">Продолжить с MASQUE</string>
     <string name="settings_warp_reg_via_worker_title">Регистрация через Worker Relay</string>
-    <string name="settings_warp_reg_via_worker_desc">Использовать Cloudflare Worker для регистрации и обновления профиля WARP. При отключении запросы отправляются напрямую через SNI-маскировку (libsni).</string>
+    <string name="settings_warp_reg_via_worker_desc">Использовать Cloudflare Worker для регистрации и обновления профиля. При отключении запросы отправляются напрямую к мобильному API Anycast с заголовком виртуального узла.</string>
 
     <!-- Cloudflare Deploy -->
     <string name="cf_deploy_token_saved">Токен сохранен</string>

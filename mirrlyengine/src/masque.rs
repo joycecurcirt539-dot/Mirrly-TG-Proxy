@@ -96,6 +96,7 @@ pub fn reset_active_cascade_stage() {
 // Cloudflare WARP MASQUE Configuration
 pub const MASQUE_L4_SNI: &str = "consumer-masque-proxy.cloudflareclient.com";
 pub const MASQUE_IP_SNI: &str = "cdnjs.cloudflare.com";
+pub const MASQUE_DEFAULT_SNI: &str = "cdnjs.cloudflare.com";
 pub const MASQUE_SNI_CONSUMER_PROXY: &str = "consumer-masque.cloudflareclient.com";
 pub const MASQUE_DEFAULT_URI_PATH: &str = "/";
 pub const MASQUE_CONNECT_IP_PROTO: &str = "cf-connect-ip";
@@ -121,8 +122,11 @@ impl WarpMasqueConfig {
         }
 
         let trimmed_sni = self.sni.trim();
-        if trimmed_sni.is_empty() {
-            self.sni = MASQUE_SNI_CONSUMER_PROXY.to_string();
+        if trimmed_sni.is_empty()
+            || trimmed_sni.eq_ignore_ascii_case(MASQUE_SNI_CONSUMER_PROXY)
+            || trimmed_sni.eq_ignore_ascii_case(MASQUE_L4_SNI)
+        {
+            self.sni = MASQUE_DEFAULT_SNI.to_string();
         } else {
             self.sni = trimmed_sni.to_string();
         }
@@ -530,10 +534,13 @@ pub fn set_warp_config(
             cfg.endpoint = "188.114.96.1:8095".to_string();
         }
         let trimmed_sni = sni.trim();
-        if !trimmed_sni.is_empty() {
+        if !trimmed_sni.is_empty()
+            && !trimmed_sni.eq_ignore_ascii_case(MASQUE_SNI_CONSUMER_PROXY)
+            && !trimmed_sni.eq_ignore_ascii_case(MASQUE_L4_SNI)
+        {
             cfg.sni = trimmed_sni.to_string();
         } else {
-            cfg.sni = MASQUE_SNI_CONSUMER_PROXY.to_string();
+            cfg.sni = MASQUE_DEFAULT_SNI.to_string();
         }
         cfg.auth_token = auth_token.trim().to_string();
         // Clear or update IP fields explicitly (empty value cleans past profile)
@@ -2404,12 +2411,12 @@ pub fn build_h3_connect_headers(
         qpack_encode_indexed(&mut qpack, 23);
 
         // 4. :authority = MASQUE Gateway Host (RFC 9484 Section 4)
-        // If outer TLS SNI is cdnjs.cloudflare.com (for DPI circumvention), internal
-        // HTTP/3 :authority must point to legitimate Cloudflare MASQUE gateway (cloudflareaccess.com)
+        // If outer TLS SNI is cdnjs.cloudflare.com (for unblocked Anycast TLS handshake), internal
+        // HTTP/3 :authority must point to Cloudflare MASQUE gateway endpoint.
         let auth = if !sni.is_empty() && sni != "cdnjs.cloudflare.com" {
             sni
         } else {
-            "cloudflareaccess.com"
+            MASQUE_SNI_CONSUMER_PROXY
         };
         qpack_encode_name_ref(&mut qpack, 0, auth);
 

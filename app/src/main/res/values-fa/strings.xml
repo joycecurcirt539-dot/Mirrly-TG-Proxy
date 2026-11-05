@@ -470,26 +470,17 @@
     <string name="unofficial_dialog_desc">This application build has been recompiled or modified by third parties. Mirrly TG پروکسی developers are not responsible for the security or data integrity of third-party modifications. We strongly recommend downloading the authentic version from the official GitHub repository.</string>
     <string name="unofficial_dialog_btn_download">دانلود from Official GitHub</string>
     <string name="unofficial_dialog_btn_dismiss">I Understand the Risks</string>
-    <string name="security_advisory_category_untrusted">WARNING: MODIFIED BUILD DETECTED</string>
-    <string name="security_advisory_category_daily">SECURITY ADVISORY: OFFICIAL SOURCE</string>
-    <string name="security_advisory_title">Beware of fakes and third-party repacks!</string>
-    <string name="security_advisory_gateway_warn_title">Gateway Lockdown and Data Protection</string>
-    <string name="security_advisory_gateway_warn_desc">Official Mirrly TG Proxy releases are published exclusively on the @WhyOKyHb Telegram channel and GitHub. In unauthorized or modified builds, the network gateway is blocked by built-in cryptographic integrity checks to prevent traffic interception — modified builds will NOT connect. After installing the authentic APK, the proxy connects immediately.</string>
-    <string name="security_advisory_free_title">100% FREE AND ZERO ADS</string>
-    <string name="security_advisory_free_desc">Mirrly TG Proxy is a non-commercial project. Authentic releases contain zero ads, no paid subscriptions, and no hidden fees. The only financial support for servers and development is voluntary user donations.</string>
-    <string name="security_advisory_patterns_title">How to Identify Counterfeits (Modder Patterns):</string>
-    <string name="security_advisory_pattern_popup_title">1. Floating White Pop-up Dialogs</string>
-    <string name="security_advisory_pattern_popup_desc">MirrlyUI strictly forbids white floating pop-up dialogs in the center of the screen (Zero-Popup doctrine). If a white dialog appears promoting third-party channels (FreelySoft, mod channels, Subscribe buttons), the APK has been injected with unauthorized adware.</string>
-    <string name="security_advisory_pattern_vpn_title">2. Commercial Third-Party VPN Ads</string>
-    <string name="security_advisory_pattern_vpn_desc">Dialogs or banners promoting third-party commercial VPNs (such as Soft Tunnel, cheap VPNs) are guaranteed signs of a fake repack. Authentic Mirrly never advertises external VPN services.</string>
-    <string name="security_advisory_pattern_blocking_title">3. Connection Freezes and Drops</string>
-    <string name="security_advisory_pattern_blocking_desc">In recompiled APKs, network routing is isolated: the connection hangs indefinitely on connecting or disconnects immediately.</string>
-    <string name="security_advisory_pattern_signature_title">4. Foreign Signing Certificate Hash</string>
-    <string name="security_advisory_pattern_signature_desc">Authentic builds are always signed with the official developer key (SHA-256):</string>
-    <string name="security_advisory_btn_telegram">Official Telegram (@WhyOKyHb)</string>
-    <string name="security_advisory_btn_github">Official GitHub Releases</string>
-    <string name="security_advisory_btn_timer_wait">Reading advisory (%1$d s)</string>
-    <string name="security_advisory_btn_dismiss_ready">I have read and understand the risks</string>
+    <string name="security_advisory_category_untrusted">MODIFIED BUILD DETECTED</string>
+    <string name="security_advisory_category_daily">SECURITY ADVISORY</string>
+    <string name="security_advisory_title">Beware of counterfeit builds</string>
+    <string name="security_advisory_bullet_official">Official builds are published only on @WhyOKyHb and GitHub.</string>
+    <string name="security_advisory_bullet_gateway">In modified builds the network gateway is locked and proxy will not work. Authentic builds connect instantly.</string>
+    <string name="security_advisory_bullet_free">Mirrly is 100% free and ad-free. The project is sustained solely by voluntary user donations.</string>
+    <string name="security_advisory_bullet_patterns">Counterfeit signs: white popups (FreelySoft), VPN ads (Soft Tunnel), non-official signature.</string>
+    <string name="security_advisory_btn_telegram">Telegram @WhyOKyHb</string>
+    <string name="security_advisory_btn_github">GitHub Releases</string>
+    <string name="security_advisory_btn_timer_wait">Wait (%1$d s)</string>
+    <string name="security_advisory_btn_dismiss_ready">Got it</string>
     <string name="donation_banner_dialog_title">حمایت از توسعه Mirrly</string>
     <string name="donation_banner_dialog_desc">میرلی یک نرم‌افزار کاملاً رایگان و متن‌باز است. حمایت شما به پایداری سرورها و استمرار توسعه کمک می‌کند.</string>
     <string name="donation_banner_title">Developer Support</string>
@@ -2176,7 +2167,7 @@ https://github.com/joycecurcirt539-dot/Mirrly-TG-Proxy/releases</string>
     <string name="vpn_protocol_masque_action_use_awg">انتخاب AWG (توصیه می‌شود)</string>
     <string name="vpn_protocol_masque_action_continue">ادامه با MASQUE</string>
     <string name="settings_warp_reg_via_worker_title">ثبت‌نام از طریق Worker Relay</string>
-    <string name="settings_warp_reg_via_worker_desc">استفاده از Cloudflare Worker برای ثبت‌نام و به‌روزرسانی پروفایل WARP. در صورت غیرفعال بودن، درخواست‌ها مستقیماً با جعل SNI (libsni) ارسال می‌شوند.</string>
+    <string name="settings_warp_reg_via_worker_desc">استفاده از Cloudflare Worker برای ثبت‌نام و به‌روزرسانی پروفایل. در صورت غیرفعال بودن، درخواست‌ها مستقیماً به API تلفن همراه Anycast ارسال می‌شوند.</string>
 
     <!-- Cloudflare Deploy -->
     <string name="cf_deploy_token_saved">توکن ذخیره شد</string>

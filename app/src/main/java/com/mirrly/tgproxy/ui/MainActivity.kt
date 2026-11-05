@@ -960,7 +960,7 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxSize()
                                 .graphicsLayer {
                                     val wmP = workerManagerOpenProgress.value
-                                    val isNonHome = (currentScreen != "home" && currentScreen != "worker_manager") || showOnboarding || showAiChat
+                                    val isNonHome = (currentScreen != "home" && currentScreen != "worker_manager") || showOnboarding || showAiChat || isSheetOpen
                                     val effProgress = if (isNonHome) 1f else wmP
                                     val blurEffect = blurCache.getBlurEffect(effProgress)
 
@@ -1065,7 +1065,7 @@ class MainActivity : ComponentActivity() {
                                     scaleY = effectiveScale
                                     alpha = effectiveAlpha
 
-                                    val blurEffect = blurCache.getBlurEffect(if (isInteractiveWm) wmP else if (currentScreen != "home" || showOnboarding || showAiChat) 1f else 0f)
+                                    val blurEffect = blurCache.getBlurEffect(if (isInteractiveWm) wmP else if (currentScreen != "home" || showOnboarding || showAiChat || isSheetOpen) 1f else 0f)
                                     renderEffect = blurEffect
                                 }
                         ) {

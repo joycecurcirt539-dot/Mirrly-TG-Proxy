@@ -73,8 +73,7 @@ enum class LogCategory(
         tags = setOf(
             "UpdateChecker",
             "MirrlySecNative",
-            "SignatureVerifier",
-            "SniBypassManager"
+            "SignatureVerifier"
         )
     ),
     AI_DIAGNOSTICS(

@@ -488,11 +488,11 @@ DYNAMIC POOL &amp; HAPPY EYEBALLS DUAL-STACK RACE:
     <string name="info_ports_title">Local Proxy Ports</string>
     <string name="info_ports_body">PORT CONFIGURATION:
 • Local listening port is the socket on 127.0.0.1 where Telegram client connects.
-• Port 1080: Standard MTProto port with Fake-TLS.
-• Port 10808: Standard SOCKS5 transparent TCP relay port.
+• Port 1443: Standard MTProto port with Fake-TLS.
+• Port 10888: Standard SOCKS5 transparent TCP relay port.
 
 RECOMMENDATIONS:
-• Recommended ports: 1080 (MTProto) and 10808 (SOCKS5). They require no root privileges and are standardized for proxy servers.
+• Recommended ports: 1443 (MTProto) and 10888 (SOCKS5). They require no root privileges and are standardized for proxy servers.
 • Allowed range: 1024 to 65535.
 • If the selected port is occupied by another application, a Bind Error occurs.
 • Update Telegram proxy link after changing ports via \"Connect Telegram\".</string>
@@ -544,11 +544,11 @@ AVAILABLE PROFILES:
 • Minimizes Compose redraw phases, saving battery on 90-120Hz AMOLED displays.</string>
     <string name="info_protocols_title">Telegram Connection Protocols</string>
     <string name="info_protocols_body">PROTOCOL COMPARISON:
-• MTProto (port 1080): Telegram native protocol with Fake-TLS and Flowseal Anycast.
-• SOCKS5 (port 10808): Transparent TCP Relay (RFC 1928), end-to-end encryption, seamless voice/video calls, supports all upstreams (Worker, WARP, VLESS).</string>
+• MTProto (port 1443): Telegram native protocol with Fake-TLS and Flowseal Anycast.
+• SOCKS5 (port 10888): Transparent TCP Relay (RFC 1928), end-to-end encryption, seamless voice/video calls, supports all upstreams (Worker, WARP, VLESS).</string>
     <string name="info_socks5_auth_title">SOCKS5 Authentication (RFC 1929)</string>
     <string name="info_socks5_auth_body">LOCAL SOCKET SECURITY:
-• By default, 127.0.0.1:10808 socket is open to all local processes.
+• By default, 127.0.0.1:10888 socket is open to all local processes.
 • Setting username and password activates RFC 1929 authentication, preventing unauthorized local apps from using the proxy.
 • Credentials are automatically embedded into tg://socks links when copied or launched into Telegram.</string>
     <string name="info_battery_guard_title">Battery Protection Guard</string>
@@ -580,26 +580,17 @@ AVAILABLE PROFILES:
     <string name="unofficial_dialog_desc">This application build was recompiled or modified by third parties. Recommended to install the official release from GitHub.</string>
     <string name="unofficial_dialog_btn_download">Download from Official GitHub</string>
     <string name="unofficial_dialog_btn_dismiss">I Understand the Risks</string>
-    <string name="security_advisory_category_untrusted">WARNING: MODIFIED BUILD DETECTED</string>
-    <string name="security_advisory_category_daily">SECURITY ADVISORY: OFFICIAL SOURCE</string>
-    <string name="security_advisory_title">Beware of fakes and third-party repacks!</string>
-    <string name="security_advisory_gateway_warn_title">Gateway Lockdown and Data Protection</string>
-    <string name="security_advisory_gateway_warn_desc">Official Mirrly TG Proxy releases are published exclusively on the @WhyOKyHb Telegram channel and GitHub. In unauthorized or modified builds, the network gateway is blocked by built-in cryptographic integrity checks to prevent traffic interception — modified builds will NOT connect. After installing the authentic APK, the proxy connects immediately.</string>
-    <string name="security_advisory_free_title">100% FREE AND ZERO ADS</string>
-    <string name="security_advisory_free_desc">Mirrly TG Proxy is a non-commercial project. Authentic releases contain zero ads, no paid subscriptions, and no hidden fees. The only financial support for servers and development is voluntary user donations.</string>
-    <string name="security_advisory_patterns_title">How to Identify Counterfeits (Modder Patterns):</string>
-    <string name="security_advisory_pattern_popup_title">1. Floating White Pop-up Dialogs</string>
-    <string name="security_advisory_pattern_popup_desc">MirrlyUI strictly forbids white floating pop-up dialogs in the center of the screen (Zero-Popup doctrine). If a white dialog appears promoting third-party channels (FreelySoft, mod channels, Subscribe buttons), the APK has been injected with unauthorized adware.</string>
-    <string name="security_advisory_pattern_vpn_title">2. Commercial Third-Party VPN Ads</string>
-    <string name="security_advisory_pattern_vpn_desc">Dialogs or banners promoting third-party commercial VPNs (such as Soft Tunnel, cheap VPNs) are guaranteed signs of a fake repack. Authentic Mirrly never advertises external VPN services.</string>
-    <string name="security_advisory_pattern_blocking_title">3. Connection Freezes and Drops</string>
-    <string name="security_advisory_pattern_blocking_desc">In recompiled APKs, network routing is isolated: the connection hangs indefinitely on connecting or disconnects immediately.</string>
-    <string name="security_advisory_pattern_signature_title">4. Foreign Signing Certificate Hash</string>
-    <string name="security_advisory_pattern_signature_desc">Authentic builds are always signed with the official developer key (SHA-256):</string>
-    <string name="security_advisory_btn_telegram">Official Telegram (@WhyOKyHb)</string>
-    <string name="security_advisory_btn_github">Official GitHub Releases</string>
-    <string name="security_advisory_btn_timer_wait">Reading advisory (%1$d s)</string>
-    <string name="security_advisory_btn_dismiss_ready">I have read and understand the risks</string>
+    <string name="security_advisory_category_untrusted">MODIFIED BUILD DETECTED</string>
+    <string name="security_advisory_category_daily">SECURITY ADVISORY</string>
+    <string name="security_advisory_title">Beware of counterfeit builds</string>
+    <string name="security_advisory_bullet_official">Official builds are published only on @WhyOKyHb and GitHub.</string>
+    <string name="security_advisory_bullet_gateway">In modified builds the network gateway is locked and proxy will not work. Authentic builds connect instantly.</string>
+    <string name="security_advisory_bullet_free">Mirrly is 100% free and ad-free. The project is sustained solely by voluntary user donations.</string>
+    <string name="security_advisory_bullet_patterns">Counterfeit signs: white popups (FreelySoft), VPN ads (Soft Tunnel), non-official signature.</string>
+    <string name="security_advisory_btn_telegram">Telegram @WhyOKyHb</string>
+    <string name="security_advisory_btn_github">GitHub Releases</string>
+    <string name="security_advisory_btn_timer_wait">Wait (%1$d s)</string>
+    <string name="security_advisory_btn_dismiss_ready">Got it</string>
     <string name="donation_banner_dialog_title">Support Mirrly Development</string>
     <string name="donation_banner_dialog_desc">Donations go toward a new PC, Telegram channel giveaways, and Dobry mandarin-orange juice for the developer.</string>
     <string name="donation_banner_title">Support Project</string>
@@ -673,7 +664,7 @@ AVAILABLE PROFILES:
     <string name="tg_connect_mtproto_desc">Optimized for messaging, channels, and media. Uses WsPool socket pooling with low power usage.</string>
     <string name="tg_connect_btn_open_tg">Open Telegram</string>
     <string name="tg_connect_toast_mtproto_copied">MTProto link copied!</string>
-    <string name="tg_connect_socks5_desc">Tunnels voice and video calls through a local TCP relay on port 10808.</string>
+    <string name="tg_connect_socks5_desc">Tunnels voice and video calls through a local TCP relay on port 10888.</string>
     <string name="tg_connect_socks5_login_prefix">Username: %1$s</string>
     <string name="tg_connect_socks5_pass_prefix">Password: %1$s</string>
     <string name="tg_connect_toast_socks5_copied">SOCKS5 link copied!</string>
@@ -2227,7 +2218,7 @@ Download latest Mirrly TG Proxy build:
     <string name="vpn_protocol_masque_action_use_awg">Use AWG (Recommended)</string>
     <string name="vpn_protocol_masque_action_continue">Continue with MASQUE</string>
     <string name="settings_warp_reg_via_worker_title">Register via Worker Relay</string>
-    <string name="settings_warp_reg_via_worker_desc">Use Cloudflare Worker to register and refresh WARP profile. When disabled, requests are sent directly using SNI spoofing (libsni).</string>
+    <string name="settings_warp_reg_via_worker_desc">Use Cloudflare Worker to register and refresh profile. When disabled, requests are sent directly to the mobile Anycast API with virtual host header.</string>
 
     <!-- Cloudflare Deploy -->
     <string name="cf_deploy_token_saved">Token saved</string>

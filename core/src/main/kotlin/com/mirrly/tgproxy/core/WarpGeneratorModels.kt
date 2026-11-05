@@ -67,7 +67,21 @@ enum class WarpGeneratorFormat(
         description = "AWG 1.0: обфускация мусорными пакетами Jc, Jmin, Jmax",
         isAwg = true,
         awgVersion = "1.0"
-    )
+    );
+
+    companion object {
+        /**
+         * Список форматов, доступных пользователю в генераторе конфигураций.
+         * MASQUE исключен, так как является внутренним сетевым протоколом
+         * рантайма и не экспортируется в виде внешних VPN-файлов.
+         */
+        val GENERATOR_FORMATS = listOf(
+            AWG_1_0,
+            AWG_2_0,
+            AWG_3_0,
+            AWG_3_1
+        )
+    }
 }
 
 /**
@@ -285,8 +299,8 @@ data class WarpAwgConfigParams(
  * Параметры сборки профиля генератором.
  */
 data class WarpGeneratorBuildSettings(
-    val formats: Set<WarpGeneratorFormat> = setOf(WarpGeneratorFormat.WARP_MASQUE),
-    val endpoints: List<WarpEndpointPresetOption> = listOf(WarpEndpointPresetOption.MASQUE_ANYCAST_443),
+    val formats: Set<WarpGeneratorFormat> = setOf(WarpGeneratorFormat.AWG_1_0),
+    val endpoints: List<WarpEndpointPresetOption> = listOf(WarpEndpointPresetOption.WG_FRA_4500),
     val customEndpoint: String = "",
     val dnsPresets: List<WarpDnsPresetOption> = listOf(WarpDnsPresetOption.CLOUDFLARE),
     val customDns: String = "",

@@ -328,7 +328,7 @@ fun AboutScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            SpecPill(text = "SOCKS5 :10808", modifier = Modifier.weight(1f))
+                            SpecPill(text = "SOCKS5 :10888", modifier = Modifier.weight(1f))
                             SpecPill(text = "Rust NDK Engine", modifier = Modifier.weight(1f))
                             SpecPill(text = "Cloudflare WSS", modifier = Modifier.weight(1f))
                         }
@@ -851,7 +851,7 @@ private fun TechStackSection(
                 accentColor = Color(0xFF00F5D4),
                 items = listOf(
                     TechSpecItem("MTProto FakeTLS", "TLS 1.3 • ee-secret"),
-                    TechSpecItem("SOCKS5 Relay", "RFC 1928 • :10808"),
+                    TechSpecItem("SOCKS5 Relay", "RFC 1928 • :10888"),
                     TechSpecItem("Cloudflare WSS", "cloudflare:sockets"),
                     TechSpecItem("VpnService TUN", "Socket Protection")
                 )

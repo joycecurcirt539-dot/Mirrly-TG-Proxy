@@ -97,7 +97,7 @@ fun TunnelSpeedTestScreen(
         if (custom.isNotEmpty()) custom else "kws2.pclead.co.uk"
     }
 
-    val socks5Port = if (server.isRunning) server.config.socks5Port else 10808
+    val socks5Port = if (server.isRunning) server.config.socks5Port else 10888
     val socks5User = if (server.config.hasSocks5Auth) server.config.socks5Username else null
     val socks5Pass = if (server.config.hasSocks5Auth) server.config.socks5Password else null
 

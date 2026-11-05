@@ -119,7 +119,7 @@ object DiagnosticReportGenerator {
             sb.append("- **DNS-резолвер**: `Direct Cloudflare Anycast / System`\n\n")
 
             sb.append("#### 3. Конфигурация прокси и туннеля\n")
-            sb.append("- **Режим**: `").append(if (config.isSocks5Mode) "SOCKS5 (:10808)" else "MTProto (:1080)").append("`\n")
+            sb.append("- **Режим**: `").append(if (config.isSocks5Mode) "SOCKS5 (:${config.socks5Port})" else "MTProto (:${config.bindPort})").append("`\n")
             sb.append("- **Фактический uplink**: `").append(effectiveRoute.uplink).append("`\n")
             sb.append("- **Маршрут**: `").append(effectiveRoute.description).append("`\n")
             sb.append("- **Статус сервиса**: `").append(if (server.isRunning) "АКТИВЕН" else "ОСТАНОВЛЕН").append("`\n")
@@ -221,7 +221,7 @@ object DiagnosticReportGenerator {
             sb.append("- **DNS Resolver**: `Direct Cloudflare Anycast / System`\n\n")
 
             sb.append("#### 3. Proxy and Tunnel Configuration\n")
-            sb.append("- **Mode**: `").append(if (config.isSocks5Mode) "SOCKS5 (:10808)" else "MTProto (:1080)").append("`\n")
+            sb.append("- **Mode**: `").append(if (config.isSocks5Mode) "SOCKS5 (:${config.socks5Port})" else "MTProto (:${config.bindPort})").append("`\n")
             sb.append("- **Effective Uplink**: `").append(effectiveRoute.uplink).append("`\n")
             sb.append("- **Route**: `").append(effectiveRoute.description).append("`\n")
             sb.append("- **Service Status**: `").append(if (server.isRunning) "ACTIVE" else "STOPPED").append("`\n")

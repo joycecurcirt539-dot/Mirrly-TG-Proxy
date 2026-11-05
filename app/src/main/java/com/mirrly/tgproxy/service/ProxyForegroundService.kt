@@ -265,6 +265,7 @@ class ProxyForegroundService : Service() {
     }
 
         batteryGuardDismissedForThreshold = false
+        ProxyResurrectionManager.cancel(this)
 
         val initialStatusText = if (app.config.isSocks5Mode) {
             getString(R.string.notif_service_socks5_active)
@@ -532,7 +533,12 @@ class ProxyForegroundService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        AppLogger.w(TAG, "onTaskRemoved: proxy service active, task removed from recents")
+        val app = MirrlyApplication.instance
+        val isProxyActive = app.prefsManager.isProxyActive() && !isStopping
+        AppLogger.w(TAG, "onTaskRemoved: proxy service active, task removed from recents (isProxyActive=$isProxyActive)")
+        if (isProxyActive) {
+            ProxyResurrectionManager.schedule(this)
+        }
     }
 
     private fun startNotificationUpdates() {
@@ -752,6 +758,7 @@ class ProxyForegroundService : Service() {
     private fun stopProxyService() {
         if (isStopping) return
         isStopping = true
+        ProxyResurrectionManager.cancel(this)
         MirrlyApplication.instance.prefsManager.setProxyActive(false)
         stopLivenessWatchdog()
 
@@ -770,6 +777,7 @@ class ProxyForegroundService : Service() {
         SleepTimerManager.cancelTimer(this)
         cancelBatteryGuardCountdown(userDismissed = false)
         batteryGuardDismissedForThreshold = false
+        ProxyResurrectionManager.cancel(this)
         WorkerFailoverManager.stopRecoveryWatchdog()
         networkObserver?.stop()
         networkObserver = null
@@ -948,6 +956,7 @@ class ProxyForegroundService : Service() {
                 cancelBatteryGuardCountdown(userDismissed = false)
             }
             batteryGuardDismissedForThreshold = false
+        ProxyResurrectionManager.cancel(this)
             return
         }
 
@@ -959,6 +968,7 @@ class ProxyForegroundService : Service() {
                 cancelBatteryGuardCountdown(userDismissed = false)
             }
             batteryGuardDismissedForThreshold = false
+        ProxyResurrectionManager.cancel(this)
             return
         }
 
@@ -1172,9 +1182,16 @@ class ProxyForegroundService : Service() {
         // we DO NOT invoke stopProxyService() or cancel notifications, which allows
         // the system to resurrect the service cleanly via START_REDELIVER_INTENT.
         if (isStopping) {
+            ProxyResurrectionManager.cancel(this)
             NotificationHelper.cancelProxyNotifications(this)
         } else {
-            AppLogger.w(TAG, "ProxyForegroundService destroyed by OS. Standing by for START_REDELIVER_INTENT resurrection.")
+            val app = MirrlyApplication.instance
+            if (app.prefsManager.isProxyActive()) {
+                AppLogger.w(TAG, "ProxyForegroundService destroyed by OS while active. Scheduling resurrection...")
+                ProxyResurrectionManager.schedule(this)
+            } else {
+                AppLogger.w(TAG, "ProxyForegroundService destroyed by OS. Standing by for START_REDELIVER_INTENT resurrection.")
+            }
         }
 
         try { serviceScope.cancel() } catch (_: Exception) {}

@@ -29,12 +29,20 @@ class WarpConfigGeneratorEngineTest {
         peerPublicKey = testPeerKey,
         privateKeyBase64 = testPrivKey,
         publicKeyBase64 = "testPubKeyBase64",
+        p256PrivateKeyBase64 = "MHcCAQEEIPtestPrivKey123456789012345678901234567890",
+        p256PublicKeyBase64 = "BM4wtestPubKey12345678901234567890123456789012345678901234567890",
+        clientCertBase64 = "MIIBtestCert",
         isWarpPlus = false,
         isWarpEnabled = true,
         isRegistered = true,
         isActivated = true,
         credentialsValid = true,
-        dataPlaneReady = true
+        dataPlaneReady = true,
+        isWgValid = true,
+        isMasqueValid = true,
+        masqueAccountId = "test-masque-acc-1",
+        masqueToken = "test-masque-token-1",
+        masquePeerEndpoint = "188.114.96.1:8095"
     )
 
     @Test
@@ -97,7 +105,8 @@ class WarpConfigGeneratorEngineTest {
         assertTrue(encoded.isNotBlank())
         val decoded = WarpProfileCodec.decode(encoded)
         assertNotNull(decoded)
-        assertEquals("188.114.97.66:4500", decoded?.peerEndpoint)
+        assertEquals("188.114.97.66:4500", decoded?.masquePeerEndpoint)
+        assertEquals(baseProfile.peerEndpoint, decoded?.peerEndpoint)
         assertEquals("1.1.1.1, 1.0.0.1", decoded?.dnsServers)
 
         val jsonDump = WarpConfigGeneratorEngine.buildWarpMasqueProfile(
@@ -242,8 +251,38 @@ class WarpConfigGeneratorEngineTest {
             assertTrue(item.content.isNotBlank())
             assertTrue(item.isWarpSafe)
             assertNotNull(item.associatedWarpProfile)
-            assertEquals(item.endpoint, item.associatedWarpProfile.peerEndpoint)
+            if (item.format == WarpGeneratorFormat.WARP_MASQUE) {
+                assertEquals(item.endpoint, item.associatedWarpProfile.masquePeerEndpoint)
+                assertEquals(baseProfile.peerEndpoint, item.associatedWarpProfile.peerEndpoint)
+                assertTrue(item.associatedWarpProfile.isMasqueValid)
+            } else {
+                assertEquals(item.endpoint, item.associatedWarpProfile.peerEndpoint)
+                assertTrue(item.associatedWarpProfile.isWgValid)
+            }
         }
+    }
+
+    @Test
+    fun testGenerateBatchWithUnverifiedMasqueHasWarning() {
+        val unverifiedProfile = baseProfile.copy(
+            isMasqueValid = false,
+            p256PrivateKeyBase64 = "",
+            masqueAccountId = "",
+            masqueToken = ""
+        )
+        val settings = WarpGeneratorBuildSettings(
+            formats = setOf(WarpGeneratorFormat.WARP_MASQUE),
+            endpoints = listOf(WarpEndpointPresetOption.FRA_4500),
+            dnsPresets = listOf(WarpDnsPresetOption.CLOUDFLARE)
+        )
+
+        val batch = WarpConfigGeneratorEngine.generateBatch(unverifiedProfile, settings)
+        assertEquals(1, batch.size)
+        val item = batch.first()
+
+        assertFalse(item.isWarpSafe)
+        assertTrue(item.warnings.any { it.contains("не имеет подтвержденной сетевой регистрации MASQUE") })
+        assertFalse(item.associatedWarpProfile.isMasqueValid)
     }
 
     @Test

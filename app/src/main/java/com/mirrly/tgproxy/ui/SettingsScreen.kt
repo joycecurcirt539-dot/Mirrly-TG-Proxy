@@ -2705,7 +2705,7 @@ private fun SettingsNetworkSection(
                                 }
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Text(
-                                    text = stringResource(R.string.settings_port_safe_desc, portText.toIntOrNull() ?: 10808),
+                                    text = stringResource(R.string.settings_port_safe_desc, portText.toIntOrNull() ?: 1443),
                                     color = TextMuted,
                                     fontSize = 11.5.sp,
                                     lineHeight = 16.sp
@@ -2939,7 +2939,7 @@ private fun SettingsNetworkSection(
                                 }
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Text(
-                                    text = stringResource(R.string.settings_socks5_safe_desc, socks5PortText.toIntOrNull() ?: 10808),
+                                    text = stringResource(R.string.settings_socks5_safe_desc, socks5PortText.toIntOrNull() ?: 10888),
                                     color = TextMuted,
                                     fontSize = 11.5.sp,
                                     lineHeight = 16.sp

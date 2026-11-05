@@ -66,7 +66,6 @@ class MirrlyApplication : Application() {
             com.mirrly.tgproxy.service.WorkerRequestTracker.syncNativeConnectionsTotal(wsTotal)
         }
         UpdateManager.onAppInit(this)
-        com.mirrly.tgproxy.service.sni.SniBypassManager.init(this)
         com.mirrly.tgproxy.service.WorkerFailoverManager.init()
         com.mirrly.tgproxy.service.ScheduleManager.syncSchedule(this)
 

@@ -53,9 +53,10 @@ object WarpObfuscatedHttpClient {
         Thread(runnable, "warp-registration-deadline").apply { isDaemon = true }
     }.apply { removeOnCancelPolicy = true }
 
-    const val DEFAULT_CAMOUFLAGE_SNI = "consumer-masque-proxy.cloudflareclient.com"
+    const val DEFAULT_CAMOUFLAGE_SNI = "cdnjs.cloudflare.com"
 
     val VALID_CAMOUFLAGE_SNIS = listOf(
+        "cdnjs.cloudflare.com",
         "consumer-masque-proxy.cloudflareclient.com",
         "consumer-masque.cloudflareclient.com",
         "zt-masque-proxy.cloudflareclient.com",
@@ -65,7 +66,10 @@ object WarpObfuscatedHttpClient {
 
     fun sanitizeSni(sni: String?): String {
         val trimmed = sni?.trim().orEmpty()
-        return if (trimmed.isBlank() || trimmed.equals("cdnjs.cloudflare.com", ignoreCase = true)) {
+        return if (trimmed.isBlank() ||
+            trimmed.equals("consumer-masque-proxy.cloudflareclient.com", ignoreCase = true) ||
+            trimmed.equals("consumer-masque.cloudflareclient.com", ignoreCase = true)
+        ) {
             DEFAULT_CAMOUFLAGE_SNI
         } else {
             trimmed

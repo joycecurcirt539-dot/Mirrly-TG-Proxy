@@ -203,6 +203,7 @@ fun HomeScreen(
     val isCustomTheme by app.prefsManager.isCustomThemeEnabledFlow.collectAsState()
     val effectiveVpnColors = if (isCustomTheme) currentTabColors else systemVpnColors
     var showVpnProtocolDialog by rememberSaveable { mutableStateOf(false) }
+    var showVpnDnsDialog by rememberSaveable { mutableStateOf(false) }
     var showSplitTunnelAppsDialog by rememberSaveable { mutableStateOf(false) }
     var showUplinkSwitcherSheet by rememberSaveable { mutableStateOf(false) }
     val vpnSplitTunnelPackages by app.prefsManager.vpnSplitTunnelPackagesFlow.collectAsState()
@@ -1314,19 +1315,27 @@ fun HomeScreen(
                             vpnState = vpnState,
                             vpnColors = effectiveVpnColors,
                             vpnUplinkMode = vpnUplinkMode,
-                            onTapProfile = { showVpnProfileSelectorDialog = true },
-                            onTapDns = { showVpnProtocolDialog = true }
+                            onTapProfile = {
+                                if (vpnUplinkMode == com.mirrly.tgproxy.core.UplinkMode.MASQUE) {
+                                    showVpnProtocolDialog = true
+                                } else {
+                                    showVpnProfileSelectorDialog = true
+                                }
+                            },
+                            onTapProtocol = { showVpnProtocolDialog = true }
                         )
 
                         Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
 
                         VpnActionDock(
-                            onTapDns = { showVpnProtocolDialog = true },
+                            onTapDns = { showVpnDnsDialog = true },
                             onTapSplitTunnel = { showSplitTunnelAppsDialog = true },
                             splitTunnelCount = vpnSplitTunnelPackages.size,
+                            vpnUplinkMode = vpnUplinkMode,
                             onTapImportProfile = { showImportWarpProfileDialog = true },
                             onTapGuide = { showVpnOnboardingDialog = true },
-                            onTapGenerator = onOpenWarpGenerator
+                            onTapGenerator = onOpenWarpGenerator,
+                            onTapProtocol = { showVpnProtocolDialog = true }
                         )
                     } else {
                         // SOCKS5 Uplink / Worker Info Notice (Smooth expanding/shrinking from center with staggered delay)
@@ -2204,6 +2213,13 @@ fun HomeScreen(
                 VpnProtocolSelectorDialog(
                     vpnColors = effectiveVpnColors,
                     onDismiss = { showVpnProtocolDialog = false }
+                )
+            }
+
+            if (showVpnDnsDialog) {
+                VpnDnsSelectorDialog(
+                    vpnColors = effectiveVpnColors,
+                    onDismiss = { showVpnDnsDialog = false }
                 )
             }
 
@@ -3846,8 +3862,8 @@ fun ProtocolSwitcherHeader(
             }
             HomeScreenTab.VPN -> {
                 val vpnBadge = when (vpnUplinkMode) {
-                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "WARP MASQUE"
-                    com.mirrly.tgproxy.core.UplinkMode.AWG -> "WARP AWG"
+                    com.mirrly.tgproxy.core.UplinkMode.MASQUE -> "MASQUE Anycast"
+                    com.mirrly.tgproxy.core.UplinkMode.AWG -> "AmneziaWG Anycast"
                     else -> vpnUplinkMode.displayName
                 }
                 Triple(
@@ -4225,9 +4241,10 @@ fun UplinkStateDialog(
 
                     HorizontalDivider(color = AmoledBorder, thickness = 0.8.dp)
 
+                    val context = LocalContext.current
+                    val app = context.applicationContext as? com.mirrly.tgproxy.MirrlyApplication
+
                     if (!isSocks5) {
-                        val context = LocalContext.current
-                        val app = context.applicationContext as? com.mirrly.tgproxy.MirrlyApplication
                         val isWorkerActive = app?.prefsManager?.isUseWorkerMtproto() == true && activeWorker.domain.isNotBlank()
                         UplinkStateRow(stringResource(R.string.uplink_field_protocol), "Telegram MTProto • :1443")
                         UplinkStateRow(
@@ -4242,7 +4259,8 @@ fun UplinkStateDialog(
                         UplinkStateRow(stringResource(R.string.uplink_field_cache_nodes), stringResource(R.string.uplink_field_cache_nodes_val))
                     } else {
                         val isFlowseal = (socks5UplinkMode == 1 || activeWorker.domain.isBlank())
-                        UplinkStateRow(stringResource(R.string.uplink_field_protocol), "SOCKS5 TCP Relay • :10808")
+                        val socks5PortDisplay = app?.config?.socks5Port ?: 10888
+                        UplinkStateRow(stringResource(R.string.uplink_field_protocol), "SOCKS5 TCP Relay • :$socks5PortDisplay")
                         UplinkStateRow(
                             stringResource(R.string.uplink_field_transport),
                             if (isFlowseal) "Anycast CDN Flowseal (Бета) • kws*.apiws" else "Cloudflare Worker WSS • :443"

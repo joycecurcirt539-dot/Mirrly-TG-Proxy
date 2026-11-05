@@ -81,7 +81,7 @@ import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 
 private enum class ObfuscationPreset(val label: String, val subText: String, val jc: Int, val jmin: Int, val jmax: Int) {
-    ANTI_DPI("Анти-ТСПУ", "Jc=4", 4, 40, 70),
+    BALANCED("Оптимальный", "Jc=4", 4, 40, 70),
     AGGRESSIVE("Агрессивный", "Jc=8", 8, 60, 120),
     STEALTH("Скрытный CF", "Jc=3", 3, 30, 50),
     CUSTOM("Вручную", "Свои параметры", 4, 40, 70)
@@ -106,11 +106,9 @@ fun WarpGeneratorScreen(
     val savedProfiles by profileManager.profilesFlow.collectAsState()
     val activeProfileId by profileManager.activeProfileIdFlow.collectAsState()
 
-    var selectedFormats by remember { mutableStateOf<Set<WarpGeneratorFormat>>(setOf(WarpGeneratorFormat.WARP_MASQUE)) }
-    var selectedEndpoints by remember { mutableStateOf(listOf(WarpEndpointPresetOption.MASQUE_FRA_8443)) }
+    var selectedFormats by remember { mutableStateOf<Set<WarpGeneratorFormat>>(setOf(WarpGeneratorFormat.AWG_1_0)) }
+    var selectedEndpoints by remember { mutableStateOf(listOf(WarpEndpointPresetOption.WG_FRA_4500)) }
     var customEndpointText by remember { mutableStateOf("") }
-    var selectedDnsPresets by remember { mutableStateOf(listOf(WarpDnsPresetOption.CLOUDFLARE)) }
-    var customDnsText by remember { mutableStateOf("") }
     var includeIPv6 by remember { mutableStateOf(false) }
 
     val hasExistingProfile = remember(savedProfiles) {
@@ -127,7 +125,7 @@ fun WarpGeneratorScreen(
     var customProfileNameText by remember { mutableStateOf("") }
 
     // AWG Obfuscation Preset & Custom Values
-    var selectedAwgPreset by remember { mutableStateOf(ObfuscationPreset.ANTI_DPI) }
+    var selectedAwgPreset by remember { mutableStateOf(ObfuscationPreset.BALANCED) }
     var jcValue by remember { mutableIntStateOf(4) }
     var jminText by remember { mutableStateOf("40") }
     var jmaxText by remember { mutableStateOf("70") }
@@ -145,7 +143,6 @@ fun WarpGeneratorScreen(
     // Modals & Expanded Configuration State
     var qrDialogProfile by remember { mutableStateOf<WarpGeneratedProfileItem?>(null) }
     var showSavedProfilesDialog by remember { mutableStateOf(false) }
-    var showMasqueExportFormatSheet by remember { mutableStateOf<WarpGeneratedProfileItem?>(null) }
     val revealedSecretProfileIds = remember { mutableStateListOf<String>() }
     var activeHelpTopic by remember { mutableStateOf<WarpHelpTopic?>(null) }
 
@@ -159,11 +156,7 @@ fun WarpGeneratorScreen(
         if (uri != null && item != null) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    val contentToWrite = if (pendingExportIsJsonDump && item.format == WarpGeneratorFormat.WARP_MASQUE) {
-                        WarpConfigGeneratorEngine.buildMasqueJsonDump(item.associatedWarpProfile, item.endpoint)
-                    } else {
-                        item.content
-                    }
+                    val contentToWrite = item.content
                     context.contentResolver.openOutputStream(uri)?.use { stream: OutputStream ->
                         stream.write(contentToWrite.toByteArray(StandardCharsets.UTF_8))
                         stream.flush()
@@ -371,11 +364,10 @@ fun WarpGeneratorScreen(
 
                     val customNameArg = customProfileNameText.trim().ifBlank { null }
                     val buildSettings = WarpGeneratorBuildSettings(
-                        formats = if (selectedFormats.isNotEmpty()) selectedFormats else setOf(WarpGeneratorFormat.WARP_MASQUE),
-                        endpoints = if (selectedEndpoints.isNotEmpty()) selectedEndpoints else listOf(WarpEndpointPresetOption.FRA_4500),
+                        formats = if (selectedFormats.isNotEmpty()) selectedFormats else setOf(WarpGeneratorFormat.AWG_1_0),
+                        endpoints = if (selectedEndpoints.isNotEmpty()) selectedEndpoints else listOf(WarpEndpointPresetOption.WG_FRA_4500),
                         customEndpoint = customEndpointText,
-                        dnsPresets = if (selectedDnsPresets.isNotEmpty()) selectedDnsPresets else listOf(WarpDnsPresetOption.CLOUDFLARE),
-                        customDns = customDnsText,
+                        dnsPresets = listOf(WarpDnsPresetOption.CLOUDFLARE),
                         mtu = effectiveMtu,
                         awgParams = awgParamsObj,
                         randomizeRanges = true,
@@ -484,11 +476,11 @@ fun WarpGeneratorScreen(
                                                 .horizontalScroll(formatsScrollState),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            WarpGeneratorFormat.entries.forEach { fmt ->
+                                            WarpGeneratorFormat.GENERATOR_FORMATS.forEach { fmt ->
                                                 val isSelected = selectedFormats.contains(fmt)
                                                 CompactSelectableChip(
                                                     label = fmt.title,
-                                                    subLabel = if (fmt == WarpGeneratorFormat.WARP_MASQUE) "MASQUE • РЕКОМЕНДУЕТСЯ" else fmt.extension.uppercase(),
+                                                    subLabel = if (fmt == WarpGeneratorFormat.AWG_1_0) "AWG • РЕКОМЕНДУЕТСЯ" else fmt.extension.uppercase(),
                                                     isSelected = isSelected,
                                                     accent = vpnAccent,
                                                     onClick = {
@@ -705,57 +697,6 @@ fun WarpGeneratorScreen(
                                     }
                                 }
 
-                                // ── DNS RESOLVERS (Single row with horizontal fading edges) ──
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    CategoryHeader(
-                                        text = "// DNS РЕЗОЛВЕРЫ",
-                                        accentColor = vpnAccent,
-                                        onHelpClick = { activeHelpTopic = WarpHelpTopic.DNS_RESOLVERS }
-                                    )
-                                    val dnsScrollState = rememberScrollState()
-                                    val dnsStartFade by animateDpAsState(
-                                        targetValue = if (dnsScrollState.canScrollBackward) 18.dp else 0.dp,
-                                        animationSpec = tween(200),
-                                        label = "dnsStartFade"
-                                    )
-                                    val dnsEndFade by animateDpAsState(
-                                        targetValue = if (dnsScrollState.canScrollForward) 26.dp else 0.dp,
-                                        animationSpec = tween(200),
-                                        label = "dnsEndFade"
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalFadingEdges(
-                                                startFadeWidth = dnsStartFade,
-                                                endFadeWidth = dnsEndFade
-                                            )
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .horizontalScroll(dnsScrollState),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            WarpDnsPresetOption.ALL_PRESETS.forEach { dnsOpt ->
-                                                val isSelected = selectedDnsPresets.any { it.id == dnsOpt.id }
-                                                CompactSelectableChip(
-                                                    label = dnsOpt.label,
-                                                    subLabel = dnsOpt.ipv4.firstOrNull() ?: "",
-                                                    isSelected = isSelected,
-                                                    accent = vpnAccent,
-                                                    onClick = {
-                                                        selectedDnsPresets = if (isSelected) {
-                                                            if (selectedDnsPresets.size > 1) selectedDnsPresets.filter { it.id != dnsOpt.id } else selectedDnsPresets
-                                                        } else {
-                                                            selectedDnsPresets + dnsOpt
-                                                        }
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
 
                                 // ── ACCOUNT MODE ──
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1065,13 +1006,9 @@ fun WarpGeneratorScreen(
                                         Toast.makeText(context, "Конфигурация скопирована в буфер", Toast.LENGTH_SHORT).show()
                                     },
                                     onSaveFile = {
-                                        if (item.format == WarpGeneratorFormat.WARP_MASQUE) {
-                                            showMasqueExportFormatSheet = item
-                                        } else {
-                                            pendingExportItem = item
-                                            pendingExportIsJsonDump = false
-                                            singleFileLauncher.launch("${item.name}.${item.format.extension}")
-                                        }
+                                        pendingExportItem = item
+                                        pendingExportIsJsonDump = false
+                                        singleFileLauncher.launch("${item.name}.${item.format.extension}")
                                     }
                                 )
                             }
@@ -1268,118 +1205,6 @@ fun WarpGeneratorScreen(
             }
         }
 
-        // ── MASQUE EXPORT FORMAT SELECTION SHEET (MirrlyModalBottomSheet) ──
-        showMasqueExportFormatSheet?.let { item ->
-            MirrlyModalBottomSheet(
-                onDismissRequest = { showMasqueExportFormatSheet = null },
-                maxTabletWidth = 460.dp
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
-                        .padding(top = 4.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "// ВЫБОР ФОРМАТА ЭКСПОРТА MASQUE",
-                        color = vpnAccent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Text(
-                        text = "Выберите целевой формат файла для сохранения профиля:",
-                        color = TextMuted,
-                        fontSize = 12.sp
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .springPress(onClick = {
-                                showMasqueExportFormatSheet = null
-                                pendingExportItem = item
-                                pendingExportIsJsonDump = false
-                                singleFileLauncher.launch("${item.name}.masque")
-                            })
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                text = ".MASQUE",
-                                color = Color(0xFF00E676),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Column {
-                                Text(
-                                    text = "Нативный профиль Mirrly",
-                                    color = TextWhite,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "Компактный кодированный профиль для Mirrly TG Proxy",
-                                    color = TextMuted,
-                                    fontSize = 10.5.sp
-                                )
-                            }
-                        }
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.Transparent,
-                        border = BorderStroke(1.dp, AmoledBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .springPress(onClick = {
-                                showMasqueExportFormatSheet = null
-                                pendingExportItem = item
-                                pendingExportIsJsonDump = true
-                                singleFileLauncher.launch("${item.name}.json")
-                            })
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                text = ".JSON",
-                                color = Color(0xFFFFB703),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Column {
-                                Text(
-                                    text = "Полный дамп конфигурации",
-                                    color = TextWhite,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "Ключи P-256, mTLS сертификат, токен и эндпоинты",
-                                    color = TextMuted,
-                                    fontSize = 10.5.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         // ── SAVED PROFILES DIALOG (Unified Frosted Glass Modal) ──
         if (showSavedProfilesDialog) {

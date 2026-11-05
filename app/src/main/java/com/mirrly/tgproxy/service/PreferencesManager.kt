@@ -635,7 +635,16 @@ class PreferencesManager(private val context: Context) {
         val happyEyeballsDelayMs = prefs.getLong("happy_eyeballs_delay_ms", defaults.happyEyeballsDelayMs)
         val ipFamilyPreferenceName = prefs.getString("ip_family_preference", defaults.ipFamilyPreferenceName) ?: defaults.ipFamilyPreferenceName
         val webSocketKeepAliveSeconds = prefs.getInt("socket_keep_alive_seconds", defaults.webSocketKeepAliveSeconds)
-        val socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
+        var socks5Port = prefs.getInt("socks5_port", defaults.socks5Port)
+        val socks5PortMigrationDone = prefs.getBoolean("socks5_port_migrated_10888", false)
+        if (!socks5PortMigrationDone) {
+            if (socks5Port == 10808) {
+                socks5Port = defaults.socks5Port
+                prefs.edit().putInt("socks5_port", socks5Port).putBoolean("socks5_port_migrated_10888", true).apply()
+            } else {
+                prefs.edit().putBoolean("socks5_port_migrated_10888", true).apply()
+            }
+        }
         val socks5Username = prefs.getString("socks5_username", defaults.socks5Username) ?: defaults.socks5Username
         val socks5PasswordRaw = secretPrefs.getString("socks5_password", null) ?: prefs.getString("socks5_password", defaults.socks5Password) ?: defaults.socks5Password
         val socks5Password = WarpKeystoreEncryption.decrypt(socks5PasswordRaw)

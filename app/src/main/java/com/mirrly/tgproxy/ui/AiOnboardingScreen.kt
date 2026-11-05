@@ -2316,7 +2316,7 @@ private fun StepFeaturesAndTools(
                 toolId = "get_service_status",
                 russianName = "Статус службы и портов",
                 systemName = "get_service_status()",
-                desc = "Предоставляет статус фоновой службы прокси, состояние локальных сокетов на портах 1080 (MTProto) и 10808 (SOCKS5), количество активных клиентских соединений и общее время непрерывной работы.",
+                desc = "Предоставляет статус фоновой службы прокси, состояние локальных сокетов на портах 1443 (MTProto) и 10888 (SOCKS5), количество активных клиентских соединений и общее время непрерывной работы.",
                 isExpanded = expandedTools.contains("get_service_status"),
                 accentColor = accentColor,
                 onToggle = {

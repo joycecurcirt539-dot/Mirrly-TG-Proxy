@@ -395,7 +395,11 @@ class WarpProfileManager private constructor(private val context: Context) {
             ImportedProfileType.CLASH_META_YAML -> WarpGeneratorFormat.AWG_1_0
             else -> WarpGeneratorFormat.WARP_MASQUE
         }
-        val endpoint = warpProfile.effectivePeerEndpoint
+        val endpoint = if (format == WarpGeneratorFormat.WARP_MASQUE) {
+            warpProfile.effectiveMasquePeerEndpoint
+        } else {
+            warpProfile.effectivePeerEndpoint
+        }
         val dnsLine = warpProfile.dnsServers.ifBlank { "1.1.1.1, 1.0.0.1" }
         val confContent = if (content.isNotBlank()) content else warpProfile.awgRawConfig
 
@@ -444,6 +448,7 @@ class WarpProfileManager private constructor(private val context: Context) {
         app.prefsManager.saveWarpProfile(warpProfile)
         app.config.applyWarpProfile(warpProfile)
 
+        val isMasque = target.format == WarpGeneratorFormat.WARP_MASQUE || target.format.extension == "masque" || target.format.extension == "json"
         if (target.format.extension == "conf") {
             app.config.awgCustomIni = target.content
             app.config.awgStrategyName = com.mirrly.tgproxy.core.AwgObfuscationStrategy.CUSTOM.name
@@ -453,16 +458,29 @@ class WarpProfileManager private constructor(private val context: Context) {
                 app.config.warpPeerEndpoint = target.endpoint
                 app.config.warpMeasuredWgEndpoint = target.endpoint
             }
+        } else if (isMasque) {
+            app.config.vpnUplinkMode = com.mirrly.tgproxy.core.UplinkMode.MASQUE
+            app.prefsManager.setVpnUplinkMode(com.mirrly.tgproxy.core.UplinkMode.MASQUE)
+            if (target.endpoint.isNotBlank()) {
+                app.config.warpMasquePeerEndpoint = target.endpoint
+                app.config.warpMeasuredMasqueEndpoint = target.endpoint
+            }
         }
         app.prefsManager.saveConfig(app.config)
 
-        // Загружаем в нативный Rust-движок, если это INI/CONF
+        // Загружаем в нативный Rust-движок
         if (target.format.extension == "conf") {
             try {
                 NativeProxy.setAwgConfig(target.content)
                 NativeProxy.setVpnUplinkMode(com.mirrly.tgproxy.core.UplinkMode.AWG)
             } catch (e: Exception) {
                 AppLogger.w(TAG, "Ошибка применения конфигурации в NativeProxy: ${e.message}")
+            }
+        } else if (isMasque) {
+            try {
+                NativeProxy.setVpnUplinkMode(com.mirrly.tgproxy.core.UplinkMode.MASQUE)
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Ошибка переключения NativeProxy на MASQUE: ${e.message}")
             }
         }
 

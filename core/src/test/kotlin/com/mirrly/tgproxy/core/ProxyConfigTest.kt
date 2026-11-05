@@ -181,7 +181,7 @@ class ProxyConfigTest {
         val config = ProxyConfig(
             bindHost = "127.0.0.1",
             bindPort = 1443,
-            socks5Port = 10808,
+            socks5Port = 10888,
             secretHex = originalSecret,
             proxyModeName = ProxyMode.MTPROTO.name
         )
@@ -194,7 +194,7 @@ class ProxyConfigTest {
         config.proxyModeName = ProxyMode.SOCKS5.name
         assertEquals(originalSecret, config.secretHex)
         val socks5Url = server.getTelegramSocks5Url()
-        assertTrue(socks5Url.startsWith("tg://socks?server=127.0.0.1&port=10808"))
+        assertTrue(socks5Url.startsWith("tg://socks?server=127.0.0.1&port=10888"))
 
         // Switch back to MTProto
         config.proxyModeName = ProxyMode.MTPROTO.name
@@ -267,6 +267,15 @@ class ProxyConfigTest {
         assertEquals(null, cfgComss.getEffectiveVpnDnsIpv6(), "SmartDNS must disable IPv6 DNS to prevent AAAA query bypass")
         val awgComss = cfgComss.getAmneziaWgConfig()
         assertTrue(awgComss.contains("DNS = ${ProxyConfig.COMSS_DNS_IPV4.joinToString(", ")}"))
+
+        // Google & Quad9 modes
+        val cfgGoogle = ProxyConfig(vpnDnsModeName = VpnDnsMode.GOOGLE.name)
+        assertEquals(listOf("8.8.8.8", "8.8.4.4"), cfgGoogle.getEffectiveVpnDnsIpv4())
+        assertEquals("https://dns.google/dns-query", cfgGoogle.getEffectiveVpnDohEndpoints())
+
+        val cfgQuad9 = ProxyConfig(vpnDnsModeName = VpnDnsMode.QUAD9.name)
+        assertEquals(listOf("9.9.9.9", "149.112.112.112"), cfgQuad9.getEffectiveVpnDnsIpv4())
+        assertEquals("https://dns.quad9.net/dns-query", cfgQuad9.getEffectiveVpnDohEndpoints())
 
         // Legacy migration: XBOX_DNS name string should map to COMSS_DNS
         val cfgLegacyXbox = ProxyConfig(vpnDnsModeName = "XBOX_DNS")

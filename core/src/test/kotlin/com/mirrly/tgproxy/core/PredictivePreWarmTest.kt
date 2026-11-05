@@ -109,7 +109,7 @@ class PredictivePreWarmTest {
 
     @Test
     fun testPredictivePreWarmInSocks5ModeIsNoOp() {
-        val config = ProxyConfig(bindHost = "127.0.0.1", proxyModeName = ProxyMode.SOCKS5.name, socks5Port = 10808)
+        val config = ProxyConfig(bindHost = "127.0.0.1", proxyModeName = ProxyMode.SOCKS5.name, socks5Port = 10888)
         assertTrue(config.isSocks5Mode)
         val server = LocalProxyServer(config)
         val initialGen = server.currentProfileGeneration.get()

@@ -482,7 +482,7 @@ fun AiSettingsSheet(
                                 modifier = Modifier.padding(vertical = 4.dp)
                             )
                             Text(
-                                text = "• get_service_status(): статус службы, порты (1080/10808), сокеты, аптайм.",
+                                text = "• get_service_status(): статус службы, порты (1443/10888), сокеты, аптайм.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp

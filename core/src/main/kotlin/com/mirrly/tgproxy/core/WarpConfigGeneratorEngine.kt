@@ -99,12 +99,10 @@ object WarpConfigGeneratorEngine {
         asJsonDump: Boolean = false
     ): String {
         val masqueProf = profile.copy(
-            peerEndpoint = endpoint,
-            userEndpointOverride = endpoint,
             masquePeerEndpoint = endpoint,
             masqueUserOverride = endpoint,
             dnsServers = dnsLine.ifBlank { profile.dnsServers },
-            isMasqueValid = true
+            isMasqueValid = profile.isMasqueValid && profile.hasValidMasqueIdentity()
         )
         return if (asJsonDump) {
             buildMasqueJsonDump(masqueProf, endpoint)
@@ -299,12 +297,16 @@ object WarpConfigGeneratorEngine {
      */
     fun validateWarpSafety(
         format: WarpGeneratorFormat,
-        params: WarpAwgConfigParams
+        params: WarpAwgConfigParams,
+        profile: WarpProfile? = null
     ): Pair<Boolean, List<String>> {
         val warnings = mutableListOf<String>()
 
         if (format == WarpGeneratorFormat.WARP_MASQUE) {
-            return Pair(true, emptyList())
+            if (profile != null && (!profile.isMasqueValid || !profile.hasValidMasqueIdentity())) {
+                warnings.add("Профиль не имеет подтвержденной сетевой регистрации MASQUE в Cloudflare")
+            }
+            return Pair(warnings.isEmpty(), warnings)
         }
 
         if (format.isAwg) {
@@ -354,8 +356,8 @@ object WarpConfigGeneratorEngine {
     ): List<WarpGeneratedProfileItem> {
         val results = mutableListOf<WarpGeneratedProfileItem>()
 
-        val effectiveFormats = if (settings.formats.isNotEmpty()) settings.formats.toList() else listOf(WarpGeneratorFormat.WARP_MASQUE)
-        val effectiveEndpoints = if (settings.endpoints.isNotEmpty()) settings.endpoints else listOf(WarpEndpointPresetOption.FRA_4500)
+        val effectiveFormats = if (settings.formats.isNotEmpty()) settings.formats.toList() else listOf(WarpGeneratorFormat.AWG_1_0)
+        val effectiveEndpoints = if (settings.endpoints.isNotEmpty()) settings.endpoints else listOf(WarpEndpointPresetOption.WG_FRA_4500)
         val effectiveDnsPresets = if (settings.dnsPresets.isNotEmpty()) settings.dnsPresets else listOf(WarpDnsPresetOption.CLOUDFLARE)
 
         // Защита от чрезмерного декартова произведения (максимум 64 комбинации)
@@ -412,7 +414,7 @@ object WarpConfigGeneratorEngine {
                         includeIPv6 = settings.includeIPv6
                     )
 
-                    val (isSafe, safetyWarnings) = validateWarpSafety(format, settings.awgParams)
+                    val (isSafe, safetyWarnings) = validateWarpSafety(format, settings.awgParams, baseProfile)
 
                     // Формирование уникального понятного имени профиля (максимум 10 символов)
                     val totalBatchCombinations = effectiveFormats.size * effectiveEndpoints.size * effectiveDnsPresets.size
@@ -501,21 +503,21 @@ object WarpConfigGeneratorEngine {
                         )
                     }
 
-                    // Формируем связанный WarpProfile с настроенным эндпоинтом
+                    // Формируем связанный WarpProfile с настроенным эндпоинтом для конкретного протокола
                     val associatedProfile = if (format == WarpGeneratorFormat.WARP_MASQUE) {
                         baseProfile.copy(
-                            peerEndpoint = endpointStr,
-                            userEndpointOverride = endpointStr,
                             masquePeerEndpoint = endpointStr,
                             masqueUserOverride = endpointStr,
                             dnsServers = dnsLine,
-                            isMasqueValid = true
+                            isMasqueValid = baseProfile.isMasqueValid && baseProfile.hasValidMasqueIdentity()
                         )
                     } else {
                         baseProfile.copy(
                             peerEndpoint = endpointStr,
                             userEndpointOverride = endpointStr,
-                            awgRawConfig = content
+                            awgRawConfig = content,
+                            dnsServers = dnsLine,
+                            isWgValid = baseProfile.isWgValid && baseProfile.hasValidWgIdentity()
                         )
                     }
 

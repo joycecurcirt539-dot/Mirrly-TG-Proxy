@@ -42,7 +42,7 @@ import java.util.concurrent.TimeUnit
 object CloudflareNetworkClient {
 
     private const val TAG = "CloudflareNetworkClient"
-    const val SOCKS5_DEFAULT_PORT = 10808
+    const val SOCKS5_DEFAULT_PORT = 10888
 
     /**
      * Dedicated loopback client strictly isolated from external proxies and VPN hijack.

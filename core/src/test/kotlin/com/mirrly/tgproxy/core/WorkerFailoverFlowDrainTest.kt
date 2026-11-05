@@ -85,7 +85,7 @@ class WorkerFailoverFlowDrainTest {
     fun `onWorkerChanged updates customCfDomain without advancing network profile generation`() {
         val config = ProxyConfig(
             proxyModeName = ProxyMode.SOCKS5.name,
-            socks5Port = 10808,
+            socks5Port = 10888,
             customCfDomain = "worker-initial.workers.dev"
         )
         val server = LocalProxyServer(config)

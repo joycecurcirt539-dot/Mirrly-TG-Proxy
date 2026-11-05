@@ -98,7 +98,7 @@ object PreflightDiagnosticsEngine {
 
         // Фаза 1: Запуск локального слушателя SOCKS5
         _preflightStage.value = PreflightStage.PHASE_1_START_SERVER
-        _preflightStatusMessage.value = "Запуск локального сервиса (127.0.0.1:10808)"
+        _preflightStatusMessage.value = "Запуск локального сервиса (${config.bindHost}:${config.activePort})"
         AppLogger.i(TAG, "Фаза 1/3: Запуск локального сервиса...")
         var targetRtt = -1L
         if (serverStarter != null) {

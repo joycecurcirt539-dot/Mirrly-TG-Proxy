@@ -70,6 +70,8 @@ enum class UplinkMode(val displayName: String, val subtitle: String) {
 enum class VpnDnsMode(val displayName: String, val subtitle: String) {
     CLOUDFLARE("Cloudflare DNS", "Стандартные Anycast DNS (1.1.1.1, 1.0.0.1) с поддержкой IPv6"),
     COMSS_DNS("Comss.one DNS", "Обход блокировок ИИ (ChatGPT, Claude, Gemini, Copilot) без IPv6-утечек"),
+    GOOGLE("Google DNS", "Anycast DNS от Google (8.8.8.8, 8.8.4.4)"),
+    QUAD9("Quad9 DNS", "Безопасный приватный DNS без логирования (9.9.9.9)"),
     CUSTOM("Пользовательский", "Собственные IPv4 DNS серверы (AdGuard, Comss или локальные)")
 }
 
@@ -93,7 +95,7 @@ data class ProxyConfig(
     var happyEyeballsDelayMs: Long = 200L,
     var ipFamilyPreferenceName: String = IpFamilyPreference.IPV4_ONLY.name,
     var webSocketKeepAliveSeconds: Int = 60,
-    var socks5Port: Int = 10808,
+    var socks5Port: Int = 10888,
     var socks5Username: String = "",
     var socks5Password: String = "",
     var socks5OptimisticResponse: Boolean = true,
@@ -148,7 +150,7 @@ data class ProxyConfig(
     var warpMasqueUserOverride: String = "",
     var warpMeasuredWgEndpoint: String = "",
     var warpMeasuredMasqueEndpoint: String = "",
-    var warpMasqueSni: String = WARP_MASQUE_SNI_CONSUMER,
+    var warpMasqueSni: String = WARP_MASQUE_SNI_CDNJS,
 
     // Стратегия обфускации AmneziaWG (FAST, BALANCED, DEEP_STEALTH, CUSTOM)
     var awgStrategyName: String = AwgObfuscationStrategy.BALANCED.name,
@@ -186,6 +188,8 @@ data class ProxyConfig(
         return when (vpnDnsMode) {
             VpnDnsMode.CLOUDFLARE -> CLOUDFLARE_DNS_IPV4
             VpnDnsMode.COMSS_DNS -> COMSS_DNS_IPV4
+            VpnDnsMode.GOOGLE -> GOOGLE_DNS_IPV4
+            VpnDnsMode.QUAD9 -> QUAD9_DNS_IPV4
             VpnDnsMode.CUSTOM -> {
                 val parsed = parseCustomDnsIps(vpnCustomDnsIps)
                 if (parsed.isNotEmpty()) parsed else CLOUDFLARE_DNS_IPV4
@@ -201,7 +205,30 @@ data class ProxyConfig(
         return when (vpnDnsMode) {
             VpnDnsMode.CLOUDFLARE -> CLOUDFLARE_DNS_IPV6
             VpnDnsMode.COMSS_DNS -> null
+            VpnDnsMode.GOOGLE -> GOOGLE_DNS_IPV6
+            VpnDnsMode.QUAD9 -> QUAD9_DNS_IPV6
             VpnDnsMode.CUSTOM -> null
+        }
+    }
+
+    /**
+     * Возвращает URL DoH эндпоинтов для нативного резолвера mirrlyengine.
+     */
+    fun getEffectiveVpnDohEndpoints(): String {
+        return when (vpnDnsMode) {
+            VpnDnsMode.CLOUDFLARE -> "https://1.1.1.1/dns-query,https://188.114.96.1/dns-query"
+            VpnDnsMode.COMSS_DNS -> "https://dns.comss.one/dns-query,https://common.dot.dns.yandex.net/dns-query"
+            VpnDnsMode.GOOGLE -> "https://dns.google/dns-query"
+            VpnDnsMode.QUAD9 -> "https://dns.quad9.net/dns-query"
+            VpnDnsMode.CUSTOM -> {
+                val ips = parseCustomDnsIps(vpnCustomDnsIps)
+                if (ips.isNotEmpty()) {
+                    val primary = ips.first()
+                    "https://$primary/dns-query,https://1.1.1.1/dns-query"
+                } else {
+                    "https://1.1.1.1/dns-query,https://188.114.96.1/dns-query"
+                }
+            }
         }
     }
 
@@ -527,16 +554,20 @@ data class ProxyConfig(
         const val WARP_MASQUE_SNI_CDNJS = "cdnjs.cloudflare.com"
 
         val WARP_MASQUE_LEGITIMATE_SNIS = listOf(
-            WARP_MASQUE_SNI_CONSUMER_PROXY,
+            WARP_MASQUE_SNI_CDNJS,
             WARP_MASQUE_SNI_CONSUMER,
+            WARP_MASQUE_SNI_CONSUMER_PROXY,
             WARP_MASQUE_SNI_ZT_PROXY,
-            WARP_MASQUE_SNI_ZT,
-            WARP_MASQUE_SNI_CDNJS
+            WARP_MASQUE_SNI_ZT
         )
 
         val CLOUDFLARE_DNS_IPV4 = listOf("1.1.1.1", "1.0.0.1")
         const val CLOUDFLARE_DNS_IPV6 = "2606:4700:4700::1111"
         val COMSS_DNS_IPV4 = listOf("83.220.169.155", "195.133.25.16", "94.250.253.55", "212.109.195.93")
+        val GOOGLE_DNS_IPV4 = listOf("8.8.8.8", "8.8.4.4")
+        const val GOOGLE_DNS_IPV6 = "2001:4860:4860::8888"
+        val QUAD9_DNS_IPV4 = listOf("9.9.9.9", "149.112.112.112")
+        const val QUAD9_DNS_IPV6 = "2620:fe::fe"
 
         const val DEFAULT_TG_PORT = 443
 

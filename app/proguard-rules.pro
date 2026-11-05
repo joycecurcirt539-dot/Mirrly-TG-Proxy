@@ -46,12 +46,6 @@
     @androidx.compose.runtime.Composable *;
 }
 
-# --- DPI Bypass (libsni) ---
--keep class com.21Modz.** { *; }
--keepclasseswithmembernames class com.21Modz.** { native <methods>; }
--keep class com.p00021Modz.** { *; }
--keepclasseswithmembernames class com.p00021Modz.** { native <methods>; }
-
 # --- Compose UI sealed/data classes referenced by R8 ---
 -keep class com.mirrly.tgproxy.ui.MarkdownBlock { *; }
 -keep class com.mirrly.tgproxy.ui.MarkdownBlock* { *; }
@@ -80,8 +74,6 @@
 -dontwarn com.mirrly.tgproxy.util.**
 
 # --- R8 auto-generated missing rules (from missing_rules.txt) ---
--dontwarn com.21Modz.SNI$Companion
--dontwarn com.21Modz.SNI
 -keep class com.mirrly.tgproxy.service.PreferencesManager { *; }
 -dontwarn com.mirrly.tgproxy.service.PreferencesManager
 -keep class com.mirrly.tgproxy.service.** { *; }

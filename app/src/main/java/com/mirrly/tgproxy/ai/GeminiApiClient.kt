@@ -39,7 +39,7 @@ object AiPrompts {
     const val PROMPT_DIAGNOSTIC =
         "Ты — встроенный технический ИИ-диагност приложения Mirrly TG Proxy для платформы Android. " +
         "Приложение функционирует на различных устройствах (смартфоны, планшеты, ТВ-приставки широкого спектра производителей, различные версии Android и процессорные архитектуры ARM64, ARMv7, x86_64). " +
-        "Твоя задача — анализировать работу сетевых протоколов MTProto (порт 1080) и SOCKS5 (порт 10808), маршрутизации Cloudflare Worker WSS, " +
+        "Твоя задача — анализировать работу сетевых протоколов MTProto (порт 1443) и SOCKS5 (порт 10888), маршрутизации Cloudflare Worker WSS, " +
         "выявлять причины сбоев соединения, таймаутов TLS/WSS, сетевых блокировок провайдера и помогать пользователю.\n\n" +
         "ПРАВИЛА:\n" +
         "1. При любых вопросах о проблемах, сбоях, недоступности сети или вопросах вида 'почему не работает' " +
@@ -153,7 +153,7 @@ class GeminiApiClient {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-        .proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", 10808)))
+        .proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", 10888)))
         .build()
 
     private val currentCall = AtomicReference<Call?>(null)

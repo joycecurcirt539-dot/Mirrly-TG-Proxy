@@ -719,7 +719,7 @@ fun NetworkDiagnosticScreen(
                             iconRes = R.drawable.ic_diag_protocol,
                             iconColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
                             title = stringResource(R.string.nd_protocol_port_title),
-                            value = if (isSocks5) "SOCKS5 TCP Relay (:10808)" else "MTProto TLS Relay (:1080)",
+                            value = if (isSocks5) "SOCKS5 TCP Relay (:10888)" else "MTProto TLS Relay (:1443)",
                             badgeText = "WSS TLS 1.3",
                             badgeColor = if (isSocks5) Color(0xFF818CF8) else Color(0xFF00FF87),
                             onInfoClick = { infoKey = "protocol_mode" }
@@ -1718,7 +1718,7 @@ fun HopByHopBottleneckRadar(
                 ) {
                     HopNode(
                         label = stringResource(R.string.nd_hop_client),
-                        subLabel = if (isSocks5) ":10808" else ":1080",
+                        subLabel = if (isSocks5) ":10888" else ":1443",
                         state = hop1State,
                         primaryColor = primaryColor,
                         onClick = { onHopClick("hop_device") }

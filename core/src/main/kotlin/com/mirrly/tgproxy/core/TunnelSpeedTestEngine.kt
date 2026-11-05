@@ -189,13 +189,13 @@ class TunnelSpeedTestEngine {
     /**
      * Запуск полного цикла поэтапного тестирования скорости туннеля.
      * @param targetDomain Домен активного воркера или Anycast Cloudflare узла.
-     * @param socks5Port Локальный порт SOCKS5 прокси (по умолчанию 10808) для обязательной маршрутизации.
+     * @param socks5Port Локальный порт SOCKS5 прокси (по умолчанию 10888) для обязательной маршрутизации.
      * @param socks5User Логин авторизации SOCKS5 (если включена).
      * @param socks5Pass Пароль авторизации SOCKS5 (если включена).
      */
     fun startTest(
         targetDomain: String,
-        socks5Port: Int? = 10808,
+        socks5Port: Int? = 10888,
         socks5User: String? = null,
         socks5Pass: String? = null
     ) {
@@ -204,7 +204,7 @@ class TunnelSpeedTestEngine {
         testJob = scope.launch {
             val cleanDomain = targetDomain.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
             val effectiveDomain = if (cleanDomain.isNotBlank()) cleanDomain else "speed.cloudflare.com"
-            val effectivePort = if (socks5Port != null && socks5Port > 0) socks5Port else 10808
+            val effectivePort = if (socks5Port != null && socks5Port > 0) socks5Port else 10888
 
             val client = buildHttpClient(effectivePort, socks5User, socks5Pass)
             val overallStartTime = System.currentTimeMillis()

@@ -319,6 +319,7 @@ class MirrlyVpnService : VpnService() {
 
 
     private fun startVpn() {
+        ProxyResurrectionManager.cancel(this)
         if (tunHolder != null && !tunHolder!!.isClosed()) {
             AppLogger.d(TAG, "VPN уже поднят и активен, повторный запуск пропущен")
             updateState(VpnInternalState.RUNNING)
@@ -422,24 +423,28 @@ class MirrlyVpnService : VpnService() {
                     AppLogger.w(TAG, "VPN: не удалось распарсить конфигурацию профиля '${effectiveProfile.name}'")
                 }
 
-                if (effectiveProfile.endpoint.isNotBlank()) {
-                    config.warpPeerEndpoint = effectiveProfile.endpoint
-                    config.warpMeasuredWgEndpoint = effectiveProfile.endpoint
-                }
                 val ext = effectiveProfile.format.extension.lowercase()
-                val isMasqueProfile = effectiveProfile.format == com.mirrly.tgproxy.core.WarpGeneratorFormat.WARP_MASQUE ||
-                    ext == "masque" || ext == "json"
+                val isCustomAwgProfileActive = effectiveProfile.content.isNotBlank() && ext == "conf"
 
-                if (isMasqueProfile) {
-                    config.vpnUplinkMode = com.mirrly.tgproxy.core.UplinkMode.MASQUE
-                    if (effectiveProfile.endpoint.isNotBlank()) {
-                        config.warpMasquePeerEndpoint = effectiveProfile.endpoint
-                    }
-                } else if (ext == "conf") {
+                if (isCustomAwgProfileActive) {
                     config.awgCustomIni = effectiveProfile.content
                     config.awgStrategyName = com.mirrly.tgproxy.core.AwgObfuscationStrategy.CUSTOM.name
-                    config.vpnUplinkMode = com.mirrly.tgproxy.core.UplinkMode.AWG
                 }
+
+                if (effectiveProfile.endpoint.isNotBlank()) {
+                    val (_, port) = WarpEndpointScanner.parseEndpoint(effectiveProfile.endpoint)
+                    if (port in listOf(443, 8095, 8443, 4443)) {
+                        config.warpMasquePeerEndpoint = effectiveProfile.endpoint
+                        config.warpMeasuredMasqueEndpoint = effectiveProfile.endpoint
+                    } else {
+                        config.warpPeerEndpoint = effectiveProfile.endpoint
+                        config.warpMeasuredWgEndpoint = effectiveProfile.endpoint
+                    }
+                }
+
+                // ВАЖНО: Целевой режим аплинка (MASQUE или AWG) определяется явным выбором пользователя (prefsManager),
+                // а не расширением файла профиля! Это гарантирует ручное переключение протоколов.
+                config.vpnUplinkMode = app.prefsManager.getVpnUplinkMode()
                 app.prefsManager.saveConfig(config)
 
                 // 2. Передаем целевой режим VPN в нативное ядро ПОСЛЕ синхронизации конфигурации с профилем
@@ -449,8 +454,6 @@ class MirrlyVpnService : VpnService() {
                 if (!isActive || vpnGeneration.get() != gen) return@launch
 
                 // 3. Подготовка параметров Anycast и обфускации для передачи в нативный движок
-                val isCustomAwgProfileActive = effectiveProfile.content.isNotBlank() &&
-                    effectiveProfile.format.extension == "conf"
 
                 // Анти-блокировка для РФ: раздельный выбор чистых Anycast эндпоинтов ДО поднятия TUN
                 val currentAwgEp = if (isCustomAwgProfileActive && effectiveProfile.endpoint.isNotBlank()) {
@@ -507,31 +510,44 @@ class MirrlyVpnService : VpnService() {
                     app.prefsManager.saveConfig(config)
                 }
 
-                // Передаем настройки AmneziaWG (если активен кастомный профиль — берем его контент напрямую)
+                // Передаем настройки AmneziaWG (если активен кастомный профиль — синхронизируем в нем DNS с выбранным режимом)
+                val effectiveDnsString = config.getEffectiveVpnDnsIpv4().joinToString(", ")
                 val awgIni = if (isCustomAwgProfileActive) {
                     AppLogger.i(TAG, "VPN: применен активный профиль '${effectiveProfile.name}' (${effectiveProfile.format.title})")
-                    if (isCloudflareHost && effectiveProfile.content.contains(":2408")) {
+                    var baseIni = effectiveProfile.content
+                    if (isCloudflareHost && baseIni.contains(":2408")) {
                         AppLogger.i(TAG, "VPN: замена заблокированного порта 2408 на 1701 в конфигурации .conf")
-                        effectiveProfile.content.replace(":2408", ":1701")
+                        baseIni = baseIni.replace(":2408", ":1701")
+                    }
+                    if (baseIni.contains(Regex("""(?i)^DNS\s*=.*$""", RegexOption.MULTILINE))) {
+                        baseIni.replace(Regex("""(?i)^DNS\s*=.*$""", RegexOption.MULTILINE), "DNS = $effectiveDnsString")
                     } else {
-                        effectiveProfile.content
+                        baseIni
                     }
                 } else {
                     config.getAmneziaWgConfig(cleanEndpoint = cleanAwgEp)
                 }
-                NativeProxy.setAwgConfig(awgIni)
+                val awgLoaded = NativeProxy.setAwgConfig(awgIni)
+                if (config.vpnUplinkMode == com.mirrly.tgproxy.core.UplinkMode.AWG && !awgLoaded) {
+                    AppLogger.e(TAG, "VPN: нативный движок отклонил конфигурацию AmneziaWG! Остановка запуска.")
+                    updateState(VpnInternalState.FAILED, VpnFailureReason.PROFILE_INVALID)
+                    stopVpn()
+                    return@launch
+                }
 
-                // Передаем настройки MASQUE с гарантированным анти-блокировочным SNI (consumer-masque-proxy.cloudflareclient.com)
-                val masqueSni = if (config.warpMasqueSni.isNotBlank() && !config.warpMasqueSni.equals("cdnjs.cloudflare.com", ignoreCase = true)) {
-                    config.warpMasqueSni
+                // Передаем параметры туннеля MASQUE (RFC 9298) с проверенным Anycast SNI (cdnjs.cloudflare.com)
+                val masqueSni = if (config.warpMasqueSni.isNotBlank() &&
+                    !config.warpMasqueSni.equals("consumer-masque-proxy.cloudflareclient.com", ignoreCase = true) &&
+                    !config.warpMasqueSni.equals("consumer-masque.cloudflareclient.com", ignoreCase = true)
+                ) {
+                    config.warpMasqueSni.trim()
                 } else {
-                    com.mirrly.tgproxy.service.sni.SniBypassManager.DEFAULT_BYPASS_SNI
+                    com.mirrly.tgproxy.core.ProxyConfig.WARP_MASQUE_SNI_CDNJS
                 }
                 if (config.warpMasqueSni != masqueSni) {
                     config.warpMasqueSni = masqueSni
                     app.prefsManager.saveConfig(config)
                 }
-                com.mirrly.tgproxy.service.sni.SniBypassManager.setSni(masqueSni)
                 NativeProxy.setWarpFullConfig(
                     endpoint = cleanMasqueEp,
                     sni = masqueSni,
@@ -544,8 +560,9 @@ class MirrlyVpnService : VpnService() {
                     uriTemplate = config.warpUriTemplate
                 )
                 try {
-                    val dohList = "https://common.dot.dns.yandex.net/dns-query,https://dns.adguard-dns.com/dns-query,https://188.114.96.1/dns-query"
+                    val dohList = config.getEffectiveVpnDohEndpoints()
                     NativeProxy.setDohEndpoints(dohList)
+                    AppLogger.i(TAG, "VPN: применены нативные DoH эндпоинты для режима ${config.vpnDnsMode.name}: $dohList")
                 } catch (e: Exception) {
                     AppLogger.w(TAG, "Не удалось настроить нативные DoH эндпоинты: ${e.message}")
                 }
@@ -564,17 +581,7 @@ class MirrlyVpnService : VpnService() {
                     packageNames = app.prefsManager.getVpnSplitTunnelPackages()
                 )
 
-                val effectiveDnsList = when (config.vpnDnsMode) {
-                    com.mirrly.tgproxy.core.VpnDnsMode.COMSS_DNS -> com.mirrly.tgproxy.core.ProxyConfig.COMSS_DNS_IPV4
-                    com.mirrly.tgproxy.core.VpnDnsMode.CUSTOM -> {
-                        if (config.vpnCustomDnsIps.isNotBlank()) com.mirrly.tgproxy.core.ProxyConfig.parseCustomDnsIps(config.vpnCustomDnsIps)
-                        else com.mirrly.tgproxy.core.ProxyConfig.CLOUDFLARE_DNS_IPV4
-                    }
-                    com.mirrly.tgproxy.core.VpnDnsMode.CLOUDFLARE -> {
-                        if (effectiveProfile.dnsLine.isNotBlank()) com.mirrly.tgproxy.core.ProxyConfig.parseCustomDnsIps(effectiveProfile.dnsLine)
-                        else com.mirrly.tgproxy.core.ProxyConfig.CLOUDFLARE_DNS_IPV4
-                    }
-                }
+                val effectiveDnsList = config.getEffectiveVpnDnsIpv4()
 
                 val tunResult = VpnTunManager.establish(
                     vpnService = this@MirrlyVpnService,
@@ -748,6 +755,7 @@ class MirrlyVpnService : VpnService() {
     }
 
     private fun stopVpn() {
+        ProxyResurrectionManager.cancel(this)
         vpnGeneration.incrementAndGet()
         updateState(VpnInternalState.STOPPING)
 
@@ -803,6 +811,16 @@ class MirrlyVpnService : VpnService() {
                 AppLogger.w(TAG, "Ошибка stopSelf: ${e.message}")
             }
             AppLogger.i(TAG, "MirrlyVpnService успешно и идемпотентно остановлена")
+        }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val app = MirrlyApplication.instance
+        val isVpnActive = app.prefsManager.isVpnModeEnabled() && isRunning
+        AppLogger.w(TAG, "onTaskRemoved: VPN task removed from recents (isVpnActive=$isVpnActive)")
+        if (isVpnActive) {
+            ProxyResurrectionManager.schedule(this)
         }
     }
 

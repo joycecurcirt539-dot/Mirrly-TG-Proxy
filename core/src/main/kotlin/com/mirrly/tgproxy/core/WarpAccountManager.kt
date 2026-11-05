@@ -268,8 +268,9 @@ object WarpAccountManager {
     private const val TAG = "WarpAccountManager"
     private const val API_BASE_V3371 = "https://api.cloudflareclient.com/v0a3371"
     private const val API_BASE_V4471 = "https://api.cloudflareclient.com/v0a4471"
-    private const val USER_AGENT = "WARP for Android"
-    private const val CLIENT_VERSION = "a-6.35-4471"
+    private const val API_BASE_V5641 = "https://api.cloudflareclient.com/v0a5641"
+    private const val USER_AGENT = "1.1.1.1/6.38.9-5641 (Android 14; Mobile)"
+    private const val CLIENT_VERSION = "a-6.38.9-5641"
 
     fun maskLicenseKey(key: String?): String {
         if (key.isNullOrBlank()) return ""
@@ -713,11 +714,9 @@ object WarpAccountManager {
         val effectiveSni = WarpObfuscatedHttpClient.sanitizeSni(sniHost)
         val isDefaultApiBase = effectiveApiBase == API_BASE_V4471
 
-        // Нормализация пути: удаление префиксов версий API
+        // Нормализация пути: удаление любых префиксов версий API (/v0a4471, /v0a4005, /v0a3371, /v0a5641 и др.)
         val cleanPath = path
-            .removePrefix("/v0a4471")
-            .removePrefix("/v0a5641")
-            .removePrefix("/v0a3371")
+            .replaceFirst(Regex("^/v0a[0-9]+"), "")
             .let { if (!it.startsWith("/")) "/$it" else it }
 
         // 1. Приоритетный прямой обфусцированный вызов через WarpObfuscatedHttpClient (нарезка ClientHello для Anycast IP и SNI-маскировка)
@@ -791,40 +790,43 @@ object WarpAccountManager {
         }
 
         // 3. Fallback: Cloudflare Workers bootstrap from proven endpoints (for Russia TSPU circumvention)
-        val bootstrapWorkers = listOf(
-            "https://floral-surf-cc2c.awpmxkmo.workers.dev",
-            "https://lucky-frog-795f.ixmxdpw8.workers.dev",
-            "https://steep-snow-3ae9.4048pm01.workers.dev"
-        )
-        val workerPath = "/warp-bootstrap/v0a4005$cleanPath"
-        for (workerBase in bootstrapWorkers) {
-            try {
-                val reqBuilder = Request.Builder()
-                    .url("$workerBase$workerPath")
-                    .header("Accept", "application/json")
-                    .header("User-Agent", USER_AGENT)
-                    .header("CF-Client-Version", "a-6.11-2223")
-                if (!authToken.isNullOrBlank()) {
-                    reqBuilder.header("Authorization", "Bearer $authToken")
-                }
-                when (method.uppercase()) {
-                    "POST" -> reqBuilder.post((bodyJson ?: "").toRequestBody(mediaType))
-                    "PATCH" -> reqBuilder.patch((bodyJson ?: "").toRequestBody(mediaType))
-                    "PUT" -> reqBuilder.put((bodyJson ?: "").toRequestBody(mediaType))
-                    else -> reqBuilder.get()
-                }
-                httpClient.newCall(reqBuilder.build()).execute().use { resp ->
-                    val body = resp.body?.string()
-                    if (resp.isSuccessful && !body.isNullOrBlank()) {
-                        val parsed = try { JSONObject(body) } catch (_: Exception) { null }
-                        if (parsed != null) {
-                            AppLogger.i(TAG, "WARP API call succeeded via worker bootstrap: $workerBase")
-                            return ApiCallResult(parsed, null)
+        // Для кастомных тестовых apiBase боевые воркеры не опрашиваются
+        if (isDefaultApiBase && lastError !is IllegalStateException) {
+            val bootstrapWorkers = listOf(
+                "https://floral-surf-cc2c.awpmxkmo.workers.dev",
+                "https://lucky-frog-795f.ixmxdpw8.workers.dev",
+                "https://steep-snow-3ae9.4048pm01.workers.dev"
+            )
+            val workerPath = "/warp-bootstrap/v0a4005$cleanPath"
+            for (workerBase in bootstrapWorkers) {
+                try {
+                    val reqBuilder = Request.Builder()
+                        .url("$workerBase$workerPath")
+                        .header("Accept", "application/json")
+                        .header("User-Agent", USER_AGENT)
+                        .header("CF-Client-Version", "a-6.11-2223")
+                    if (!authToken.isNullOrBlank()) {
+                        reqBuilder.header("Authorization", "Bearer $authToken")
+                    }
+                    when (method.uppercase()) {
+                        "POST" -> reqBuilder.post((bodyJson ?: "").toRequestBody(mediaType))
+                        "PATCH" -> reqBuilder.patch((bodyJson ?: "").toRequestBody(mediaType))
+                        "PUT" -> reqBuilder.put((bodyJson ?: "").toRequestBody(mediaType))
+                        else -> reqBuilder.get()
+                    }
+                    httpClient.newCall(reqBuilder.build()).execute().use { resp ->
+                        val body = resp.body?.string()
+                        if (resp.isSuccessful && !body.isNullOrBlank()) {
+                            val parsed = try { JSONObject(body) } catch (_: Exception) { null }
+                            if (parsed != null) {
+                                AppLogger.i(TAG, "WARP API call succeeded via worker bootstrap: $workerBase")
+                                return ApiCallResult(parsed, null)
+                            }
                         }
                     }
+                } catch (e: Exception) {
+                    AppLogger.d(TAG, "Worker bootstrap $workerBase failed: ${e.message}")
                 }
-            } catch (e: Exception) {
-                AppLogger.d(TAG, "Worker bootstrap $workerBase failed: ${e.message}")
             }
         }
 
@@ -929,12 +931,21 @@ object WarpAccountManager {
 
             val wgRegBody = JSONObject().apply {
                 put("key", wgPub)
+                put("install_id", "")
+                put("fcm_token", "")
+                put("tos", tosTimestamp)
+                put("model", "Android")
+                put("serial_number", wgSerialHex)
+                put("os_version", "")
+                put("key_type", "curve25519")
+                put("tunnel_type", "wireguard")
+                put("locale", "ru_RU")
             }
 
             // 1. Регистрация устройства WireGuard (Curve25519)
             val wgRes = executeApiCall(
                 method = "POST",
-                path = "/v0a4005/reg",
+                path = "/reg",
                 bodyJson = wgRegBody.toString(),
                 authToken = null,
                 effectiveApiBase = apiBase,
@@ -1015,7 +1026,7 @@ object WarpAccountManager {
                 onProgress?.invoke(WarpRegistrationStep(2, 4, "Активация режима WARP", "Отправка PATCH /reg/$accountId (warp_enabled: true)..."))
                 val actRes = executeApiCall(
                     method = "PATCH",
-                    path = "/v0a4005/reg/$accountId",
+                    path = "/reg/$accountId",
                     bodyJson = JSONObject().apply { put("warp_enabled", true) }.toString(),
                     authToken = token,
                     effectiveApiBase = apiBase,
@@ -1031,10 +1042,10 @@ object WarpAccountManager {
 
             ensureActive()
 
-            var masqueAccountId = accountId
-            var masqueToken = token
-            var masqueClientIpv4 = clientIpv4
-            var masqueClientIpv6 = clientIpv6
+            var masqueAccountId = existingProfile?.masqueAccountId?.takeIf { it.isNotBlank() && it != "mirrly-warp-bootstrap-id" } ?: ""
+            var masqueToken = existingProfile?.masqueToken?.takeIf { it.isNotBlank() && it != "mirrly-bootstrap-token" } ?: ""
+            var masqueClientIpv4 = existingProfile?.masqueClientIpv4?.ifBlank { null } ?: clientIpv4
+            var masqueClientIpv6 = existingProfile?.masqueClientIpv6?.ifBlank { null } ?: clientIpv6
             val masqueUserOverride = existingProfile?.masqueUserOverride
             var rawMasqueApiEndpoint = rawApiEndpoint
             var masqueHost = peerEndpoint.substringBefore(':')
@@ -1043,12 +1054,13 @@ object WarpAccountManager {
                 if (p <= 0 || p == 2408 || p in listOf(500, 1701, 4500)) 443 else p
             } else 443
             var masquePeerEndpoint = masqueUserOverride ?: "$masqueHost:$masqueSafePort"
-            var masquePeerPublicKey = peerPublicKey
-            var isMasqueActivated = isWgActivated
-            var isMasqueValid = p256Priv.isNotBlank() && p256Pub.isNotBlank()
+            var masquePeerPublicKey = existingProfile?.masquePeerPublicKey?.ifBlank { null } ?: peerPublicKey
+            var isMasqueActivated = false
+            var isMasqueValid = false
 
             // 2b. Подлинная сетевая регистрация устройства MASQUE в Anycast (NIST P-256 / secp256r1)
-            if (isMasqueValid) {
+            val hasLocalP256Keys = p256Priv.isNotBlank() && p256Pub.isNotBlank()
+            if (hasLocalP256Keys) {
                 try {
                     onProgress?.invoke(WarpRegistrationStep(2, 4, "Регистрация MASQUE", "Регистрация профиля P-256 (HTTP/3) в сети Cloudflare..."))
                     val masqueSerialHex = randomSerialHex()
@@ -1066,7 +1078,7 @@ object WarpAccountManager {
                     }
                     val masqueRes = executeApiCall(
                         method = "POST",
-                        path = "/v0a4471/reg",
+                        path = "/reg",
                         bodyJson = masqueRegBody.toString(),
                         authToken = null,
                         effectiveApiBase = apiBase,
@@ -1103,24 +1115,55 @@ object WarpAccountManager {
                         // Активация режима WARP для устройства MASQUE (warp_enabled: true)
                         val mActRes = executeApiCall(
                             method = "PATCH",
-                            path = "/v0a4471/reg/$masqueAccountId",
+                            path = "/reg/$masqueAccountId",
                             bodyJson = JSONObject().apply { put("warp_enabled", true) }.toString(),
                             authToken = masqueToken,
                             effectiveApiBase = apiBase,
                             sniHost = effectiveSni
                         )
                         if (mActRes.json != null) {
-                            isMasqueActivated = mActRes.json.optBoolean("warp_enabled", true)
+                            isMasqueActivated = mActRes.json.optBoolean("warp_enabled", false)
                         } else {
-                            isMasqueActivated = true
+                            isMasqueActivated = false
+                            AppLogger.w(TAG, "Ответ активации MASQUE пуст или не содержит JSON: ${mActRes.error?.message}")
                         }
-                        isMasqueValid = true
-                        AppLogger.i(TAG, "MASQUE identity успешно зарегистрирована и активирована в Cloudflare: id=$masqueAccountId")
+                        isMasqueValid = isMasqueActivated
+                        if (isMasqueValid) {
+                            AppLogger.i(TAG, "MASQUE identity успешно зарегистрирована и активирована в Cloudflare: id=$masqueAccountId")
+                        } else {
+                            AppLogger.w(TAG, "MASQUE identity зарегистрирована (id=$masqueAccountId), но активация warp_enabled не подтверждена")
+                        }
                     } else {
-                        AppLogger.w(TAG, "Сетевая регистрация MASQUE вернула пустой ответ, используются локальные параметры: ${masqueRes.error?.message}")
+                        if (existingProfile != null && existingProfile.hasValidMasqueIdentity()) {
+                            masqueAccountId = existingProfile.masqueAccountId
+                            masqueToken = existingProfile.masqueToken
+                            masqueClientIpv4 = existingProfile.masqueClientIpv4
+                            masqueClientIpv6 = existingProfile.masqueClientIpv6
+                            masquePeerPublicKey = existingProfile.masquePeerPublicKey
+                            isMasqueActivated = existingProfile.isActivated
+                            isMasqueValid = existingProfile.isMasqueValid
+                            AppLogger.i(TAG, "Сетевая регистрация MASQUE не вернула ID/токен, сохранен предыдущий валидный профиль MASQUE")
+                        } else {
+                            isMasqueValid = false
+                            isMasqueActivated = false
+                            AppLogger.w(TAG, "Сетевая регистрация MASQUE вернула пустой ответ, профиль помечен как невалидный: ${masqueRes.error?.message}")
+                        }
                     }
                 } catch (e: Exception) {
-                    AppLogger.w(TAG, "Не удалось завершить сетевую регистрацию MASQUE: ${e.message}")
+                    if (existingProfile != null && existingProfile.hasValidMasqueIdentity()) {
+                        masqueAccountId = existingProfile.masqueAccountId
+                        masqueToken = existingProfile.masqueToken
+                        masqueClientIpv4 = existingProfile.masqueClientIpv4
+                        masqueClientIpv6 = existingProfile.masqueClientIpv6
+                        masquePeerPublicKey = existingProfile.masquePeerPublicKey
+                        isMasqueActivated = existingProfile.isActivated
+                        isMasqueValid = existingProfile.isMasqueValid
+                        AppLogger.i(TAG, "Сбой сетевой регистрации MASQUE, сохранен предыдущий валидный профиль MASQUE: ${e.message}")
+                    } else {
+                        isMasqueValid = false
+                        isMasqueActivated = false
+                        AppLogger.w(TAG, "Не удалось завершить сетевую регистрацию MASQUE: ${e.message}")
+                    }
                 }
             }
 

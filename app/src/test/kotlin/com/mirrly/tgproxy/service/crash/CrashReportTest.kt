@@ -31,7 +31,7 @@ class CrashReportTest {
         exceptionMessage: String = "Attempt to invoke virtual method on a null object reference",
         stackTrace: String = "java.lang.NullPointerException: Attempt to invoke virtual method\n\tat com.mirrly.tgproxy.Test.crash(Test.kt:42)\n\tat java.lang.Thread.run(Thread.java:1012)",
         recentLogs: List<String> = listOf(
-            "[12:00:01] [INFO] [LocalProxyServer] Starting SOCKS5 listener on :10808",
+            "[12:00:01] [INFO] [LocalProxyServer] Starting SOCKS5 listener on :10888",
             "[12:00:02] [DEBUG] [WorkerClient] Dialing Cloudflare worker",
             "[12:00:03] [ERROR] [App] Unexpected error during connection"
         )

@@ -603,26 +603,25 @@ class WarpAccountManagerTest {
     @Test
     fun testWarpSniCamouflageValidationAndSanitization() {
         assertEquals(
-            "consumer-masque-proxy.cloudflareclient.com",
+            "cdnjs.cloudflare.com",
             WarpObfuscatedHttpClient.DEFAULT_CAMOUFLAGE_SNI,
-            "Default camouflage SNI must be consumer-masque-proxy.cloudflareclient.com"
+            "Default camouflage SNI must be cdnjs.cloudflare.com"
         )
-        // cdnjs.cloudflare.com must be sanitized because Cloudflare Edge rejects cross-zone fronting
         assertEquals(
-            "consumer-masque-proxy.cloudflareclient.com",
+            "cdnjs.cloudflare.com",
             WarpObfuscatedHttpClient.sanitizeSni("cdnjs.cloudflare.com")
         )
         assertEquals(
-            "consumer-masque-proxy.cloudflareclient.com",
+            "cdnjs.cloudflare.com",
             WarpObfuscatedHttpClient.sanitizeSni(null)
         )
         assertEquals(
-            "consumer-masque-proxy.cloudflareclient.com",
+            "cdnjs.cloudflare.com",
             WarpObfuscatedHttpClient.sanitizeSni("   ")
         )
         assertEquals(
-            "consumer-masque.cloudflareclient.com",
-            WarpObfuscatedHttpClient.sanitizeSni("consumer-masque.cloudflareclient.com")
+            "cdnjs.cloudflare.com",
+            WarpObfuscatedHttpClient.sanitizeSni("consumer-masque-proxy.cloudflareclient.com")
         )
     }
 
